@@ -9,7 +9,7 @@ on:
 # Only the dependency-free half of the suite can run on a hosted runner.
 # `test/probe/` needs Windows, WSL, a mounted harness profile and a linked
 # checkout, so it is a deliberate manual step: run `npm run probe` from inside
-# the distro on the development machine. See README.zh.md §21.6.
+# the distro on the development machine. See README.zh.md §16.6.
 jobs:
   test:
     name: unit (node ${{ matrix.node }})

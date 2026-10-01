@@ -1,5 +1,5 @@
 # wslmodel — a headless, WSL-only profile used to verify the filesystem
-# mutation path through a REAL model turn (README §21.5 / §11).
+# mutation path through a REAL model turn (README §16.5 / §10).
 #
 # It is the shipped `headless` template with every host provider replaced by the
 # WSL one, so the only environment the model can see is the distro:

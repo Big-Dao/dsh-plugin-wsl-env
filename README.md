@@ -6,8 +6,8 @@ read and write real distro files, and the GUI's folder dialog can open one.
 
 > The full engineering record — design rationale, measurements, and every
 > discarded design with the reason it was abandoned — is
-> **[README.zh.md](README.zh.md)** (Chinese); its §0.1 says which sections still
-> describe the shipped design. This file is the short entry point.
+> **[README.zh.md](README.zh.md)** (Chinese); its §0.1 explains what stayed here and what
+> moved to the archive of replaced designs. This file is the short entry point.
 
 ## What it does
 
@@ -82,6 +82,7 @@ lib/shell-env.js    DSH_WSL_* environment facts
 lib/{shell,fs}.js   one-line subpath entry points
 cordis.patch.yml    the profile patch layer, with comments
 test/               unit tests and the behavioural probe
+docs/archive/       the designs this one replaced, and why
 ```
 
 ## Testing
@@ -94,13 +95,13 @@ npm run probe     # behavioural probe against a real distro (Windows + WSL only)
 `npm test` covers the pure modules plus a `--check` parse pass over every shipped
 module. It cannot import the service modules: they need DSH peers that a bare
 checkout does not have. That leaves an evaluation-time gap which only booting the
-harness closes — see README.zh.md §20.4 for the five rounds of misdiagnosis that
+harness closes — see README.zh.md §15.4 for the five rounds of misdiagnosis that
 gap once caused.
 
 `test/probe/` drives `ctx.fs` inside a throwaway profile that binds it to the
 distro, and asserts the whole publication path: create, read, version guard,
 edit, overwrite, mode preservation, and the two guard rejections. It also carries
-a negative-control mode. See README.zh.md §21.5 for the recorded output.
+a negative-control mode. See README.zh.md §16.5 for the recorded output.
 
 The probe needs a Windows-side profile whose `node_modules/dsh-plugin-wsl-env`
 points at the checkout; `test/probe/run.sh` documents the one-time setup in its

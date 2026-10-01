@@ -4,12 +4,12 @@
  * The unit tests cannot cover `lib/index.js`, `lib/picker.js`, `lib/auto-preset.js`
  * or `lib/shell-env.js`: they import DSH peers that a bare checkout does not have,
  * so importing them throws `ERR_MODULE_NOT_FOUND` before any assertion runs. That
- * leaves a real gap — the five rounds of misdiagnosis recorded in README §20.4
+ * leaves a real gap — the five rounds of misdiagnosis recorded in README §15.4
  * were caused by a bad insertion into `lib/shell.js`'s import graph, and the only
  * symptom was a `never started` from a *different* layer.
  *
  * This closes the syntax half of that gap. It does NOT evaluate the module, so a
- * temporal-dead-zone `ReferenceError` of the §20.4 kind still slips through:
+ * temporal-dead-zone `ReferenceError` of the §15.4 kind still slips through:
  * running the probe or the app remains the only way to catch evaluation errors.
  *
  *   node test/syntax.mjs

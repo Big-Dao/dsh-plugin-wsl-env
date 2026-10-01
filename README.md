@@ -6,7 +6,8 @@ read and write real distro files, and the GUI's folder dialog can open one.
 
 > The full engineering record — design rationale, measurements, and every
 > discarded design with the reason it was abandoned — is
-> **[README.zh.md](README.zh.md)** (Chinese). This file is the short entry point.
+> **[README.zh.md](README.zh.md)** (Chinese); its §0.1 says which sections still
+> describe the shipped design. This file is the short entry point.
 
 ## What it does
 

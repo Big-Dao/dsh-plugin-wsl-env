@@ -16,6 +16,23 @@
 
 > **验证边界**：架构、seam 契约、WSL 行为、UNC 原语、选择器行为（发行版发现、发行版根列目录、面包屑）、**挂接后的运行时行为**、以及**写/改/权限位的完整发布路径**（`test/probe/`，含负对照，见 §21.5）均已在本机实测；纯函数单测 26 项、行为探针 14 项全部通过；**插件已装进一个独立 profile 并在 harness 进程内端到端跑通**（`exit=0`，见 §9），**日常 GUI 也已在真实模型回合里验证过 `bash` 与 `read`**（§11），**写侧则由一个只挂 WSL 环境的 headless profile 在真实回合里验证过 `write → chmod → read → edit → 执行`**（§21.5）。
 
+### 0.1 这份记录怎么读
+
+§1–§21 里有 5 节是**被后来推翻的设计留档**（标题带删除线），其余是现行形态或仍然成立的实测结论。按图索骥再往下看，可以少走 §10/§12 那条已经拆掉的路：
+
+| 节 | 状态 |
+|---|---|
+| §1–§9 | **现行**：seam 契约、UNC 原语、选择器、挂接实录 |
+| §10 | ~~已推翻~~：per-process 的 `DSH_WSL` 开关。只有 §10.8（应用升级后重新生成 preset）仍有效 → §16 |
+| §11 | **现行**：真实模型回合。当时用的 `wsltest` profile 已删，命令仍可复现 |
+| §12 | ~~已失效~~：同一个开关的手动试用步骤 |
+| §13–§14 | 已修复的缺陷留档，结论仍然有效 |
+| §15 / §17 / §18 | ~~已废弃~~：三条被否掉的"工具命名"路线，留档用 |
+| §16 | **现行**：环境属于**会话**，不属于进程 |
+| §19–§20 | **现行**：`DSH_*` 环境事实；初次挂载即正确 |
+| §21 | **现行**：9p 上写/编辑的缺陷与修复 |
+| §4.1 | 工程化脚手架（2026-10-02 建仓） |
+
 ---
 
 ## 1. DSH 的插件体系
@@ -239,11 +256,17 @@ await writeFileAtomic(target.targetKey, content, existing?.mode, signal, this.in
 
 - **只有纯函数进 CI。** `lib/index.js`、`picker.js`、`auto-preset.js`、`shell-env.js` 都要 import DSH peer，裸检出的 CI 里 `ERR_MODULE_NOT_FOUND` 早于任何断言。所以 CI 跑 `npm test`（= `test:syntax` + `test:unit`），**行为探针留在本机手动跑** —— 它需要 Windows + WSL + 一个挂好的 profile，托管 runner 上装不出来。把跑不了的东西塞进 CI 只会训练人忽略红灯。
 - **`npm test` 不装任何依赖**，因为包里本来就没有依赖；`peerDependencies` 全部 `optional`，由挂载它的 profile 提供。
-- **`.gitattributes` 强制 LF。** 检出在发行版内、执行在 Windows 上：CRLF 的 shell 脚本在发行版里会直接失败，CRLF 的 `cordis.patch.yml` 会把 `` 喂进 plan-mode 那段长文本。
+- **peer 声明的判据是"真的要用"，不是"相关"。** 只列 `import` 到的包、`inject` 的服务契约（`dsh-subprocess`）、以及每个 DSH 插件都会声明的 `cordis`。静态检视据此移除了 `dsh-sandbox`、`dsh-shell`、`dsh-tools` —— 它们是为 §15/§18 那套"在运行时给别人的工具改名"的设计留下的，代码里既没有 import 也没有 `inject`（§15.5 甚至记录过，那套设计只能给沙箱符号塞本地空实现）。判据可以机械核对：
+
+  ```bash
+  grep -rho 'from "@deepseek-ai/[^"]*"' lib/ | sort -u
+  ```
+- **`.gitattributes` 强制 LF。** 检出在发行版内、执行在 Windows 上：CRLF 的 shell 脚本在发行版里会直接失败，CRLF 的 `cordis.patch.yml` 会把 `
+` 喂进 plan-mode 那段长文本。
 - **两份副本的分工写进了 README。** profile 只能 link Windows 路径（pnpm 会把 `link:\wsl.localhost\…` 写成断链的 `/wsl.localhost/…`，实测），所以 Windows 侧那份是**运行时镜像**，靠 `npm run sync:windows` 显式同步；`.git` 只存在于发行版这份里。
 - **归档而不是删除。** 旧设计的补丁移进 `docs/archive/`，并在旁边写清它为什么被推翻 —— 与本文一贯的"留档失败路径"一致。
 
-对照的官方实现在 `../dsh-wsl-research/pkgs/`（已从 `app.asar` 抽出，含 README），要点去那里查：
+对照的官方实现抽在 `../dsh-wsl-research/pkgs/` —— **本机目录，不在本仓库内**（由同目录的 `extract.mjs` 从 `app.asar` 抽出，各自带 README）。要点去那里查：
 
 ```
 dsh-base/cordis.patch.yml        ← 真实的组件装配全貌（529 行）
@@ -257,6 +280,11 @@ dsh-shell/README.md              ← ctx.shell 契约与必须遵守的语义
 ---
 
 ## 5. 开发与安装
+
+> **⚠️ 本节与 §9–§11 里的 `--profile wsl` / `wsltest` 是当时的验证 profile，后来在工程化清理中删除了。**
+> 那些命令记录的是真实跑过的路径，本身仍然有效，只是 profile 要先建出来：
+> `dsh wsl --from-default-profile web`（完整三步见 §9.4）。
+> 当前目录里是日常的 `desktop`，以及两个**按需重建**的探针 profile `wslfs` / `wslmodel`（§21.6）。
 
 `desktop` profile 由 Electron 应用独占（`--dump-config` 会报 `profile "desktop" is managed exclusively by the Electron application`），**不要在外部改它**。开发走自定义 profile：
 
@@ -321,6 +349,8 @@ console.log(d, await linuxHome(d[0]));
 # 选择器完整行为：根层级、真实列目录、面包屑
 node ./dsh-wsl-research/probe-picker.mjs
 ```
+
+`dsh-wsl-research/` 是**本机的对照目录，不在本仓库内**（§4 末尾列了它保存的官方包副本）。仓库自己的单测入口是 §5 的 `npm test`，不需要 DSH 也不需要 WSL。
 
 不要直接 `import './dsh-plugin-wsl-env/lib/index.js'` 或 `lib/picker.js`：它们会导入 `@deepseek-ai/*` 这些 peer，只有在装好的 profile 里才解析得到。纯逻辑（`paths.js`、`listing.js`、`wsl.js`）刻意与它们分离，就是为了让这一步不需要 DSH。
 
@@ -527,19 +557,29 @@ $env:ELECTRON_RUN_AS_NODE=1
 
 已完成，见 §11。这里保留一条结构性事实：基座 bundle 的顶层 `tool-bash`/`tool-pwsh` 在 web 系 profile 里**都是关的**（工具选择权交给 agent preset），所以只替换 `ctx.shell` 而不覆盖 preset，模型就完全没有 shell 工具。§9.1 的 preset 覆盖就是为此而写，且它是**从随包的 preset 文件机械转换**而来（`dsh-wsl-research/append-preset-override.mjs`），以免手抄 146 行 YAML 时破坏内嵌的 plan-mode 长文本。
 
-### 9.6 独立 `wsl` profile（仍然保留）
+### 9.6 独立 `wsl` profile（已删除）
 
-挂接最初在独立 `wsl` profile 上完成，**当时没有碰 desktop**。该 profile 仍然可用，作为不动日常环境的验证场地。日常 GUI 的挂接见 §10。
+挂接最初在独立 `wsl` profile 上完成，**当时没有碰 desktop**。§9 的全部结论都出自它。
+
+工程化清理时它和 §11 的 `wsltest` 一起被删了 —— 两者都是一次性的验证台，留着只会变成第二份会腐烂的配置。要重跑 §9 的记录，一条命令就能重建：
+
+```powershell
+dsh wsl --from-default-profile web      # 再按 §9.4 的第 2、3 步装插件、写补丁层
+```
+
+现在目录里保留的是日常 `desktop` 与两个按需重建的探针 profile（`wslfs`、`wslmodel`，见 §21.6）。日常 GUI 的挂接见 §10。
 
 ---
 
-## 10. 挂进日常 GUI（desktop profile）
+## 10. ~~挂进日常 GUI（desktop profile）~~（设计已被 §16 推翻 → 见 §16）
+
+> **本节记录的是 per-process 设计** —— 一个 `DSH_WSL` 进程开关，整体替换掉全局 `ctx.fs` / `ctx.shell`。仍成立的只有两件事：插件确实挂在 `desktop` profile 上，以及 §10.8 的"应用升级后要重新生成 preset"。`DSH_WSL` 开关已从 desktop 移除，§10.2 / §10.4 / §10.5 / §10.9 的操作与对照都**不再适用**；§10.7 那两个 YAML 教训与具体设计无关，依然有效。现行设计见 §16。
 
 ### 10.1 已完成的改动
 
 | 项 | 值 |
 |---|---|
-| 补丁层 | `$DSH_HOME/profiles/desktop/cordis.patch.yml`（267 行：原 4 行逐字保留 + 新增 5 行） |
+| 补丁层 | `$DSH_HOME/profiles/desktop/cordis.patch.yml`（当时是"原 4 行逐字保留 + 新增 5 行"；现在是 259 行，且包含生成的 `preset-wsl` 段） |
 | 备份 | `cordis.patch.yml.bak-20261001-200621`（已校验与原文件一致） |
 | 插件 | 以 junction 装进 desktop（`link:`），`downloaded 0` |
 | bundle 列表 | 未改动 |
@@ -595,17 +635,18 @@ provider 是**启动时**按服务可用性选择的，而 `ctx.shell` / `ctx.fs
 
 ### 10.8 应用升级后注意
 
-`preset-standard` 那一整段是从随包 preset 文件生成的**固定副本**，会钉住当前的 preset 形态。应用升级后若官方改了 preset，需要重新生成：
+`cordis.patch.yml` 里的 `preset-wsl` 那一整段，是从随包 preset **生成**的固定副本（生成器在本机对照目录里，见 §4 末尾），它钉住当前的 preset 形态 —— 包括内嵌的 plan-mode 长文本和每一层嵌套分组。应用升级后若官方改了 preset，必须重新生成：
 
 ```powershell
-# 1) 用 extract.mjs 从新版 app.asar 重新抽出 dsh-web-app
-# 2) 重新生成补丁
-node dsh-wsl-research/build-desktop-patch.mjs `
-  dsh-wsl-research/desktop-original.cordis.patch.yml `
+# 1) 用 extract.mjs 从新版 app.asar 重新抽出官方包（对照目录，见 §4 末尾）
+# 2) 重新生成 preset-wsl 段：<随包 preset 文件> -> <输出文件>
+node dsh-wsl-research/build-preset-wsl.mjs `
   dsh-wsl-research/pkgs/dsh-web-app/presets/standard.patch.yml `
-  dsh-wsl-research/desktop-merged.cordis.patch.yml
-# 3) 用 deskcheck 临时 profile 双模式验证后再覆盖 desktop
+  dsh-wsl-research/preset-wsl.yml
+# 3) 把生成的 - insert: 段替换进 profile 补丁，在一个临时 profile 上双模式验证后再覆盖 desktop
 ```
+
+不重新生成也能继续跑，但那份副本会与新版 preset 悄悄脱节 —— §20.5 的"升级后要做的事"因此不是"无"。
 
 ### 10.9 回滚
 
@@ -686,11 +727,13 @@ dsh --profile wsltest --json "Call the bash tool with: uname -r; id -un; pwd ; t
 Remove-Item "$env:USERPROFILE\.dsh\profiles\wsltest" -Recurse -Force
 ```
 
-`wsltest` 保留着，作为随时可重跑的真实验证台。
+`wsltest` 当时作为随时可重跑的验证台留着，工程化清理时已删除（理由同 §9.6）。上面这两条命令仍然是复现方式，只要先用 `dsh wsltest --from-default-profile headless` 把它建回来。
 
 ---
 
-## 12. 手动试用：step by step
+## 12. ~~手动试用：step by step~~（已失效 → 见 §16）
+
+> **⚠️ 本节整套流程建立在已被移除的 `DSH_WSL` 进程开关上，照做不会有任何效果。** 现在的试用方式短得多：**重启应用 → 在 GUI 里直接打开一个 WSL 文件夹 → 新建会话**，环境按会话自动选择（§16.6）。下面仍然有用的是第 4、5 步（怎么在对话框里进发行版、怎么确认文件工具也在发行版里）和"出问题怎么办"里的排查思路。
 
 ### 前提
 
@@ -756,7 +799,7 @@ use the read tool on /etc/os-release and report the first line
 
 ### 不想动日常 GUI 的替代路径
 
-另有独立 `wsl` profile（同样已挂接验证），用它启动就是 WSL 模式，desktop 完全不受影响：
+当时另有独立 `wsl` profile（同样已挂接验证，现已删除 —— 见 §9.6），用它启动就是 WSL 模式，desktop 完全不受影响：
 
 ```powershell
 $env:ELECTRON_RUN_AS_NODE=1
@@ -1164,7 +1207,7 @@ consider cwd="C:\\Users\\andyz\\Documents\\..."      current=standard
 
 **什么都不用切。** 打开 WSL 里的文件夹时，新会话自动进入 wsl preset；打开 Windows 文件夹时留在宿主 preset。两者可在同一进程内并行。想手动指定就用 GUI 的 preset 选择器。
 
-`envweb` profile 保留为这套隔离逻辑的验证台。
+这套隔离就是在日常 `desktop` profile 上验证的 —— §16.5 的三行输出来自同一进程里的三个会话。当时另外建的 `wslverify`、`envweb` 两个临时 profile 已在工程化清理中删除。
 
 ### 16.7 踩过的坑
 
@@ -1473,7 +1516,7 @@ shell 工具在**准备阶段**即失败，工作区**不可用** —— 不是"
 | 模型知道真实 shell / 发行版 / 家目录 | `ctx.shellEnv` 贡献 `DSH_WSL_*`（§19） |
 | 跨边界转发托管 `DSH_*` 命名空间 | 执行器按前缀放行 + 路径类变量加 `/p`（§19.7） |
 | 无 fork、无上游改动、无 app 改动 | §15/§17/§18 的方案均已废弃并留档 |
-| 升级 app 后要做的事 | **无** |
+| 升级 app 后要做的事 | 插件本身**无**；只有官方改了 preset 时才需要重新生成 `preset-wsl` 段（§10.8） |
 ---
 
 ## 21. 写与编辑：9p 上没有 Windows 安全描述符（已修复）
@@ -1633,14 +1676,14 @@ FAIL  overwrite preserved the executable bit — Error: mode is 644, expected 75
 建法与运行都写在 `test/probe/run.sh` 头部；装好之后：
 
 ```bash
-test/probe/run.sh        # 同步到 Windows 侧副本 → 跑探针 → 打印报告
+npm run probe            # = test/probe/run.sh：先同步到 Windows 侧副本，再跑探针并打印报告
 ```
 
 两句必须知道的：**探针只能由 Windows 侧的 Node 跑**（`wsl.exe` 与 UNC 都是宿主概念），本仓库从发行版内通过 interop 调用它；profile 里的插件指向的是 **Windows 侧那份副本**，所以 `run.sh` 会先 `test/probe/sync-to-windows.sh` —— 见 §21.7。
 
 ### 21.7 开发在发行版内，跑在 Windows 上（现在的分工）
 
-源码现在住在 `/home/andy/Projects/dsh/plugins/dsh-plugin-wsl-env`（发行版内），但 DSH 是 Windows 进程，`profile/node_modules/dsh-plugin-wsl-env` 只能 link 到 Windows 路径 —— `pnpm add 'link:\\wsl.localhost\…'` 会把路径写成 `/wsl.localhost/…` 并留下断链（实测）。所以两边靠 `sync-to-windows.sh` 显式同步，Windows 侧那份是**运行时副本**。
+源码现在住在 `/home/andy/Projects/dsh/plugins/dsh-plugin-wsl-env`（发行版内），但 DSH 是 Windows 进程，`profile/node_modules/dsh-plugin-wsl-env` 只能 link 到 Windows 路径 —— `pnpm add 'link:\\wsl.localhost\…'` 会把路径写成 `/wsl.localhost/…` 并留下断链（实测）。所以两边靠 `sync-to-windows.sh`（`npm run sync:windows`）显式同步，Windows 侧那份是**运行时副本**。
 
 ### 21.8 老规矩：改完要重启
 

@@ -9,6 +9,45 @@ The reasoning and the measurements behind each entry are in
 
 ## [Unreleased]
 
+### Changed
+
+- Static review: the manifest now says only what the shipped code does.
+  - `main` pointed at `lib/index.js` while `exports["."]` resolved to
+    `lib/shell.js`. Only the latter exposes a default export, so a tool that
+    read `main` instead of `exports` got a module with no plugin in it.
+  - `lib/index.js` re-exported path helpers that nothing could reach: the
+    `exports` map does not expose `lib/index.js`, and the helpers already have
+    their own `./paths` and `./wsl` subpaths.
+  - Dropped an unused `ENV_OVERRIDES` import.
+
+### Removed
+
+- Three peer declarations this plugin neither imports nor injects:
+  `@deepseek-ai/dsh-sandbox`, `@deepseek-ai/dsh-shell` and
+  `@deepseek-ai/dsh-tools`. They were required by the abandoned tool-renaming
+  designs (§15/§18), which could only stub the sandbox symbols locally (§15.5).
+  The remaining set is checkable in one command —
+  `grep -rho 'from "@deepseek-ai/[^"]*"' lib/ | sort -u` — plus
+  `@deepseek-ai/dsh-subprocess` (the service `static inject` requires) and
+  `@deepseek-ai/cordis`, which every DSH plugin declares.
+
+### Fixed
+
+Documentation that a reader would have acted on, and that was no longer true:
+
+- §10 and §12 presented the removed `DSH_WSL` process switch as the current way
+  to use the plugin. Both are now marked superseded, with a note on what still
+  holds inside them, and a new §0.1 reading guide says which sections describe
+  the shipped design.
+- §9.6 and §11.5 claimed the `wsl` and `wsltest` profiles were still available;
+  §16.6 made the same claim about `envweb`. All three are gone.
+- §10.8 documented the superseded `build-desktop-patch.mjs` flow; it now names
+  `build-preset-wsl.mjs`, the generator the shipped patch was actually made with.
+- §20.5 answered "nothing to do after an app upgrade" while §10.8 said the
+  generated preset copy has to be regenerated.
+- References to `dsh-wsl-research/` now say it is a machine-local directory that
+  is not part of the repository.
+
 ## [0.1.0] - 2026-10-02
 
 First working release: a WSL distro can be opened, browsed and worked in from a

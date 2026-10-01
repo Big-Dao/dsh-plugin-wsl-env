@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+# Only the dependency-free half of the suite can run on a hosted runner.
+# `test/probe/` needs Windows, WSL, a mounted harness profile and a linked
+# checkout, so it is a deliberate manual step: run `npm run probe` from inside
+# the distro on the development machine. See README.zh.md §21.6.
+jobs:
+  test:
+    name: unit (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["20", "22", "24"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      # No install step on purpose: the package has no dependencies, and the
+      # modules under test import only Node builtins.
+      - run: npm test

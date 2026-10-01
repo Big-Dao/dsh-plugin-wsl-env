@@ -1,0 +1,22 @@
+# wslfs — a probe-only profile that binds `ctx.fs` to a WSL distro.
+#
+# Created from the shipped `web` template so the filesystem backend can be
+# driven directly, without the agent-preset machinery the desktop profile needs.
+#
+#   * the sandboxing provider (`dsh-fs-sandbox`, which imports `LocalFileSystem`
+#     itself and therefore has no separate `fs-local` row to replace) is
+#     disabled, because the WSL backend is intentionally unconfined; and
+#   * the WSL filesystem provider is inserted in its place.
+#
+#   dsh wslfs --no-open --port 0 --patch <overlay.yml>
+- id: fs-sandbox
+  disabled: true
+
+- insert:
+    - id: wsl-fs
+      name: 'dsh-plugin-wsl-env/fs'
+      config:
+        distro: ubuntu
+        cwd: /home/andy
+        restrictToDistro: true
+        resolveSymlinks: true

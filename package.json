@@ -1,0 +1,71 @@
+{
+  "name": "dsh-plugin-wsl-env",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Run a DeepSeek Harness session against a WSL distro: a ctx.shell executor that runs commands inside the distro and a ctx.fs backend over its UNC share",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "wsl",
+    "windows"
+  ],
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/shell.js",
+    "./shell": "./lib/shell.js",
+    "./fs": "./lib/fs.js",
+    "./picker": "./lib/picker.js",
+    "./auto-preset": "./lib/auto-preset.js",
+    "./shell-env": "./lib/shell-env.js",
+    "./wsl": "./lib/wsl.js",
+    "./paths": "./lib/paths.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*.js",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "npm run test:syntax && npm run test:unit",
+    "test:syntax": "node test/syntax.mjs",
+    "test:unit": "node --test test/paths.test.mjs test/listing.test.mjs test/shell.test.mjs",
+    "probe": "bash test/probe/run.sh",
+    "sync:windows": "bash test/probe/sync-to-windows.sh"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@11.7.0",
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.4",
+    "@deepseek-ai/dsh-bash-local": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-fs": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-fs-local": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-host-directory-picker": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-sandbox": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-shell": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-subprocess": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
+    "@deepseek-ai/schemastery": "~3.18.4"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": { "optional": true },
+    "@deepseek-ai/dsh-bash-local": { "optional": true },
+    "@deepseek-ai/dsh-fs": { "optional": true },
+    "@deepseek-ai/dsh-fs-local": { "optional": true },
+    "@deepseek-ai/dsh-host-directory-picker": { "optional": true },
+    "@deepseek-ai/dsh-sandbox": { "optional": true },
+    "@deepseek-ai/dsh-shell": { "optional": true },
+    "@deepseek-ai/dsh-subprocess": { "optional": true },
+    "@deepseek-ai/dsh-tools": { "optional": true },
+    "@deepseek-ai/schemastery": { "optional": true }
+  }
+}

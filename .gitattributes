@@ -1,0 +1,8 @@
+# The checkout is developed inside a WSL distro and executed by a Windows
+# process, so line endings must be LF everywhere: a CRLF shell script fails in
+# the distro, and a CRLF cordis.patch.yml feeds \r into the plan-mode text.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary

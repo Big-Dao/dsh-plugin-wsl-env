@@ -1,0 +1,53 @@
+# wslmodel — a headless, WSL-only profile used to verify the filesystem
+# mutation path through a REAL model turn (README §21.5 / §11).
+#
+# It is the shipped `headless` template with every host provider replaced by the
+# WSL one, so the only environment the model can see is the distro:
+#
+#   * the three sandboxing executors are disabled (a low-integrity Windows token
+#     cannot reach WSL at all — README §2.1);
+#   * `dsh-plugin-wsl-env` provides ctx.shell and `dsh-plugin-wsl-env/fs` ctx.fs;
+#   * the shell/file tool rows are flipped to the bash/file pair, since headless
+#     has no agent preset to do that selection.
+#
+#   dsh --profile wslmodel --json "<task>"
+- id: agent-default-model
+  name: '@deepseek-ai/dsh-agent-default-model'
+  config:
+    provider: deepseek-account
+    model: deepseek-flash
+
+- id: bash-sandbox
+  disabled: true
+- id: pwsh-sandbox
+  disabled: true
+- id: fs-sandbox
+  disabled: true
+# The permission presets exist to switch a CONFINED executor between sandbox
+# modes. This profile mounts the unconfined WSL executor on purpose, so the row
+# refuses to activate (`bundle a sandbox mode ... misconfiguration`) and the
+# run reports a warning. Disabling it says that explicitly instead.
+- id: permission
+  disabled: true
+
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: false
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: true
+
+- insert:
+    - id: wsl-shell
+      name: 'dsh-plugin-wsl-env'
+      config:
+        distro: ubuntu
+        cwd: /home/andy
+        loginShell: true
+    - id: wsl-fs
+      name: 'dsh-plugin-wsl-env/fs'
+      config:
+        distro: ubuntu
+        cwd: /home/andy
+        restrictToDistro: true
+        resolveSymlinks: true

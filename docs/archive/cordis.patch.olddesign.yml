@@ -1,0 +1,129 @@
+# dsh-plugin-wsl — profile patch layer
+#
+# Copy the rows you need into your profile's cordis.patch.yml:
+#   $DSH_HOME/profiles/<name>/cordis.patch.yml
+#
+# A patch REPLACES the targeted row's whole `config` rather than merging into
+# it, and later layers win per row, so this file restates each row completely.
+#
+# What this layer does: it swaps the two Windows providers (a PowerShell
+# executor and the ACL-confined filesystem) for WSL-backed ones, and turns on
+# the `bash` tool that the base bundle disables on Windows.
+
+# ── Remove the providers WSL replaces ────────────────────────────────────────
+#
+# Both must go. `ctx.shell` and `ctx.fs` allow exactly one implementation per
+# context, so loading a second provider throws the standard duplicate-service
+# error rather than silently winning.
+#
+# `pwsh-sandbox` is not just redundant here: it confines every command with the
+# Windows ACL restricted token, and THAT token is what cannot reach WSL
+# (`Wsl/E_ACCESSDENIED`). Replacing it is the fix, not an optimisation.
+
+- id: pwsh-sandbox
+  disabled: true
+
+- id: tool-pwsh
+  disabled: true
+
+- id: fs-sandbox
+  disabled: true
+
+# ── Turn on the POSIX tool that the WSL executor serves ──────────────────────
+
+- id: tool-bash
+  disabled: false
+
+# ── Mount the WSL providers ──────────────────────────────────────────────────
+#
+# `dsh-plugin-wsl` is the ctx.shell entrypoint; `dsh-plugin-wsl/fs` is ctx.fs.
+
+- id: wsl-shell
+  name: 'dsh-plugin-wsl'
+  config:
+    # Empty means WSL's own default distro, so a machine with one distro needs
+    # no configuration at all.
+    distro: ''
+    # Linux path, UNC path, or C:\ path all work here.
+    cwd: /home/andy/project
+    loginShell: true
+    # Startup and per-command budgets, mirroring dsh-bash-local's defaults.
+    timeoutMs: 120000
+    maxTimeoutMs: 600000
+    maxOutputBytes: 64000
+    graceMs: 3000
+
+- id: wsl-fs
+  name: 'dsh-plugin-wsl/fs'
+  config:
+    distro: ''
+    cwd: /home/andy/project
+    # Refuse any path outside the pinned distro. Note this does NOT confine the
+    # shell: inside the distro, /mnt/c still reaches the Windows disk, and WSL
+    # interop can execute Windows binaries.
+    restrictToDistro: true
+
+# ── Keep the search tools: ripgrep reads the UNC share ───────────────────────
+#
+# `tool-fs-search` needs no change — the packaged ripgrep walks
+# \\wsl.localhost\<distro>\... directly. If you prefer searching from inside the
+# distro (correct .gitignore semantics, Linux paths, no 9p overhead), disable
+# this row and call `rg` through the `bash` tool instead.
+
+# - id: tool-fs-search
+#   disabled: true
+
+# ── Make the workspace picker open inside WSL ────────────────────────────────
+#
+# The Web app mounts `directory-picker` with `@deepseek-ai/dsh-host-directory-picker-auto`,
+# which resolves the host situation once at boot and mounts ONE interaction as a
+# PAIR of Loader entries: the host backend serving `ctx.directoryPicker`, and the
+# client surface occupying ui-workspace's directory-flow holes. On Windows with a
+# loopback bind it resolves to `native` — the OS chooser, which cannot see WSL.
+#
+# Pinning an interaction means composing that pair directly. We keep the shipped
+# browse SURFACE (the in-app dialog) and swap only the backend for the WSL-aware
+# one, so no client code changes and no wire protocol changes:
+#
+#     browse surface: @deepseek-ai/dsh-client-ui-directory-picker-browse
+#     WSL backend:    dsh-plugin-wsl/picker      (reports kind 'browse')
+#
+# `dsh-plugin-wsl/picker` deliberately serves kind 'browse' rather than a new
+# 'wsl' kind: the wire controller in `dsh-api-workspace-controller` pins its three
+# Remote verbs to the literals 'native' and 'browse' and refuses any other kind
+# with `directory-picker/unavailable`, so a third kind would disable the verbs it
+# needs. See lib/picker.js.
+
+- id: directory-picker
+  name: 'dsh-plugin-wsl/picker'
+  config:
+    # Empty means WSL's own default distro, listed first.
+    preferredDistro: ''
+    # Also offer the Windows home directory at the root level, so ordinary host
+    # folders stay reachable. The dialog's editable path zone accepts any
+    # Windows path regardless.
+    includeHostHome: true
+    maxEntries: 1000
+
+- id: directory-picker-surface
+  name: '@deepseek-ai/dsh-client-ui-directory-picker-browse'
+
+# ── About the sandbox ────────────────────────────────────────────────────────
+#
+# Read this before running with a confined preset.
+#
+# The WSL providers report `sandboxMode === undefined`, which is the seam's way
+# of saying "this provider does not confine". The tool layer reads that fact and
+# advertises the escalation fields honestly, so the model is not told it is
+# confined. But `dsh-sandbox-policy` still reports whatever mode the session
+# selected, and `dsh-fs-sandbox` — the only component that ever enforced it for
+# file writes — is now disabled.
+#
+# The honest configuration is therefore to select the `danger-full-access`
+# permission preset for these sessions, so the UI does not claim confinement it
+# is not providing. Do not leave a session on `workspace-write` and assume the
+# WSL backend honours it; it does not.
+#
+# - id: sandbox-policy
+#   config:
+#     mode: danger-full-access

@@ -9,8 +9,40 @@ The reasoning and the measurements behind each entry are in
 
 ## [Unreleased]
 
+### Added
+
+- `WslSubprocessRuntime` (`ctx.subprocess`, subpath
+  `dsh-plugin-wsl-env/subprocess`): the GUI's right-sidebar terminal window now
+  opens a shell *inside the distro*, in the Session workspace, instead of
+  `cmd.exe` in a UNC directory. It is a `LocalSubprocessRuntime` subclass whose
+  only override is `spawnTerminal`, so every ordinary command, the host ripgrep
+  search and every other subprocess consumer keeps the shipped implementation.
+  The `wsl.exe` launch is rewritten to `wsl.exe -d <distro> --cd <linux dir>`,
+  with the request's `DSH_*` facts forwarded through `WSLENV`, and the distro's
+  own login shell is left to `wsl.exe` unless the provider pins one.
+- Terminal probe (`test/probe/terminal.sh`, `npm run probe:terminal`): boots the
+  throwaway Web profile with the provider in place, asks for the same
+  `spawnTerminal` request the GUI makes, and asserts the distro, the translated
+  initial directory, and the forwarded `DSH_SESSION_ID`.
+
 ### Changed
 
+- The terminal is bound at the **composition** level, not in the `wsl` preset.
+  `dsh-api-terminal-controller` resolves its execution world with
+  `agent.ctx.get("subprocess")`, and an Agent's context is created by the agent
+  loop under the root realm (`createScope(loopCtx, …)`, `loopCtx` = the
+  root-mounted `ctx.agents`), while a preset's isolate realms belong to
+  `dsh-agent-preset-registry`'s own context (`createScope(this.owner, …)`). A
+  `subprocess` provider inside `preset-wsl` is therefore invisible to the
+  terminal window — the registry's `agentPresets.serviceFor(agent, name)` is the
+  sanctioned channel for that gap, and the controller does not use it.
+  `cordis.patch.yml` consequently disables the shipped `subprocess` row and
+  inserts this provider, and configures `terminal-controller` with
+  `shell: { path: wsl.exe, name: WSL }` and `shellCandidates: []`.
+- `@deepseek-ai/dsh-subprocess-local` is now a declared peer. A linked plugin's
+  bare imports are routed through its `peerDependencies` by the runtime's
+  resolution interception, so an undeclared peer is not merely untidy — the
+  module fails to import with `failed to import`.
 - The README is now **current state only**. The five sections describing designs
   that this one replaced — the per-process `DSH_WSL` switch and the three
   abandoned tool-naming routes — moved to
@@ -27,6 +59,15 @@ The reasoning and the measurements behind each entry are in
     `exports` map does not expose `lib/index.js`, and the helpers already have
     their own `./paths` and `./wsl` subpaths.
   - Dropped an unused `ENV_OVERRIDES` import.
+
+### Known limitations
+
+- The terminal follows the composition, not the Session: a Session whose
+  workspace is a Windows folder gets the same distro terminal, started in that
+  folder as `/mnt/<drive>/…`.
+- Terminal activity reporting stops at `wsl.exe`, so the controller's unattended
+  idle reclamation never fires for these terminals; close the tab to release the
+  process.
 
 ### Removed
 

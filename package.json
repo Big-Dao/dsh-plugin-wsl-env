@@ -17,6 +17,7 @@
     ".": "./lib/shell.js",
     "./shell": "./lib/shell.js",
     "./fs": "./lib/fs.js",
+    "./subprocess": "./lib/subprocess.js",
     "./picker": "./lib/picker.js",
     "./auto-preset": "./lib/auto-preset.js",
     "./shell-env": "./lib/shell-env.js",
@@ -35,8 +36,9 @@
   "scripts": {
     "test": "npm run test:syntax && npm run test:unit",
     "test:syntax": "node test/syntax.mjs",
-    "test:unit": "node --test test/paths.test.mjs test/listing.test.mjs test/shell.test.mjs",
+    "test:unit": "node --test test/paths.test.mjs test/listing.test.mjs test/shell.test.mjs test/terminal.test.mjs",
     "probe": "bash test/probe/run.sh",
+    "probe:terminal": "bash test/probe/terminal.sh",
     "sync:windows": "bash test/probe/sync-to-windows.sh"
   },
   "engines": {
@@ -51,6 +53,7 @@
     "@deepseek-ai/dsh-fs-local": "0.2.0-rc.2",
     "@deepseek-ai/dsh-host-directory-picker": "0.2.0-rc.2",
     "@deepseek-ai/dsh-subprocess": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-subprocess-local": "0.2.0-rc.2",
     "@deepseek-ai/schemastery": "~3.18.4"
   },
   "peerDependenciesMeta": {
@@ -70,6 +73,9 @@
       "optional": true
     },
     "@deepseek-ai/dsh-subprocess": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-subprocess-local": {
       "optional": true
     },
     "@deepseek-ai/schemastery": {

@@ -6,7 +6,7 @@
 
 ## 0. 结论摘要
 
-1. **DSH 没有"远程/WSL 连接"能力，但它的能力缝（capability seam）就是为此设计的。** 你要写的不是"一个新工具"，而是两个 seam provider：`ctx.fs` 和 `ctx.shell`。模型可见的 `read`/`write`/`edit`/`glob`/`grep`/`bash` 工具全部由 DSH 自带，它们只认 seam。
+1. **DSH 没有"远程/WSL 连接"能力，但它的能力缝（capability seam）就是为此设计的。** 你要写的不是"一个新工具"，而是若干 seam provider：模型侧主要是 `ctx.fs` 和 `ctx.shell`（§3），GUI 右侧栏终端窗口则用 `ctx.subprocess`（§17）。模型可见的 `read`/`write`/`edit`/`glob`/`grep`/`bash` 工具全部由 DSH 自带，它们只认 seam。
 
 2. **最大的坑不是 WSL，而是 DSH 自己的沙箱。** 在 Windows 上 DSH 用 `dsh-sandbox-windows-acl` 把命令降权到 *Low 完整性 + 受限令牌*。这个令牌**完全无法访问 WSL**：`wsl.exe` 返回 `Wsl/E_ACCESSDENIED`，`\\wsl.localhost\<distro>` 直接 access denied。沙箱外两者都正常。这是本方案必须替换 `pwsh-sandbox` 的原因。
 
@@ -14,7 +14,9 @@
 
 4. **"打开 WSL 文件夹"也已经落地，而且不需要写任何客户端代码。** WSL 感知的 `ctx.directoryPicker` 后端（`lib/picker.js`）让 GUI 里那个现成的目录对话框直接在发行版里打开：第一屏就是发行版列表，选中后落到该发行版的 `/`，再往下浏览。它**必须报 `kind: 'browse'`**——wire 协议只认 `native`/`browse` 两种 kind，报第三种会让它自己需要的三个 Remote 动词全部失效。详见 §8。
 
-> **验证边界**：架构、seam 契约、WSL 行为、UNC 原语、选择器行为（发行版发现、发行版根列目录、面包屑）、**挂接后的运行时行为**、以及**写/改/权限位的完整发布路径**（`test/probe/`，含负对照，见 §16.5）均已在本机实测；纯函数单测 26 项、行为探针 14 项全部通过；**插件已装进一个独立 profile 并在 harness 进程内端到端跑通**（`exit=0`，见 §9），**日常 GUI 也已在真实模型回合里验证过 `bash` 与 `read`**（§10），**写侧则由一个只挂 WSL 环境的 headless profile 在真实回合里验证过 `write → chmod → read → edit → 执行`**（§16.5）。
+5. **GUI 右侧栏的终端窗口也接进发行版了，但它必须在"组合层"接，不能在 preset 里接。** 终端窗口的宿主半边是 `dsh-api-terminal-controller`，它用 `agent.ctx.get("subprocess")` 解析执行环境；而 Agent 的 ctx 由 agent loop 建在**根 realm**（`createScope(loopCtx, …)`，`loopCtx` = 根上挂载的 `ctx.agents`），preset 的 isolate realm 则属于 `dsh-agent-preset-registry` 自己的 ctx（`createScope(this.owner, …)`）。两棵子树永不相交，所以挂在 `preset-wsl` 里的 `subprocess` provider 对终端窗口**永远不可见**（registry 为此提供了 `agentPresets.serviceFor(agent, name)`，但 terminal controller 没有用它）。因此补丁层**禁用随包的 `subprocess` 行**并替换成本插件的子类，它只覆写 `spawnTerminal`：把 `wsl.exe` 启动改写成 `wsl.exe -d <distro> --cd <linux dir>`，其余 `spawn()`（所有命令、宿主 ripgrep、pwsh executor、LSP host）原样走随包实现。代价是诚实的：**终端跟随组合，不跟随会话**——Windows 文件夹的会话也会拿到发行版终端，起始目录是它的 `/mnt/<drive>/…`。详见 §17。
+
+> **验证边界**：架构、seam 契约、WSL 行为、UNC 原语、选择器行为（发行版发现、发行版根列目录、面包屑）、**挂接后的运行时行为**、**写/改/权限位的完整发布路径**（`test/probe/`，含负对照，见 §16.5）、以及**终端 provider 的端到端启动**（`test/probe/terminal.sh`，见 §17.6）均已在本机实测；纯函数单测 35 项、文件系统行为探针 14 项、终端探针 3 项全部通过；**插件已装进一个独立 profile 并在 harness 进程内端到端跑通**（`exit=0`，见 §9），**日常 GUI 也已在真实模型回合里验证过 `bash` 与 `read`**（§10），**写侧则由一个只挂 WSL 环境的 headless profile 在真实回合里验证过 `write → chmod → read → edit → 执行`**（§16.5）。
 
 ### 0.1 本文的范围与历史留档
 
@@ -182,7 +184,26 @@ await writeFileAtomic(target.targetKey, content, existing?.mode, signal, this.in
                          ▼                                  ▼
         \\wsl.localhost\ubuntu\home\andy\...        wsl.exe -d ubuntu --cd /home/andy
                                                             --exec <shell> -lc "<cmd>"
+
+   右侧栏终端窗口  dsh-api-terminal-controller  (组合层，不在 preset 内)
+                          │ agent.ctx.get("subprocess") —— 根 realm
+                          ▼
+               ┌──────────────────────────┐
+               │ WslSubprocessRuntime     │  只覆写 spawnTerminal
+               │ 继承 subprocess-local    │  wsl.exe → -d <distro> --cd <linux dir>
+               └──────────┬───────────────┘
+                          │ node-pty + ConPTY
+                          ▼
+                  wsl.exe -d ubuntu --cd /home/andy/...   （默认登录 shell）
 ```
+
+### 3.1.1 三个 provider 的作用域不一样，这不是笔误
+
+| Provider | 挂在哪 | 作用域 | 理由 |
+|---|---|---|---|
+| `ctx.shell` | `preset-wsl` 的 isolate realm | **按会话** | 工具（`bash`）就挂在 preset 里，自己的 ctx 能解析 realm |
+| `ctx.fs` | 同上 | **按会话** | 同上 |
+| `ctx.subprocess` | 补丁层根节点（禁用随包行 + insert） | **按组合** | 终端窗口的 controller 在 preset 外，用 Agent 的 ctx 解析，而它落在根 realm，看不到 realm 服务（§17.2） |
 
 ### 3.2 三个坐标系
 
@@ -230,12 +251,14 @@ await writeFileAtomic(target.targetKey, content, existing?.mode, signal, this.in
 | [`lib/listing.js`](lib/listing.js) | 目录列举与面包屑的纯函数（含 UNC 修正），**无 DSH 依赖** |
 | [`lib/shell.js`](lib/shell.js) | 默认导出 `WslShellExecutor`，供 `name: 'dsh-plugin-wsl-env'` 使用 |
 | [`lib/fs.js`](lib/fs.js) | 默认导出 `WslFileSystem`，供 `name: 'dsh-plugin-wsl-env/fs'` 使用 |
-| [`cordis.patch.yml`](cordis.patch.yml) | 挂载用的 profile 补丁层（含逐行注释） |
+| [`lib/subprocess.js`](lib/subprocess.js) | `WslSubprocessRuntime`（ctx.subprocess，只覆写 `spawnTerminal`），供 `name: 'dsh-plugin-wsl-env/subprocess'` 使用，即 GUI 终端窗口（§17） |
+| [`cordis.patch.yml`](cordis.patch.yml) | 挂载用的 profile 补丁层（含逐行注释）；其中两行是**替换**而非新增：`subprocess` 置 `disabled: true` + insert 本插件，外加 `terminal-controller` 的 shell profile |
 | [`package.json`](package.json) | ESM + 子路径 exports + peerDependencies |
 | [`test/paths.test.mjs`](test/paths.test.mjs) | 路径翻译断言（12 项，纯函数，任意 Node 可跑） |
 | [`test/listing.test.mjs`](test/listing.test.mjs) | 列举与面包屑断言（9 项） |
 | [`test/shell.test.mjs`](test/shell.test.mjs) | 登录 shell 参数选择断言（5 项） |
-| [`test/probe/`](test/probe/) | **行为探针**：把 `ctx.fs` 绑到发行版，逐条断言写/改/权限位（见 §16.6） |
+| [`test/terminal.test.mjs`](test/terminal.test.mjs) | 终端 argv（是否 `--exec`、`--cd` 何时省略）与 `WSLENV` 的 `/p` 翻译断言（9 项） |
+| [`test/probe/`](test/probe/) | **行为探针**：`run.sh` 把 `ctx.fs` 绑到发行版，逐条断言写/改/权限位（见 §16.6）；`terminal.sh` 启动终端 provider 并断言它落到哪个 shell（见 §17.6） |
 | [`test/syntax.mjs`](test/syntax.mjs) | 对 `lib/*.js` 逐个 `node --check`。服务类模块缺 DSH peer 时无法 import，这是唯一能覆盖它们的自动化门槛（只查语法，不查求值期错误，见 §15.4） |
 | [`README.md`](README.md) | 英文短入口（npm / GitHub 首屏）；本文仍是完整记录 |
 | [`CHANGELOG.md`](CHANGELOG.md) | Keep a Changelog 格式的版本记录，每条都指回本文的章节 |
@@ -248,7 +271,7 @@ await writeFileAtomic(target.targetKey, content, existing?.mode, signal, this.in
 
 仓库在 2026-10-02 做了第一次 `git init`（此前 32 个文件、4800 余行只有这份 README 作为历史）。几条刻意的取舍：
 
-- **只有纯函数进 CI。** `lib/index.js`、`picker.js`、`auto-preset.js`、`shell-env.js` 都要 import DSH peer，裸检出的 CI 里 `ERR_MODULE_NOT_FOUND` 早于任何断言。所以 CI 跑 `npm test`（= `test:syntax` + `test:unit`），**行为探针留在本机手动跑** —— 它需要 Windows + WSL + 一个挂好的 profile，托管 runner 上装不出来。把跑不了的东西塞进 CI 只会训练人忽略红灯。
+- **只有纯函数进 CI。** `lib/index.js`、`lib/subprocess.js`、`picker.js`、`auto-preset.js`、`shell-env.js` 都要 import DSH peer，裸检出的 CI 里 `ERR_MODULE_NOT_FOUND` 早于任何断言。所以 CI 跑 `npm test`（= `test:syntax` + `test:unit`），**行为探针留在本机手动跑** —— 它需要 Windows + WSL + 一个挂好的 profile，托管 runner 上装不出来。把跑不了的东西塞进 CI 只会训练人忽略红灯。
 - **`npm test` 不装任何依赖**，因为包里本来就没有依赖；`peerDependencies` 全部 `optional`，由挂载它的 profile 提供。
 - **peer 声明的判据是"真的要用"，不是"相关"。** 只列 `import` 到的包、`inject` 的服务契约（`dsh-subprocess`）、以及每个 DSH 插件都会声明的 `cordis`。静态检视据此移除了 `dsh-sandbox`、`dsh-shell`、`dsh-tools` —— 它们是为[归档](docs/archive/design-history.zh.md)里那套"在运行时给别人的工具改名"的设计留下的，代码里既没有 import 也没有 `inject`（归档 §15.5 甚至记录过，那套设计只能给沙箱符号塞本地空实现）。判据可以机械核对：
 
@@ -309,6 +332,8 @@ dsh wsl
 
 **选择器那两行只适用于 web 系 profile。** `- id: directory-picker` 覆盖的是 **web app bundle 里的那一行**（`dsh-web-app` 把 `directory-picker` 挂成 `@deepseek-ai/dsh-host-directory-picker-auto`）。若 profile 不是从 `web` 模板建的，就没有这一行，要改成 `- insert:` 新增而非覆盖。另外 `directory-picker-surface` 引用的 `@deepseek-ai/dsh-client-ui-directory-picker-browse` 是 `dsh-web-app` 的依赖，从 web 模板建的 profile 里应当已可解析——这一点同样要在 `--dump-config` 与启动日志里确认。
 
+**终端那三行是"替换 + 配置"，不是新增。** `- id: subprocess` 置 `disabled: true` 后 insert `dsh-plugin-wsl-env/subprocess`，并给 `- id: terminal-controller` 配上 `shell: { path: wsl.exe }` / `shellCandidates: []`。它们同样只适用于 web 系 profile（`terminal-controller` 是 `dsh-web-app` 的行；headless profile 里没有这一行，覆盖会被 warn 后跳过，终端窗口本来也不存在）。已存在行的 `name` 只是断言，**不能靠它改包名**，所以换 provider 必须 disable + insert。详见 §17。
+
 **在 GUI 里给当前 profile 装插件**走 Plugins 页面（`dsh-plugin-manager` + `dsh-client-ui-settings-plugins`）；`dsh plugin --profile <name> <pnpm-args>` 是同一机制的命令行入口。
 
 **第一个要验证的点**：`@deepseek-ai/dsh-bash-local` 这些 peer 依赖能否在 profile 内解析。它们以 `publishConfig.access: public` 发布，pnpm 会从 npm 拉取；若 profile 无法联网或版本不匹配（本机是 `0.2.0-rc.2`、`cordis ~4.0.4`），需要改成随包版本或调整版本范围。`dsh --profile wsl --dump-config` 与启动日志会立刻暴露这个问题。
@@ -350,6 +375,13 @@ node ./dsh-wsl-research/probe-picker.mjs
 
 **c) 端到端**：启动 profile 后，让模型在 WSL 工作区里 `bash` 跑 `pwd`/`id`，`read` 一个发行版内的文件，`write` **新建**一个文件（这条最关键，它验证 guard 提前是否生效），再 `glob`/`grep`。
 
+**d) 行为探针**（需要 Windows + WSL + 一个挂好的 profile；一次性建法见 §16.6）：
+
+```bash
+npm run probe            # ctx.fs：创建/读取/版本 guard/编辑/覆盖/权限位 + 负对照
+npm run probe:terminal   # ctx.subprocess：真开一个 PTY，断言 distro、初始目录、DSH_* 转发（§17.6）
+```
+
 排错入口：`dsh-tool-cordis`（"Read-only runtime API inspection for Harness plugin development"）可以只读地检查运行时的服务与 API，默认未挂载，排错时加到补丁层。
 
 ---
@@ -365,6 +397,9 @@ node ./dsh-wsl-research/probe-picker.mjs
 - **`distro: ''` 需要一次额外调用**：默认发行版靠 `wsl.exe -l -q` 解析并缓存；首次 IO 有一次性开销。
 - **`editText` 整文件进出内存**（继承自 `fs-local`），大文件编辑代价高。
 - **改一次就慢一点**：覆盖/编辑要额外起一个 `wsl.exe`（发行版内 `chmod`）——这是保住权限位的代价。新建不走这条路。
+- **终端跟随"组合"，不跟随"会话"**：终端窗口的 controller 用 `agent.ctx.get("subprocess")` 解析执行环境，而 Agent 的 ctx 落在根 realm，看不到 preset 的 isolate realm（§17.2）。所以补丁层替换的是根上的 `subprocess` 行：在这个 profile 里，**Windows 文件夹的会话也会拿到发行版终端**，起始目录是该文件夹的 `/mnt/<drive>/…`。这是"按会话的执行环境"在终端这条路上够不到时的诚实取舍；想要宿主 shell 的会话得另开一个 profile。
+- **终端的活动探测止步于 `wsl.exe`**：随包实现只为 POSIX 宿主上直接启动的 `bash`/`zsh` 装 shell 活动钩子（`prepareShellActivity` 在 `platform === "win32"` 时直接返回 `undefined`），所以这类终端对 controller 报 `unknown`，**"无人值守空闲回收"永远不会触发**——要释放进程就关掉那个 tab。
+- **终端 shell 菜单被刻意缩到一项**：`terminalEnvironment()` / `resolveExecutable()` 同样从根 realm 解析且拿不到任何目录，若把可执行查找改成"先查发行版"，会连带改掉 pwsh executor、LSP host、ripgrep 查找的语义；所以补丁层只给 controller 配了唯一一个 shell profile（`shell: { path: wsl.exe }` + `shellCandidates: []`）。想固定成别的发行版 shell 时，把 provider 的 `shell` 配成发行版内绝对路径即可（此时 `-l` 只对认它的 shell 家族生效）。
 
 ---
 
@@ -1255,3 +1290,160 @@ npm run probe            # = test/probe/run.sh：先同步到 Windows 侧副本�
 ### 16.8 老规矩：改完要重启
 
 插件是被 Node 以 ESM 缓存加载的，正在跑的 GUI 进程里还是旧代码。**改完 `lib/` 必须重启应用**才会生效 —— 包括这次：本次会话本身就是旧代码的最后一个受害者，`edit`/`write`（改已有文件）在这个进程里仍然会报 `GetFileSecurityW EIO`。
+
+---
+
+## 17. GUI 终端窗口：必须在组合层挂，不能在 preset 里挂
+
+§13 的结论是"环境属于会话"：`ctx.shell` 与 `ctx.fs` 都挂在 `preset-wsl` 的 isolate realm 里，宿主会话与 WSL 会话在一个进程里并存。终端窗口看起来应该照抄这套 —— 在同一个 realm 里再挂一个 `ctx.subprocess` provider 就行了。**实测不行**，而且失败方式很隐蔽：补丁能装上、preset 能通过审计、boot 不报任何错，只是终端窗口当作没这回事。
+
+### 17.1 终端窗口用的是哪个 seam
+
+右侧栏终端窗口不是 `ctx.terminals`。`ctx.terminals`（`dsh-terminal` + `dsh-terminal-bash`）是**给模型用的**持久终端服务，靠 backend 注册类型、由 terminal 工具驱动；窗口用的完全是另一套：
+
+| 角色 | 包 | 说明 |
+|---|---|---|
+| 客户端 | `@deepseek-ai/dsh-client-ui-sidebar-terminal` | 右侧栏的 tab、shell 菜单、xterm 渲染 |
+| 宿主 controller | `@deepseek-ai/dsh-api-terminal-controller`（`ctx.terminalController`，namespace `terminal`） | 分配 PTY、保留屏幕、`remote.terminal` 的 9 个动词 |
+| 真正干活的 seam | **`ctx.subprocess.spawnTerminal`** | controller 拿到的 `cwd` 是 `agent.session.header.cwd ?? sandboxPolicy.workspaceRoot` |
+
+controller 解析执行环境的方式（`dsh-api-terminal-controller/lib/index.js:987`）：
+
+```js
+execution(agent) {
+	const subprocess = agent.ctx.get("subprocess");
+	const sandboxPolicy = agent.ctx.get("sandboxPolicy");
+	if (subprocess === void 0 || sandboxPolicy === void 0) throw new Error("The Session execution environment requires subprocess and sandbox policy providers");
+	return { subprocess, sandboxPolicy };
+}
+```
+
+注意是 **`agent.ctx`**，不是 controller 自己的 `this.ctx`。
+
+### 17.2 为什么 `agent.ctx` 看不到 preset 的 realm
+
+三条源码事实合起来就是结论（均为随包代码，路径在 asar 内）：
+
+```js
+// dsh-agent-preset-registry/lib/index.js:527,534
+// preset 树挂在 registry **服务自己**的 ctx 下
+const scope = createScope(this.owner, key);
+mount: await mountPreset(scope.ctx.extend({ baseUrl: record.context.baseUrl }), ...)
+
+// dsh-agent-loop/lib/index.js:778
+// Agent 的 ctx 是另一棵平行分支，loopCtx = 根上的 ctx.agents
+this.scope = createScope(loopCtx, this);
+this.ctx = this.scope.ctx;
+
+// dsh-scope/lib/index.js:296（createScope）
+// 只是 ctx.plugin(scope) + extend({[kScope]: key})：不碰 Context.isolate，也不是 loader entry
+const fiber = ctx.plugin(scope);
+const scoped = fiber.ctx.extend({ [kScope]: key });
+
+// cordis/lib/types/context.js:66（extend）
+// 只是 Object.create(this)，isolate map 走原型链
+```
+
+`Context.isolate` 的 realm symbol 由 loader 在 `loader/patch-context` 里按 entry 注入（`cordis-plugin-loader/lib/index.js:506-553`），只覆盖那棵 loader 子树。所以 `agent.ctx[symbols.isolate]["subprocess"]` 一路原型到**根**的 `Symbol('subprocess')` —— 即随包的 `dsh-subprocess-local`。
+
+随包代码自己也承认这个断层：`dsh-agent-preset-registry/lib/types/mount.js:111-131` 写着 *"Browser RPCs hold the Agent but resolve outside that realm, so they locate its revision through the Agent's scope parent."*，并为此提供了官方通道 `ctx.agentPresets.serviceFor(agent, name)`（`dsh-api-session-controller` 读 preset 内 `skills` 就是这么写的）。**`dsh-api-terminal-controller` 没有用它**，所以 preset 内 isolate 的 `subprocess` provider 只有 preset 内的消费者（`tool-bash` → `ctx.shell`）看得见，终端窗口看不见。
+
+一句话版本：**`shell`/`fs` 能按会话，是因为用它们的工具就长在 preset 里；终端窗口的消费者长在外面。**
+
+### 17.3 替换根上的 `subprocess` 行
+
+补丁层（`cordis.patch.yml`）因此做两件事，都是**替换/配置**而非新增：
+
+```yaml
+- id: subprocess
+  disabled: true
+
+- id: terminal-controller
+  name: '@deepseek-ai/dsh-api-terminal-controller'
+  config:
+    shell:
+      path: wsl.exe
+      name: WSL
+      args: []
+    shellCandidates: []
+
+- insert:
+    - id: subprocess-wsl
+      name: 'dsh-plugin-wsl-env/subprocess'
+      config:
+        distro: ''
+```
+
+注意 `dsh-app-boot` 的补丁语义：**已存在行的 `name` 只是断言，不能改包名**（`dsh-app-boot/lib/index.js:73,100-103`），所以换 provider 只能 `disabled: true` + `insert`。
+
+`WslSubprocessRuntime extends LocalSubprocessRuntime`，**只覆写 `spawnTerminal`**：
+
+- `argv[0]` 的 basename 去掉 `.exe` 后是 `wsl` → 用请求里的 `cwd` 反推 `{distro, linuxCwd}`：UNC 路径直接给出 distro（`\\wsl.localhost\ubuntu\...` → ubuntu + `/home/...`），Windows 盘符走 `/mnt/<drive>/...`，POSIX 路径原样；然后改写成 `wsl.exe -d <distro> --cd <linux dir>`，进程自身的 `cwd` 换成 Windows 目录（CreateProcess 不能用 Linux 路径当 cwd），并把请求里 `DSH_*` 的名字写进 `WSLENV`。
+- **不 pin shell 时到此为止**：`wsl.exe` 自己启动发行版用户的登录 shell —— 和人手敲 `wsl.exe` 完全一致，不需要猜 shell。
+- 其余一切请求（`cmd.exe`、`bash -i`、任何别的消费者的终端）原样交给随包实现。
+
+爆炸半径是这次设计的核心考量：根上的 `subprocess` 是**单实例**，`bash-sandbox`、`pwsh-sandbox`、`tool-fs-search`（宿主 ripgrep）、`workspace-changes`、`terminal-controller` 全用它。只覆写终端那一个方法，别的方法逐字继承，命令路径（`WslShellExecutor` 自己拼 `wsl.exe` argv 再交给 `spawn()`）与宿主搜索路径都保持原样。
+
+### 17.4 一个必须记住的坑：`peerDependencies` 决定 linked 插件能不能 import
+
+第一版实现 boot 时报：
+
+```
+subprocess-wsl (dsh-plugin-wsl-env/subprocess): failed to import
+```
+
+只多了一行 `import { LocalSubprocessRuntime } from "@deepseek-ai/dsh-subprocess-local"`，而 `package.json` 里只声明了 `@deepseek-ai/dsh-subprocess`（**seam**包，不是 local 实现）。原因是运行时的解析拦截（`dsh-app-boot` 的 `installRuntimeInterception` / `readPeerNames`）：**一个 linked 插件的裸 import，只有在它自己的 `peerDependencies` 里列出过，才会被路由到安装目录里的同名包**；没列就等于不存在，且报错只说 `failed to import`，没有 cause。所以 peer 声明在这里不是"整洁问题"，是**能不能加载**的问题。
+
+（`subprocess-local` 是 `subprocess` 的具体实现；provider 必须继承它才能拿到 PTY/进程树/输出那套机制。两者都留在 peer 列表里。）
+
+### 17.5 实测结果
+
+组合校验（在一次性 web profile 上用本仓库补丁做 `--patch` 覆盖层）：
+
+```
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+  disabled: true
+...
+- id: subprocess-wsl
+  name: dsh-plugin-wsl-env/subprocess
+  config:
+    distro: ''
+```
+
+boot 一次，**零失败、零 pending**（第一版同一命令会打印 `terminal-controller: pending (waiting for service: subprocess)` 与 `subprocess-wsl … failed to import`）。
+
+日常 `desktop` profile 重启后，在右栏点 **New terminal** 的现场取证（`Get-CimInstance Win32_Process` 过滤 `wsl.exe`）：
+
+```
+ProcessId 18628   ParentProcessId 14916   ← DeepSeek Harness.exe
+wsl.exe -d ubuntu --cd /home/andy/Projects/dsh/plugins/dsh-plugin-wsl-env
+```
+
+即窗口里真正跑起来的就是这条命令：由 harness 进程拉起，`-d ubuntu` 与 `--cd <会话工作区的 Linux 路径>` 都按设计生成，**没有 `--exec`** —— 所以 `wsl.exe` 自己启动发行版用户的登录 shell，落地在 zsh。（同一份进程表里另有几条 `--cd "~" --distribution-id {…}`，父进程是 WindowsTerminal.exe，与本插件无关。）
+
+### 17.6 探针：终端到底落在哪个 shell
+
+`test/probe/terminal.sh`（`npm run probe:terminal`）在同一个一次性 profile 上再加一层覆盖补丁，把 provider 换上并挂一个探针插件：探针用**和 GUI 完全相同的请求**开一个 PTY —— `argv: ["wsl.exe"]`、`cwd` 是本仓库的 UNC 路径、`env: { DSH_SESSION_ID }`、`shellActivity: true` —— 然后敲命令、断言输出。本机实测输出（截取）：
+
+```
+TERMPROBE | /home/andy/Projects/dsh/plugins/dsh-plugin-wsl-env
+TERMPROBE | PROBE-42
+TERMPROBE | DISTRO=ubuntu
+TERMPROBE | SESSION=wsl-terminal-probe
+TERMPROBE | SHELL=/usr/bin/zsh
+TERMPROBE PASS arithmetic ran
+TERMPROBE PASS cwd translated
+TERMPROBE PASS DSHENV forwarded
+terminal probe passed
+```
+
+四条断言各自证明一件事：会话工作区（UNC）被翻成正确的 Linux 目录、`--cd` 生效；`DSH_SESSION_ID` 经 `WSLENV` 进了发行版；shell 是**发行版用户的登录 shell**（`/usr/bin/zsh`，不是硬编码 bash）；并且这是一个真正的交互式 PTY（能读到 starship 提示符）。
+
+### 17.7 已知限制（终端）
+
+- **终端跟随组合，不跟随会话**：这是 §17.2 的直接后果，没法在一个进程里既让宿主会话拿 `cmd.exe` 又让 WSL 会话拿 zsh —— 终端 controller 拿不到 Session 身份去分流（`terminalEnvironment()`、`resolveExecutable()` 连目录都没有）。本 profile 的选择是"终端就是发行版终端"，宿主文件夹的会话也会落到 `/mnt/<drive>/…`。
+- **活动探测止步于 `wsl.exe`**：`prepareShellActivity` 只在 `platform !== "win32"` 且 argv 恰好是 `["<bash|zsh>", "-i"]` 时生效，所以 controller 的 `inspectActivity()` 只会得到 `unknown`，"无人值守空闲回收"永不触发；关 tab 才会释放进程。这是能力事实，不粉饰。
+- **shell 菜单被缩到一项**：`shellCandidates: []`。把候选留给宿主的 `resolveExecutable` 会列出一堆这个终端根本不会启动的 shell（§17.7 上一条同理）。
+- **pin 了 `shell` 才有 `-l`**：不 pin 时登录 shell 由 `wsl.exe` 决定，`-l`/`-i` 与插件无关；pin 成发行版内绝对路径时，只有认 `-l` 的 shell 家族会拿到它（`interactiveShellArgs`，与 §12.3 同一判据）。
+- **切发行版**：UNC 工作区自带 distro 名，优先于配置；配置里的 `distro` 只用于"请求里没有发行版信息"的情况（宿主盘符、POSIX 路径、无 cwd）。

@@ -28,6 +28,58 @@
     enabled: true
 
 # ═════════════════════════════════════════════════════════════════════════════
+# The GUI terminal window is a COMPOSITION-level environment, not a preset one.
+#
+# The right-sidebar terminal is dsh-api-terminal-controller. It resolves its
+# execution world from the Session's own context —
+#     agent.ctx.get("subprocess")
+# — and that context is created by the agent loop under the ROOT realm
+# (dsh-agent-loop: `createScope(loopCtx, …)`, loopCtx = the root `ctx.agents`),
+# while a preset's isolate realms are created by dsh-agent-preset-registry under
+# the REGISTRY's context (`createScope(this.owner, …)`). The two subtrees never
+# meet, so a `subprocess` provider mounted inside preset-wsl — the natural-looking
+# design, since `shell` and `fs` live there — is invisible to the terminal
+# window. The registry ships `agentPresets.serviceFor(agent, name)` for exactly
+# that gap; the terminal controller does not use it.
+#
+# So the terminal is bound here, once, for the whole composition:
+#
+#   1. the shipped local provider is disabled and replaced by a subclass whose
+#      ONLY override is `spawnTerminal`, which rewrites a `wsl.exe` launch into
+#      `wsl.exe -d <distro> --cd <linux dir>` for the directory the Session
+#      supplies. Ordinary `spawn()` — every command, the host ripgrep search,
+#      every other consumer — reaches the shipped implementation untouched;
+#   2. the controller is given the one shell profile it should resolve, so the
+#      window's default is a distro shell rather than `cmd.exe` inside a UNC
+#      workspace. Its shell menu is reduced to that single entry on purpose:
+#      shell discovery also runs against the root provider and receives no
+#      directory, so offering host executables there would advertise shells this
+#      terminal never starts.
+#
+# Consequence: the terminal follows the composition, not the Session. A Session
+# whose workspace is a Windows folder gets the same distro terminal, started in
+# that folder as `/mnt/<drive>/…`. That is the honest limit of a per-session
+# execution world that no Session identity reaches.
+# ═════════════════════════════════════════════════════════════════════════════
+- id: subprocess
+  disabled: true
+
+- id: terminal-controller
+  name: '@deepseek-ai/dsh-api-terminal-controller'
+  config:
+    shell:
+      path: wsl.exe
+      name: WSL
+      args: []
+    shellCandidates: []
+
+- insert:
+    - id: subprocess-wsl
+      name: 'dsh-plugin-wsl-env/subprocess'
+      config:
+        distro: ''
+
+# ═════════════════════════════════════════════════════════════════════════════
 # Environment is per-session, not per-process.
 #
 # There is no DSH_WSL switch any more. The profile keeps the SHIPPED environment

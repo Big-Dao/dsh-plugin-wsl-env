@@ -1,0 +1,23 @@
+# Terminal probe overlay — applied on top of the throwaway `wslfs` profile.
+#
+# Replaces the composition-level subprocess provider with the WSL one and mounts
+# the probe beside it, so the boot exercises exactly what the GUI terminal
+# window resolves: `agent.ctx.get("subprocess")` at the root realm.
+#
+# `cwd` is the UNC spelling of this checkout, which is what the terminal
+# controller passes for a Session in this workspace; `expectPwd` is the Linux
+# path the provider must translate it into. Adjust both if the checkout moves.
+- id: subprocess
+  disabled: true
+
+- insert:
+    - id: subprocess-wsl
+      name: 'dsh-plugin-wsl-env/subprocess'
+      config:
+        distro: ''
+
+    - id: terminal-probe
+      name: './terminal-probe.mjs'
+      config:
+        cwd: '\\wsl.localhost\ubuntu\home\andy\Projects\dsh\plugins\dsh-plugin-wsl-env'
+        expectPwd: /home/andy/Projects/dsh/plugins/dsh-plugin-wsl-env

@@ -225,6 +225,23 @@ await writeFileAtomic(target.targetKey, content, existing?.mode, signal, this.in
 | [`test/listing.test.mjs`](test/listing.test.mjs) | 列举与面包屑断言（9 项） |
 | [`test/shell.test.mjs`](test/shell.test.mjs) | 登录 shell 参数选择断言（5 项） |
 | [`test/probe/`](test/probe/) | **行为探针**：把 `ctx.fs` 绑到发行版，逐条断言写/改/权限位（见 §21.6） |
+| [`test/syntax.mjs`](test/syntax.mjs) | 对 `lib/*.js` 逐个 `node --check`。服务类模块缺 DSH peer 时无法 import，这是唯一能覆盖它们的自动化门槛（只查语法，不查求值期错误，见 §20.4） |
+| [`README.md`](README.md) | 英文短入口（npm / GitHub 首屏）；本文仍是完整记录 |
+| [`CHANGELOG.md`](CHANGELOG.md) | Keep a Changelog 格式的版本记录，每条都指回本文的章节 |
+| [`LICENSE`](LICENSE) | MIT（`package.json` 早已声明，本轮才补上文件） |
+| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | 托管 runner 上只跑无依赖的那一半（`npm test`，node 20/22/24） |
+| [`docs/archive/`](docs/archive/) | 已废弃设计的留档，含[说明](docs/archive/README.md)（如 per-process 的 `DSH_WSL` 旧补丁） |
+| [`.editorconfig`](.editorconfig) / [`.gitattributes`](.gitattributes) / [`.gitignore`](.gitignore) | 2 空格 + LF（跨 WSL/Windows 必须）、忽略 `node_modules/` 与探针产物 |
+
+### 4.1 工程化脚手架
+
+仓库在 2026-10-02 做了第一次 `git init`（此前 32 个文件、4800 余行只有这份 README 作为历史）。几条刻意的取舍：
+
+- **只有纯函数进 CI。** `lib/index.js`、`picker.js`、`auto-preset.js`、`shell-env.js` 都要 import DSH peer，裸检出的 CI 里 `ERR_MODULE_NOT_FOUND` 早于任何断言。所以 CI 跑 `npm test`（= `test:syntax` + `test:unit`），**行为探针留在本机手动跑** —— 它需要 Windows + WSL + 一个挂好的 profile，托管 runner 上装不出来。把跑不了的东西塞进 CI 只会训练人忽略红灯。
+- **`npm test` 不装任何依赖**，因为包里本来就没有依赖；`peerDependencies` 全部 `optional`，由挂载它的 profile 提供。
+- **`.gitattributes` 强制 LF。** 检出在发行版内、执行在 Windows 上：CRLF 的 shell 脚本在发行版里会直接失败，CRLF 的 `cordis.patch.yml` 会把 `` 喂进 plan-mode 那段长文本。
+- **两份副本的分工写进了 README。** profile 只能 link Windows 路径（pnpm 会把 `link:\wsl.localhost\…` 写成断链的 `/wsl.localhost/…`，实测），所以 Windows 侧那份是**运行时镜像**，靠 `npm run sync:windows` 显式同步；`.git` 只存在于发行版这份里。
+- **归档而不是删除。** 旧设计的补丁移进 `docs/archive/`，并在旁边写清它为什么被推翻 —— 与本文一贯的"留档失败路径"一致。
 
 对照的官方实现在 `../dsh-wsl-research/pkgs/`（已从 `app.asar` 抽出，含 README），要点去那里查：
 
@@ -488,6 +505,13 @@ dsh --profile wsl --dump-config
 
 # 5) 端到端自检：挂载探针，探针跑完即退出
 dsh --profile wsl --patch <repo>\dsh-wsl-research\selftest-overlay.yml --no-open --port 0
+```
+
+仓库自身的两个入口（不需要装任何依赖）：
+
+```bash
+npm test          # test:syntax + test:unit，纯函数，任意 Node ≥ 20 可跑
+npm run probe     # 行为探针，必须从发行版内跑（它自己通过 interop 调 Windows 侧的 Node）
 ```
 
 `dsh` 未加入 PATH 时，直接调安装目录里的 CLI：

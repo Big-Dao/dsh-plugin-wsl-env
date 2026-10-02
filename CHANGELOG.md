@@ -32,6 +32,15 @@ reference below points at that record's numbering.
   re-checked against the schemas: it now labels which values the shipped patch sets
   and which are schema defaults, and no longer omits `timeoutMs`/`maxTimeoutMs`
   or `maxEntries`.
+- The Chinese README was rewritten in plain technical Chinese. The first pass was
+  dense and literary — comma-spliced clauses, dash-heavy sentences, and calques
+  such as 能力事实, 布防 and 围栏 used as a verb — which is what makes a translated
+  document hard to read even when it is accurate. It now averages 61 characters per
+  sentence, keeps the English term beside the Chinese where the term matters
+  (`enforcement`, `escalation`, `interop`), and turns the paragraphs that packed
+  three probes or three facts into one sentence into lists. The section names are
+  plainer too (能做什么 / 使用 / 常见问题 / 设计说明). Nothing factual changed: the
+  two READMEs still match section for section.
 
 ## [0.1.0] - 2026-10-02
 

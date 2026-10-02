@@ -181,6 +181,30 @@ machine, and [`test/probe/env.mjs`](../test/probe/env.mjs) for the Node-side pro
 No probe carries a user name, and the YAML overlays are templates with `@NAME@`
 placeholders that the scripts substitute into generated copies.
 
+## File layout
+
+```text
+lib/paths.js        pure conversion between the three path formats
+lib/wsl.js          wsl.exe interop primitives (no DSH imports)
+lib/listing.js      pure directory listing and breadcrumb helpers (no DSH imports)
+lib/index.js        WslShellExecutor (ctx.shell) and WslFileSystem (ctx.fs)
+lib/sandbox.js      the distro-side bwrap confinement shared by both providers
+lib/picker.js       WslDirectoryPicker (ctx.directoryPicker)
+lib/subprocess.js   WslSubprocessRuntime (ctx.subprocess), the terminal window
+lib/auto-preset.js  per-session environment selection
+lib/shell-env.js    registers the DSH_WSL_* environment variables
+lib/{shell,fs}.js   one-line subpath entry points
+cordis.patch.yml    the bundle configuration layer (dsh.bundle), commented
+examples/           one machine-local profile layer, for comparison
+scripts/            release helpers, used by the release workflow
+test/               unit tests, the style gate, and the behaviour probes
+docs/               this file, the configuration and limitation references, the
+                    release checklist, and the archived designs
+```
+
+`package.json` publishes a subset of this tree: the `files` list is the contract, and
+`npm run lint:style` fails if an entry stops matching tracked content.
+
 ## Where the reasoning lives
 
 - [`CHANGELOG.md`](../CHANGELOG.md) records what changed in each release. It also

@@ -104,6 +104,46 @@ of `test/probe/run.sh`. `terminal.sh` and `sandbox-shell.sh` reuse it.
 Keep probe output idempotent. Several probes delete their scratch files at the
 start, because a leftover file from an earlier run changes the result.
 
+## What has been verified
+
+`npm test` covers the pure modules and runs a `--check` pass over every shipped
+module. It cannot import the service modules, because those need DSH peer packages
+that a bare checkout does not have. Only booting the harness closes that gap, which
+is why the probes exist; the archived record's §15.4 documents the five rounds of
+misdiagnosis the gap once caused.
+
+`test/probe/sandbox.sh` needs no harness: it uses the same arguments
+`lib/sandbox.js` builds and asserts what bubblewrap does and does not confine,
+recording the interop escape as `INFO` because a Linux sandbox cannot govern a
+Windows process. The other probes boot a throwaway profile bound to the distro:
+
+- the filesystem probe asserts the write path and the write checks — a write outside
+  the policy root and a write in `read-only` mode both return `FS_SANDBOX_DENIED`,
+  while `danger-full-access` is not checked;
+- the shell probe drives all three modes through `ctx.shell` and checks the refusal
+  classification the tool layer returns;
+- the terminal probe asserts the distro, the starting directory, and the `DSH_*`
+  variables forwarded through `WSLENV`.
+
+The setup steps for the throwaway profile are in the header of `test/probe/run.sh`;
+`terminal.sh` and `sandbox-shell.sh` reuse it.
+
+On Windows 11 + WSL2 (Ubuntu 26.04) the following has been verified:
+
+- the wiring of each service, the UNC path handling and the picker behaviour;
+- the plugin mounted end to end in a real profile;
+- one real model turn in a WSL-only headless profile: `write → chmod → read → edit →
+  execute`, with the executable bit surviving the edit;
+- the terminal provider in a throwaway Web boot and in the daily GUI profile;
+- the sandbox in four ways: the arguments measured inside the distro, the filesystem
+  write checks, the shell path (`enforcement: partial`, with refusals classified
+  correctly), and the daily GUI profile, where a write from the agent's own session
+  outside the session workspace is refused inside the distro and the following
+  wider-permission request succeeds.
+
+Counts: 42 unit assertions, 18 filesystem-probe assertions, 10 shell-probe checks, 10
+sandbox expectations plus the recorded escape, and 3 terminal assertions.
+
 ## Commit and pull request conventions
 
 - Write an imperative subject line: `Fix the npm readme`, not `Fixed` or `Fixes`.

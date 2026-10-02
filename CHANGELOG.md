@@ -12,6 +12,22 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+### Changed
+
+- The README is a quick start now, and nothing else: install, use, configure, the
+  sandbox in brief, troubleshooting, development, and an index of the documents. It
+  went from 232 lines to 124. Everything that was not part of getting the plugin
+  running moved to the document it belongs to — the full configuration table to
+  [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md), the limitations to
+  [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md), the file layout to
+  [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (the two design rationales were
+  already there), and the verification list to
+  [`CONTRIBUTING.md`](CONTRIBUTING.md). The Chinese README was rewritten to match,
+  section for section, and still does.
+- `docs/CONFIGURATION.md`, `docs/LIMITATIONS.md` and `docs/ARCHITECTURE.md` ship in
+  the tarball, so a package consumer has the configuration reference and the honest
+  list of limitations without the repository.
+
 ## [0.1.3] - 2026-10-02
 
 Repository and release engineering. No runtime behaviour changed.

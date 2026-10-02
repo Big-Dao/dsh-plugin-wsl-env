@@ -12,6 +12,20 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+### Fixed
+
+- A shell request that names its workdir only **relatively** now lands on the
+  distro user's home, joined under it, when no `cwd` is configured — instead of
+  riding on the parent's `process.cwd()` fallback, a Windows directory no
+  `wsl.exe --cd` accepts. The empty-workdir case already defaulted to the home;
+  the relative tail was the one shape the marker missed. Absolute workdirs in
+  any coordinate system are unchanged.
+- A Windows UNC path outside the WSL share (`\\server\share\...`) is now
+  treated as the world path it already is, instead of being joined onto the
+  default workdir as if it were relative — which named a file that existed
+  nowhere. It also no longer triggers a `wsl.exe` home query it can never need:
+  `isRelativeWorldPath` now reports every UNC form, WSL or not, as absolute.
+
 ## [0.1.4] - 2026-10-02
 
 Documentation only: a shorter README, and the reference documents it links to.

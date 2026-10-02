@@ -74,6 +74,17 @@ check("isRelativeWorldPath isolates the only input that needs a base", () => {
   assert.equal(isRelativeWorldPath(UNC), false);
   assert.equal(isRelativeWorldPath("C:\\Users\\andyz"), false);
   assert.equal(isRelativeWorldPath(""), false);
+  // A UNC share outside WSL is absolute in its own right: treating it as
+  // relative would spend a `wsl.exe` home query on input that never needs one.
+  assert.equal(isRelativeWorldPath("\\\\server\\\\share\\\\dir"), false);
+});
+
+check("toWorldPath passes a foreign UNC share through verbatim", () => {
+  // Joining it onto the default workdir would name a file that exists nowhere.
+  // The `//server/share` spelling is deliberately not covered: it is ambiguous
+  // with a POSIX path, and the model-facing input convention here is Linux
+  // paths plus Windows spellings.
+  assert.equal(toWorldPath("\\\\server\\\\share\\\\dir", { distro: "ubuntu", cwd: "/home/andy" }), "\\\\server\\\\share\\\\dir");
 });
 
 check("a distro home is a usable base in both directions", () => {

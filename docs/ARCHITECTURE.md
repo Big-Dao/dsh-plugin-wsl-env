@@ -126,8 +126,11 @@ behaviour and the error messages match a Linux host. The function
 
 `WslFileSystem` checks writes against the same policy and the same writable list.
 That avoids a mismatch where `bash` could write `/tmp` but the write tool could
-not. Both providers report their mode through `sandboxMode`. The tool layer and the
-Permissions selector read that value.
+not. The fence is complete for the model's reach: `writeText` and `editText` are
+the only mutation calls the model-facing file tools make on the filesystem seam,
+so checking those two checks everything the model can mutate. Both providers
+report their mode through `sandboxMode`. The tool layer and the Permissions
+selector read that value.
 
 ### Reported enforcement
 

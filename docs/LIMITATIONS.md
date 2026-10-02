@@ -6,7 +6,9 @@ boundary; one that is not is a bug report waiting to happen.
 - **The sandbox does not govern WSL interop.** A confined command can still run a
   Windows program, which escapes the Linux-side boundary. The plugin reports this as
   `enforcement: partial`. See [ARCHITECTURE.md](ARCHITECTURE.md#reported-enforcement).
-- **`bubblewrap` must be installed**, or both providers fail immediately.
+- **`bubblewrap` must be installed**, or both providers fail immediately. The
+  usability probe's verdict is cached for the app process's lifetime, so
+  installing bubblewrap after the app started takes a restart to be noticed.
 - `workspace-write` binds the workspace root as writable, and bubblewrap refuses a
   bind whose source directory does not exist. If a session's workspace directory is
   deleted, commands fail with a runner error; the plugin does not recreate the

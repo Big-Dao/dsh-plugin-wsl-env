@@ -12,6 +12,10 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-02
+
+Documentation only: a shorter README, and the reference documents it links to.
+
 ### Changed
 
 - The README is a quick start now, and nothing else: install, use, configure, the

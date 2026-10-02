@@ -1,7 +1,6 @@
 {
   "name": "dsh-plugin-wsl-env",
   "version": "0.1.0",
-  "private": true,
   "description": "Run a DeepSeek Harness session against a WSL distro: a ctx.shell executor that runs commands inside the distro and a ctx.fs backend over its UNC share",
   "keywords": [
     "deepseek-harness",
@@ -25,9 +24,15 @@
     "./paths": "./lib/paths.js",
     "./package.json": "./package.json"
   },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
   "files": [
     "lib/**/*.js",
     "cordis.patch.yml",
+    "examples/**/*.yml",
     "README.md",
     "README.zh.md",
     "CHANGELOG.md",
@@ -46,6 +51,14 @@
   },
   "packageManager": "pnpm@11.7.0",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Big-Dao/dsh-plugin-wsl-env.git"
+  },
+  "homepage": "https://github.com/Big-Dao/dsh-plugin-wsl-env#readme",
+  "bugs": {
+    "url": "https://github.com/Big-Dao/dsh-plugin-wsl-env/issues"
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.4",
     "@deepseek-ai/dsh-bash-local": "0.2.0-rc.2",

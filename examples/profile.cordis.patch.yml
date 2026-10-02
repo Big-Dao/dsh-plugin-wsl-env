@@ -1,0 +1,36 @@
+# A PROFILE patch layer — `$DSH_HOME/profiles/<name>/cordis.patch.yml` — not part
+# of this plugin's bundle. It is applied after every bundle layer, so it is where
+# a machine's own preferences and row overrides belong.
+#
+# This copy is the author's own machine: account/model defaults and the UI
+# verbosity that suits it. Copy the rows you want, not the file, and expect the
+# values to differ on your machine. The plugin's rows are NOT repeated here —
+# they arrive with the bundle (see the package's cordis.patch.yml).
+- id: agent-default-model
+  name: "@deepseek-ai/dsh-agent-default-model"
+  config:
+    provider: deepseek-account
+    model: deepseek-flash
+    reasoningEffort: high
+
+- id: ui-settings-account
+  name: "@deepseek-ai/dsh-client-ui-settings-account"
+  config:
+    version: 1
+    step: done
+    purpose: development
+    process: detailed
+    completion: completed
+    usage: detailed
+    developerTools: true
+
+- id: ui-chat
+  name: "@deepseek-ai/dsh-client-ui-chat"
+  config:
+    transcriptView: detailed
+    performanceUsage: detailed
+
+- id: ui-settings
+  name: "@deepseek-ai/dsh-client-ui-settings"
+  config:
+    enabled: true

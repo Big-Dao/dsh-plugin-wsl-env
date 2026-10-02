@@ -85,14 +85,16 @@ reporting a mode this provider does not enforce.
 
 ## Install
 
-The plugin is consumed through a profile patch layer, not as an application.
-Create a profile, link the checkout into it, then use the shipped
-[`cordis.patch.yml`](cordis.patch.yml) as the user layer:
+The package is a DSH **bundle**: its `package.json` declares
+`dsh.bundle.patch`, so `dsh plugin add` installs the code *and* applies
+[`cordis.patch.yml`](cordis.patch.yml) as a configuration layer. There is no
+patch to merge by hand. Start from the Web template, because the layer
+substitutes web-surface rows — the composition-level `subprocess` provider, the
+terminal controller, the directory picker:
 
 ```powershell
-dsh wsl --from-default-profile web --dump-config
-dsh plugin --profile wsl add link:C:\path\to\dsh-plugin-wsl-env
-# merge cordis.patch.yml into %USERPROFILE%\.dsh\profiles\wsl\cordis.patch.yml
+dsh wsl --from-default-profile web --dump-config   # create the profile from the Web template
+dsh plugin --profile wsl add dsh-plugin-wsl-env    # npm; or link:C:\path\to\checkout while developing
 dsh --profile wsl --dump-config        # compose only, no boot: the fastest check
 dsh --profile wsl
 ```
@@ -103,6 +105,13 @@ additions but substitutions: it **disables** the shipped composition-level
 `subprocess` provider and inserts this package's in its place, and it gives
 `terminal-controller` the `wsl.exe` shell profile. Both are needed for the
 terminal window and neither can live in the preset — see above.
+
+Machine-local preferences do not belong in that file. Layers compose as
+bundles, then the profile's own `cordis.patch.yml`, then the home-level one,
+then `--patch` overlays, and a later layer wins per row — so override a row by
+id in `$DSH_HOME/profiles/<name>/cordis.patch.yml`.
+[`examples/profile.cordis.patch.yml`](examples/profile.cordis.patch.yml) is one
+such layer, and shows what a row override looks like.
 
 > A running process caches ES modules. **Restart the app after changing `lib/`**,
 > or the old code stays loaded.
@@ -119,7 +128,8 @@ lib/subprocess.js   WslSubprocessRuntime (ctx.subprocess) — the terminal windo
 lib/auto-preset.js  per-session environment selection
 lib/shell-env.js    DSH_WSL_* environment facts
 lib/{shell,fs}.js   one-line subpath entry points
-cordis.patch.yml    the profile patch layer, with comments
+cordis.patch.yml    the bundle patch layer (dsh.bundle), with comments
+examples/           a machine-local profile layer, for contrast
 test/               unit tests and the behavioural probes
 docs/archive/       the designs this one replaced, and why
 ```

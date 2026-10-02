@@ -1,32 +1,19 @@
-# Your patch layer for this dsh profile, applied after every bundle layer:
-# a top-level YAML array of loader patch entries (id-targeted config
-# overrides, disables, and insert lists; `!!js` expressions allowed).
-- id: agent-default-model
-  name: "@deepseek-ai/dsh-agent-default-model"
-  config:
-    provider: deepseek-account
-    model: deepseek-flash
-    reasoningEffort: high
-- id: ui-settings-account
-  name: "@deepseek-ai/dsh-client-ui-settings-account"
-  config:
-    version: 1
-    step: done
-    purpose: development
-    process: detailed
-    completion: completed
-    usage: detailed
-    developerTools: true
-- id: ui-chat
-  name: "@deepseek-ai/dsh-client-ui-chat"
-  config:
-    transcriptView: detailed
-    performanceUsage: detailed
-- id: ui-settings
-  name: "@deepseek-ai/dsh-client-ui-settings"
-  config:
-    enabled: true
-
+# The bundle layer this package contributes:
+#
+#     "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+#
+# `dsh plugin --profile <name> add dsh-plugin-wsl-env` installs the package and
+# appends this file as one layer — there is nothing to merge by hand. It is
+# still an ordinary patch layer: a top-level YAML array of loader patch entries
+# (id-targeted config overrides, disables, and insert lists; `!!js` expressions
+# allowed).
+#
+# Layers compose in the order bundles, the profile's own `cordis.patch.yml`,
+# the home-level `cordis.patch.yml`, then `--patch` overlays, and later layers
+# win per row. A row's `config` is replaced whole, never deep-merged, so a user
+# who wants a different value overrides that row by id in their own layer —
+# examples/profile.cordis.patch.yml shows what such a layer looks like.
+#
 # ═════════════════════════════════════════════════════════════════════════════
 # The GUI terminal window is a COMPOSITION-level environment, not a preset one.
 #

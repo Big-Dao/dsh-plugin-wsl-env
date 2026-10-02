@@ -27,6 +27,21 @@ The reasoning and the measurements behind each entry are in
 
 ### Changed
 
+- The package is now a DSH **bundle**, so installing it applies the layer instead
+  of merely dropping code into a profile. `package.json` declares
+  `dsh.bundle.patch` → `./cordis.patch.yml`, which is the declaration
+  `dsh plugin --profile <name> add dsh-plugin-wsl-env` reads; `private: true` is
+  gone (npm refuses to publish it otherwise), and `repository`/`homepage`/`bugs`
+  now point at the GitHub repository. The package is plain JS with no
+  dependencies, so a published install needs no `allowBuilds` permission and no
+  build step. README's Install section follows: create the profile from the Web
+  template, `dsh plugin … add`, then `--dump-config`.
+- `cordis.patch.yml` is now only the plugin's own layer. The four machine-local
+  rows it used to carry — `agent-default-model`, `ui-settings-account`,
+  `ui-chat`, `ui-settings` — moved to
+  [examples/profile.cordis.patch.yml](examples/profile.cordis.patch.yml), which
+  documents what a reader's own `$DSH_HOME/profiles/<name>/cordis.patch.yml` is
+  for and what a by-id row override looks like.
 - The terminal is bound at the **composition** level, not in the `wsl` preset.
   `dsh-api-terminal-controller` resolves its execution world with
   `agent.ctx.get("subprocess")`, and an Agent's context is created by the agent

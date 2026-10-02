@@ -3,7 +3,7 @@
 > **历史工程记录 —— 不是现行文档。**
 >
 > 本文是 0.1.x 开发过程的完整记录：实测契约、被推翻的设计、排查过程，以及**当时**得出的结论。
-> **现行状态只以仓库根目录的 [`README.md`](../../README.md) 为准**（中文翻译版：[README.zh.md](../../README.zh.md)，与英文版逐节同构）；两者冲突时，以 README.md 为准。
+> **现行状态只以仓库根目录的 [`README.md`](../../README.md) 为准**（中文翻译版：[docs/README.zh.md](../README.zh.md)，与英文版逐节同构）；两者冲突时，以 README.md 为准。
 > 本文的部分结论已被后续工作推翻，最典型的是 §2.1/§3.4/§9 由"Windows 沙箱到不了 WSL"推出的
 > "本插件必须运行在无沙箱 provider 上"——现行实现改为在 distro 内用 bubblewrap 施加约束，
 > 边界与代价见 README 的 *Sandboxing* 一节。

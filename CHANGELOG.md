@@ -12,13 +12,27 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-02
+
+### Fixed
+
+- The npm package page rendered the Chinese README instead of the English one. npm
+  chooses a package's readme by globbing `{README,README.*}` in the package root and
+  taking the first `.md` match (`@npmcli/package-json/lib/normalize.js`), so two
+  candidate files made the choice depend on directory enumeration order. 0.1.1
+  shipped with `readmeFilename: README.zh.md`. The translation now lives at
+  `docs/README.zh.md`, which leaves exactly one candidate at the root and removes
+  the ambiguity by construction rather than by luck. The English header still links
+  to it and it still ships in the tarball through `files`. 0.1.1 remains on the
+  registry with the wrong readme; 0.1.2 supersedes it.
+
 ## [0.1.1] - 2026-10-02
 
 Documentation only: the README was reorganised for readers and translated into Chinese. No code changed.
 
 ### Added
 
-- A Chinese translation of the README, [README.zh.md](README.zh.md), linked from
+- A Chinese translation of the README, [docs/README.zh.md](docs/README.zh.md), linked from
   the English header (and back). It is a translation, not the second README that
   was removed earlier: that file's problem was genre — it called itself the current
   description while contradicting the English one — whereas these two say the same
@@ -234,7 +248,7 @@ performance caveat, unsupported `watch()`, and the missing executable bit on
 freshly created files.
 ### Removed
 
-- `README.zh.md` stopped being a README: the file moved to
+- `docs/README.zh.md` stopped being a README: the file moved to
   `docs/archive/engineering-record.zh.md` and left the package's `files` list, so
   npm and GitHub now render exactly one README. The reasoning is under Fixed
   below; nothing was deleted, only renamed out of the slot that made it look
@@ -264,7 +278,7 @@ freshly created files.
 
 Documentation that a reader would have acted on, and that was no longer true:
 
-- The repository briefly carried two READMEs. `README.zh.md` called itself the
+- The repository briefly carried two READMEs. `docs/README.zh.md` called itself the
   current description of the plugin while its conclusions had been superseded
   three times over — most sharply by the sandbox work below — which is exactly
   the ambiguity a second README creates. It is now

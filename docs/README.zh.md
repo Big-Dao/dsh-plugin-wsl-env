@@ -1,10 +1,10 @@
 # dsh-plugin-wsl-env
 
-[English](README.md) · **中文**
+[English](../README.md) · **中文**
 
 [![CI](https://github.com/Big-Dao/dsh-plugin-wsl-env/actions/workflows/ci.yml/badge.svg)](https://github.com/Big-Dao/dsh-plugin-wsl-env/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/dsh-plugin-wsl-env)](https://www.npmjs.com/package/dsh-plugin-wsl-env)
-[![license](https://img.shields.io/npm/l/dsh-plugin-wsl-env)](LICENSE)
+[![license](https://img.shields.io/npm/l/dsh-plugin-wsl-env)](../LICENSE)
 
 这个插件让 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 直接把 WSL 发行版当作工作环境使用。命令在发行版里执行，模型的文件工具读写发行版里的真实文件，打开文件夹时可以直接选择发行版目录，GUI 终端也开在发行版里，而不是开在 UNC 路径下的 `cmd.exe`。
 
@@ -41,7 +41,7 @@ dsh --profile wsl                                  # 4. 启动
 
 然后在 GUI 里打开 `\\wsl.localhost\<发行版名>\...` 下的文件夹（选择器会在根一级列出每个发行版），或者直接点 **New terminal**。
 
-这个包是一个 DSH bundle：`package.json` 里声明了 `dsh.bundle.patch`，所以第 2 步会把 [`cordis.patch.yml`](cordis.patch.yml) 作为配置层加入，不需要手工合并补丁。第 1 步用 Web 模板创建 profile，原因是这一层要覆盖几个只有 Web 界面才有的行：组合层的 `subprocess` provider、终端控制器和文件夹选择器。
+这个包是一个 DSH bundle：`package.json` 里声明了 `dsh.bundle.patch`，所以第 2 步会把 [`cordis.patch.yml`](../cordis.patch.yml) 作为配置层加入，不需要手工合并补丁。第 1 步用 Web 模板创建 profile，原因是这一层要覆盖几个只有 Web 界面才有的行：组合层的 `subprocess` provider、终端控制器和文件夹选择器。
 
 还需要在发行版里安装 **bubblewrap**（`sudo apt install bubblewrap`）。没有它时每条命令都会直接失败，原因见[沙箱](#沙箱)。
 
@@ -64,7 +64,7 @@ dsh --profile wsl                                  # 4. 启动
 
 ## 配置
 
-修改配置的方式是在自己的 profile 层里按 id 覆盖某一行。文件是 `$DSH_HOME/profiles/<名字>/cordis.patch.yml`，示例见 [`examples/profile.cordis.patch.yml`](examples/profile.cordis.patch.yml)。下表中标了 *(shipped)* 的值是 [`cordis.patch.yml`](cordis.patch.yml) 里实际设置的值，其余是 schema 的默认值，列出来是因为它们比较常用。
+修改配置的方式是在自己的 profile 层里按 id 覆盖某一行。文件是 `$DSH_HOME/profiles/<名字>/cordis.patch.yml`，示例见 [`examples/profile.cordis.patch.yml`](../examples/profile.cordis.patch.yml)。下表中标了 *(shipped)* 的值是 [`cordis.patch.yml`](../cordis.patch.yml) 里实际设置的值，其余是 schema 的默认值，列出来是因为它们比较常用。
 
 | 行 | 键 | 默认值 | 说明 |
 |---|---|---|---|
@@ -199,16 +199,16 @@ docs/archive/       被本设计替换掉的方案，以及原因
 
 ## 设计说明
 
-有两处设计从 profile YAML 里看不出来。完整推理、实测数据和所有被放弃的方案都在归档工程记录里：[docs/archive/engineering-record.zh.md](docs/archive/engineering-record.zh.md)。它是历史文档，不是第二份 README；如果它与本文冲突，以本文为准。
+有两处设计从 profile YAML 里看不出来。完整推理、实测数据和所有被放弃的方案都在归档工程记录里：[docs/archive/engineering-record.zh.md](archive/engineering-record.zh.md)。它是历史文档，不是第二份 README；如果它与本文冲突，以本文为准。
 
 **为什么终端 provider 放在组合层。** `ctx.shell` 和 `ctx.fs` 是按会话提供的，位于 `wsl` agent preset 的 isolate realm 中。因此宿主工作区继续使用官方受限的 PowerShell 环境，WSL 工作区使用发行版，两者可以在同一个进程里同时存在。
 
 终端无法这样提供。`dsh-api-terminal-controller` 通过 `agent.ctx.get("subprocess")` 查找执行环境。Agent 的 context 由 agent loop 创建在**根** realm 之下；preset 的 isolate realm 则由 `dsh-agent-preset-registry` 创建在**注册表自身的** context 之下。这两条作用域链不会相交，所以挂在 `preset-wsl` 里的 `subprocess` provider 对终端窗口不可见。
 
-因此 [`cordis.patch.yml`](cordis.patch.yml) 替换的是**组合层**的 `subprocess` 行，换成一个只覆写 `spawnTerminal` 的子类。普通的 `spawn()`、Windows 侧的 ripgrep 搜索、pwsh 执行器和 LSP 宿主都仍然走官方实现。代价是终端跟着组合走，而不是跟着会话走，见[已知限制](#已知限制)。
+因此 [`cordis.patch.yml`](../cordis.patch.yml) 替换的是**组合层**的 `subprocess` 行，换成一个只覆写 `spawnTerminal` 的子类。普通的 `spawn()`、Windows 侧的 ripgrep 搜索、pwsh 执行器和 LSP 宿主都仍然走官方实现。代价是终端跟着组合走，而不是跟着会话走，见[已知限制](#已知限制)。
 
 **为什么沙箱放在 Linux 侧。** Windows ACL runner 的受限令牌完全到不了 WSL，所以约束只能在 Windows 侧构造、在发行版内执行。`lib/sandbox.js` 因此照搬 `dsh-sandbox-local` 的 Linux `bwrap` 方案，而不是去用 `ctx.sandbox`；后者 `dsh-tool-bash` 从来不用，它读的是执行器的 `sandboxMode` 和 `ctx.sandboxPolicy`，这两样都由本插件提供。
 
 ## 许可
 
-MIT，见 [LICENSE](LICENSE)。
+MIT，见 [LICENSE](../LICENSE)。

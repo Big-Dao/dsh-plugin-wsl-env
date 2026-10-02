@@ -1,0 +1,30 @@
+# Shell-confinement probe overlay — applied on top of the throwaway `wslfs`
+# profile that `test/probe/run.sh` documents.
+#
+# It swaps the composition's shell executor for the WSL one, so the probe can
+# drive real distro commands through the exact path `dsh-tool-bash` uses:
+# `ctx.shell.resolve(request)` then `ctx.shell.execute(spec)`. Both shipped
+# sandboxing executors are disabled for that reason — this probe is about the
+# distro-side sandbox, not the Windows ACL one.
+#
+#   test/probe/sandbox-shell.sh
+- id: bash-sandbox
+  disabled: true
+
+- id: pwsh-sandbox
+  disabled: true
+
+- insert:
+    - id: wsl-shell
+      name: 'dsh-plugin-wsl-env'
+      config:
+        distro: ubuntu
+        loginShell: true
+
+    - id: shell-sandbox-probe
+      name: './sandbox-shell-probe.mjs'
+      config:
+        # A distro directory the probe owns, granted as the writable root.
+        workspaceRoot: /home/andy/.dsh-shellprobe
+        # Deliberately outside it: every workspace-write refusal targets this.
+        outside: /home/andy/dsh-shellprobe-outside.txt

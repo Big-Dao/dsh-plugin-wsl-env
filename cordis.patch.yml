@@ -149,6 +149,13 @@
               # No `cwd`: an empty default workdir means the distro user's home,
               # asked of the distro itself. Pin a directory here to override it —
               # a value that is right on one machine is wrong on every other.
+              #
+              # Each command is confined inside the distro by bubblewrap, in the
+              # policy's mode, and the file tools are fenced by the same policy.
+              # Install bubblewrap there (`sudo apt install bubblewrap`); without
+              # it the providers fail closed rather than run unconfined. Add
+              # `sandbox: false` to either provider for the old, unconfined
+              # posture.
               - id: wsl-shell
                 name: 'dsh-plugin-wsl-env'
                 config:

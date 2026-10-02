@@ -11,6 +11,32 @@ The reasoning and the measurements behind each entry are in
 
 ### Added
 
+- **Distro-side sandboxing** (`lib/sandbox.js`, and `sandbox: true` on both
+  providers): WSL commands are now confined instead of running unconfined. The
+  Windows ACL runner can never reach WSL — its restricted token fails `wsl.exe`
+  with `Wsl/E_ACCESSDENIED` — so the confinement is built on the host and
+  executed *inside* the distro: `wsl.exe … --exec bwrap --ro-bind / / --dev /dev
+  --unshare-pid --proc /proc --die-with-parent [--tmpfs /tmp --bind <workspace>
+  <workspace>] -- <shell> -lc <cmd>`. The profile arguments, the denial dialect
+  (`read-only file system`) and the runner-failure rules mirror
+  `@deepseek-ai/dsh-sandbox-local`'s Linux rung, so a denial reads the same
+  whether the command ran on a Linux host or in a distro. `WslShellExecutor` and
+  `WslFileSystem` advertise the mode through their `sandboxMode` capability fact,
+  which brings back the Permissions selector and the denied→escalate flow
+  (`danger-full-access` skips the wrap entirely). Enforcement is reported as
+  **`partial`**, not `full`: a distro process can still execute a Windows binary
+  through interop, which bubblewrap does not govern — measured, not assumed, by
+  the probe below. Without `bubblewrap` in the distro the providers fail closed
+  with `SANDBOX_UNAVAILABLE`; `sandbox: false` restores the old posture and
+  removes the capability fact with it.
+- Sandbox probes. `test/probe/sandbox.sh` (`npm run probe:sandbox`) needs no
+  harness: it applies the exact profile arguments and asserts what bubblewrap
+  governs — a write outside the workspace refused with EROFS, an ephemeral
+  sandbox `/tmp`, a read-only `/mnt/c`, and the interop escape, recorded as
+  `INFO` because a Linux sandbox cannot govern a Windows process.
+  `test/probe/sandbox-shell.sh` (`npm run probe:sandbox-shell`) boots the
+  throwaway profile with the executor mounted and drives the same three modes
+  through `ctx.shell`, asserting the result's `denied`/`enforcement` facts.
 - `WslSubprocessRuntime` (`ctx.subprocess`, subpath
   `dsh-plugin-wsl-env/subprocess`): the GUI's right-sidebar terminal window now
   opens a shell *inside the distro*, in the Session workspace, instead of
@@ -27,6 +53,21 @@ The reasoning and the measurements behind each entry are in
 
 ### Changed
 
+- `WslFileSystem` fences its mutations by `ctx.sandboxPolicy`: `writeText` and
+  `editText` check the policy before any I/O, re-resolve the target so the checked
+  identity is the mutated one, refuse `read-only` and anything outside the
+  writable roots with `FS_SANDBOX_DENIED`, and refuse nothing at all under
+  `danger-full-access`. The writable roots are the workspace plus the temp area of
+  the world that workspace lives in — a distro workspace grants the distro's
+  `/tmp`, a Windows-folder workspace keeps upstream's `/tmp` + `os.tmpdir()`.
+  `@deepseek-ai/dsh-sandbox` returns as a peer: the plugin imports the shared
+  `canonicalPath`/`writableRoots` and the runner-failure/diagnostic classifiers
+  rather than restating them.
+- The README's "one constraint that shapes everything" section is gone: it said
+  the plugin inherits `sandboxMode === undefined`, which is no longer true. The
+  replacement states the mechanism (Linux bubblewrap inside the distro), the mode
+  table, the `partial` enforcement and its interop cause, the `bubblewrap`
+  requirement and the fail-closed behaviour.
 - An empty `cwd` now means **the distro user's home** in both WSL providers,
   instead of the host path the shipped default resolves to. `WslFileSystem`'s
   default was `process.cwd()` — a Windows directory no `wsl.exe --cd` accepts —
@@ -123,6 +164,13 @@ The reasoning and the measurements behind each entry are in
 
 Documentation that a reader would have acted on, and that was no longer true:
 
+- README.zh.md §2.1 and §3.4 still conclude that "any WSL plugin must run on a
+  non-sandboxing provider" and that both providers report `sandboxMode:
+  undefined` (§9's recorded self-check prints exactly that). The Windows ACL
+  constraint in §2.1 holds and is unchanged; the *conclusion* it drew about our
+  own confinement does not, because the sandbox now runs inside the distro. Those
+  sections state the superseded posture and should be read against the README's
+  "Sandboxing" section.
 - §9.6 and §10.5 claimed the `wsl` and `wsltest` profiles were still available,
   and §13.6 said the same about `envweb`. All three are gone.
 - The desktop section documented the superseded `build-desktop-patch.mjs`

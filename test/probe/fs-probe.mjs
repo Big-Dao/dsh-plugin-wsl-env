@@ -58,6 +58,16 @@ export async function apply(ctx) {
   const say = (line) => lines.push(line);
   const record = (name, ok, detail = "") => say(`${ok ? "PASS" : "FAIL"}  ${name}${detail === "" ? "" : `  — ${detail}`}`);
 
+  // Every mutation runs under an explicit file-effect policy. A real tool
+  // resolves this from the calling session (`ctx.sandboxPolicy.resolve({ session })`,
+  // whose `workspaceRoot` is the session cwd); the probe has no session, so it
+  // names the scratch directory's world path directly. Passing it explicitly is
+  // also what makes the fence assertions below meaningful rather than incidental.
+  const POLICY = { mode: "workspace-write", workspaceRoot: "\\\\wsl.localhost\\ubuntu\\home\\andy\\.dsh-fsprobe" };
+  const OUTSIDE = "/home/andy/dsh-fsprobe-outside.txt";
+  const write = (target, content, intent, policy = POLICY) => ctx.fs.writeText(target, content, intent, undefined, policy);
+  const edit = (target, request, expected, policy = POLICY) => ctx.fs.editText(target, request, expected, undefined, policy);
+
   /** Run one probe step, recording a thrown error instead of aborting the run. */
   const step = async (name, body) => {
     try {
@@ -70,8 +80,29 @@ export async function apply(ctx) {
     }
   };
 
+  /** Assert that one mutation is refused with the fence's structured code. */
+  const refuses = async (name, body) => step(name, async () => {
+    try {
+      await body();
+    } catch (error) {
+      if (error?.code !== "FS_SANDBOX_DENIED") throw new Error(`wrong code ${error?.code}: ${error?.message}`);
+      return error.code;
+    }
+    throw new Error("the fenced mutation was accepted");
+  });
+
   say("== WslFileSystem mutation probe ==");
   say(`scratch: ${DIR}`);
+  say(`policy: ${POLICY.mode} under ${POLICY.workspaceRoot}`);
+  // This probe owns the scratch file, so it starts from absence: the creation
+  // guard below must be about what THIS run does, not about what a previous run
+  // left behind. A stale file made the whole creation sequence report false
+  // failures once already.
+  try {
+    inDistro("rm", "-f", FILE);
+  } catch {
+    /* absence is re-derived by the steps that need it */
+  }
   say(`mode before the run: ${modeOf(FILE)}`);
   say("");
 
@@ -100,8 +131,26 @@ export async function apply(ctx) {
     return relative.displayPath;
   });
 
+  // The fence, before any real mutation: all three modes against the same two
+  // targets. `danger-full-access` is the approved escalation and must write.
+  await refuses("workspace-write refuses a target outside its root", async () => {
+    const outside = await ctx.fs.resolve(OUTSIDE);
+    await write(outside, "denied\n", undefined);
+  });
+  await refuses("read-only refuses a target inside the workspace", async () => {
+    await write(target, "denied\n", undefined, { ...POLICY, mode: "read-only" });
+  });
+  await step("danger-full-access is not fenced", async () => {
+    const outside = await ctx.fs.resolve(OUTSIDE);
+    await write(outside, "escalated\n", undefined, { ...POLICY, mode: "danger-full-access" });
+    const text = await ctx.fs.readText(outside);
+    if (text !== "escalated\n") throw new Error(`unexpected content ${JSON.stringify(text)}`);
+    inDistro("rm", "-f", OUTSIDE);
+    return "wrote and removed the escalated target";
+  });
+
   await step("writeText createIfAbsent (new file)", async () => {
-    const outcome = await ctx.fs.writeText(target, "alpha\n", { kind: "createIfAbsent" });
+    const outcome = await write(target, "alpha\n", { kind: "createIfAbsent" });
     return `operation=${outcome.operation} version=${outcome.version}`;
   });
   say(`mode after create: ${modeOf(FILE)}`);
@@ -139,7 +188,7 @@ export async function apply(ctx) {
   });
 
   await step("editText with the version guard (replaceIfVersion)", async () => {
-    const outcome = await ctx.fs.editText(target, { oldString: "alpha", newString: "beta" }, { kind: "replaceIfVersion", version });
+    const outcome = await edit(target, { oldString: "alpha", newString: "beta" }, { kind: "replaceIfVersion", version });
     version = outcome.version;
     return `version=${version}`;
   });
@@ -155,7 +204,7 @@ export async function apply(ctx) {
   });
 
   await step("writeText with the version guard (replaceIfVersion)", async () => {
-    const outcome = await ctx.fs.writeText(target, "gamma\n", { kind: "replaceIfVersion", version });
+    const outcome = await write(target, "gamma\n", { kind: "replaceIfVersion", version });
     version = outcome.version;
     return `operation=${outcome.operation} version=${version}`;
   });
@@ -172,7 +221,7 @@ export async function apply(ctx) {
 
   await step("createIfAbsent on an existing file is still refused", async () => {
     try {
-      await ctx.fs.writeText(target, "delta\n", { kind: "createIfAbsent" });
+      await write(target, "delta\n", { kind: "createIfAbsent" });
     } catch (error) {
       if (error?.code !== "FS_NOT_OBSERVED") throw new Error(`wrong code ${error?.code}: ${error?.message}`);
       return error.code;
@@ -182,7 +231,7 @@ export async function apply(ctx) {
 
   await step("a stale version is still refused", async () => {
     try {
-      await ctx.fs.editText(target, { oldString: "gamma", newString: "delta" }, { kind: "replaceIfVersion", version: "stale" });
+      await edit(target, { oldString: "gamma", newString: "delta" }, { kind: "replaceIfVersion", version: "stale" });
     } catch (error) {
       if (error?.code !== "FS_STALE_VERSION") throw new Error(`wrong code ${error?.code}: ${error?.message}`);
       return error.code;

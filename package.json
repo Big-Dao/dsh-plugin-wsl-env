@@ -45,6 +45,7 @@
     "probe": "bash test/probe/run.sh",
     "probe:terminal": "bash test/probe/terminal.sh",
     "probe:sandbox": "bash test/probe/sandbox.sh",
+    "probe:sandbox-shell": "bash test/probe/sandbox-shell.sh",
     "sync:windows": "bash test/probe/sync-to-windows.sh"
   },
   "engines": {
@@ -66,6 +67,7 @@
     "@deepseek-ai/dsh-fs": "0.2.0-rc.2",
     "@deepseek-ai/dsh-fs-local": "0.2.0-rc.2",
     "@deepseek-ai/dsh-host-directory-picker": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-sandbox": "0.2.0-rc.2",
     "@deepseek-ai/dsh-subprocess": "0.2.0-rc.2",
     "@deepseek-ai/dsh-subprocess-local": "0.2.0-rc.2",
     "@deepseek-ai/schemastery": "~3.18.4"
@@ -84,6 +86,9 @@
       "optional": true
     },
     "@deepseek-ai/dsh-host-directory-picker": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-sandbox": {
       "optional": true
     },
     "@deepseek-ai/dsh-subprocess": {

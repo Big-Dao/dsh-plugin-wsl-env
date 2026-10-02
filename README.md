@@ -18,8 +18,8 @@ is therefore not a new tool; it is two seam providers:
 
 | Seam | Provider | Effect |
 |---|---|---|
-| `ctx.shell` | `WslShellExecutor` | every command runs as `wsl.exe -d <distro> --cd <linux dir> --exec <login shell> -lc <cmd>` |
-| `ctx.fs` | `WslFileSystem` | Linux paths map onto the distro's UNC share, so the host fs stack (and the packaged ripgrep) operates on real distro files |
+| `ctx.shell` | `WslShellExecutor` | every command runs as `wsl.exe -d <distro> --cd <linux dir> --exec <login shell> -lc <cmd>`, wrapped in a distro-side `bwrap` sandbox |
+| `ctx.fs` | `WslFileSystem` | Linux paths map onto the distro's UNC share, so the host fs stack (and the packaged ripgrep) operates on real distro files, fenced by the same policy |
 | `ctx.subprocess` | `WslSubprocessRuntime` | the GUI's right-sidebar terminal window opens a shell *inside the distro*, in the Session workspace, instead of `cmd.exe` in a UNC directory |
 
 It also ships three smaller integrations:
@@ -63,22 +63,64 @@ controller is configured with the single shell profile that matters
 (`shell: { path: wsl.exe }`) rather than having executable lookup rewritten for
 every root consumer to make one shell menu prettier.
 
-## The one constraint that shapes everything
+## Sandboxing: a different mechanism, not the Windows one
 
 On Windows, DSH confines commands with `dsh-sandbox-windows-acl`: a restricted,
 low-integrity token plus a write allowlist. **That token cannot reach WSL at
 all** — `wsl.exe` fails with `Wsl/E_ACCESSDENIED` and `\\wsl.localhost\<distro>`
-reports access denied. Both work normally outside the sandbox.
+reports access denied. Both work normally outside the sandbox. There is no way
+to run a distro command under that token, so the WSL execution world cannot
+inherit the Windows sandbox.
 
-So this plugin subclasses the *non-sandboxing* executors and inherits
-`sandboxMode === undefined`, which is the honest capability fact: the tool layer
-reads it and advertises that these commands are not confined. WSL access is
-inherently outside the harness's file sandbox; do not paper over that by
-reporting a mode this provider does not enforce.
+It gets the Linux one instead. `lib/sandbox.js` builds a **bubblewrap** profile
+on the host and hands it to `wsl.exe --exec`, so the confinement is created and
+enforced *inside* the distro:
+
+```
+wsl.exe -d <distro> --cd <linux dir> --exec bwrap \
+  --ro-bind / / --dev /dev --unshare-pid --proc /proc --die-with-parent \
+  [--tmpfs /tmp --bind <workspace> <workspace>]  --  <shell> -lc <cmd>
+```
+
+That is DSH's own Linux rung, argument for argument (`dsh-sandbox-local`), which
+is why the semantics and the diagnostics line up with a Linux host:
+
+| Mode | What the distro command gets |
+|---|---|
+| `read-only` | the whole distro read-only, `/dev/null` writable — the sink a shell needs |
+| `workspace-write` | the above plus the Session workspace bound read-write and an ephemeral `/tmp` |
+| `danger-full-access` | no wrap at all; the approved escalation |
+
+`WslFileSystem` fences the same policy on its own mutation path (`writeText`,
+`editText`) against the same writable roots, so "the write tool cannot write
+/tmp but bash can" asymmetries do not arise. Both providers report the mode
+through their `sandboxMode` capability fact, which is what brings back the
+Permissions selector and the *denied → request escalation* flow.
+
+**Enforcement is `partial`, and this is the honest part.** A WSL distro process
+can execute a *Windows* binary through interop (`/mnt/c/…/*.exe`). That process
+is not a Linux process: bubblewrap does not govern it, and it runs under your
+ordinary Windows token, able to write anywhere you can. `npm run probe:sandbox`
+demonstrates exactly that, and keeps demonstrating it. Closing the hole means
+denying execution under `/mnt`, which would also break `/mnt/c/…` Sessions — so
+it is stated rather than papered over. Network and process visibility are
+outside `SandboxMode`'s vocabulary on every platform.
+
+Two consequences worth knowing:
+
+- **`bubblewrap` is required in the distro** (`sudo apt install bubblewrap`).
+  Without it the provider *fails closed*: every confined command reports
+  `SANDBOX_UNAVAILABLE` instead of quietly running unconfined. The capability
+  fact also disappears with the enforcement — an unusable runner never leaves a
+  "confined" claim behind.
+- Configure `sandbox: false` on either provider to get the pre-sandbox
+  behaviour back: commands run unconfined and `sandboxMode` returns `undefined`,
+  so the tool layer tells the model these operations are not confined.
 
 ## Requirements
 
 - Windows with WSL2 and at least one distro.
+- `bubblewrap` inside the distro, for the sandbox (see above).
 - DSH `0.2.0-rc.2`-era packages (`@deepseek-ai/dsh-base`, `dsh-web-app`).
 - **No dependencies.** Everything the package needs is a peer, supplied by the
   profile that mounts it.
@@ -123,6 +165,7 @@ lib/paths.js        pure path translation between the three coordinate systems
 lib/wsl.js          wsl.exe interop primitives (no DSH imports)
 lib/listing.js      pure directory-listing and breadcrumb helpers (no DSH imports)
 lib/index.js        WslShellExecutor (ctx.shell) + WslFileSystem (ctx.fs)
+lib/sandbox.js      the distro-side bwrap confinement both providers apply
 lib/picker.js       WslDirectoryPicker (ctx.directoryPicker)
 lib/subprocess.js   WslSubprocessRuntime (ctx.subprocess) — the terminal window
 lib/auto-preset.js  per-session environment selection
@@ -138,7 +181,9 @@ docs/archive/       the designs this one replaced, and why
 
 ```bash
 npm test                  # syntax check + unit tests — dependency-free, runs anywhere
+npm run probe:sandbox     # the bwrap profile's semantics, measured inside the distro
 npm run probe             # filesystem probe against a real distro (Windows + WSL only)
+npm run probe:sandbox-shell  # shell probe: drives the confined executor through a real boot
 npm run probe:terminal    # terminal probe: opens a PTY through the provider
 ```
 
@@ -148,17 +193,26 @@ checkout does not have. That leaves an evaluation-time gap which only booting th
 harness closes — see README.zh.md §15.4 for the five rounds of misdiagnosis that
 gap once caused.
 
-`test/probe/` drives both seams inside throwaway profiles bound to the distro.
-The filesystem probe asserts the whole publication path — create, read, version
-guard, edit, overwrite, mode preservation, and the two guard rejections — and
-carries a negative-control mode (README.zh.md §16.5 has the recorded output). The
-terminal probe boots the Web profile with the provider in place, asks for the
-same `spawnTerminal` request the GUI makes, and asserts the shell it lands in:
-distro, initial directory, and the `DSH_*` fact forwarded through `WSLENV`.
+`test/probe/sandbox.sh` needs no harness at all: it applies the exact profile
+arguments `lib/sandbox.js` builds and asserts what bubblewrap does and does not
+govern — including the interop escape, which it records as `INFO` rather than a
+failure because a Linux sandbox cannot govern a Windows process.
 
-Both probes need a Windows-side profile whose `node_modules/dsh-plugin-wsl-env`
+`test/probe/` drives the seams inside throwaway profiles bound to the distro.
+The filesystem probe asserts the whole publication path — create, read, version
+guard, edit, overwrite, mode preservation, and the two guard rejections — plus
+the fence: a write outside the policy root and a `read-only` write are both
+refused with `FS_SANDBOX_DENIED`, and `danger-full-access` is not fenced. The
+shell probe boots the same profile with the WSL executor mounted and asserts the
+same three modes through `ctx.shell`, including the denial classification the
+tool layer renders. The terminal probe boots the Web profile with the provider in
+place, asks for the same `spawnTerminal` request the GUI makes, and asserts the
+shell it lands in: distro, initial directory, and the `DSH_*` fact forwarded
+through `WSLENV`.
+
+Those probes need a Windows-side profile whose `node_modules/dsh-plugin-wsl-env`
 points at the checkout; `test/probe/run.sh` documents the one-time setup in its
-header, and `test/probe/terminal.sh` reuses that same profile.
+header, and `terminal.sh` and `sandbox-shell.sh` reuse that same profile.
 
 ## Verified
 
@@ -181,12 +235,37 @@ Local, on Windows 11 + WSL2 (Ubuntu 26.04):
   `wsl.exe -d ubuntu --cd /home/andy/Projects/dsh/plugins/dsh-plugin-wsl-env`
   (recorded from the live process table), and the window lands in the distro
   user's zsh.
+- the **sandbox**, three ways: the profile arguments measured directly in the
+  distro (`npm run probe:sandbox`: a write outside the workspace is refused with
+  EROFS, the sandbox's `/tmp` is ephemeral, `/mnt/c` is read-only, and the
+  interop escape is recorded); the filesystem fence (`npm run probe`: a write
+  outside the policy root and a `read-only` write both refused with
+  `FS_SANDBOX_DENIED`, `danger-full-access` not fenced); and the shell path
+  (`npm run probe:sandbox-shell`: `sandboxMode` advertised, the same three modes
+  through `ctx.shell`, the refusal classified as a denial with
+  `enforcement: partial`).
 
-35 unit assertions and 14 filesystem-probe assertions pass; the terminal probe
-asserts three more.
+42 unit assertions, 18 filesystem-probe assertions and 10 shell-probe checks
+pass; the bwrap probe adds 10 measured expectations plus the recorded escape, and
+the terminal probe asserts three more.
 
 ## Known limitations
 
+- **The sandbox does not govern WSL interop.** A confined distro command can
+  still execute a Windows binary from `/mnt/c`, and that Windows process runs
+  outside bubblewrap under your ordinary token. Closing it would mean denying
+  execution under `/mnt`, which breaks `/mnt/c/…` Sessions; the provider reports
+  `enforcement: partial` for exactly this reason, and `npm run probe:sandbox`
+  re-measures it. Network and process visibility are outside the mode vocabulary
+  on every platform.
+- **`bubblewrap` must be installed in the distro**, and the providers fail
+  closed without it (`SANDBOX_UNAVAILABLE` for every confined command). That is
+  deliberate: the alternative is a silent run without the boundary the model was
+  told it has. `sandbox: false` is the documented opt-out.
+- A `workspace-write` profile binds the workspace root read-write, and bubblewrap
+  refuses a bind whose source does not exist — so a Session whose workspace
+  directory has been deleted fails closed with a runner diagnostic rather than
+  being recreated.
 - Freshly created files get the distro umask default (0644), not an executable
   bit: a host-side `chmod` over the share is silently ignored. Overwrites and
   edits *do* preserve the mode. `chmod +x` from inside the distro when needed.
@@ -200,6 +279,10 @@ asserts three more.
 - The terminal is a **composition** property, not a Session one (see above): a
   Windows-folder Session gets the distro terminal at `/mnt/<drive>/…`, and the
   shell menu is deliberately reduced to the one configured profile.
+- The GUI terminal is an interactive shell and is **not** wrapped in the
+  sandbox, exactly like the shipped terminal provider: the mode vocabulary
+  governs command execution and file mutations, not a human's interactive
+  session.
 - Terminal activity reporting stops at `wsl.exe`. The shipped provider's shell
   integration runs only for a direct `bash`/`zsh` launch on a POSIX host, so a
   distro terminal reports `unknown` activity and the controller's unattended idle

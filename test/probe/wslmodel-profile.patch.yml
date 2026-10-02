@@ -24,9 +24,14 @@
 - id: fs-sandbox
   disabled: true
 # The permission presets exist to switch a CONFINED executor between sandbox
-# modes. This profile mounts the unconfined WSL executor on purpose, so the row
-# refuses to activate (`bundle a sandbox mode ... misconfiguration`) and the
-# run reports a warning. Disabling it says that explicitly instead.
+# modes. The WSL executor is confined now — distro-side bubblewrap — so this row
+# would activate; it is disabled because this bench drives one mode and does not
+# need the selector.
+#
+# Note when running it: the session workspace is the policy's workspace root, so
+# a bench started from a Windows directory is fenced to THAT directory, and a
+# write to a distro path is refused by design. Use a workspace inside the distro
+# (a UNC path, as the GUI does) to exercise distro writes.
 - id: permission
   disabled: true
 

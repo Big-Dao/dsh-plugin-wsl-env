@@ -5,7 +5,7 @@
  *   node test/paths.test.mjs
  */
 import assert from "node:assert/strict";
-import { isRelativeWorldPath, isUnderDistro, isWslUnc, toDisplayPath, toLinuxPath, toWorldPath, uncToPosix, windowsToLinuxMount } from "../lib/paths.js";
+import { isRelativeWorldPath, isUnderDistro, isWorldPathUnder, isWslUnc, toDisplayPath, toLinuxPath, toWorldPath, uncToPosix, windowsToLinuxMount } from "../lib/paths.js";
 
 const UNC = "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj";
 let passed = 0;
@@ -105,6 +105,47 @@ check("uncToPosix round-trips paths a shell would otherwise split", () => {
 
 check("uncToPosix keeps a distro name that is not a bare word", () => {
   assert.deepEqual(uncToPosix("\\\\wsl.localhost\\Ubuntu-24.04\\home"), { distro: "Ubuntu-24.04", linuxPath: "/home" });
+});
+
+check("isWorldPathUnder compares UNC targets case-insensitively", () => {
+  const root = "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj";
+  assert.equal(isWorldPathUnder(`${root}\\src\\a.ts`, root), true);
+  assert.equal(isWorldPathUnder(root, root), true);
+  assert.equal(isWorldPathUnder(root.toUpperCase(), root), true);
+  assert.equal(isWorldPathUnder("\\\\wsl.localhost\\ubuntu\\home\\andy\\proj2\\a.ts", root), false);
+  assert.equal(isWorldPathUnder("\\\\wsl.localhost\\ubuntu\\home\\andy", root), false);
+  assert.equal(isWorldPathUnder("C:\\Users\\andyz\\x", root), false);
+});
+
+check("isWorldPathUnder maps a Linux grant onto the target's share", () => {
+  // A distro-side grant ("/tmp") and a target reached through the share are the
+  // same place; without the distro, no containment is claimed.
+  assert.equal(isWorldPathUnder("\\\\wsl.localhost\\ubuntu\\tmp\\x", "/tmp", { distro: "ubuntu" }), true);
+  assert.equal(isWorldPathUnder("\\\\wsl.localhost\\ubuntu\\tmp\\x", "/tmp"), false);
+  assert.equal(isWorldPathUnder("\\\\wsl.localhost\\ubuntu\\tmp\\x", "/tmp", { distro: "debian" }), false);
+});
+
+check("isWorldPathUnder keeps POSIX semantics for POSIX pairs", () => {
+  assert.equal(isWorldPathUnder("/home/andy/proj/a.ts", "/home/andy/proj"), true);
+  assert.equal(isWorldPathUnder("/home/andy/proj", "/home/andy"), true);
+  assert.equal(isWorldPathUnder("/home/andyson/a.ts", "/home/andy"), false);
+  assert.equal(isWorldPathUnder("/home/andy/a.ts", "/"), true);
+  assert.equal(isWorldPathUnder("/home/andy", "/Home"), false);
+});
+
+check("isWorldPathUnder treats a drive root as a root, not a prefix", () => {
+  assert.equal(isWorldPathUnder("C:\\Users\\andyz\\x", "C:\\"), true);
+  assert.equal(isWorldPathUnder("C:\\ish", "C:\\"), true); // a genuine child of the drive root
+  assert.equal(isWorldPathUnder("D:\\x", "C:\\"), false);
+  // The sibling trap a bare-prefix comparison would fall for.
+  assert.equal(isWorldPathUnder("C:\\Users\\andyson\\x", "C:\\Users\\andy"), false);
+  assert.equal(isWorldPathUnder("C:\\Users\\andy", "C:\\Users\\andy"), true);
+});
+
+check("isWorldPathUnder refuses to guess across vocabularies", () => {
+  assert.equal(isWorldPathUnder("/home/andy", "C:\\"), false);
+  assert.equal(isWorldPathUnder("relative/x", "/home/andy"), false);
+  assert.equal(isWorldPathUnder("", "/home/andy"), false);
 });
 
 console.log(`\n${passed} checks passed`);

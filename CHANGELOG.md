@@ -41,6 +41,13 @@ reference below points at that record's numbering.
   three probes or three facts into one sentence into lists. The section names are
   plainer too (能做什么 / 使用 / 常见问题 / 设计说明). Nothing factual changed: the
   two READMEs still match section for section.
+- The English README then got the same treatment, once the Chinese rewrite made the
+  problem obvious in both languages. A single "what has been verified" sentence ran
+  to 125 words; the sandbox section explained itself with asides ("and that is the
+  honest part", "stated rather than papered over"); and terms such as *composition*,
+  *capability fact*, *isolate realm* and *fence* (as a verb) appeared before they
+  were explained. The prose now averages 15 words a sentence with a 42-word maximum,
+  the verification list is a list, and each term is glossed where it first appears.
 
 ## [0.1.0] - 2026-10-02
 

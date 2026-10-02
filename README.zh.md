@@ -183,7 +183,15 @@ docs/archive/       被本设计替换掉的方案，以及原因
 
 一次性 profile 的搭建步骤写在 `test/probe/run.sh` 的头部；`terminal.sh` 和 `sandbox-shell.sh` 复用它。
 
-**已验证**（Windows 11 + WSL2，Ubuntu 26.04）：与各服务接入点的对接、UNC 路径处理和选择器行为；插件在真实 profile 里端到端挂载；在仅 WSL 的 headless profile 里完成一次真实模型回合（`write → chmod → read → edit → execute`，编辑后可执行权限仍然保留）；终端 provider 在一次性 Web 启动和日常 GUI profile 中都成立；沙箱用四种方式验证：在发行版里实测参数、文件系统写入检查、shell 路径（`enforcement: partial`，拒绝被正确分类）、以及日常 GUI profile 里 agent 自己的会话在会话工作区之外写入时被发行版内拒绝、随后的放宽权限请求成功。数量：42 条单元测试断言、18 条文件系统探针断言、10 条 shell 探针检查、10 条沙箱预期另加被记录的逃逸、3 条终端断言。
+**已验证**（Windows 11 + WSL2，Ubuntu 26.04）：
+
+- 与各服务接入点的对接、UNC 路径处理和选择器行为；
+- 插件在真实 profile 里端到端挂载；
+- 在仅 WSL 的 headless profile 里完成一次真实模型回合：`write → chmod → read → edit → execute`，编辑后可执行权限仍然保留；
+- 终端 provider 在一次性 Web 启动和日常 GUI profile 中都成立；
+- 沙箱用四种方式验证：在发行版里实测参数、文件系统写入检查、shell 路径（`enforcement: partial`，拒绝被正确分类），以及日常 GUI profile 里 agent 自己的会话在会话工作区之外写入时被发行版内拒绝、随后的放宽权限请求成功。
+
+数量：42 条单元测试断言、18 条文件系统探针断言、10 条 shell 探针检查、10 条沙箱预期另加被记录的逃逸、3 条终端断言。
 
 **运行时镜像。** checkout 在发行版内开发，但 harness 是 Windows 进程，而 profile 只能链接 Windows 路径：pnpm 会把 `link:\\wsl.localhost\...` 改写成坏掉的 `/wsl.localhost/...` 符号链接。所以 `default-workspace/dsh-plugin-wsl` 这份 Windows 副本是运行时镜像，启动应用前用 `test/probe/sync-to-windows.sh` 同步。该目标目录不在任何会话工作区内，所以 agent 在受限 shell 里执行同步时会被 `workspace-write` 拒绝，需要为这一条命令批准 `danger-full-access`。这是沙箱的预期行为，不是脚本坏了；不想看到提示就在普通 distro 终端里执行。
 

@@ -12,6 +12,13 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-02
+
+First release. A WSL distro can be picked as a workspace, read and written
+with the model's own file tools, and run commands in; the GUI terminal opens
+inside it; commands are confined by a Linux-side sandbox built in the distro;
+and the package installs as a bundle that contributes its own profile layer.
+
 ### Added
 
 - **Distro-side sandboxing** (`lib/sandbox.js`, and `sandbox: true` on both
@@ -54,6 +61,29 @@ reference below points at that record's numbering.
   `spawnTerminal` request the GUI makes, and asserts the distro, the translated
   initial directory, and the forwarded `DSH_SESSION_ID`.
 
+- `WslShellExecutor` (`ctx.shell`): runs every command inside the distro as
+  `wsl.exe -d <distro> --cd <linux dir> --exec <shell> -lc <cmd>`, where the
+  shell is the distro user's login shell rather than a hardcoded bash. (§3, §12)
+- `WslFileSystem` (`ctx.fs`): maps Linux paths onto the distro's UNC share so the
+  host fs stack — including the packaged ripgrep — operates on real distro files,
+  with Linux paths as the model-facing `displayPath` and the UNC path as the
+  opaque `targetKey`. (§3)
+- Symlinked paths resolve by asking the distro for `readlink -f` and retrying
+  once, which is what makes `/etc/os-release`, `/bin` and `/lib` readable over a
+  share that cannot traverse POSIX symlinks. (§10.4)
+- `WslDirectoryPicker` (`ctx.directoryPicker`): lists Windows home and every
+  installed distro at the root level, so the shipped GUI dialog becomes the
+  single workspace picker for host and distro folders alike. It reports
+  `kind: 'browse'` — a third kind would invalidate the three Remote verbs that
+  require it. (§8)
+- `auto-preset`: binds the `wsl` agent preset when a new session's workspace is
+  inside a distro, inside the `ensureSession` frame so the very first mount is
+  already correct and the host ACL sandbox never touches a 9p path. (§13, §15)
+- `shell-env`: contributes `DSH_WSL_DISTRO`, `DSH_WSL_SHELL` and `DSH_WSL_HOME`
+  to the managed `DSH_*` namespace, so the model can read the real environment
+  instead of inferring it from a tool name. (§14)
+- Behavioural probe harness under `test/probe/`, with two throwaway profiles and
+  a negative-control run. (§16.5)
 ### Changed
 
 - `WslFileSystem` fences its mutations by `ctx.sandboxPolicy`: `writeText` and
@@ -133,7 +163,6 @@ reference below points at that record's numbering.
     `exports` map does not expose `lib/index.js`, and the helpers already have
     their own `./paths` and `./wsl` subpaths.
   - Dropped an unused `ENV_OVERRIDES` import.
-
 ### Known limitations
 
 - The sandbox does not govern WSL interop: a confined distro command can still
@@ -159,6 +188,9 @@ reference below points at that record's numbering.
   idle reclamation never fires for these terminals; close the tab to release the
   process.
 
+See the archived record's §7 for the full list, including the 9p
+performance caveat, unsupported `watch()`, and the missing executable bit on
+freshly created files.
 ### Removed
 
 - `README.zh.md` stopped being a README: the file moved to
@@ -178,7 +210,6 @@ reference below points at that record's numbering.
   sandbox imports `canonicalPath`/`writableRoots` and the runner diagnostics, so
   the declaration is earned again rather than vestigial — and that same check is
   what surfaced it, by listing the package this entry had removed.)
-
 ### Fixed
 
 - `lib/listing.js` built breadcrumbs with the platform-default
@@ -219,39 +250,6 @@ Documentation that a reader would have acted on, and that was no longer true:
 - References to `dsh-wsl-research/` now say it is a machine-local directory that
   is not part of the repository.
 
-## [0.1.0] - 2026-10-02
-
-First working release: a WSL distro can be opened, browsed and worked in from a
-DeepSeek Harness session, with both capability seams served from the distro.
-
-### Added
-
-- `WslShellExecutor` (`ctx.shell`): runs every command inside the distro as
-  `wsl.exe -d <distro> --cd <linux dir> --exec <shell> -lc <cmd>`, where the
-  shell is the distro user's login shell rather than a hardcoded bash. (§3, §12)
-- `WslFileSystem` (`ctx.fs`): maps Linux paths onto the distro's UNC share so the
-  host fs stack — including the packaged ripgrep — operates on real distro files,
-  with Linux paths as the model-facing `displayPath` and the UNC path as the
-  opaque `targetKey`. (§3)
-- Symlinked paths resolve by asking the distro for `readlink -f` and retrying
-  once, which is what makes `/etc/os-release`, `/bin` and `/lib` readable over a
-  share that cannot traverse POSIX symlinks. (§10.4)
-- `WslDirectoryPicker` (`ctx.directoryPicker`): lists Windows home and every
-  installed distro at the root level, so the shipped GUI dialog becomes the
-  single workspace picker for host and distro folders alike. It reports
-  `kind: 'browse'` — a third kind would invalidate the three Remote verbs that
-  require it. (§8)
-- `auto-preset`: binds the `wsl` agent preset when a new session's workspace is
-  inside a distro, inside the `ensureSession` frame so the very first mount is
-  already correct and the host ACL sandbox never touches a 9p path. (§13, §15)
-- `shell-env`: contributes `DSH_WSL_DISTRO`, `DSH_WSL_SHELL` and `DSH_WSL_HOME`
-  to the managed `DSH_*` namespace, so the model can read the real environment
-  instead of inferring it from a tool name. (§14)
-- Behavioural probe harness under `test/probe/`, with two throwaway profiles and
-  a negative-control run. (§16.5)
-
-### Fixed
-
 - `wsl.exe` was handed the command without `--exec`, so the distro's default
   shell expanded it once first: `$x`, `$?`, `$(...)`, `${...}` and backticks were
   silently eaten. (§11)
@@ -274,9 +272,3 @@ DeepSeek Harness session, with both capability seams served from the distro.
   script made it non-executable: the share ignores a host-side `chmod`, and a
   host-side `stat` always reports 0666. The target's real mode is now copied onto
   the staged temp file inside the distro, where a rename preserves it. (§16.3)
-
-### Known limitations
-
-See the archived record's §7 for the full list, including the 9p
-performance caveat, unsupported `watch()`, and the missing executable bit on
-freshly created files.

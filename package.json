@@ -44,6 +44,7 @@
     "test:unit": "node --test test/paths.test.mjs test/listing.test.mjs test/shell.test.mjs test/terminal.test.mjs",
     "probe": "bash test/probe/run.sh",
     "probe:terminal": "bash test/probe/terminal.sh",
+    "probe:sandbox": "bash test/probe/sandbox.sh",
     "sync:windows": "bash test/probe/sync-to-windows.sh"
   },
   "engines": {

@@ -13,6 +13,12 @@
 # see, normally /mnt/c/...). The sync is additive on purpose: a delete-in-sync
 # would let a stray file in the mirror cost someone work, and nothing here needs
 # the mirror to be exact.
+#
+# The destination is OUTSIDE every DSH session workspace, so an agent running
+# this through a confined shell must approve an escalation first: the
+# workspace-write policy refuses the write, by design, and the tool layer offers
+# `danger-full-access` for exactly this retry. Run it from a plain distro
+# terminal to avoid the prompt.
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

@@ -133,6 +133,22 @@ The reasoning and the measurements behind each entry are in
 
 ### Known limitations
 
+- The sandbox does not govern WSL interop: a confined distro command can still
+  execute a Windows binary from `/mnt/c`, and that process runs outside
+  bubblewrap under the ordinary Windows token. Enforcement is therefore reported
+  as `partial`, and `npm run probe:sandbox` re-measures the escape. Closing it
+  would mean denying execution under `/mnt`, which breaks `/mnt/c/…` Sessions.
+- `bubblewrap` must be installed in the distro, and both providers **fail
+  closed** without it (`SANDBOX_UNAVAILABLE` rather than a silent unconfined
+  run). `sandbox: false` is the documented opt-out. A `workspace-write` profile
+  also refuses to bind a workspace root that does not exist, so a Session whose
+  workspace directory was deleted reports a runner diagnostic instead of being
+  recreated.
+- The GUI terminal is an interactive shell and is not wrapped in the sandbox,
+  exactly like the shipped terminal provider.
+- The runtime mirror's destination lies outside every Session workspace, so the
+  sync step of `npm run probe` (and of a manual `sync-to-windows.sh`) needs an
+  approved `danger-full-access` escalation when an agent runs it.
 - The terminal follows the composition, not the Session: a Session whose
   workspace is a Windows folder gets the same distro terminal, started in that
   folder as `/mnt/<drive>/…`.
@@ -150,6 +166,10 @@ The reasoning and the measurements behind each entry are in
   `grep -rho 'from "@deepseek-ai/[^"]*"' lib/ | sort -u` — plus
   `@deepseek-ai/dsh-subprocess` (the service `static inject` requires) and
   `@deepseek-ai/cordis`, which every DSH plugin declares.
+  (`@deepseek-ai/dsh-sandbox` came back in this same release: the distro-side
+  sandbox imports `canonicalPath`/`writableRoots` and the runner diagnostics, so
+  the declaration is earned again rather than vestigial — and that same check is
+  what surfaced it, by listing the package this entry had removed.)
 
 ### Fixed
 

@@ -18,6 +18,10 @@
 #
 #   test/probe/run.sh
 #
+# It syncs the runtime mirror first, whose destination is outside every Session
+# workspace: through a confined shell that step needs an approved
+# `danger-full-access` escalation (see the header of sync-to-windows.sh).
+#
 # Overridable, for a machine laid out differently:
 #
 #   DSH_WSL_ENV_PROFILE  the probe profile directory, as this shell sees it

@@ -244,6 +244,11 @@ Local, on Windows 11 + WSL2 (Ubuntu 26.04):
   (`npm run probe:sandbox-shell`: `sandboxMode` advertised, the same three modes
   through `ctx.shell`, the refusal classified as a denial with
   `enforcement: partial`).
+- the sandbox **in the daily GUI profile**, from the agent's own session: a
+  command that writes outside the Session workspace is refused inside the distro
+  (`zsh: read-only file system: /home/andy/…`), and the tool layer answers with
+  the escalation hint that `sandbox_permissions` then grants — which is how the
+  runtime mirror gets synced now that its destination sits outside the workspace.
 
 42 unit assertions, 18 filesystem-probe assertions and 10 shell-probe checks
 pass; the bwrap probe adds 10 measured expectations plus the recorded escape, and
@@ -295,6 +300,12 @@ and a profile can only link a Windows path (`link:\\wsl.localhost\…` is rewrit
 to a broken `/wsl.localhost/…` symlink by pnpm). The Windows copy under
 `default-workspace/dsh-plugin-wsl` is therefore a **runtime mirror**; keep the two
 in sync with `test/probe/sync-to-windows.sh` before launching the app.
+
+That destination is outside every Session workspace, so an agent running the sync
+through a confined shell is refused by the workspace-write policy and has to
+approve `danger-full-access` for that one command. That is the sandbox working as
+described above, not a broken script — run it from a plain distro terminal when
+the prompt is unwelcome.
 
 ## License
 

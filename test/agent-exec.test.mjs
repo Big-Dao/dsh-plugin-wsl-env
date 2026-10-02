@@ -55,6 +55,10 @@ check("a completed command shapes the result like the one-shot path", async () =
   assert.equal(result.timedOut, false);
   assert.equal(result.stdout.text, "out\n");
   assert.equal(result.stderr.text, "err\n");
+  // The bash tool's canonical result copies `truncated` unconditionally; an
+  // undefined there fails the wire's lossless-JSON snapshot.
+  assert.equal(result.stdout.truncated, false);
+  assert.equal(result.stderr.truncated, false);
 });
 
 check("the in-distro timeout reports a killed process with SIGTERM", async () => {

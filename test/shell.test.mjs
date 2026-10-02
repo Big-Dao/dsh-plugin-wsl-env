@@ -6,6 +6,7 @@
  */
 import assert from "node:assert/strict";
 import { shellArgs, workdirFailure, wslErrorCode } from "../lib/wsl.js";
+import { toLinuxPath } from "../lib/paths.js";
 
 let passed = 0;
 const check = (name, fn) => {
@@ -18,6 +19,17 @@ const check = (name, fn) => {
     process.exitCode = 1;
   }
 };
+
+check("regression: a UNC workdir converts to the distro path before reaching the agent's chdir", () => {
+  // The agent carries the workdir as a frame field, so the conversion the
+  // one-shot argv() performs inline has to happen at the call site. A raw UNC
+  // reaching chdir fails every shell call from a GUI session — this pins the
+  // conversion the executor relies on.
+  assert.equal(
+    toLinuxPath("\\\\wsl.localhost\\ubuntu\\home\\andy\\proj", { distro: "ubuntu" }),
+    "/home/andy/proj",
+  );
+});
 
 check("the POSIX family gets login + command when asked", () => {
   for (const shell of ["/bin/sh", "/usr/bin/bash", "/bin/dash", "/usr/bin/zsh", "/bin/ksh", "/bin/ash"]) {

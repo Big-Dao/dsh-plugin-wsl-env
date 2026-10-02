@@ -12,6 +12,23 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`truncated` missing from the agent path's output streams** — the bash tool's
+  canonical result copies the field unconditionally (`canonicalBashResult`), so an
+  `undefined` failed the wire's lossless-JSON snapshot and EVERY shell tool call
+  returned "tool bash returned invalid output: value is not lossless JSON". The
+  agent path now always reports `truncated: false` (it never truncates; there are
+  no spill files). Regression assertion in `test/agent-exec.test.mjs`.
+- **The agent execution path failed every shell call whose request carried an
+  absolute UNC workdir** — which is every call a GUI session makes, so the
+  harness's own agent session lost its bash tool until the fix. The one-shot
+  path converts the spec's workdir inside `argv()` (`toLinuxPath`); the agent
+  path carried the workdir as a raw frame field, so the raw UNC reached the
+  in-distro `chdir`, the synthesized relay text fired `throwIfWorkdirMissing`,
+  and the call died with "could not enter the working directory". The conversion
+  now happens at the call site (regression test in `test/shell.test.mjs`).
+
 ### Added
 
 - **Phase 5: per-session terminal routing.** `spawnTerminal` now routes on the

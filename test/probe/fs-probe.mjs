@@ -127,6 +127,21 @@ export async function apply(ctx) {
     return relative.displayPath;
   });
 
+  // `restrictToDistro` is a configuration fence, not a sandbox decision, and it
+  // must not borrow the sandbox's code: that code is what makes the file tools
+  // offer a wider permission, which cannot lift this fence.
+  await step("restrictToDistro refuses another distro with its own code", async () => {
+    try {
+      await ctx.fs.resolve("\\\\wsl.localhost\\definitely-not-this-one\\home");
+    } catch (error) {
+      if (error?.code !== "FS_OUTSIDE_DISTRO") {
+        throw new Error(`wrong code ${error?.code} (${error?.message})`);
+      }
+      return error.code;
+    }
+    throw new Error("a path in another distro was accepted");
+  });
+
   // The fence, before any real mutation: all three modes against the same two
   // targets. `danger-full-access` is the approved escalation and must write.
   await refuses("workspace-write refuses a target outside its root", async () => {

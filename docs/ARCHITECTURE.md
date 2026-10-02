@@ -120,7 +120,7 @@ behaviour and the error messages match a Linux host. The function
 
 | Mode | What a command inside the distro can do |
 |---|---|
-| `read-only` | read the whole distro; only `/dev/null` is writable |
+| `read-only` | read the whole distro; a fresh `/dev` is mounted writable, so `/dev/null` and `/dev/shm` work, and nothing else does |
 | `workspace-write` | the above, plus the session workspace is writable and `/tmp` is a temporary mount |
 | `danger-full-access` | no sandbox; used for an approved wider-permission request |
 
@@ -148,6 +148,16 @@ throws `SandboxUnavailableError`, and every confined command reports
 `SANDBOX_UNAVAILABLE`. Nothing runs unconfined and silently. The string
 `read-only file system` is classified as a denial, so the tool layer can offer the
 wider-permission path.
+
+A failed probe is **not** remembered: only a success is cached for the process
+lifetime, so a `bubblewrap` installed while the app runs is believed on the next
+command. See [`lib/probe-cache.js`](../lib/probe-cache.js).
+
+A command that never started because the distro itself is missing, stopped or
+unregistered is reported separately: `wsl.exe` puts a `WSL_E_*` code on stdout with
+an empty stderr, and `WslShellExecutor` turns that into an error naming the distro
+and the remedy instead of a bare non-zero exit. It is deliberately not a sandbox
+code, because a wider permission cannot create a distro.
 
 Set `sandbox: false` on either provider to opt out. Commands then run unconfined,
 and `sandboxMode` returns `undefined`.

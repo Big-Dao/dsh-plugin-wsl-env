@@ -18,7 +18,7 @@ are schema defaults, listed because they are the ones worth knowing.
 | | `cwd` | `''` | default working directory; empty means the distro user's home |
 | | `timeoutMs` / `maxTimeoutMs` | `120000` / `600000` *(shipped)* | per-call time limit, and the ceiling a call may ask for |
 | `wsl-fs` | `distro` | `''` *(shipped)* | as above |
-| | `restrictToDistro` | `true` *(shipped)* | refuse paths outside the pinned distro, including `/mnt/c` |
+| | `restrictToDistro` | `true` *(shipped)* | refuse a path in **another distro**'s share. `/mnt/c` is a directory *inside* the pinned distro, so it is not affected. The refusal carries `FS_OUTSIDE_DISTRO`; that is not a sandbox decision, so the file tools do not offer a wider permission for it. Set `false` to allow another distro's share |
 | | `sandbox` | `true` | check `writeText` and `editText` against the policy |
 | | `resolveSymlinks` | `true` | follow Linux symlinks that the share cannot traverse, such as `/etc/os-release` and `/bin` |
 | | `cwd` | `''` | base directory for relative paths; empty means the distro user's home |
@@ -31,7 +31,11 @@ are schema defaults, listed because they are the ones worth knowing.
 
 You can override the other keys in the same way; they keep their defaults. Those are
 `wslPath`, `hostCwd` and `forwardEnv` on the shell and terminal rows,
-`diffBasisMaxBytes` on `wsl-fs`, and `distroCacheMs` on the picker.
+`diffBasisMaxBytes` on `wsl-fs`, and `distroCacheMs` on the picker. The shell row
+also inherits the shipped output budgets — `maxOutputBytes` (64000 bytes per
+stream before the rest spills to a temporary file), `maxSpillBytes` (67108864) and
+`graceMs` (3000, the SIGTERM-to-SIGKILL grace) — from `dsh-bash-local`, which
+documents them in full.
 
 ## Which distro is used
 

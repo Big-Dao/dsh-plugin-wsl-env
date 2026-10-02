@@ -7,8 +7,12 @@ boundary; one that is not is a bug report waiting to happen.
   Windows program, which escapes the Linux-side boundary. The plugin reports this as
   `enforcement: partial`. See [ARCHITECTURE.md](ARCHITECTURE.md#reported-enforcement).
 - **`bubblewrap` must be installed**, or both providers fail immediately. The
-  usability probe's verdict is cached for the app process's lifetime, so
-  installing bubblewrap after the app started takes a restart to be noticed.
+  usability probe re-runs after a failure, so installing bubblewrap while the app
+  runs is believed on the next command; only a success is cached.
+- A distro that is stopped or unregistered while the app runs leaves the UNC share
+  unreachable: the shell tools report `wsl.exe`'s `WSL_E_*` code with the reason, but
+  the file tools can only report a file-level error, because the share itself is
+  gone.
 - `workspace-write` binds the workspace root as writable, and bubblewrap refuses a
   bind whose source directory does not exist. If a session's workspace directory is
   deleted, commands fail with a runner error; the plugin does not recreate the

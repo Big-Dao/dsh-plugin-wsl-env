@@ -54,7 +54,7 @@ Override a row by id in `$DSH_HOME/profiles/<name>/cordis.patch.yml`. The keys w
 | `wsl-shell` | `distro` | `''` | distro name; empty means WSL's default distro |
 | | `sandbox` | `true` | confine commands with `bubblewrap`; `false` disables the sandbox |
 | `wsl-fs` | `distro` | `''` | as above |
-| | `restrictToDistro` | `true` | refuse paths outside the pinned distro, including `/mnt/c` |
+| | `restrictToDistro` | `true` | refuse a path in **another distro**'s share; `/mnt/c` is inside this distro and is not affected. Refused with `FS_OUTSIDE_DISTRO`, which is not a sandbox denial and cannot be lifted by wider permissions |
 | | `sandbox` | `true` | check `writeText` and `editText` against the policy |
 | `directory-picker-wsl` | `includeHostHome` | `true` | also list the Windows home directory |
 | `subprocess-wsl` | `distro` | `''` | which distro the GUI terminal opens in |
@@ -67,7 +67,7 @@ Commands are confined by `bubblewrap` inside the distro, and file writes are che
 
 | Mode | What a command inside the distro can do |
 |---|---|
-| `read-only` | read the whole distro; only `/dev/null` is writable |
+| `read-only` | read the whole distro; a fresh `/dev` is mounted writable, so `/dev/null` and `/dev/shm` work, and nothing else does |
 | `workspace-write` | the above, plus the session workspace is writable and `/tmp` is a temporary mount |
 | `danger-full-access` | no sandbox; used for an approved wider-permission request |
 

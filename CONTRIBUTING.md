@@ -92,9 +92,12 @@ Choose the layer by what the test needs.
 | Unit test | `test/*.test.mjs` | pure logic: path translation, listing, shell argument building, terminal helpers |
 | Probe | `test/probe/` | behaviour that needs a real distro, a real profile, or bubblewrap |
 
-Unit tests run under `node --test` and import only Node builtins. Add a file named
-`<area>.test.mjs`, then add it to both the `test:unit` and the `test:coverage`
-scripts in `package.json`. Both scripts list their files explicitly.
+Unit tests run under `node --test`. A test that imports only this repository goes in
+both the `test:unit` and the `test:coverage` lists in `package.json`, which name
+their files explicitly. A test that needs a DSH peer — `test/sandbox.test.mjs`
+imports `lib/sandbox.js`, which imports `@deepseek-ai/dsh-sandbox` — goes in
+`test:unit` only and must skip itself when the peer is missing, because CI installs
+nothing: try the import, print a `SKIP` line, exit 0.
 
 Probes are shell scripts that mount a throwaway profile, plus the small plugin
 files they load. Those plugin files are the `*-probe.mjs` and `*-probe.yml` files
@@ -141,8 +144,10 @@ On Windows 11 + WSL2 (Ubuntu 26.04) the following has been verified:
   outside the session workspace is refused inside the distro and the following
   wider-permission request succeeds.
 
-Counts: 42 unit assertions, 18 filesystem-probe assertions, 10 shell-probe checks, 10
-sandbox expectations plus the recorded escape, and 3 terminal assertions.
+Counts: 50 unit assertions on a bare checkout, plus 5 in `test/sandbox.test.mjs`
+which need the `dsh-sandbox` peer and skip themselves without it; 19
+filesystem-probe assertions; 12 shell-probe checks; 10 sandbox expectations plus
+the recorded escape; and 3 terminal assertions.
 
 ## Commit and pull request conventions
 

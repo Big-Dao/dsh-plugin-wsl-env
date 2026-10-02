@@ -54,7 +54,7 @@ dsh --profile wsl                                  # 4. 启动
 | `wsl-shell` | `distro` | `''` | 发行版名；空表示用 WSL 的默认发行版 |
 | | `sandbox` | `true` | 用 `bubblewrap` 约束命令；`false` 表示不用沙箱 |
 | `wsl-fs` | `distro` | `''` | 同上 |
-| | `restrictToDistro` | `true` | 拒绝发行版之外的路径（包括 `/mnt/c`） |
+| | `restrictToDistro` | `true` | 拒绝指向**其它发行版**共享的路径；`/mnt/c` 属于本发行版内部，不受影响。拒绝码为 `FS_OUTSIDE_DISTRO`，它不是沙箱拒绝，放宽权限也无法解除 |
 | | `sandbox` | `true` | 写入时按策略检查 `writeText` 和 `editText` |
 | `directory-picker-wsl` | `includeHostHome` | `true` | 同时列出 Windows 家目录 |
 | `subprocess-wsl` | `distro` | `''` | GUI 终端开在哪个发行版 |
@@ -67,7 +67,7 @@ dsh --profile wsl                                  # 4. 启动
 
 | 模式 | 发行版里的命令可以做什么 |
 |---|---|
-| `read-only` | 整个发行版只读，只有 `/dev/null` 可写 |
+| `read-only` | 整个发行版只读；`/dev` 是新建的可写挂载（`/dev/null` 与 `/dev/shm` 可用），其余不可写 |
 | `workspace-write` | 在上一行基础上，把会话工作区绑定为可写，并把 `/tmp` 挂成临时目录 |
 | `danger-full-access` | 不加沙箱；用于批准后的放宽权限请求 |
 

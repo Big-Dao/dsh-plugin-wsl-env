@@ -5,7 +5,7 @@
  *   node test/shell.test.mjs
  */
 import assert from "node:assert/strict";
-import { shellArgs } from "../lib/wsl.js";
+import { shellArgs, wslErrorCode } from "../lib/wsl.js";
 
 let passed = 0;
 const check = (name, fn) => {
@@ -44,6 +44,20 @@ check("a bare name without a directory still resolves its family", () => {
 
 check("case does not change the family", () => {
   assert.deepEqual(shellArgs("/usr/bin/ZSH", true), ["-lc"]);
+});
+
+check("a WSL error code is found however it is encoded", () => {
+  // A missing distro puts this on stdout: exit 255, empty stderr. Some builds
+  // encode it UTF-16LE, which reads back as UTF-8 with a NUL between every byte.
+  assert.equal(wslErrorCode("Wsl/Service/WSL_E_DISTRO_NOT_FOUND", ""), "WSL_E_DISTRO_NOT_FOUND");
+  const utf16 = Buffer.from("Wsl/Service/WSL_E_DISTRO_NOT_FOUND", "utf16le").toString("utf8");
+  assert.equal(wslErrorCode("", utf16), "WSL_E_DISTRO_NOT_FOUND");
+});
+
+check("output without a WSL error code reports none", () => {
+  assert.equal(wslErrorCode("hello", "world"), undefined);
+  assert.equal(wslErrorCode(undefined, undefined), undefined);
+  assert.equal(wslErrorCode("WSL_E_", ""), undefined);
 });
 
 console.log(`\n${passed} checks passed`);

@@ -12,6 +12,54 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-10-02
+
+Three defects from a design-closure review. Two are cases where a documented remedy
+could not work, and one where the cause of a failure was invisible.
+
+### Fixed
+
+- A failed sandbox probe was remembered for the process lifetime, so installing
+  `bubblewrap` after the app had started changed nothing until a restart — while the
+  error told the user to install exactly that. Only a success is cached now; a failure
+  is re-probed on the next command, and concurrent first commands share one probe. The
+  policy lives in [`lib/probe-cache.js`](lib/probe-cache.js), which is pure, so the
+  regression is pinned on every platform including CI
+  ([`test/probe-cache.test.mjs`](test/probe-cache.test.mjs)).
+- `restrictToDistro` refused another distro's share with `FS_SANDBOX_DENIED`. The
+  file-tool layer turns that code into a denial marker plus an escalation offer
+  (`mapError` in `dsh-tool-fs`), and no wider permission can lift this fence: it is a
+  configuration choice, not a sandbox decision. It now reports `FS_OUTSIDE_DISTRO`,
+  which the tool layer passes through unchanged, and the message says what to do.
+- A command that never started because the distro was missing, stopped or
+  unregistered reached the model as a bare non-zero exit. `wsl.exe` writes
+  `Wsl/Service/WSL_E_DISTRO_NOT_FOUND` to **stdout** — UTF-16LE on some builds — with
+  an empty stderr, so every signature in the plugin missed it. `WslShellExecutor` now
+  reads that code (NUL-stripped, so either encoding is found), pins `WSL_UTF8` on its
+  own spawn so the text is readable, and fails with the distro name and the remedy.
+  Deliberately not a sandbox code: a wider permission cannot create a distro.
+
+### Documentation
+
+- Two statements were wrong and are corrected against measurement. `read-only` does
+  not leave `/dev/null` as the only writable path: `bwrap --dev /dev` mounts a fresh
+  `/dev`, so `/dev/shm` is writable scratch and only `/tmp` stays read-only. And
+  `restrictToDistro` does not refuse `/mnt/c`, which is a directory *inside* the
+  distro — it refuses another distro's share.
+- The shell row's inherited output budgets (`maxOutputBytes`, `maxSpillBytes`,
+  `graceMs`) are listed in [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md); the
+  fail-closed bullet in [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) matches the
+  re-probing behaviour, and what the file tools do when a distro stops mid-session is
+  stated there too.
+
+### Changed
+
+- `test:unit` gained `test/probe-cache.test.mjs` and `test/sandbox.test.mjs`;
+  `test:coverage` gained the pure one. The sandbox test skips itself where the
+  `dsh-sandbox` peer is absent, which is the CI case, and
+  [`CONTRIBUTING.md`](CONTRIBUTING.md) explains when a test belongs in which list.
+
+
 ### Fixed
 
 - A shell request that names its workdir only **relatively** now lands on the

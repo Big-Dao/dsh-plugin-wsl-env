@@ -4,9 +4,11 @@
 # the probe beside it, so the boot exercises exactly what the GUI terminal
 # window resolves: `agent.ctx.get("subprocess")` at the root realm.
 #
-# `cwd` is the UNC spelling of this checkout, which is what the terminal
-# controller passes for a Session in this workspace; `expectPwd` is the Linux
-# path the provider must translate it into. Adjust both if the checkout moves.
+# This file is a TEMPLATE: `cwd` is the UNC spelling of this checkout and `expectPwd`
+# is the Linux path the provider must translate it into, so both depend on the machine
+# (the distro name and the checkout location). `test/probe/terminal.sh` substitutes
+# @WORKSPACE_UNC@ and @WORKSPACE_LINUX@ into a generated copy beside it
+# (`.generated-terminal-probe.yml`, gitignored) and applies that.
 - id: subprocess
   disabled: true
 
@@ -19,5 +21,5 @@
     - id: terminal-probe
       name: './terminal-probe.mjs'
       config:
-        cwd: '\\wsl.localhost\ubuntu\home\andy\Projects\dsh\plugins\dsh-plugin-wsl-env'
-        expectPwd: /home/andy/Projects/dsh/plugins/dsh-plugin-wsl-env
+        cwd: '@WORKSPACE_UNC@'
+        expectPwd: @WORKSPACE_LINUX@

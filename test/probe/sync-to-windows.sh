@@ -22,7 +22,7 @@
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-DST="${DSH_WSL_ENV_RUNTIME_COPY:-/mnt/c/Users/andyz/Documents/deepseek-harness/default-workspace/dsh-plugin-wsl}"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/env.sh"   # derives DST; see its header for overrides
 
 [ -f "$SRC/lib/index.js" ] && [ -f "$SRC/package.json" ] || { echo "not a plugin checkout: $SRC" >&2; exit 1; }
 [ -f "$DST/lib/index.js" ] || { echo "no runtime mirror at $DST (create it, or set DSH_WSL_ENV_RUNTIME_COPY)" >&2; exit 1; }

@@ -17,17 +17,15 @@
  * @module dsh-plugin-wsl/test/probe/fs-probe
  */
 
-import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { distroHome, inDistro, windowsPath } from "./env.mjs";
 
 export const inject = ["fs"];
 
-const HERE = "\\\\wsl.localhost\\ubuntu\\home\\andy\\Projects\\dsh\\plugins\\dsh-plugin-wsl-env\\test\\probe";
-const OUT = `${HERE}\\fs-probe.txt`;
-
-/** A scratch directory inside the distro that this probe owns. */
-const DIR = "/home/andy/.dsh-fsprobe";
-const FILE = `${DIR}/probe.txt`;
+/** Where the report lands: beside this module, in the spelling this process uses. */
+const OUT = join(dirname(fileURLToPath(import.meta.url)), "fs-probe.txt");
 
 /**
  * A name that stays in the distro no matter what the default workdir is. The
@@ -35,14 +33,6 @@ const FILE = `${DIR}/probe.txt`;
  * which the profile deliberately leaves empty.
  */
 const RELATIVE = "dsh-wsl-probe-relative.txt";
-
-/** Run one command in the distro and return its trimmed stdout. */
-function inDistro(...argv) {
-  return execFileSync("wsl.exe", ["-d", "ubuntu", "--exec", ...argv], {
-    encoding: "utf8",
-    env: { ...process.env, WSL_UTF8: "1" },
-  }).trim();
-}
 
 /** The file's POSIX mode as the distro sees it, or a marker when unreadable. */
 function modeOf(linuxPath) {
@@ -63,8 +53,14 @@ export async function apply(ctx) {
   // whose `workspaceRoot` is the session cwd); the probe has no session, so it
   // names the scratch directory's world path directly. Passing it explicitly is
   // also what makes the fence assertions below meaningful rather than incidental.
-  const POLICY = { mode: "workspace-write", workspaceRoot: "\\\\wsl.localhost\\ubuntu\\home\\andy\\.dsh-fsprobe" };
-  const OUTSIDE = "/home/andy/dsh-fsprobe-outside.txt";
+  // The scratch directory is the probe's own, named under the distro user's home.
+  // The distro is asked for that home rather than assumed, so nothing here depends
+  // on the user name that owns this checkout.
+  const HOME = distroHome();
+  const DIR = `${HOME}/.dsh-fsprobe`;
+  const FILE = `${DIR}/probe.txt`;
+  const POLICY = { mode: "workspace-write", workspaceRoot: windowsPath(DIR) };
+  const OUTSIDE = `${HOME}/dsh-fsprobe-outside.txt`;
   const write = (target, content, intent, policy = POLICY) => ctx.fs.writeText(target, content, intent, undefined, policy);
   const edit = (target, request, expected, policy = POLICY) => ctx.fs.editText(target, request, expected, undefined, policy);
 

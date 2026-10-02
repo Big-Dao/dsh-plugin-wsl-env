@@ -1,9 +1,14 @@
 # Overlay for the wslfs probe profile: mounts the filesystem probe.
 #
-#   dsh wslfs --no-open --port 0 --patch '\\wsl.localhost\ubuntu\home\andy\Projects\dsh\plugins\dsh-plugin-wsl-env\test\probe\wslfs-probe.yml'
+# This file is a TEMPLATE. The UNC spelling of a path carries this machine's distro
+# name, so `test/probe/run.sh` substitutes @FS_PROBE_UNC@ and writes a generated copy
+# beside it (`.generated-wslfs-probe.yml`, gitignored). Use that generated file, or
+# spell the path out yourself:
+#
+#   dsh wslfs --no-open --port 0 --patch '<checkout>\test\probe\wslfs-probe.yml'
 #
 # The profile itself (which swaps `ctx.fs` for the WSL backend) lives in
 # $DSH_HOME/profiles/wslfs/cordis.patch.yml.
 - insert:
     - id: fs-probe
-      name: '\\wsl.localhost\ubuntu\home\andy\Projects\dsh\plugins\dsh-plugin-wsl-env\test\probe\fs-probe.mjs'
+      name: '@FS_PROBE_UNC@'

@@ -1,0 +1,16 @@
+version: 2
+updates:
+  # The plugin has no dependencies, and Dependabot does not update peerDependencies,
+  # so the peer versions in package.json are tracked deliberately and by hand (see
+  # SUPPORT.md for what that means for compatibility). What is left to automate is
+  # the workflow actions, which are pinned by commit SHA: this keeps those pins
+  # moving without anyone having to remember.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: [dependencies]
+    groups:
+      actions:
+        patterns: ["*"]

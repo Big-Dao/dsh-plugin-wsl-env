@@ -12,18 +12,88 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-02
+
+Repository and release engineering. No runtime behaviour changed.
+
+### Added
+
+- `npm run lint:style` ([`test/style.mjs`](test/style.mjs)): a dependency-free gate
+  over the rules `.editorconfig` states, plus three packaging checks — every `files`
+  entry still matches tracked content, every `exports` target exists, and exactly one
+  readme candidate sits at the package root. That last one is the regression guard
+  for the 0.1.1 readme, and it is why the gate exists at all.
+- `npm run test:coverage`, with thresholds of 85% lines, 85% branches and 70%
+  functions, using Node's built-in coverage. No coverage dependency was added. The
+  spawning half of `lib/wsl.js` and the four service modules are covered by the
+  probes instead, which is why the function threshold is lower than the others.
+- `.github/workflows/release.yml`: a `v*` tag is checked against `package.json`
+  ([`scripts/check-release-tag.mjs`](scripts/check-release-tag.mjs)), gated, then
+  published with `--provenance` through npm trusted publishing, and the GitHub
+  Release is created from the changelog section
+  ([`scripts/changelog-section.mjs`](scripts/changelog-section.mjs)). No npm token is
+  stored in the repository.
+- The governance files a public repository is expected to carry:
+  [`SECURITY.md`](SECURITY.md), [`CONTRIBUTING.md`](CONTRIBUTING.md),
+  [`SUPPORT.md`](SUPPORT.md), [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md),
+  `CODEOWNERS`, a pull-request template, bug-report and contact-link issue templates,
+  and a Dependabot configuration for the pinned workflow actions.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) describes the plugin as it is
+  today — the providers, how they are mounted, the three path coordinate systems, the
+  sandbox, the runtime mirror and the test layers — so the current design no longer
+  has to be reconstructed from a changelog and a historical record.
+- [`docs/RELEASING.md`](docs/RELEASING.md): the release checklist, including the
+  operational facts that cost time to learn.
+- [`docs/archive/README.en.md`](docs/archive/README.en.md): an English index of the
+  Chinese archive.
+- `.nvmrc` names the Node version the coverage job uses.
+
+### Changed
+
+- The probes no longer carry a user name, a home directory or a distro name.
+  [`test/probe/env.sh`](test/probe/env.sh) derives them from the machine
+  (`%USERPROFILE%`, `%LOCALAPPDATA%`, `WSL_DISTRO_NAME`) and
+  [`test/probe/env.mjs`](test/probe/env.mjs) does the same for the Node-side probes,
+  which learn their own location from `import.meta.url`. The YAML overlays are now
+  templates with `@NAME@` placeholders, and the scripts substitute real values into
+  generated copies that `.gitignore` keeps out of the tree. The two profile layers
+  use `distro: ''` (WSL's default distro) instead of naming one.
+- CI runs the unit suite on Windows as well as Linux. The plugin targets Windows, and
+  the Windows legs also prove that the LF guarantee in `.gitattributes` holds on the
+  platform whose default is CRLF. The workflow gained least-privilege `permissions`,
+  a `concurrency` group, timeouts, and actions pinned by commit SHA.
+- `package.json`: `packageManager` is gone, because the package has no dependencies
+  and npm is the reference toolchain everywhere else; `author` and `publishConfig`
+  are set; `prepublishOnly` runs the gates; and `files` ships `CONTRIBUTING.md`,
+  `SECURITY.md` and `SUPPORT.md` so a tarball without the repository still says how
+  to contribute, report and get help.
+- Both READMEs gained a *Contributing and support* section, and list the new gates.
+
+### Fixed
+
+- Corrected the 0.1.2 entry. It had named the npm CLI's readme rule as the cause of
+  the 0.1.1 readme mix-up; that rule does not match `.md` names and is not the code
+  path that decides a published package's readme, so the entry now records what was
+  observed instead of a mechanism that does not hold. The GitHub Release notes for
+  v0.1.2 were corrected the same way.
+- Six lines in [`lib/index.js`](lib/index.js) were indented with tabs while the rest
+  of the file uses spaces, which the new style gate caught.
+
 ## [0.1.2] - 2026-10-02
 
 ### Fixed
 
-- The npm package page rendered the Chinese README instead of the English one. npm
-  chooses a package's readme by globbing `{README,README.*}` in the package root and
-  taking the first `.md` match (`@npmcli/package-json/lib/normalize.js`), so two
-  candidate files made the choice depend on directory enumeration order. 0.1.1
-  shipped with `readmeFilename: README.zh.md`. The translation now lives at
-  `docs/README.zh.md`, which leaves exactly one candidate at the root and removes
-  the ambiguity by construction rather than by luck. The English header still links
-  to it and it still ships in the tarball through `files`. 0.1.1 remains on the
+- The npm package page rendered the Chinese README instead of the English one. 0.1.1
+  published `README.md` and `README.zh.md` side by side, and the registry answered
+  with `readmeFilename: README.zh.md`. Two candidates are enough to make the outcome
+  unreliable, and neither obvious rule explains which one won: it is not the tarball's
+  entry order (0.1.1's tarball listed `package/README.md` first), and it is not the
+  npm CLI's own selection rule (`@npmcli/package-json/lib/normalize.js` globs
+  `{README,README.*}` and accepts `/\.m?a?r?k?d?o?w?n$/i`, which does not match a
+  `.md` name at all). The registry is picking by a rule this repository should not
+  depend on. The translation now lives at `docs/README.zh.md`, which leaves exactly
+  one candidate at the package root and removes the question by construction. The
+  English header still links to it and `files` still ships it. 0.1.1 remains on the
   registry with the wrong readme; 0.1.2 supersedes it.
 
 ## [0.1.1] - 2026-10-02

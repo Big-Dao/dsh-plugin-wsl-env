@@ -1,0 +1,133 @@
+/**
+ * Style and packaging checks, with no dependencies.
+ *
+ * This repository deliberately ships no devDependencies, so there is no linter and
+ * no formatter. What the editor config promises, and what npm will actually pack,
+ * is checked here instead:
+ *
+ *   1. LF line endings, a final newline, no trailing whitespace (Markdown excepted,
+ *      where two trailing spaces are a hard line break), no tabs in code or YAML,
+ *      and no UTF-8 BOM — the rules `.editorconfig` states.
+ *   2. Every `files` entry in `package.json` still matches tracked content, so a
+ *      renamed file cannot silently drop out of the published tarball.
+ *   3. Every `exports` subpath still points at a file that exists.
+ *   4. Exactly ONE npm readme candidate sits at the package root. With two
+ *      candidates, the readme that ends up in the registry is not something to
+ *      rely on: 0.1.1 published `README.md` and `README.zh.md` side by side and the
+ *      packument came back with `readmeFilename: README.zh.md`, so the npm page
+ *      rendered Chinese. Neither explanation fits: the npm CLI's own selection
+ *      (`@npmcli/package-json/lib/normalize.js`, `glob('{README,README.*}')` plus
+ *      `/\.m?a?r?k?d?o?w?n$/i/`) does not even match a `.md` name, and the tarball
+ *      listed README.md first. Whatever the registry does, one candidate removes the
+ *      question, and this check keeps it removed.
+ *
+ *   node test/style.mjs
+ */
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(HERE, "..");
+
+const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: ROOT, encoding: "utf8" })
+  .split("\0")
+  .filter(Boolean)
+  .sort();
+
+/** Tracked files that are text as far as these checks are concerned. */
+function readText(file) {
+  const buffer = readFileSync(join(ROOT, file));
+  if (buffer.includes(0)) return undefined;
+  return buffer.toString("utf8");
+}
+
+const results = [];
+function check(name, offenders, total) {
+  results.push({ name, offenders });
+  if (offenders.length === 0) {
+    console.log(`PASS  ${name}${total === undefined ? "" : ` (${total})`}`);
+    return;
+  }
+  console.log(`FAIL  ${name}`);
+  for (const offender of offenders.slice(0, 6)) console.log(`      ${offender}`);
+  if (offenders.length > 6) console.log(`      ... and ${offenders.length - 6} more`);
+}
+
+const BOM = "\uFEFF";
+const CRLF_EXTENSIONS = [".js", ".mjs", ".json", ".yml", ".yaml", ".sh", ".md", ".editorconfig", ""];
+const isSource = (file) => [".js", ".mjs", ".json", ".yml", ".yaml"].includes(extension(file));
+const isMarkdown = (file) => file.endsWith(".md");
+function extension(file) {
+  const base = file.slice(file.lastIndexOf("/") + 1);
+  return base.startsWith(".") ? base : base.includes(".") ? base.slice(base.indexOf(".")) : "";
+}
+
+const texts = new Map();
+for (const file of tracked) {
+  const text = readText(file);
+  if (text !== undefined) texts.set(file, text);
+}
+
+check(
+  "line endings are LF",
+  [...texts].filter(([file]) => CRLF_EXTENSIONS.includes(extension(file)) && texts.get(file).includes("\r\n")).map(([file]) => file),
+);
+check(
+  "every text file ends with a newline",
+  [...texts].filter(([, text]) => text.length > 0 && !text.endsWith("\n")).map(([file]) => file),
+  `${texts.size} files`,
+);
+check(
+  "no trailing whitespace (Markdown excluded)",
+  [...texts]
+    .filter(([file, text]) => !isMarkdown(file) && text.split("\n").some((line) => /[ \t]+$/.test(line)))
+    .map(([file]) => file),
+);
+check(
+  "no tab characters in code or YAML",
+  [...texts].filter(([file, text]) => isSource(file) && text.includes("\t")).map(([file]) => file),
+);
+check(
+  "no UTF-8 BOM",
+  [...texts].filter(([, text]) => text.startsWith(BOM)).map(([file]) => file),
+);
+
+const pkg = JSON.parse(texts.get("package.json"));
+
+/** Translate one `files` entry into a matcher over tracked paths (posix). */
+function filesEntryToRegExp(entry) {
+  // `?` is escaped rather than expanded: no entry uses it as a wildcard, and a
+  // literal avoids colliding with the `?` inside the (?:.*/)? fragment inserted below.
+  const pattern = entry
+    .replace(/[.+^${}()|[\]\\?]/g, "\\$&")
+    .replace(/\*\*\//g, "\u0000")
+    .replace(/\*/g, "[^/]*")
+    .replace(/\u0000/g, "(?:.*/)?");
+  return new RegExp(`^${pattern}$`);
+}
+
+const unmatched = pkg.files.filter((entry) => !tracked.some((file) => filesEntryToRegExp(entry).test(file)));
+check(
+  "every \"files\" entry matches tracked content",
+  unmatched.map((entry) => `"${entry}" matches nothing`),
+  `${pkg.files.length} entries`,
+);
+
+const missingTargets = Object.entries(pkg.exports)
+  .filter(([, target]) => typeof target === "string" && !tracked.includes(target.replace(/^\.\//, "")))
+  .map(([subpath, target]) => `${subpath} -> ${target}`);
+check("every \"exports\" target exists", missingTargets, `${Object.keys(pkg.exports).length} subpaths`);
+
+const rootFiles = tracked.filter((file) => !file.includes("/"));
+const readmeCandidates = rootFiles.filter((file) => /^readme(\..*)?$/i.test(file));
+check(
+  "exactly one readme candidate at the package root",
+  readmeCandidates.length === 1 ? [] : [`found ${readmeCandidates.length}: ${readmeCandidates.join(", ") || "none"}`],
+  readmeCandidates.join(", "),
+);
+
+const failed = results.filter((result) => result.offenders.length > 0).length;
+console.log(`\n${results.length - failed}/${results.length} style and packaging checks pass`);
+if (failed > 0) process.exitCode = 1;

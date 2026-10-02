@@ -2,28 +2,58 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
-# Only the dependency-free half of the suite can run on a hosted runner.
-# `test/probe/` needs Windows, WSL, a mounted harness profile and a linked
-# checkout, so it is a deliberate manual step: run `npm run probe` from inside
-# the distro on the development machine. See the archived engineering record §16.6
-# (docs/archive/engineering-record.zh.md).
+# Least privilege: every job here only reads the repository.
+permissions:
+  contents: read
+
+# A newer push to the same branch makes the older run obsolete.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# What cannot run here, and why: `test/probe/` needs Windows, WSL2 with a distro,
+# `bubblewrap` inside that distro, a harness profile and a linked checkout. A hosted
+# runner has none of that, so the probes stay a manual step on the development
+# machine (`npm run probe`, `probe:sandbox`, `probe:sandbox-shell`, `probe:terminal`).
+# See docs/RELEASING.md, and the archived record §16.6 for what that gap once cost.
 jobs:
   test:
-    name: unit (node ${{ matrix.node }})
-    runs-on: ubuntu-latest
+    name: unit (node ${{ matrix.node }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
+        # The plugin runs on Windows and is developed inside a WSL distro, so the
+        # path logic is exercised on both platform families. The Windows legs also
+        # prove that the LF guarantee in .gitattributes holds on the platform whose
+        # default is CRLF, which is what the shipped shell scripts depend on.
+        os: [ubuntu-latest, windows-latest]
         node: ["20", "22", "24"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ matrix.node }}
-      # No install step on purpose: the package has no dependencies, and the
-      # modules under test import only Node builtins.
+      # No install step on purpose: the package has no dependencies, and every
+      # module under test imports only Node builtins.
       - run: npm test
+
+  coverage:
+    name: coverage (node 24)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24"
+      # The threshold flags need Node >= 22.8, so this runs on one version only.
+      # It covers the pure modules. `lib/index.js`, `lib/picker.js`,
+      # `lib/auto-preset.js`, `lib/shell-env.js` and the spawning half of
+      # `lib/wsl.js` import DSH peers and are exercised by the probes instead.
+      - run: npm run test:coverage

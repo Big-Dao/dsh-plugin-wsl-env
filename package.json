@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-wsl-env",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Run a DeepSeek Harness session against a WSL distro: a ctx.shell executor that runs commands inside the distro and a ctx.fs backend over its UNC share",
   "keywords": [
     "deepseek-harness",
@@ -36,12 +36,18 @@
     "README.md",
     "docs/README.zh.md",
     "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "SUPPORT.md",
     "LICENSE"
   ],
   "scripts": {
-    "test": "npm run test:syntax && npm run test:unit",
+    "test": "npm run lint:style && npm run test:syntax && npm run test:unit",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=85 --test-coverage-branches=85 --test-coverage-functions=70 test/paths.test.mjs test/listing.test.mjs test/shell.test.mjs test/terminal.test.mjs",
     "test:syntax": "node test/syntax.mjs",
     "test:unit": "node --test test/paths.test.mjs test/listing.test.mjs test/shell.test.mjs test/terminal.test.mjs",
+    "lint:style": "node test/style.mjs",
+    "prepublishOnly": "npm test",
     "probe": "bash test/probe/run.sh",
     "probe:terminal": "bash test/probe/terminal.sh",
     "probe:sandbox": "bash test/probe/sandbox.sh",
@@ -51,7 +57,14 @@
   "engines": {
     "node": ">=20"
   },
-  "packageManager": "pnpm@11.7.0",
+  "author": {
+    "name": "Andy Zhao",
+    "url": "https://github.com/Big-Dao"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",

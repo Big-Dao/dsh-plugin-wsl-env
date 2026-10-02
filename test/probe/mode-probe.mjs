@@ -11,14 +11,16 @@
  *      `rename` over the target?
  */
 
-import { execFileSync } from "node:child_process";
 import { mkdir, open, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { distroHome, inDistro, windowsPath } from "./env.mjs";
 
-const UNC = "\\\\wsl.localhost\\ubuntu\\home\\andy\\.dsh-fsprobe\\mode";
-const LINUX = "/home/andy/.dsh-fsprobe/mode";
+// The scratch directory lives under the distro user's home, which the distro is
+// asked for rather than assumed.
+const LINUX = `${distroHome()}/.dsh-fsprobe/mode`;
+const UNC = windowsPath(LINUX);
 
-const distro = (...argv) => execFileSync("wsl.exe", ["-d", "ubuntu", "--exec", ...argv], { encoding: "utf8", env: { ...process.env, WSL_UTF8: "1" } }).trim();
+const distro = (...argv) => inDistro(...argv);
 
 const hostMode = async (windowsPath) => {
   const info = await stat(windowsPath, { bigint: true });

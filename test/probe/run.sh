@@ -6,8 +6,8 @@
 # script.
 #
 #   dsh wslfs --from-default-profile web --dump-config
-#   dsh plugin --profile wslfs add 'link:C:\Users\andyz\Documents\deepseek-harness\default-workspace\dsh-plugin-wsl'
-#   cp test/probe/wslfs-profile.patch.yml "$USERPROFILE/.dsh/profiles/wslfs/cordis.patch.yml"
+#   dsh plugin --profile wslfs add "link:$RUNTIME_MIRROR"   # see test/probe/sync-to-windows.sh
+#   cp test/probe/wslfs-profile.patch.yml "$WIN_HOME/.dsh/profiles/wslfs/cordis.patch.yml"
 #
 # The profile layer is a copy, not a link: re-run that `cp` after any change to
 # wslfs-profile.patch.yml, or the profile keeps asserting the old one. run.sh
@@ -22,21 +22,16 @@
 # workspace: through a confined shell that step needs an approved
 # `danger-full-access` escalation (see the header of sync-to-windows.sh).
 #
-# Overridable, for a machine laid out differently:
-#
-#   DSH_WSL_ENV_PROFILE  the probe profile directory, as this shell sees it
-#   DSH_WSL_ENV_APP      the DeepSeek Harness install directory, as this shell sees it
-#   DSH_WSL_ENV_CLI      the desktop CLI entry point, as a WINDOWS path
+# Every path below is derived from the machine. The overrides are listed in
+# test/probe/env.sh, which this script sources.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROFILE="${DSH_WSL_ENV_PROFILE:-/mnt/c/Users/andyz/.dsh/profiles/wslfs}"
-APP="${DSH_WSL_ENV_APP:-/mnt/c/Users/andyz/AppData/Local/Programs/DeepSeek Harness}"
-CLI="${DSH_WSL_ENV_CLI:-C:\\Users\\andyz\\AppData\\Local\\Programs\\DeepSeek Harness\\resources\\app.asar\\dsh\\node_modules\\@deepseek-ai\\dsh-desktop-host\\lib\\cli.js}"
+. "$HERE/env.sh"
 
-# The overlay is handed to a WINDOWS process, so it needs the UNC spelling of
-# this directory. Derived rather than hard-coded, so the checkout can move.
-OVERLAY="\\\\wsl.localhost\\${WSL_DISTRO_NAME:-ubuntu}${HERE//\//\\}\\wslfs-probe.yml"
+# The overlay is handed to a WINDOWS process, so both it and the probe it mounts
+# need the UNC spelling. The template carries placeholders; this substitutes them.
+OVERLAY="$(write_overlay wslfs-probe.yml .generated-wslfs-probe.yml FS_PROBE_UNC "$UNC\\test\\probe\\fs-probe.mjs")"
 
 [ -f "$PROFILE/cordis.patch.yml" ] || { echo "no probe profile at $PROFILE; see the header of $0" >&2; exit 1; }
 [ -x "$APP/DeepSeek Harness.exe" ] || { echo "no harness at $APP; set DSH_WSL_ENV_APP" >&2; exit 1; }

@@ -10,7 +10,7 @@
 
 **只支持 Windows + WSL2。** 安装只有一条命令，插件自身没有依赖。WSL 环境按会话生效：会话如果打开的是 Windows 文件夹，它继续使用原来的 Windows 环境，不受影响。
 
-目录：[能做什么](#能做什么) · [安装](#安装) · [使用](#使用) · [配置](#配置) · [沙箱](#沙箱) · [常见问题](#常见问题) · [已知限制](#已知限制) · [开发](#开发) · [设计说明](#设计说明)
+目录：[能做什么](#能做什么) · [安装](#安装) · [使用](#使用) · [配置](#配置) · [沙箱](#沙箱) · [常见问题](#常见问题) · [已知限制](#已知限制) · [开发](#开发) · [设计说明](#设计说明) · [参与与支持](#参与与支持)
 
 ## 能做什么
 
@@ -145,12 +145,15 @@ wsl.exe -d <发行版> --cd <Linux 目录> --exec bwrap \
 ## 开发
 
 ```bash
-npm test                     # 语法检查 + 单元测试，无依赖，任何平台都能跑
+npm test                     # 风格与打包检查、语法检查、单元测试
+npm run test:coverage        # 带覆盖率阈值的单元测试（需 Node 22.8+）
 npm run probe:sandbox        # 在发行版里实测 bubblewrap 能约束什么、不能约束什么
 npm run probe                # 文件系统探针，需要真实发行版（仅 Windows + WSL）
 npm run probe:sandbox-shell  # 启动真实 harness，驱动受限执行器
 npm run probe:terminal       # 通过终端 provider 打开一个 PTY
 ```
+
+这个包没有依赖，所以不需要先安装任何东西。
 
 目录结构：
 
@@ -195,7 +198,8 @@ docs/archive/       被本设计替换掉的方案，以及原因
 
 **运行时镜像。** checkout 在发行版内开发，但 harness 是 Windows 进程，而 profile 只能链接 Windows 路径：pnpm 会把 `link:\\wsl.localhost\...` 改写成坏掉的 `/wsl.localhost/...` 符号链接。所以 `default-workspace/dsh-plugin-wsl` 这份 Windows 副本是运行时镜像，启动应用前用 `test/probe/sync-to-windows.sh` 同步。该目标目录不在任何会话工作区内，所以 agent 在受限 shell 里执行同步时会被 `workspace-write` 拒绝，需要为这一条命令批准 `danger-full-access`。这是沙箱的预期行为，不是脚本坏了；不想看到提示就在普通 distro 终端里执行。
 
-**CI** 在 Linux 上用 Node 20、22、24 运行 `npm test`。
+**CI** 在 Linux 和 Windows 上用 Node 20、22、24 运行 `npm test`，并在 Node 24 上运行
+`npm run test:coverage` 以执行覆盖率阈值。
 
 ## 设计说明
 
@@ -208,6 +212,17 @@ docs/archive/       被本设计替换掉的方案，以及原因
 因此 [`cordis.patch.yml`](../cordis.patch.yml) 替换的是**组合层**的 `subprocess` 行，换成一个只覆写 `spawnTerminal` 的子类。普通的 `spawn()`、Windows 侧的 ripgrep 搜索、pwsh 执行器和 LSP 宿主都仍然走官方实现。代价是终端跟着组合走，而不是跟着会话走，见[已知限制](#已知限制)。
 
 **为什么沙箱放在 Linux 侧。** Windows ACL runner 的受限令牌完全到不了 WSL，所以约束只能在 Windows 侧构造、在发行版内执行。`lib/sandbox.js` 因此照搬 `dsh-sandbox-local` 的 Linux `bwrap` 方案，而不是去用 `ctx.sandbox`；后者 `dsh-tool-bash` 从来不用，它读的是执行器的 `sandboxMode` 和 `ctx.sandboxPolicy`，这两样都由本插件提供。
+
+## 参与与支持
+
+| 文档 | 内容 |
+|---|---|
+| [CONTRIBUTING.md](../CONTRIBUTING.md) | 开发循环、提交前必须通过的质量门、本仓库的约定 |
+| [SECURITY.md](../SECURITY.md) | 如何私下上报漏洞、响应时限、以及哪些问题在范围内 |
+| [SUPPORT.md](../SUPPORT.md) | 支持范围、去哪里提问、以及一份有用的缺陷报告应包含什么 |
+| [docs/ARCHITECTURE.md](ARCHITECTURE.md) | provider 如何挂载、沙箱设计、测试分层 |
+| [docs/RELEASING.md](RELEASING.md) | 发布检查单，含信任发布（trusted publishing）的配置 |
+| [docs/archive/README.en.md](archive/README.en.md) | 归档工程记录的英文索引 |
 
 ## 许可
 

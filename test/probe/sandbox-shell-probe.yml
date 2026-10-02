@@ -7,6 +7,10 @@
 # sandboxing executors are disabled for that reason — this probe is about the
 # distro-side sandbox, not the Windows ACL one.
 #
+# This file is a TEMPLATE: `test/probe/sandbox-shell.sh` substitutes @DISTRO@,
+# @SCRATCH@ and @OUTSIDE@ (all of which depend on the machine) into a generated copy
+# beside it, `.generated-sandbox-shell-probe.yml`, and applies that.
+#
 #   test/probe/sandbox-shell.sh
 - id: bash-sandbox
   disabled: true
@@ -18,13 +22,13 @@
     - id: wsl-shell
       name: 'dsh-plugin-wsl-env'
       config:
-        distro: ubuntu
+        distro: '@DISTRO@'
         loginShell: true
 
     - id: shell-sandbox-probe
       name: './sandbox-shell-probe.mjs'
       config:
         # A distro directory the probe owns, granted as the writable root.
-        workspaceRoot: /home/andy/.dsh-shellprobe
+        workspaceRoot: @SCRATCH@
         # Deliberately outside it: every workspace-write refusal targets this.
-        outside: /home/andy/dsh-shellprobe-outside.txt
+        outside: @OUTSIDE@

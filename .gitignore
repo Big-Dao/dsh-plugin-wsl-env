@@ -15,3 +15,8 @@ test/probe/fs-probe.txt
 Thumbs.db
 *.swp
 .idea/
+
+# Probe overlays. Their checked-in templates carry @NAME@ placeholders because the
+# UNC spelling of a path includes this machine's distro name; the probe scripts
+# substitute the real values into these generated copies.
+test/probe/.generated-*.yml

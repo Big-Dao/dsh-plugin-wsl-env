@@ -12,7 +12,8 @@ This plugin lets [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 [What you get](#what-you-get) · [Install](#install) · [Using it](#using-it) ·
 [Configure](#configure) · [Sandbox](#sandbox) · [Troubleshooting](#troubleshooting) ·
-[Limitations](#limitations) · [Development](#development) · [Design notes](#design-notes)
+[Limitations](#limitations) · [Development](#development) · [Design notes](#design-notes) ·
+[Contributing and support](#contributing-and-support)
 
 ## What you get
 
@@ -147,12 +148,15 @@ These are the same arguments DSH uses on a Linux host (`dsh-sandbox-local`), so 
 ## Development
 
 ```bash
-npm test                     # syntax check and unit tests; no dependencies, runs anywhere
+npm test                     # style and packaging checks, syntax check, unit tests
+npm run test:coverage        # the unit tests with coverage thresholds (Node 22.8+)
 npm run probe:sandbox        # measure inside the distro what bubblewrap does and does not confine
 npm run probe                # filesystem probe against a real distro (Windows + WSL only)
 npm run probe:sandbox-shell  # boot a real harness and drive the confined executor
 npm run probe:terminal       # open a PTY through the terminal provider
 ```
+
+The package has no dependencies, so there is nothing to install first.
 
 Layout:
 
@@ -197,7 +201,8 @@ Counts: 42 unit assertions, 18 filesystem-probe assertions, 10 shell-probe check
 
 **The runtime mirror.** The checkout is developed inside the distro, but the harness is a Windows process, and a profile can only link a Windows path: pnpm rewrites `link:\\wsl.localhost\...` into a broken `/wsl.localhost/...` symlink. The Windows copy at `default-workspace/dsh-plugin-wsl` is therefore a runtime mirror. Sync it with `test/probe/sync-to-windows.sh` before launching the app. That destination is outside every session workspace, so an agent running the sync in a confined shell is refused by `workspace-write` and must approve `danger-full-access` for that one command. That is the sandbox behaving as designed, not a broken script; run the sync from a normal distro terminal if you prefer not to see the prompt.
 
-**CI** runs `npm test` on Linux with Node 20, 22 and 24.
+**CI** runs `npm test` on Node 20, 22 and 24, on Linux and on Windows, and runs
+`npm run test:coverage` on Node 24 to enforce the coverage thresholds.
 
 ## Design notes
 
@@ -210,6 +215,17 @@ The terminal cannot be provided that way. `dsh-api-terminal-controller` looks up
 For that reason, [`cordis.patch.yml`](cordis.patch.yml) replaces the **app-wide** `subprocess` row with a subclass that overrides only `spawnTerminal`. Ordinary `spawn()`, the Windows-side ripgrep search, the pwsh executor and the LSP host still use the shipped implementation. The cost is that the terminal follows the app configuration rather than the session; see [Limitations](#limitations).
 
 **Why the sandbox is on the Linux side.** The Windows ACL runner's restricted token cannot reach WSL at all, so the confinement has to be built on the Windows side and run inside the distro. `lib/sandbox.js` copies the Linux `bwrap` approach from `dsh-sandbox-local` instead of using `ctx.sandbox`. `dsh-tool-bash` never asks for `ctx.sandbox` anyway: it reads the executor's `sandboxMode` and `ctx.sandboxPolicy`, and this plugin supplies both.
+
+## Contributing and support
+
+| Document | What it covers |
+|---|---|
+| [CONTRIBUTING.md](CONTRIBUTING.md) | the development loop, the gates a pull request must pass, and the conventions used here |
+| [SECURITY.md](SECURITY.md) | reporting a vulnerability privately, response targets, and what counts as in scope |
+| [SUPPORT.md](SUPPORT.md) | what is supported, where to ask, and what a useful bug report contains |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | how the providers are mounted, the sandbox design, and the test layers |
+| [docs/RELEASING.md](docs/RELEASING.md) | the release checklist, including the trusted-publisher setup |
+| [docs/archive/README.en.md](docs/archive/README.en.md) | an English index of the archived engineering record |
 
 ## License
 

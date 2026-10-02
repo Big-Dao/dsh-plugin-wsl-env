@@ -1,0 +1,70 @@
+name: Release
+
+# Pushing a `v<version>` tag publishes that version. The tag must match
+# package.json, the gates must pass, and npm receives a provenance attestation
+# tying the tarball to this workflow run and commit.
+on:
+  push:
+    tags: ["v*"]
+
+# `id-token: write` is what lets npm exchange this run's OIDC token for a
+# short-lived publish credential (trusted publishing), so no npm token is stored in
+# the repository. `contents: write` is for creating the GitHub Release.
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: publish and release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Add required reviewers to this environment in the repository settings to put a
+    # second pair of eyes in front of every publish. The environment is created on
+    # first use, so this does not block until you configure it.
+    environment: npm-publish
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+      - name: Tag matches the package version
+        run: node scripts/check-release-tag.mjs "$GITHUB_REF_NAME"
+      - name: Gates
+        run: npm test && npm run test:coverage
+      # Re-running a release after a partial failure must not end at a 409. Ask the
+      # registry whether this version is already published, and skip the upload when
+      # it is, so the job still gets to create the GitHub Release.
+      - name: Is this version already on the registry?
+        id: published
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          if npm view "dsh-plugin-wsl-env@$version" version --registry=https://registry.npmjs.org/ >/dev/null 2>&1; then
+            echo "exists=true" >>"$GITHUB_OUTPUT"
+            echo "dsh-plugin-wsl-env@$version is already published; skipping the upload"
+          else
+            echo "exists=false" >>"$GITHUB_OUTPUT"
+          fi
+      # Trusted publishing needs the package configured for it on npmjs.com with
+      # this repository, this workflow file and the `npm-publish` environment; see
+      # docs/RELEASING.md. If that is not set up, add an NPM_TOKEN repository secret
+      # and hand it to this step as `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}`.
+      - name: Publish
+        if: steps.published.outputs.exists != 'true'
+        run: npm publish --provenance --access public
+      - name: GitHub Release, notes from the changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/changelog-section.mjs --out release-notes.md
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file release-notes.md \
+            --verify-tag

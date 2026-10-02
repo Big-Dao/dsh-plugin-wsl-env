@@ -16,7 +16,7 @@
     - id: wsl-fs
       name: 'dsh-plugin-wsl-env/fs'
       config:
-        distro: ubuntu
+        distro: ''   # empty: WSL's default distro
         # No `cwd` on purpose: an empty default workdir means the distro user's
         # home, and `fs-probe.mjs` asserts that a relative path lands there. A
         # pinned directory here would hide the fallback under test.

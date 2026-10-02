@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-wsl-env",
-  "version": "0.1.10",
-  "description": "\u8ba9 DeepSeek Harness \u4ee5 WSL \u5b50\u7cfb\u7edf\u4f5c\u4e3a\u4f1a\u8bdd\u7684\u6267\u884c\u73af\u5883\uff1ashell\u3001\u6587\u4ef6\u8bfb\u5199\u4e0e\u547d\u4ee4\u6267\u884c\u5747\u5728\u5b50\u7cfb\u7edf\u5185\u5b8c\u6210\uff0c\u76ee\u5f55\u9009\u62e9\u5668\u4e0e GUI \u7ec8\u7aef\u540c\u6837\u5b9a\u4f4d\u5230\u5b50\u7cfb\u7edf\u8def\u5f84\uff0c\u5e76\u901a\u8fc7\u5b50\u7cfb\u7edf\u5185\u7684 bubblewrap \u5bf9\u547d\u4ee4\u8fdb\u884c\u6c99\u7bb1\u9694\u79bb",
+  "version": "0.2.0",
+  "description": "让 DeepSeek Harness 以 WSL 子系统作为会话的执行环境：shell、文件读写与命令执行均在子系统内完成，目录选择器与 GUI 终端同样定位到子系统路径，并通过子系统内的 bubblewrap 对命令进行沙箱隔离",
   "keywords": [
     "deepseek-harness",
     "dsh",

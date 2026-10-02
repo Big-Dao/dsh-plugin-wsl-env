@@ -149,7 +149,7 @@ On Windows 11 + WSL2 (Ubuntu 26.04) the following has been verified:
 
 Counts: 57 unit assertions on a bare checkout, plus 5 in `test/sandbox.test.mjs` which
 need the `dsh-sandbox` peer and skip themselves without it; 19 filesystem-probe
-assertions; 13 shell-probe checks; 9 picker checks; 6 missing-executable checks; 5 mode
+assertions; 15 shell-probe checks; 9 picker checks; 6 missing-executable checks; 5 mode
 checks and 10 sandbox expectations plus the recorded escape; and 3 terminal
 assertions.
 

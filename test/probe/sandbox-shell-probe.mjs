@@ -54,9 +54,10 @@ async function run(ctx, config) {
   };
 
   /** Run one command that DEFAULTS its workdir, and settle it. */
-  const execDefaulted = async (command, workdir, mode) => {
+  const execDefaulted = async (command, workdir, mode, timeoutMs) => {
     const request = { command, sandboxPolicy: policy(mode) };
     if (workdir !== undefined) request.workdir = workdir;
+    if (timeoutMs !== undefined) request.timeoutMs = timeoutMs;
     const execution = await ctx.shell.execute(ctx.shell.resolve(request));
     return execution.result();
   };
@@ -126,6 +127,21 @@ async function run(ctx, config) {
     // danger-full-access is the approved escalation and is not wrapped.
     const escalated = await exec(`echo x > ${config.outside} && cat ${config.outside}`, "danger-full-access");
     check("danger-full-access is not confined", escalated.exitCode === 0 && escalated.stdout.text.includes("x"), `exit=${escalated.exitCode} stderr=${JSON.stringify(escalated.stderr.text.slice(0, 120))}`);
+
+    // A command that outlives its deadline must not leave a process behind in the
+    // distro. The escalated path is the conservative case: a confined command also
+    // dies with its `bwrap` parent, so this one relies on the subprocess service's
+    // kill actually reaching the distro.
+    const killed = await execDefaulted("sleep 120", config.home, "danger-full-access", 1500);
+    check("a command past its deadline is reported as timed out", killed.timedOut === true || killed.exitCode !== 0, `timedOut=${String(killed.timedOut)} exit=${killed.exitCode}`);
+    let survivors = "?";
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const counted = await execDefaulted("pgrep -x sleep | wc -l", config.home, "danger-full-access");
+      survivors = counted.stdout.text.trim();
+      if (survivors === "0") break;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    check("a killed command leaves no process behind in the distro", survivors === "0", `pgrep -x sleep = ${survivors}`);
 
     // Clean up through the unconfined path: the sandbox cannot remove what it
     // never wrote.

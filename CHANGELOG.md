@@ -12,6 +12,28 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-10-02
+
+A probe assertion for the one item the closure review had to record as unverifiable.
+No runtime change.
+
+### Added
+
+- `npm run probe:sandbox-shell` asserts that a command past its deadline is reported as
+  timed out **and leaves no process behind in the distro** (15 checks, up from 13). The
+  escalated path is used on purpose: a confined command also dies with its `bwrap`
+  parent, so only the unconfined path shows whether the subprocess service's kill
+  actually reaches the distro. It does — measured through `ctx.shell` here, and
+  directly by killing a `wsl.exe` relay and watching the distro-side `sleep` disappear
+  with it (1 process before, 0 after).
+
+### Documentation
+
+- The review's "unverified: orphaned processes after a timeout" item is closed. The
+  earlier attempt could not see the process at all, and said so: the agent's own shell
+  ran in a separate PID namespace, where `ps` cannot see the distro's processes.
+
+
 ## [0.1.7] - 2026-10-02
 
 One correctness fix and the error-code reference the closure review asked for.

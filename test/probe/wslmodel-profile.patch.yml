@@ -1,11 +1,11 @@
 # wslmodel — a headless, WSL-only profile used to verify the filesystem
-# mutation path through a REAL model turn (README §16.5 / §10).
+# mutation path through a REAL model turn (archived record §16.5 / §10).
 #
 # It is the shipped `headless` template with every host provider replaced by the
 # WSL one, so the only environment the model can see is the distro:
 #
 #   * the three sandboxing executors are disabled (a low-integrity Windows token
-#     cannot reach WSL at all — README §2.1);
+#     cannot reach WSL at all — archived record §2.1);
 #   * `dsh-plugin-wsl-env` provides ctx.shell and `dsh-plugin-wsl-env/fs` ctx.fs;
 #   * the shell/file tool rows are flipped to the bash/file pair, since headless
 #     has no agent preset to do that selection.

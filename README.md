@@ -4,10 +4,12 @@ Run a [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) sessio
 against a WSL distro. Commands execute *inside* the distro, the model's file tools
 read and write real distro files, and the GUI's folder dialog can open one.
 
-> The full engineering record — design rationale, measurements, and every
-> discarded design with the reason it was abandoned — is
-> **[README.zh.md](README.zh.md)** (Chinese); its §0.1 explains what stayed here and what
-> moved to the archive of replaced designs. This file is the short entry point.
+> The engineering record this file summarises — design rationale, measurements,
+> and every discarded design with the reason it was abandoned — is archived at
+> **[docs/archive/engineering-record.zh.md](docs/archive/engineering-record.zh.md)**
+> (Chinese). It is history, not a second README: where it and this file disagree,
+> **this file is the current state**. Its §0.1 lists which of its conclusions the
+> later sandbox work superseded.
 
 ## What it does
 
@@ -190,8 +192,8 @@ npm run probe:terminal    # terminal probe: opens a PTY through the provider
 `npm test` covers the pure modules plus a `--check` parse pass over every shipped
 module. It cannot import the service modules: they need DSH peers that a bare
 checkout does not have. That leaves an evaluation-time gap which only booting the
-harness closes — see README.zh.md §15.4 for the five rounds of misdiagnosis that
-gap once caused.
+harness closes — the archived record's §15.4 documents the five rounds of
+misdiagnosis that gap once caused.
 
 `test/probe/sandbox.sh` needs no harness at all: it applies the exact profile
 arguments `lib/sandbox.js` builds and asserts what bubblewrap does and does not

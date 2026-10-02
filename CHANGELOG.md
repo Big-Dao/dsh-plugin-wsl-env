@@ -4,8 +4,11 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-The reasoning and the measurements behind each entry are in
-[README.zh.md](README.zh.md); the section numbers below point at the record.
+The reasoning and the measurements behind each entry are in the archived
+engineering record,
+[docs/archive/engineering-record.zh.md](docs/archive/engineering-record.zh.md)
+(Chinese, repository only — it is history, never a second README). Every `§`
+reference below points at that record's numbering.
 
 ## [Unreleased]
 
@@ -158,6 +161,11 @@ The reasoning and the measurements behind each entry are in
 
 ### Removed
 
+- `README.zh.md` stopped being a README: the file moved to
+  `docs/archive/engineering-record.zh.md` and left the package's `files` list, so
+  npm and GitHub now render exactly one README. The reasoning is under Fixed
+  below; nothing was deleted, only renamed out of the slot that made it look
+  current.
 - Three peer declarations this plugin neither imports nor injects:
   `@deepseek-ai/dsh-sandbox`, `@deepseek-ai/dsh-shell` and
   `@deepseek-ai/dsh-tools`. They were required by the abandoned tool-renaming
@@ -184,13 +192,24 @@ The reasoning and the measurements behind each entry are in
 
 Documentation that a reader would have acted on, and that was no longer true:
 
-- README.zh.md §2.1 and §3.4 still conclude that "any WSL plugin must run on a
+- The repository briefly carried two READMEs. `README.zh.md` called itself the
+  current description of the plugin while its conclusions had been superseded
+  three times over — most sharply by the sandbox work below — which is exactly
+  the ambiguity a second README creates. It is now
+  [docs/archive/engineering-record.zh.md](docs/archive/engineering-record.zh.md):
+  the same content, renamed out of the README slot and banner-headed as history,
+  with README.md the single statement of current state. Nothing was deleted from
+  the record; §0.1 names the conclusions that are now historical.
+- §2.1 and §3.4 of that record conclude that "any WSL plugin must run on a
   non-sandboxing provider" and that both providers report `sandboxMode:
   undefined` (§9's recorded self-check prints exactly that). The Windows ACL
   constraint in §2.1 holds and is unchanged; the *conclusion* it drew about our
-  own confinement does not, because the sandbox now runs inside the distro. Those
-  sections state the superseded posture and should be read against the README's
-  "Sandboxing" section.
+  own confinement does not, because the sandbox now runs inside the distro — see
+  the README's *Sandboxing* section.
+- §9.4's three-step install ends with writing the plugin's rows into the profile's
+  own `cordis.patch.yml` by hand. The package is a bundle now, so that step is
+  gone (and the row set it describes has since gained the sandbox config); the
+  current install is in README.md.
 - §9.6 and §10.5 claimed the `wsl` and `wsltest` profiles were still available,
   and §13.6 said the same about `envweb`. All three are gone.
 - The desktop section documented the superseded `build-desktop-patch.mjs`
@@ -258,6 +277,6 @@ DeepSeek Harness session, with both capability seams served from the distro.
 
 ### Known limitations
 
-See [README.zh.md §7](README.zh.md) for the full list, including the 9p
+See the archived record's §7 for the full list, including the 9p
 performance caveat, unsupported `watch()`, and the missing executable bit on
 freshly created files.

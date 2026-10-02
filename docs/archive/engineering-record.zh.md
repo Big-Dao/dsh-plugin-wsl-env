@@ -1,6 +1,16 @@
 # 开发一个让 DeepSeek Harness 打开并运行 WSL 文件夹的插件
 
-本文描述插件**现在的形态**：本机（Windows + WSL2 ubuntu 26.04）实测得到的契约与约束、据此给出的设计、安装与使用方式、已知限制，以及验证手段。被推翻的设计与当时的排查记录见 [`docs/archive/design-history.zh.md`](docs/archive/design-history.zh.md)。
+> **历史工程记录 —— 不是现行文档。**
+>
+> 本文是 0.1.x 开发过程的完整记录：实测契约、被推翻的设计、排查过程，以及**当时**得出的结论。
+> **现行状态只以仓库根目录的 [`README.md`](../../README.md) 为准**；两者冲突时，以 README.md 为准。
+> 本文的部分结论已被后续工作推翻，最典型的是 §2.1/§3.4/§9 由"Windows 沙箱到不了 WSL"推出的
+> "本插件必须运行在无沙箱 provider 上"——现行实现改为在 distro 内用 bubblewrap 施加约束，
+> 边界与代价见 README 的 *Sandboxing* 一节。
+> 被替换设计的对照表见 [`design-history.zh.md`](design-history.zh.md)。
+>
+> 文中的相对链接（`lib/…`、`test/…` 等）写于它还在仓库根目录的时候，归档时未逐条改写；
+> 要按链接找文件请以仓库现状为准。
 
 ---
 
@@ -20,14 +30,16 @@
 
 ### 0.1 本文的范围与历史留档
 
-本文写**现在的形态**：契约、设计、安装、使用、限制、验证方式。
+本文是**历史记录**：它写下的是 0.1.x 开发当时的契约、设计、安装、使用、限制与验证方式。
+现行状态见仓库根目录的 [`README.md`](../../README.md)，本目录只保管历史。
 
 三条被否掉的"工具命名"路线、per-process 的 `DSH_WSL` 开关、以及当初的排查过程，都移到了
-[`docs/archive/design-history.zh.md`](docs/archive/design-history.zh.md) —— 那里按**当时的节号**原样保留，
-并标出每个结论现在的对应位置。
+[`design-history.zh.md`](design-history.zh.md) —— 那里按**当时的节号**原样保留，
+并标出每个结论当时的对应位置（那些指针指向的是本文的节号，而不是 README 的）。
 
-仍留在本文的"已修复缺陷"几节（§11、§12、§16）不是历史陈列：它们解释的是**现成代码为什么长这样**
-（`--exec` 为什么是必需的、shell 为什么不能硬编码、发布路径为什么绕开 Windows 描述符分支）。
+本文的"已修复缺陷"几节（§11、§12、§16）解释的是**代码为什么长这样**
+（`--exec` 为什么是必需的、shell 为什么不能硬编码、发布路径为什么绕开 Windows 描述符分支）——
+这些理由今天仍然成立，即便文中的安装步骤、沙箱结论与部分自检输出已经过时。
 
 ---
 
@@ -260,11 +272,11 @@ await writeFileAtomic(target.targetKey, content, existing?.mode, signal, this.in
 | [`test/terminal.test.mjs`](test/terminal.test.mjs) | 终端 argv（是否 `--exec`、`--cd` 何时省略）与 `WSLENV` 的 `/p` 翻译断言（9 项） |
 | [`test/probe/`](test/probe/) | **行为探针**：`run.sh` 把 `ctx.fs` 绑到发行版，逐条断言写/改/权限位（见 §16.6）；`terminal.sh` 启动终端 provider 并断言它落到哪个 shell（见 §17.6） |
 | [`test/syntax.mjs`](test/syntax.mjs) | 对 `lib/*.js` 逐个 `node --check`。服务类模块缺 DSH peer 时无法 import，这是唯一能覆盖它们的自动化门槛（只查语法，不查求值期错误，见 §15.4） |
-| [`README.md`](README.md) | 英文短入口（npm / GitHub 首屏）；本文仍是完整记录 |
+| [`README.md`](../../README.md)（仓库根目录） | 英文短入口，也是**现行状态的唯一文档**；本文已归档为历史记录 |
 | [`CHANGELOG.md`](CHANGELOG.md) | Keep a Changelog 格式的版本记录，每条都指回本文的章节 |
 | [`LICENSE`](LICENSE) | MIT（`package.json` 早已声明，本轮才补上文件） |
 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | 托管 runner 上只跑无依赖的那一半（`npm test`，node 20/22/24） |
-| [`docs/archive/`](docs/archive/) | 已废弃设计的留档，含[说明](docs/archive/README.md)（如 per-process 的 `DSH_WSL` 旧补丁） |
+| `docs/archive/`（本目录） | 已废弃设计与本文的留档，含[说明](README.md)（如 per-process 的 `DSH_WSL` 旧补丁） |
 | [`.editorconfig`](.editorconfig) / [`.gitattributes`](.gitattributes) / [`.gitignore`](.gitignore) | 2 空格 + LF（跨 WSL/Windows 必须）、忽略 `node_modules/` 与探针产物 |
 
 ### 4.1 工程化脚手架

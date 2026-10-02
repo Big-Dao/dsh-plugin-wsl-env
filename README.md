@@ -28,7 +28,7 @@ Step 3 should print a layer named `# == dsh-plugin-wsl-env`, and `- id: terminal
 
 Then open a folder under `\\wsl.localhost\<distro>\...` in the GUI. The picker lists every installed distro at its root level, and **New terminal** opens a shell in the distro.
 
-You also need **bubblewrap inside the distro**: `sudo apt install bubblewrap`. Without it every command fails closed, see [Sandbox](#sandbox).
+You also need **bubblewrap inside the distro**: run `npm run bootstrap -- <distro> --install` (drop `--install` for a read-only check), or paste `wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap`. Without it every command fails closed, see [Sandbox](#sandbox).
 
 Uninstall: `dsh plugin --profile wsl remove dsh-plugin-wsl-env`. Upgrade: run the same `add` command again.
 
@@ -77,11 +77,28 @@ Commands are confined by `bubblewrap` inside the distro, and file writes are che
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#sandbox) for the design, and [docs/LIMITATIONS.md](docs/LIMITATIONS.md) for everything the plugin does not do.
 
+## Recipes
+
+- **Git credential sharing**: let git inside the distro use the Windows-side Git
+  Credential Manager — `git config --global credential.helper "/mnt/c/Program\ Files/Git/mingw64/bin/git-credential-manager.exe"`
+  (adjust the path to your Windows Git install; WSL2's localhost forwarding is
+  platform behaviour, so ports a dev server listens on inside the distro are
+  reachable from Windows directly).
+- **Paths and performance**: the model sees and operates on Linux paths
+  (`/home/...`) on the distro's own ext4. `/mnt/c` reaches the Windows disk over
+  9p — noticeably slow for many small files; keep heavy-IO projects on the
+  distro filesystem. `npm run bootstrap -- <distro>` also reports whether
+  ripgrep and inotifywait (the search and watch backends) are in place.
+- **WSLENV passthrough**: WSL imports only the variables listed in `WSLENV`.
+  This plugin admits the managed `DSH_*` namespace by prefix, translating the
+  two Windows-path ones (`DSH_HOME`, `DSH_PROFILE_DIR`) with `/p`. `PATH` is
+  deliberately never forwarded — it would shadow the distro's own PATH.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| every command reports `SANDBOX_UNAVAILABLE` | `bubblewrap` is not installed in the distro | run `sudo apt install bubblewrap`, or set `sandbox: false` on both providers |
+| every command reports `SANDBOX_UNAVAILABLE` | `bubblewrap` is not installed in the distro | run `npm run bootstrap -- <distro> --install`, or set `sandbox: false` on both providers |
 | a command or write is refused outside the session folder | expected behaviour of `workspace-write` | accept the wider-permission offer, or open a session on the folder you need |
 | writes are refused even inside the workspace | the session is in `read-only` mode | switch the Permissions selector |
 | `dsh plugin add` warns that no layer was activated | the dependency was already installed, so `add` had nothing to record | run `dsh plugin --profile wsl remove dsh-plugin-wsl-env`, then add it again |

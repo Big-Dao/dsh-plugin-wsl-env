@@ -26,3 +26,4 @@ test/probe/.generated-*.yml
 test/probe/missing-wsl-report.txt
 test/probe/picker-report.txt
 test/probe/sandbox-off-report.txt
+test/probe/.scratch/

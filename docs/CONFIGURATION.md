@@ -14,6 +14,7 @@ are schema defaults, listed because they are the ones worth knowing.
 | `wsl-shell` | `distro` | `''` *(shipped)* | distro name; empty means WSL's default distro |
 | | `shell` | `''` | pin a shell inside the distro; empty means the user's login shell |
 | | `loginShell` | `true` *(shipped)* | use `<shell> -lc`, which sources your profile, instead of a bare `-c` |
+| | `agent` | `true` | run commands over the resident in-distro agent (one long-lived process; in-distro timeout); any agent failure falls back to the one-shot `wsl.exe` path |
 | | `sandbox` | `true` | confine commands with `bubblewrap`; `false` disables the sandbox |
 | | `cwd` | `''` | default working directory; empty means the distro user's home |
 | | `timeoutMs` / `maxTimeoutMs` | `120000` / `600000` *(shipped)* | per-call time limit, and the ceiling a call may ask for |
@@ -50,3 +51,10 @@ confinement. `sandboxMode` then reports `undefined`, and the tool layer tells th
 model that these operations have no sandbox. That is the documented opt-out; see
 [ARCHITECTURE.md](ARCHITECTURE.md#sandbox) for what the sandbox does and does not
 cover.
+
+## `wsl-shell-env`
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `distro` | `''` | the distro the `DSH_WSL_*` facts describe |
+| `portsRefreshMs` | `10000` | how often the `DSH_WSL_PORTS` listening-port snapshot refreshes through the resident agent |

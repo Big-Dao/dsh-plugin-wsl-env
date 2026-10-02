@@ -31,13 +31,18 @@ boundary; one that is not is a bug report waiting to happen.
   checks the caller's guard itself, because the Windows backend publishes a guarded
   new file with a hard link, and the share does not support hard links. This is the
   race that `dsh-fs-sandbox` already documents.
-- `watch()` (file change monitoring) is not provided. Watching a 9p share is
-  unreliable, so the plugin refuses instead of arming it.
+- `watch()` observes from inside the distro (a `find -newer` poll loop, see
+  `lib/watcher.js`), so events are coarse invalidation, not per-file notifications,
+  and they arrive on the poll cadence, not instantly. A file created with an mtime
+  older than the watcher's stamp (`cp -p`, `tar -x`) is not seen until something
+  else touches the tree. Watching a 9p share from the Windows side remains
+  unsupported — the loop runs where the kernel can actually report change.
 - `glob` and `grep` use the Windows-side ripgrep over the share: correct results, but
   not fast, and `.gitignore` is interpreted with Windows rules. `editText` reads the
   whole file into memory before writing it back.
-- The terminal belongs to the whole app, not to one session. A session opened on a
-  Windows folder still gets the distro terminal, starting in `/mnt/<drive>/...`, and
-  its shell menu is deliberately reduced to the one configured profile.
+- Terminal routing is per-session by workspace coordinates (`subprocess-wsl.hostSessions`,
+  default on): a WSL-folder session gets the distro shell, a Windows-folder session gets
+  `powershell.exe` in its own directory. The shell MENU remains the single configured
+  profile, and a directory-less launch still lands in the distro.
 - Terminal activity reporting stops at `wsl.exe`, so the controller never reclaims
   these terminals when they are idle.

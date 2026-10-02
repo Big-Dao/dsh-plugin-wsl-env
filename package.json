@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-wsl-env",
   "version": "0.1.10",
-  "description": "Run a DeepSeek Harness session against a WSL distro: commands and the model's file tools run inside it, the folder picker and the GUI terminal open there, and commands are confined by bubblewrap inside the distro",
+  "description": "\u8ba9 DeepSeek Harness \u4ee5 WSL \u5b50\u7cfb\u7edf\u4f5c\u4e3a\u4f1a\u8bdd\u7684\u6267\u884c\u73af\u5883\uff1ashell\u3001\u6587\u4ef6\u8bfb\u5199\u4e0e\u547d\u4ee4\u6267\u884c\u5747\u5728\u5b50\u7cfb\u7edf\u5185\u5b8c\u6210\uff0c\u76ee\u5f55\u9009\u62e9\u5668\u4e0e GUI \u7ec8\u7aef\u540c\u6837\u5b9a\u4f4d\u5230\u5b50\u7cfb\u7edf\u8def\u5f84\uff0c\u5e76\u901a\u8fc7\u5b50\u7cfb\u7edf\u5185\u7684 bubblewrap \u5bf9\u547d\u4ee4\u8fdb\u884c\u6c99\u7bb1\u9694\u79bb",
   "keywords": [
     "deepseek-harness",
     "dsh",
@@ -22,6 +22,7 @@
     "./shell-env": "./lib/shell-env.js",
     "./wsl": "./lib/wsl.js",
     "./paths": "./lib/paths.js",
+    "./agent": "./lib/agent.js",
     "./package.json": "./package.json"
   },
   "dsh": {
@@ -31,12 +32,14 @@
   },
   "files": [
     "lib/**/*.js",
+    "agent/*.sh",
     "cordis.patch.yml",
     "examples/**/*.yml",
     "README.md",
     "docs/README.zh.md",
     "docs/CONFIGURATION.md",
     "docs/LIMITATIONS.md",
+    "docs/PARITY.md",
     "docs/ARCHITECTURE.md",
     "CHANGELOG.md",
     "CONTRIBUTING.md",
@@ -48,7 +51,7 @@
     "test": "npm run lint:style && npm run test:syntax && npm run test:unit",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=85 --test-coverage-branches=85 --test-coverage-functions=70 test/paths.test.mjs test/listing.test.mjs test/shell.test.mjs test/terminal.test.mjs test/probe-cache.test.mjs test/preset-choice.test.mjs",
     "test:syntax": "node test/syntax.mjs",
-    "test:unit": "node --test test/paths.test.mjs test/listing.test.mjs test/shell.test.mjs test/terminal.test.mjs test/probe-cache.test.mjs test/preset-choice.test.mjs test/sandbox.test.mjs",
+    "test:unit": "node --test test/paths.test.mjs test/listing.test.mjs test/shell.test.mjs test/terminal.test.mjs test/probe-cache.test.mjs test/preset-choice.test.mjs test/sandbox.test.mjs test/agent-protocol.test.mjs test/agent.test.mjs test/fs-publish.test.mjs test/agent-exec.test.mjs test/ports.test.mjs test/watcher.test.mjs",
     "lint:style": "node test/style.mjs",
     "prepublishOnly": "npm test",
     "probe": "bash test/probe/run.sh",
@@ -59,7 +62,10 @@
     "probe:terminal": "bash test/probe/terminal.sh",
     "probe:sandbox": "bash test/probe/sandbox.sh",
     "probe:sandbox-shell": "bash test/probe/sandbox-shell.sh",
-    "sync:windows": "bash test/probe/sync-to-windows.sh"
+    "sync:windows": "bash test/probe/sync-to-windows.sh",
+    "probe:watch": "bash test/probe/watch.sh",
+    "probe:exec": "bash test/probe/exec.sh",
+    "bootstrap": "bash scripts/bootstrap.sh"
   },
   "engines": {
     "node": ">=20"

@@ -55,12 +55,12 @@ provider 是**启动时**按服务可用性选择的，而 `ctx.shell` / `ctx.fs
 | `ctx.fs` | `SandboxedFileSystem` | `WslFileSystem` |
 | `sandboxMode` | `workspace-write` | `undefined`（不围栏） |
 | Permissions 选择器 | 有 | 无（`permission` 行禁用） |
-| 目录选择器 | 原生 OS 选择器 | WSL 对话框（第一屏是发行版列表） |
+| 目录选择器 | 原生 OS 选择器 | WSL 对话框（第一屏是子系统列表） |
 | preset 的 shell 工具 | `pwsh` | `bash`（在 WSL 内执行） |
 
 ### 10.5 WSL 模式下的取舍（用之前必须知道）
 
-- **文件围栏消失**：`dsh-fs-sandbox` 是唯一真正执行写入围栏的组件，WSL 模式下它被禁用。Windows 路径（`C:\...`）仍可读写——`restrictToDistro` 只挡"别的发行版"，不挡 Windows 盘。
+- **文件围栏消失**：`dsh-fs-sandbox` 是唯一真正执行写入围栏的组件，WSL 模式下它被禁用。Windows 路径（`C:\...`）仍可读写——`restrictToDistro` 只挡"别的子系统"，不挡 Windows 盘。
 - **Permissions 选择器消失**：因为框架拒绝把"声称带沙箱模式"的预设架在不围栏的执行器上（README §9.2 的 fail-loud）。这不是配置疏忽，是无解的结构约束。
 - **`bash` 只在 WSL 里跑**：Windows 原生命令要么走 `/mnt/c/...`，要么靠 interop 直接执行 `.exe`。
 - 想要回到完全受沙箱保护的日常使用：取消 `DSH_WSL` 并重启。两者可随时来回切。
@@ -98,7 +98,7 @@ Copy-Item "$env:USERPROFILE\.dsh\profiles\desktop\cordis.patch.yml.bak-20261001-
 
 ## 12. 手动试用（step by step）—— 同一开关的操作流程
 
-> **⚠️ 本节整套流程建立在已被移除的 `DSH_WSL` 进程开关上，照做不会有任何效果。** 现在的试用方式短得多：**重启应用 → 在 GUI 里直接打开一个 WSL 文件夹 → 新建会话**，环境按会话自动选择（README §13.6）。下面仍然有用的是第 4、5 步（怎么在对话框里进发行版、怎么确认文件工具也在发行版里）和"出问题怎么办"里的排查思路。
+> **⚠️ 本节整套流程建立在已被移除的 `DSH_WSL` 进程开关上，照做不会有任何效果。** 现在的试用方式短得多：**重启应用 → 在 GUI 里直接打开一个 WSL 文件夹 → 新建会话**，环境按会话自动选择（README §13.6）。下面仍然有用的是第 4、5 步（怎么在对话框里进子系统、怎么确认文件工具也在子系统里）和"出问题怎么办"里的排查思路。
 
 ### 前提
 
@@ -133,22 +133,22 @@ Start-Process "C:\Users\andyz\AppData\Local\Programs\DeepSeek Harness\DeepSeek H
 |---|---|---|
 | **Permissions 选择器** | 在（General 设置 + `/permission`） | **消失**——因为框架拒绝把"声称带沙箱模式"的预设架在不围栏的执行器上 |
 | **工作区目录选择器** | Windows 原生文件夹对话框 | **应用内对话框**：面包屑首行是 `WSL`，列表里有 `C:\Users\andyz` 和 `ubuntu` |
-| **shell 工具** | `pwsh` | `bash`（在发行版内执行） |
+| **shell 工具** | `pwsh` | `bash`（在子系统内执行） |
 
 最省事的一句话确认：**新开一个会话，让模型跑 `uname -r`**。回 `6.18.40.1-microsoft-standard-WSL2` 就是在 WSL 模式；回 Windows 相关内容就是没切过去。
 
 ### 第 4 步：打开一个 WSL 里的文件夹
 
 1. 新建会话 → 打开工作区选择器；
-2. 对话框第一屏应看到 `ubuntu`（还有 `C:\Users\andyz` 作为回到 Windows 的入口）——这就是 `WSL` 面包屑下的发行版列表；
-3. 点 `ubuntu` → 落到发行版根 `/`；
+2. 对话框第一屏应看到 `ubuntu`（还有 `C:\Users\andyz` 作为回到 Windows 的入口）——这就是 `WSL` 面包屑下的子系统列表；
+3. 点 `ubuntu` → 落到子系统根 `/`；
 4. 依次进 `home` → `andy` → 你的项目目录；
-5. 需要新目录就用 **New folder**（建在发行版里，属主是 `andy`）；
+5. 需要新目录就用 **New folder**（建在子系统里，属主是 `andy`）；
 6. **Open** 确认。
 
-选中后那个目录成为会话工作区，之后的 `bash` / `read` / `write` / `glob` / `grep` 都在发行版里工作。模型看到的路径是 Linux 形式（`/home/andy/...`），不是 `\\wsl.localhost\...`。
+选中后那个目录成为会话工作区，之后的 `bash` / `read` / `write` / `glob` / `grep` 都在子系统里工作。模型看到的路径是 Linux 形式（`/home/andy/...`），不是 `\\wsl.localhost\...`。
 
-### 第 5 步：验证文件工具也在发行版里
+### 第 5 步：验证文件工具也在子系统里
 
 在同一会话里让模型：
 
@@ -186,7 +186,7 @@ Copy-Item "$env:USERPROFILE\.dsh\profiles\desktop\cordis.patch.yml.bak-20261001-
 
 **应用起来了但三个信号都没变** → 环境变量没传进应用（几乎总是单实例没退干净，或用了 `setx` 而 Explorer 没刷新）。退回第 1、2 步。
 
-**目录对话框里没有 `ubuntu`** → 说明 `WSL` 那层没出现。在终端确认 `wsl.exe -l -q` 能列出发行版；如果列出为空，说明该进程环境够不到 WSL（沙箱没换掉），把三个信号再核一遍。
+**目录对话框里没有 `ubuntu`** → 说明 `WSL` 那层没出现。在终端确认 `wsl.exe -l -q` 能列出子系统；如果列出为空，说明该进程环境够不到 WSL（沙箱没换掉），把三个信号再核一遍。
 
 **`bash` 报 `Wsl/E_ACCESSDENIED`** → 说明旧 provider 还在（`pwsh-sandbox` 没被替换），即没真正进 WSL 模式。
 
@@ -194,7 +194,7 @@ Copy-Item "$env:USERPROFILE\.dsh\profiles\desktop\cordis.patch.yml.bak-20261001-
 
 ### 试用期间要记住的取舍
 
-WSL 模式下**没有文件沙箱**（`dsh-fs-sandbox` 被禁用），**也没有 Permissions 选择器**。Windows 路径（`C:\...`）仍然能读写——`restrictToDistro` 只挡"别的发行版"，不挡 Windows 盘。所以试用时按"无围栏"来对待，试完切回去即可。
+WSL 模式下**没有文件沙箱**（`dsh-fs-sandbox` 被禁用），**也没有 Permissions 选择器**。Windows 路径（`C:\...`）仍然能读写——`restrictToDistro` 只挡"别的子系统"，不挡 Windows 盘。所以试用时按"无围栏"来对待，试完切回去即可。
 
 ---
 
@@ -251,7 +251,7 @@ dsh-wsl-research/fork-shell-tool.mjs  →  dsh-plugin-wsl-env/lib/shell-tool.js
 |---|---|
 | 插件名 | `tool-bash` → `tool-wsl-shell` |
 | **工具名** | `name: "bash"` → 由 shell 路径推导（`/usr/bin/zsh` → `zsh`） |
-| **工具描述** | 换成说明发行版、真实 shell、Linux 环境、无沙箱的版本 |
+| **工具描述** | 换成说明子系统、真实 shell、Linux 环境、无沙箱的版本 |
 | system prompt 段 | `tool:bash` → `` tool:${toolName} ``，正文也改成 `every ${toolName} result` |
 | job kind | `"bash"` → `"shell"` |
 | 审批 toolName | `"bash"` → `toolName` |
@@ -384,7 +384,7 @@ A 合入并发版**之前**，wsl preset 的 shell 工具会自称 `bash`、描�
 
 ### 17.5 合入 A 之后的核对清单
 
-1. WSL 工作区会话：工具名为 `zsh`，`uname -r` 返回发行版内核。
+1. WSL 工作区会话：工具名为 `zsh`，`uname -r` 返回子系统内核。
 2. **向后兼容**：Linux/macOS 宿主（`LocalBashExecutor`）上工具名**仍须是 `bash`**、描述逐字不变 —— 默认实现返回 `"bash"`，这一条必须实测。
 3. **job kind 变更的影响面**：`"bash"` → `"shell"` 后，任何按 `kind === "bash"` 过滤/分组的代码或 UI 都要同步改。这是本次改动唯一的跨界影响，合入前先搜一遍。
 4. `apply` 变为 async：Cordis 支持 async apply（本插件自己就是），但确认没有地方假设它同步返回。

@@ -12,6 +12,92 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+### Added
+
+- **Phase 5: per-session terminal routing.** `spawnTerminal` now routes on the
+  request's directory coordinates (`lib/terminal-route.js`, `subprocess-wsl.hostSessions`,
+  default on): a WSL-folder session gets the distro shell, a Windows-folder session gets
+  a host `powershell.exe` in its own directory — no more distro terminal at
+  `/mnt/<drive>/…` for host sessions. The shell menu stays the single configured profile,
+  and every non-`wsl.exe` consumer is untouched. Still limited (LIMITATIONS.md): the
+  shell menu is one entry, and directory-less launches land in the distro.
+- **Phase 7: developer-loop recipes.** Both READMEs gain a Recipes section: Git
+  credential sharing through the Windows Credential Manager, `/mnt/c` 9p
+  performance guidance, and the `WSLENV` passthrough policy (prefix-admitted
+  `DSH_*`, `/p` translation, `PATH` deliberately excluded).
+- **Phase 6: listening-port visibility.** `DSH_WSL_PORTS` joins the managed
+  `DSH_*` facts: the ports with a listener inside the distro, comma-separated,
+  refreshed every `portsRefreshMs` (default 10s) through the resident agent by
+  reading `/proc/net/tcp{,6}` directly — no `ss`, nothing to install. The
+  registry's resolve is synchronous by contract, so the snapshot is served
+  stale-but-recent; a dev server started moments ago appears on the next
+  refresh. Scoped as before: only sessions whose workspace is inside a distro
+  see it. Probed live: a real HTTP server appears in the next snapshot.
+- **Phase 4: bootstrap.** `npm run bootstrap -- [distro] [--install]` checks the
+  distro for bubblewrap (required) plus ripgrep and inotifywait (the optional
+  backends later phases prefer), prints the exact copy-paste install command for
+  the distro's package family (apt/dnf/pacman/zypper), and with `--install` runs
+  it as the distro's root through `wsl.exe -u root` — no sudo prompt inside the
+  distro, nothing touches the Windows side. The `SANDBOX_UNAVAILABLE` message now
+  names the same command instead of a bare `sudo apt install`. Probed live:
+  detect mode on a distro that already has bubblewrap.
+- **Phase 3: shell execution through the agent.** `WslShellExecutor` now runs commands
+  over the resident agent when it is up (`wsl-shell.agent`, default on): one long-lived
+  in-distro process instead of a `wsl.exe` per command, with the timeout enforced
+  INSIDE the distro (TERM, then KILL after the grace) instead of against the Windows
+  process tree. The confinement argv, the execution-handle shape, the result
+  decoration (runner failures, denials, `enforcement: partial`) and the workdir
+  failure are all identical to the one-shot path — an out-of-service agent falls back
+  to it per call, permanently after the agent's rebuild budget. Probed end-to-end:
+  `npm run probe:exec` (confined completion, verbatim shell parsing, in-distro
+  timeout, relay-shaped cwd failure, kill). Documented deviation: the agent path has
+  no live output streaming — reads after settlement carry the whole stream, and no
+  spill files (the protocol line already holds it in memory).
+- **Phase 2 (second half, first slice): in-distro publication through the agent.**
+  `WslFileSystem` now carries an optional resident agent (`wsl-fs.agent`, default on):
+  when available, publication — the replaced file's mode copied onto the staged temp,
+  then the atomic rename — is ONE `exec` inside the distro (`lib/fs-publish.js`)
+  instead of a `wsl.exe` chmod plus a 9p rename. Any agent failure falls back to the
+  legacy two-step path for that call; the flag changes round trips, never what is
+  published. Probed: the publication script's mode preservation and creation
+  behaviour run in `test/probe/agent.sh` (now 10 checks).
+- **Phase 2 (first half): real `watch()`.** `WslFileSystem.watch` now observes from
+  inside the distro — a long-lived `wsl.exe` `find -newer` poll loop (`lib/watcher.js`)
+  firing the seam's coarse invalidation callback — instead of refusing with
+  `FS_IO_ERROR`. Activates on a READY barrier from the loop (a write racing the first
+  tick is never invisible), sees creations and deletions (both bump the parent's
+  mtime), and cleans up on close. Documented blind spot: files created with an
+  mtime older than the stamp (`cp -p`, `tar -x`). Probed end-to-end:
+  `npm run probe:watch`. The native-ext4 migration of the remaining fs operations
+  stays with Phase 3 of the plan.
+- **Phase 1 of the Remote-WSL parity plan (`docs/PARITY.md`): the resident in-distro
+  agent.** `agent/wsl-agent.sh` is a dependency-free POSIX shell peer spawned once per
+  distro; `lib/agent.js` owns the lifecycle (handshake, lazy start, idle shutdown, one
+  rebuild, permanent fallback to the shipped one-shot `wsl.exe` path) and
+  `lib/agent-protocol.js` the line protocol (base64 payloads, NUL-safe argv). Not wired
+  into the seams yet — the executor and filesystem migrations are the next phases.
+  Probed end-to-end against a real distro: `test/probe/agent.sh` (8 checks, including
+  binary-safe payloads, an in-distro timeout kill, and a 2 MB single-line response).
+  Unit tests cover the codecs and the lifecycle state machine with a fake transport.
+
+### Added
+
+- `docs/PARITY.md`: the plan to reach VS Code Remote-WSL-grade experience — a resident
+  in-distro agent as the core, with the `fs` and `shell` seams migrated onto it and the
+  current 9p/one-shot paths kept as the documented fallback — plus the Phase-0 contract
+  audit that shaped it (watch is a coarse invalidation callback; search spawns the
+  packaged ripgrep through `ctx.subprocess`, so the interception point is the
+  `subprocess-wsl` subclass).
+
+### Changed
+
+- The package description is rewritten in Chinese to state what the plugin does first —
+  it makes a WSL distro the session's execution environment — then covers the execution,
+  UI, and sandbox aspects in one clause each.
+- Chinese text now says “WSL 子系统” instead of “WSL 发行版”, the phrasing Chinese readers
+  more commonly use for a WSL distro (`docs/README.zh.md` and the two archived Chinese
+  documents; 99 occurrences).
+
 ## [0.1.10] - 2026-10-02
 
 Metadata and one documentation addition. No behaviour change.

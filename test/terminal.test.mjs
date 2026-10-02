@@ -8,6 +8,7 @@
  */
 import assert from "node:assert/strict";
 import { interactiveShellArgs, wslEnvValue, wslTerminalArgv } from "../lib/wsl.js";
+import { terminalRoute } from "../lib/terminal-route.js";
 
 let passed = 0;
 const check = (name, fn) => {
@@ -84,6 +85,13 @@ check("Windows-path facts get WSLENV's /p translation", () => {
   assert.equal(wslEnvValue(["DSH_SESSION_ID"]), "DSH_SESSION_ID");
   assert.equal(wslEnvValue(["DSH_HOME", "TERM"]), "DSH_HOME/p:TERM");
   assert.equal(wslEnvValue(["DSH_PROFILE_DIR", "DSH_WSL_HOME"]), "DSH_PROFILE_DIR/p:DSH_WSL_HOME");
+});
+
+check("terminal routing: WSL workspaces get the distro, Windows folders get the host", () => {
+  assert.equal(terminalRoute("\\\\wsl.localhost\\ubuntu\\home\\andy\\proj"), "distro");
+  assert.equal(terminalRoute("/home/andy/proj"), "distro");
+  assert.equal(terminalRoute(""), "distro", "no evidence defaults to the pinned distro");
+  assert.equal(terminalRoute("C:\\Users\\you\\project"), "host");
 });
 
 console.log(`\n${passed} checks passed`);

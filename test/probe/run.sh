@@ -24,6 +24,12 @@
 #
 # Every path below is derived from the machine. The overrides are listed in
 # test/probe/env.sh, which this script sources.
+#
+# The harness must NOT already be running when this script boots it. Its CLI
+# hands the arguments to the live instance and exits 0 within a second — no
+# profile, no probe, no output — which is indistinguishable from a pass except
+# that nothing ran. Close the app first (a leftover probe process counts too).
+
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

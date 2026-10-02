@@ -8,8 +8,11 @@
 # distro-side sandbox, not the Windows ACL one.
 #
 # This file is a TEMPLATE: `test/probe/sandbox-shell.sh` substitutes @DISTRO@,
-# @SCRATCH@ and @OUTSIDE@ (all of which depend on the machine) into a generated copy
-# beside it, `.generated-sandbox-shell-probe.yml`, and applies that.
+# @HOME@, @SCRATCH@, @OUTSIDE@, @PROBE_UNC@ and @REPORT_UNC@ (all of which depend
+# on the machine) into a generated copy beside it,
+# `.generated-sandbox-shell-probe.yml`, and applies that. The probe is named by
+# its ABSOLUTE UNC path — the spelling that pins which file loads and where the
+# report lands, the same choice `wslfs-probe.yml` makes for `fs-probe.mjs`.
 #
 #   test/probe/sandbox-shell.sh
 - id: bash-sandbox
@@ -26,9 +29,16 @@
         loginShell: true
 
     - id: shell-sandbox-probe
-      name: './sandbox-shell-probe.mjs'
+      name: '@PROBE_UNC@'
       config:
+        # Where the report is written — an absolute UNC path into the checkout,
+        # because the harness process's console does not reach the terminal and
+        # a relative name would resolve against an unknown base.
+        report: '@REPORT_UNC@'
         # A distro directory the probe owns, granted as the writable root.
         workspaceRoot: @SCRATCH@
         # Deliberately outside it: every workspace-write refusal targets this.
         outside: @OUTSIDE@
+        # What a defaulted workdir must land on — asked of the machine, never
+        # assumed, so the probe cross-checks the provider's own default.
+        home: @HOME@

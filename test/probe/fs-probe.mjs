@@ -29,6 +29,13 @@ const OUT = `${HERE}\\fs-probe.txt`;
 const DIR = "/home/andy/.dsh-fsprobe";
 const FILE = `${DIR}/probe.txt`;
 
+/**
+ * A name that stays in the distro no matter what the default workdir is. The
+ * probe resolves it RELATIVE, so the answer comes from the provider's default —
+ * which the profile deliberately leaves empty.
+ */
+const RELATIVE = "dsh-wsl-probe-relative.txt";
+
 /** Run one command in the distro and return its trimmed stdout. */
 function inDistro(...argv) {
   return execFileSync("wsl.exe", ["-d", "ubuntu", "--exec", ...argv], {
@@ -76,6 +83,22 @@ export async function apply(ctx) {
     finish(lines);
     return;
   }
+
+  // The default workdir: the profile configures no `cwd`, so a relative path has
+  // to resolve against the distro user's home. The expected value is asked of
+  // the distro directly rather than read back from the plugin, so this is a
+  // cross-check of the fallback and not a restatement of it. The old default
+  // (`process.cwd()`) would have produced `/mnt/c/...` here instead.
+  await step("a relative path resolves against the distro's home", async () => {
+    const home = inDistro("sh", "-c", 'printf %s "$HOME"');
+    if (!home.startsWith("/")) throw new Error(`the distro reported no home (got ${JSON.stringify(home)})`);
+    const relative = await ctx.fs.resolve(RELATIVE);
+    const expected = `${home}/${RELATIVE}`;
+    if (relative.displayPath !== expected) {
+      throw new Error(`displayPath=${relative.displayPath}, expected ${expected}`);
+    }
+    return relative.displayPath;
+  });
 
   await step("writeText createIfAbsent (new file)", async () => {
     const outcome = await ctx.fs.writeText(target, "alpha\n", { kind: "createIfAbsent" });

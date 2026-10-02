@@ -9,6 +9,10 @@
 #   dsh plugin --profile wslfs add 'link:C:\Users\andyz\Documents\deepseek-harness\default-workspace\dsh-plugin-wsl'
 #   cp test/probe/wslfs-profile.patch.yml "$USERPROFILE/.dsh/profiles/wslfs/cordis.patch.yml"
 #
+# The profile layer is a copy, not a link: re-run that `cp` after any change to
+# wslfs-profile.patch.yml, or the profile keeps asserting the old one. run.sh
+# only re-syncs the plugin code, which is what the link covers.
+#
 # Then, from inside the distro — which is where `wsl.exe` and the UNC share are
 # both reachable from:
 #

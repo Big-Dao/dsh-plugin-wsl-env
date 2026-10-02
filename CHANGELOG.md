@@ -37,7 +37,11 @@ The reasoning and the measurements behind each entry are in
   `execute()` fills it from the distro's `$HOME`, one cached `wsl.exe` query per
   provider instance. Only relative input consults the base at all, so an
   absolute path never pays for the query, and `DSH_WSL_HOME` now takes the POSIX
-  home directly (`linuxHomePath`) instead of converting the world path back.
+  home directly (`linuxHomePath`) instead of converting the world path back. The
+  `wslfs` probe follows: its profile no longer pins a `cwd`, and `fs-probe.mjs`
+  resolves a relative name and asserts it lands under the home the distro itself
+  reports — which is the only place that fallback was reachable at all, since the
+  tool layer always passes an absolute Session directory.
 - The package is now a DSH **bundle**, so installing it applies the layer instead
   of merely dropping code into a profile. `package.json` declares
   `dsh.bundle.patch` → `./cordis.patch.yml`, which is the declaration

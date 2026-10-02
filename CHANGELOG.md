@@ -12,6 +12,20 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-10-02
+
+The last test gap from the closure review: the documented opt-out. No runtime change.
+
+### Added
+
+- `npm run probe:sandbox-off` turns the sandbox off on **both** providers and asserts
+  what the documentation promises: `sandboxMode` disappears on each of them, a command
+  outside any workspace root runs, the shell result claims no sandbox, and a filesystem
+  write outside the workspace root is not fenced (`operation=create`). Without it the
+  opt-out and a backend that is merely broken would look alike from the outside — which
+  is what `probe:missing-wsl` covers. 5 checks.
+
+
 ## [0.1.8] - 2026-10-02
 
 A probe assertion for the one item the closure review had to record as unverifiable.

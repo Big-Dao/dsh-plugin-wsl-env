@@ -1,0 +1,36 @@
+# Sandbox-opt-out probe overlay — applied on top of the throwaway `wslfs` profile
+# that `test/probe/run.sh` documents.
+#
+# It turns the sandbox off on BOTH providers (`sandbox: false`), which is the documented
+# opt-out, and asserts what the documentation promises: `sandboxMode` disappears on both
+# of them, and the operations that would be refused under `workspace-write` now happen.
+# Without that assertion the opt-out and a broken backend would look alike.
+#
+# The `wsl-fs` row comes from the probe profile, so it is overridden by id rather than
+# inserted again.
+#
+# TEMPLATE: `sandbox-off.sh` substitutes @DISTRO@, @OUTSIDE@, @PROBE_UNC@ and
+# @REPORT_UNC@ into a generated copy beside it.
+- id: bash-sandbox
+  disabled: true
+
+- id: pwsh-sandbox
+  disabled: true
+
+- id: wsl-fs
+  config:
+    sandbox: false
+
+- insert:
+    - id: wsl-shell
+      name: 'dsh-plugin-wsl-env'
+      config:
+        distro: '@DISTRO@'
+        loginShell: true
+        sandbox: false
+
+    - id: sandbox-off-probe
+      name: '@PROBE_UNC@'
+      config:
+        outside: @OUTSIDE@
+        report: '@REPORT_UNC@'

@@ -104,6 +104,7 @@ npm run probe:terminal       # 通过终端 provider 打开一个 PTY
 npm run probe:missing-wsl    # 启动一个 wslPath 无法启动的 profile（仅 Windows + WSL）
 npm run probe:picker         # 列出选择器的根级、拒绝路径与上限（仅 Windows + WSL）
 npm run probe:mode           # 哪些 POSIX 权限事实能穿过共享层（仅需 Windows node）
+npm run probe:sandbox-off    # 验证 sandbox: false 确实解除两侧约束（仅 Windows + WSL）
 ```
 
 这个包没有依赖，被测模块只 import Node 内置模块，所以不需要先安装任何东西。CI 在 Linux 和 Windows 上用 Node 20、22、24 运行 `npm test`，并在 Node 24 上运行 `npm run test:coverage`。

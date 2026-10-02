@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-wsl-env",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Run a DeepSeek Harness session against a WSL distro: a ctx.shell executor that runs commands inside the distro and a ctx.fs backend over its UNC share",
   "keywords": [
     "deepseek-harness",
@@ -55,6 +55,7 @@
     "probe:missing-wsl": "bash test/probe/missing-wsl.sh",
     "probe:mode": "bash test/probe/mode.sh",
     "probe:picker": "bash test/probe/picker.sh",
+    "probe:sandbox-off": "bash test/probe/sandbox-off.sh",
     "probe:terminal": "bash test/probe/terminal.sh",
     "probe:sandbox": "bash test/probe/sandbox.sh",
     "probe:sandbox-shell": "bash test/probe/sandbox-shell.sh",

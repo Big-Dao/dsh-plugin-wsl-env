@@ -208,7 +208,7 @@ step with the checkout, and `npm run sync:windows` runs that script.
 | Syntax pass | [`test/syntax.mjs`](../test/syntax.mjs) | no |
 | Unit tests | `test/*.test.mjs` | no |
 | Sandbox probe | [`test/probe/sandbox.sh`](../test/probe/sandbox.sh) | no; it applies the profile arguments directly |
-| Harness probes | [`test/probe/run.sh`](../test/probe/run.sh), `terminal.sh`, `sandbox-shell.sh`, `picker.sh`, `missing-wsl.sh` | yes: Windows, WSL2, a mounted profile, and a linked checkout |
+| Harness probes | [`test/probe/run.sh`](../test/probe/run.sh), `terminal.sh`, `sandbox-shell.sh`, `picker.sh`, `missing-wsl.sh`, `sandbox-off.sh` | yes: Windows, WSL2, a mounted profile, and a linked checkout |
 | Host probes | [`test/probe/mode.sh`](../test/probe/mode.sh) | Windows Node, no harness |
 | Probe plugins | the `*-probe.mjs` and `*-probe.yml` files in `test/probe/` | loaded by the scripts above |
 

@@ -1,11 +1,23 @@
 # dsh-plugin-wsl-env
 
+**English** · [中文](README.zh.md)
+
+[![CI](https://github.com/Big-Dao/dsh-plugin-wsl-env/actions/workflows/ci.yml/badge.svg)](https://github.com/Big-Dao/dsh-plugin-wsl-env/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/dsh-plugin-wsl-env)](https://www.npmjs.com/package/dsh-plugin-wsl-env)
+[![license](https://img.shields.io/npm/l/dsh-plugin-wsl-env)](LICENSE)
+
 Run a [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) session
 against a WSL distro: commands execute *inside* the distro, the model's file tools
 read and write real distro files, the folder picker can open a distro folder, and
 the GUI terminal opens there instead of `cmd.exe`.
 
-Windows + WSL2 only. The package has no dependencies of its own.
+**Windows + WSL2 only.** One install command, no dependencies of its own, and the
+WSL environment is bound **per session** — a session on a Windows folder keeps the
+shipped Windows environment untouched.
+
+[What you get](#what-you-get) · [Install](#install) · [Using it](#using-it) ·
+[Configure](#configure) · [Sandbox](#sandbox) · [Troubleshooting](#troubleshooting) ·
+[Limitations](#limitations) · [Development](#development) · [Design notes](#design-notes)
 
 ## What you get
 
@@ -52,10 +64,18 @@ Without it every command fails closed — see [Sandbox](#sandbox).
 
 Uninstall with `dsh plugin --profile wsl remove dsh-plugin-wsl-env`.
 
+To upgrade later, install again — the new version replaces the layer with the
+bundle's current one: `dsh plugin --profile wsl add dsh-plugin-wsl-env`.
+
 > **Editing `lib/` in a checkout? Restart the app.** A running process caches ES
 > modules and keeps the old code otherwise.
 
 ## Using it
+
+A session looks like this: open `\\wsl.localhost\ubuntu\home\you\project` as the
+workspace, ask *"what kernel am I on, and what does /etc/os-release say?"*, and the
+model runs `uname -r` and reads the file **inside the distro** — no `/mnt/c`
+detour, no copied files.
 
 - **Open a distro folder.** The picker shows the Windows home plus one entry per
   distro. Pick `\\wsl.localhost\ubuntu\home\you\project`; the session workspace,
@@ -109,6 +129,11 @@ Every other schema key can be overridden the same way and keeps its own default:
 `diffBasisMaxBytes` on `wsl-fs`, `distroCacheMs` on the picker.
 
 ## Sandbox
+
+**Short version:** commands are confined by `bubblewrap` *inside* the distro, the
+file tools are fenced by the same policy, and enforcement is reported as `partial`
+because a distro process can still reach Windows through WSL interop. `bubblewrap`
+must be installed, and the failure mode is closed, not silent.
 
 On Windows, DSH confines commands with `dsh-sandbox-windows-acl`: a restricted,
 low-integrity token plus a write allowlist. **That token cannot reach WSL at all**

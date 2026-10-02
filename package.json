@@ -34,6 +34,7 @@
     "cordis.patch.yml",
     "examples/**/*.yml",
     "README.md",
+    "README.zh.md",
     "CHANGELOG.md",
     "LICENSE"
   ],

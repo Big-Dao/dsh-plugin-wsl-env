@@ -12,6 +12,27 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+### Added
+
+- A Chinese translation of the README, [README.zh.md](README.zh.md), linked from
+  the English header (and back). It is a translation, not the second README that
+  was removed earlier: that file's problem was genre — it called itself the current
+  description while contradicting the English one — whereas these two say the same
+  thing section for section, and the English file remains the only statement of
+  current state. The Chinese text also ships in the package (`files`), so the
+  tarball is readable in either language; npm still renders `README.md`.
+
+### Changed
+
+- The README is reorganised around a reader's path instead of the design log's:
+  "What you get", then Install, Using it, Configure, Sandbox, Troubleshooting —
+  with the two architecture essays moved to *Design notes* at the end. It gains
+  CI/npm/license badges, a section index, a one-paragraph example session, the
+  upgrade command, and a nine-row troubleshooting table. The Configure table was
+  re-checked against the schemas: it now labels which values the shipped patch sets
+  and which are schema defaults, and no longer omits `timeoutMs`/`maxTimeoutMs`
+  or `maxEntries`.
+
 ## [0.1.0] - 2026-10-02
 
 First release. A WSL distro can be picked as a workspace, read and written

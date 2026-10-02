@@ -189,6 +189,14 @@ to be invisible:
 | the distro is missing, stopped or unregistered | a `Wsl/Service/WSL_E_*` code on **stdout**, UTF-16 on some builds, with an empty stderr and exit 255 | `WslShellExecutor` reads the code with the NULs stripped and fails with the distro name and the remedy. Deliberately not a sandbox code: a wider permission cannot create a distro |
 | the working directory cannot be entered | a relay line on stderr, exit **0**, and the command runs in `/` | `WslShellExecutor` fails with the directory and the fallback, instead of reporting a success that acted on the wrong tree |
 
+
+What the model actually sees on a filesystem denial is two lines the tool layer
+prepends: `[sandbox: file access denied under <mode> mode]`, then
+`[sandbox: escalation available — retry this exact operation once with
+sandbox_permissions (the narrowest wider mode that suffices) + justification; the
+approval prompt asks the user]`. A code that is not `FS_SANDBOX_DENIED` gets neither
+line — which is the reason `FS_OUTSIDE_DISTRO` has its own code.
+
 ## The runtime mirror
 
 The checkout lives inside the distro. A DSH profile can only link a Windows path,

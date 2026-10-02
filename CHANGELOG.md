@@ -12,6 +12,24 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-10-02
+
+Metadata and one documentation addition. No behaviour change.
+
+### Changed
+
+- The package description now covers all four capabilities — commands, the file tools,
+  the folder picker, the GUI terminal — and the confinement, instead of naming only two
+  of them. It is the line npm shows under the package name in search results.
+
+### Documentation
+
+- The error table in `docs/ARCHITECTURE.md` states exactly what the model sees on a
+  filesystem denial: the denial marker and the escalation hint, line for line. It also
+  records why that makes `FS_OUTSIDE_DISTRO` worth its own code — a code the tool layer
+  does not decorate with those lines.
+
+
 ## [0.1.9] - 2026-10-02
 
 The last test gap from the closure review: the documented opt-out. No runtime change.

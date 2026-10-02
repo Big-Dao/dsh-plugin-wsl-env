@@ -12,6 +12,10 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-02
+
+Documentation only: the README was reorganised for readers and translated into Chinese. No code changed.
+
 ### Added
 
 - A Chinese translation of the README, [README.zh.md](README.zh.md), linked from

@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-wsl-env",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Run a DeepSeek Harness session against a WSL distro: a ctx.shell executor that runs commands inside the distro and a ctx.fs backend over its UNC share",
   "keywords": [
     "deepseek-harness",

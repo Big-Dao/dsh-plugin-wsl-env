@@ -82,6 +82,15 @@ The reasoning and the measurements behind each entry are in
 
 ### Fixed
 
+- `lib/listing.js` built breadcrumbs with the platform-default
+  `dirname`/`basename` from `node:path` rather than the `win32` flavour its own
+  comments describe. On Linux — where the CI runners run, and where this
+  checkout itself lives — a UNC path parses as a single opaque POSIX segment,
+  so the ancestry chain collapsed to `['.', <whole path>]` and three
+  `test/listing.test.mjs` checks failed. The helpers serve Windows paths only;
+  they now call `win32.dirname`/`win32.basename` explicitly, and the suite
+  passes on Linux again.
+
 Documentation that a reader would have acted on, and that was no longer true:
 
 - §9.6 and §10.5 claimed the `wsl` and `wsltest` profiles were still available,

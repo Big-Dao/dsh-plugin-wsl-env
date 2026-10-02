@@ -27,6 +27,17 @@ The reasoning and the measurements behind each entry are in
 
 ### Changed
 
+- An empty `cwd` now means **the distro user's home** in both WSL providers,
+  instead of the host path the shipped default resolves to. `WslFileSystem`'s
+  default was `process.cwd()` — a Windows directory no `wsl.exe --cd` accepts —
+  and `cordis.patch.yml` papered over it with the author's own `/home/andy`, a
+  value that is wrong on every other machine. `WslShellExecutor.resolve()` keeps
+  the seam's synchronous contract (`ctx.shell.execute(ctx.shell.resolve(…))` is
+  called with no `await` in between) and marks the case with an empty `workdir`;
+  `execute()` fills it from the distro's `$HOME`, one cached `wsl.exe` query per
+  provider instance. Only relative input consults the base at all, so an
+  absolute path never pays for the query, and `DSH_WSL_HOME` now takes the POSIX
+  home directly (`linuxHomePath`) instead of converting the world path back.
 - The package is now a DSH **bundle**, so installing it applies the layer instead
   of merely dropping code into a profile. `package.json` declares
   `dsh.bundle.patch` → `./cordis.patch.yml`, which is the declaration

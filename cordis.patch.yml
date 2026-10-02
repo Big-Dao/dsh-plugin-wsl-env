@@ -146,11 +146,13 @@
               fs: true
             config:
               # ── the WSL environment for this preset only ────────────────────
+              # No `cwd`: an empty default workdir means the distro user's home,
+              # asked of the distro itself. Pin a directory here to override it —
+              # a value that is right on one machine is wrong on every other.
               - id: wsl-shell
                 name: 'dsh-plugin-wsl-env'
                 config:
                   distro: ''
-                  cwd: /home/andy
                   loginShell: true
                   timeoutMs: 120000
                   maxTimeoutMs: 600000
@@ -158,7 +160,6 @@
                 name: 'dsh-plugin-wsl-env/fs'
                 config:
                   distro: ''
-                  cwd: /home/andy
                   restrictToDistro: true
               - id: persona
                 name: '@deepseek-ai/dsh-persona'

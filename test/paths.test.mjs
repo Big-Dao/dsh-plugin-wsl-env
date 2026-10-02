@@ -5,7 +5,7 @@
  *   node test/paths.test.mjs
  */
 import assert from "node:assert/strict";
-import { isUnderDistro, isWslUnc, toDisplayPath, toLinuxPath, toWorldPath, uncToPosix, windowsToLinuxMount } from "../lib/paths.js";
+import { isRelativeWorldPath, isUnderDistro, isWslUnc, toDisplayPath, toLinuxPath, toWorldPath, uncToPosix, windowsToLinuxMount } from "../lib/paths.js";
 
 const UNC = "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj";
 let passed = 0;
@@ -63,6 +63,24 @@ check("toWorldPath maps Linux paths onto the UNC share", () => {
 
 check("toWorldPath resolves a relative path against a Linux cwd", () => {
   assert.equal(toWorldPath("src/a.ts", { distro: "ubuntu", cwd: "/home/andy/proj" }), `${UNC}\\src\\a.ts`);
+});
+
+check("isRelativeWorldPath isolates the only input that needs a base", () => {
+  // A provider resolves its default workdir only when the answer can matter;
+  // every absolute form must short-circuit before an in-distro query.
+  assert.equal(isRelativeWorldPath("src/a.ts"), true);
+  assert.equal(isRelativeWorldPath("./src"), true);
+  assert.equal(isRelativeWorldPath("/home/andy"), false);
+  assert.equal(isRelativeWorldPath(UNC), false);
+  assert.equal(isRelativeWorldPath("C:\\Users\\andyz"), false);
+  assert.equal(isRelativeWorldPath(""), false);
+});
+
+check("a distro home is a usable base in both directions", () => {
+  const home = "/home/andy";
+  const world = "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj\\a.ts";
+  assert.equal(toWorldPath("proj/a.ts", { distro: "ubuntu", cwd: home }), world);
+  assert.equal(toLinuxPath("proj/a.ts", { distro: "ubuntu", cwd: home }), "/home/andy/proj/a.ts");
 });
 
 check("toDisplayPath shows Linux paths inside the distro only", () => {

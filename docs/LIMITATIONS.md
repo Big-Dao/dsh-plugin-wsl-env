@@ -19,9 +19,11 @@ boundary; one that is not is a bug report waiting to happen.
   the file tools can only report a file-level error, because the share itself is
   gone.
 - `workspace-write` binds the workspace root as writable, and bubblewrap refuses a
-  bind whose source directory does not exist. If a session's workspace directory is
-  deleted, commands fail with a runner error; the plugin does not recreate the
-  directory.
+  bind whose source directory does not exist, so a session whose workspace directory was
+  deleted fails with a runner error; the plugin does not recreate it. A workdir that
+  does not exist — a configured `cwd` pointing at a deleted directory, for instance — is
+  a separate case and is now reported as an error naming that directory, because
+  `wsl.exe` would otherwise run the command in `/` and exit 0.
 - New files get the distro's umask default (0644). A `chmod` from the Windows side on
   a share path is silently ignored; overwrites and edits keep the original permission
   bits. Run `chmod +x` inside the distro when you need an executable.

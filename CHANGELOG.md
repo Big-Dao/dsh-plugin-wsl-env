@@ -12,6 +12,39 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-10-02
+
+One correctness fix and the error-code reference the closure review asked for.
+
+### Fixed
+
+- A command whose working directory could not be entered was reported as a success.
+  `wsl.exe --cd <missing>` does not fail: it writes a relay error to stderr, runs the
+  command in `/`, and exits 0 — measured directly, and visible in the shell probe's own
+  transcript. A build or a write could therefore act on the wrong tree while every
+  signal said it worked. `WslShellExecutor` now matches that relay line and fails with
+  the directory and the fallback. Both markers are required (the relay prefix and
+  `CreateProcessCommon`), so a command printing its own `chdir(...)` message cannot be
+  mistaken for it; the matcher also finds the line when it arrives UTF-16 encoded.
+  `npm run probe:sandbox-shell` asserts the behaviour end to end, and
+  `test/shell.test.mjs` covers the matcher, including a false-positive case.
+- The shell probe's own setup ran into this on the first run: it created the workspace
+  root while that not-yet-existing root was its workdir, which had "worked" only because
+  `mkdir -p` takes an absolute path. The setup now runs from the distro home, and the
+  new assertion pins the failure it used to hide.
+
+### Documentation
+
+- `docs/ARCHITECTURE.md` gains an **Error codes** table: what raises each `FS_*` code
+  and `SANDBOX_UNAVAILABLE`, what each one means, and what clears it — including that
+  `FS_OUTSIDE_DISTRO` cannot be lifted by a wider permission. It also documents the two
+  failures that come from `wsl.exe` itself: a missing, stopped or unregistered distro (a
+  `WSL_E_*` code on stdout, UTF-16 on some builds, with an empty stderr) and an
+  unenterable working directory. Both READMEs' troubleshooting tables now point at it.
+- `docs/LIMITATIONS.md` separates the two workdir cases a deleted directory can produce:
+  the bind that bubblewrap refuses, and the directory that cannot be entered.
+
+
 ## [0.1.6] - 2026-10-02
 
 Three probes that close coverage gaps a closure review named, the documentation of a

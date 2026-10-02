@@ -90,6 +90,7 @@ dsh --profile wsl                                  # 4. 启动
 | 用 `link:\\wsl.localhost\...` 安装后符号链接是坏的 | pnpm 无法链接 UNC 路径 | 改成链接 Windows 路径；在发行版内开发时用运行时镜像，见[开发](#开发) |
 | `glob`/`grep` 很慢 | Windows 侧的 ripgrep 在 9p 共享上遍历 | 属于预期，收窄搜索路径，或改用 `bash` 调用发行版内的工具 |
 | 终端活动显示 `unknown` | 官方 shell 集成只对 POSIX 主机上直接启动的 `bash`/`zsh` 生效 | 关闭标签页以释放进程；空闲回收不会对它触发 |
+| 结果里出现 `FS_*` 码 | 码本身说明了是谁拒绝的、以及怎样解除 | 见 [docs/ARCHITECTURE.md](ARCHITECTURE.md#error-codes) 的错误码表 |
 
 ## 开发
 

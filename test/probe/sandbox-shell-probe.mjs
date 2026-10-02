@@ -73,7 +73,11 @@ async function run(ctx, config) {
     // granted. Creating it runs unconfined on purpose: that is the same
     // approved-escalation path an operator uses, and it keeps the assertions
     // below about confinement rather than about a missing directory.
-    const setup = await exec(`mkdir -p ${config.workspaceRoot}`, "danger-full-access");
+    // It runs from the distro home rather than from the root it is creating: a
+    // directory that does not exist yet cannot be entered, and the provider now
+    // reports that as a failure instead of letting the command run in `/` — the
+    // assertion further down pins exactly that.
+    const setup = await execDefaulted(`mkdir -p ${config.workspaceRoot}`, config.home, "danger-full-access");
     check("the writable root exists before it is granted", setup.exitCode === 0, `exit=${setup.exitCode} stderr=${JSON.stringify(setup.stderr.text.slice(0, 120))}`);
 
     // The default workdir. The profile configures no `cwd`, so a request that
@@ -86,6 +90,22 @@ async function run(ctx, config) {
     const tail = config.workspaceRoot.split("/").pop() ?? "";
     const relativePwd = await execDefaulted("pwd", tail, "danger-full-access");
     check("a relative workdir is joined under the distro home", relativePwd.exitCode === 0 && relativePwd.stdout.text.trim() === `${config.home}/${tail}`, `pwd=${JSON.stringify(relativePwd.stdout.text.trim())} expected=${JSON.stringify(`${config.home}/${tail}`)}`);
+
+    // `wsl.exe --cd <missing>` does not fail: it warns on stderr, runs the command in
+    // `/`, and exits 0. A command that ran somewhere else must not be reported as a
+    // success, so the provider turns that shape into an error naming the directory.
+    const absentWorkdir = `${config.workspaceRoot}/absent-dir`;
+    let wrongDir;
+    try {
+      await execDefaulted("pwd", absentWorkdir, "danger-full-access");
+    } catch (error) {
+      wrongDir = error;
+    }
+    check(
+      "a workdir that does not exist fails instead of running in /",
+      wrongDir !== undefined && String(wrongDir.message).includes(absentWorkdir),
+      wrongDir === undefined ? "it settled as a success" : String(wrongDir.message).slice(0, 120),
+    );
 
     // workspace-write grants the root.
     const inside = await exec(`echo ok > ${config.workspaceRoot}/inside.txt && cat ${config.workspaceRoot}/inside.txt`, "workspace-write");

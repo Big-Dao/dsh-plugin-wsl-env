@@ -147,11 +147,11 @@ On Windows 11 + WSL2 (Ubuntu 26.04) the following has been verified:
   outside the session workspace is refused inside the distro and the following
   wider-permission request succeeds.
 
-Counts: 55 unit assertions on a bare checkout (50 plus the 5 preset-decision
-checks), plus 5 in `test/sandbox.test.mjs` which need the `dsh-sandbox` peer and skip
-themselves without it; 19 filesystem-probe assertions; 12 shell-probe checks; 9 picker
-checks; 6 missing-executable checks; 5 mode checks and 10 sandbox expectations plus the
-recorded escape; and 3 terminal assertions.
+Counts: 57 unit assertions on a bare checkout, plus 5 in `test/sandbox.test.mjs` which
+need the `dsh-sandbox` peer and skip themselves without it; 19 filesystem-probe
+assertions; 13 shell-probe checks; 9 picker checks; 6 missing-executable checks; 5 mode
+checks and 10 sandbox expectations plus the recorded escape; and 3 terminal
+assertions.
 
 ## Commit and pull request conventions
 

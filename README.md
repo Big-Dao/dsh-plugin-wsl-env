@@ -90,6 +90,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#sandbox) for the design, and [do
 | `link:\\wsl.localhost\...` leaves a broken symlink | pnpm cannot link a UNC path | link a Windows path instead; developing inside the distro needs the runtime mirror, see [Development](#development) |
 | `glob` and `grep` are slow | the Windows-side ripgrep walks the 9p share | expected; narrow the path, or use `bash` to call tools inside the distro |
 | the terminal reports `unknown` activity | shell integration only covers `bash`/`zsh` started directly on a POSIX host | close the tab to release the process; idle reclamation does not run for these terminals |
+| a result names an `FS_*` code | the code says what refused it, and what clears it | see the error-code table in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#error-codes) |
 
 ## Development
 

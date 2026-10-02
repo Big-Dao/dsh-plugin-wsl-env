@@ -5,7 +5,7 @@
  *   node test/shell.test.mjs
  */
 import assert from "node:assert/strict";
-import { shellArgs, wslErrorCode } from "../lib/wsl.js";
+import { shellArgs, workdirFailure, wslErrorCode } from "../lib/wsl.js";
 
 let passed = 0;
 const check = (name, fn) => {
@@ -58,6 +58,20 @@ check("output without a WSL error code reports none", () => {
   assert.equal(wslErrorCode("hello", "world"), undefined);
   assert.equal(wslErrorCode(undefined, undefined), undefined);
   assert.equal(wslErrorCode("WSL_E_", ""), undefined);
+});
+
+check("the relay's workdir failure is recognised", () => {
+  const stderr = "<3>WSL (269223 - Relay) ERROR: CreateProcessCommon:809: chdir(/definitely/not/here) failed 2";
+  assert.equal(workdirFailure("hi", stderr), "/definitely/not/here");
+  // Read as UTF-16 the same line arrives with NULs between the bytes.
+  const utf16 = Buffer.from(stderr, "utf16le").toString("utf8");
+  assert.equal(workdirFailure("", utf16), "/definitely/not/here");
+});
+
+check("a command's own chdir message is not mistaken for the relay's", () => {
+  assert.equal(workdirFailure("done", "chdir(/x) failed"), undefined);
+  assert.equal(workdirFailure("", "CreateProcessCommon: chdir(/x) failed"), undefined);
+  assert.equal(workdirFailure("hi", ""), undefined);
 });
 
 console.log(`\n${passed} checks passed`);

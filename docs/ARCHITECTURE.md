@@ -165,6 +165,30 @@ code, because a wider permission cannot create a distro.
 Set `sandbox: false` on either provider to opt out. Commands then run unconfined,
 and `sandboxMode` returns `undefined`.
 
+## Error codes
+
+The plugin raises `FsError`s with a code the tool layer maps, and `wsl.exe`'s own
+failures are named as well. A model sees the code; a reader asking what refused them
+finds it here.
+
+| Code | Raised by | Meaning | What clears it |
+|---|---|---|---|
+| `SANDBOX_UNAVAILABLE` | `WslSandbox.confine` | the requested mode cannot be enforced: no usable `bwrap` in the distro | install `bubblewrap` there (a failed probe is re-run, so no restart is needed), or set `sandbox: false` |
+| `FS_SANDBOX_DENIED` | `WslFileSystem.checkedTarget` | the file-effect policy refused the write: `read-only`, or a target outside the writable roots | a wider permission for that one call, or a session workspace that contains the target |
+| `FS_OUTSIDE_DISTRO` | `WslFileSystem.worldPath` | `restrictToDistro` is on and the path names **another distro**'s share — a configuration fence, not a sandbox decision | open a session in that distro, or set `restrictToDistro: false`. A wider permission does **not** lift it |
+| `FS_NOT_OBSERVED` | `WslFileSystem.assertGuard` | a guarded create (`createIfAbsent`) targeted a file that exists and had not been read first | read the file, then overwrite with the version guard or edit it |
+| `FS_STALE_VERSION` | `WslFileSystem.assertGuard` | the version the caller holds no longer matches: the file changed, or is gone | read it again and retry with the fresh version |
+| `FS_IO_ERROR` | `WslFileSystem.watch` | `watch()` is refused, because a 9p share cannot be watched reliably | poll, or watch from inside the distro |
+| `FS_NOT_FOUND` | the host filesystem stack | the path does not exist — the ordinary answer, passed through | — |
+
+Two failures come from `wsl.exe` itself rather than from a code of ours, and both used
+to be invisible:
+
+| Failure | How it arrives | What the plugin does |
+|---|---|---|
+| the distro is missing, stopped or unregistered | a `Wsl/Service/WSL_E_*` code on **stdout**, UTF-16 on some builds, with an empty stderr and exit 255 | `WslShellExecutor` reads the code with the NULs stripped and fails with the distro name and the remedy. Deliberately not a sandbox code: a wider permission cannot create a distro |
+| the working directory cannot be entered | a relay line on stderr, exit **0**, and the command runs in `/` | `WslShellExecutor` fails with the directory and the fallback, instead of reporting a success that acted on the wrong tree |
+
 ## The runtime mirror
 
 The checkout lives inside the distro. A DSH profile can only link a Windows path,

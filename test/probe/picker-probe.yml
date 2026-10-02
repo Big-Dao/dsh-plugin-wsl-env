@@ -1,0 +1,32 @@
+# Directory-picker probe overlay — applied on top of the throwaway `wslfs` profile
+# that `test/probe/run.sh` documents.
+#
+# It replaces the shipped picker with the WSL one, because the provider replaces a
+# service rather than extending it: the shipped row has to go for ours to be reached,
+# which is exactly what `cordis.patch.yml` does in a real profile.
+#
+# `maxEntries` is deliberately small so the cap and its `truncated` flag are
+# observable; the scratch directory the probe lists is prepared by
+# `test/probe/picker.sh`.
+#
+# TEMPLATE: `picker.sh` substitutes @DISTRO@, @HOST_HOME@, @MAX_ENTRIES@, @SCRATCH_UNC@,
+# @PROBE_UNC@ and @REPORT_UNC@ into a generated copy beside it.
+- id: directory-picker
+  disabled: true
+
+- insert:
+    - id: directory-picker-wsl
+      name: 'dsh-plugin-wsl-env/picker'
+      config:
+        includeHostHome: true
+        maxEntries: @MAX_ENTRIES@
+        preferredDistro: '@DISTRO@'
+
+    - id: picker-probe
+      name: '@PROBE_UNC@'
+      config:
+        distro: '@DISTRO@'
+        hostHome: '@HOST_HOME@'
+        scratch: '@SCRATCH_UNC@'
+        maxEntries: @MAX_ENTRIES@
+        report: '@REPORT_UNC@'

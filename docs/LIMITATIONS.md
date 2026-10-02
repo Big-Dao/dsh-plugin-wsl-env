@@ -9,6 +9,11 @@ boundary; one that is not is a bug report waiting to happen.
 - **`bubblewrap` must be installed**, or both providers fail immediately. The
   usability probe re-runs after a failure, so installing bubblewrap while the app
   runs is believed on the next command; only a success is cached.
+- **A confined command's `/tmp` is not the write tool's `/tmp`.** `workspace-write`
+  mounts a fresh tmpfs at `/tmp` for the command — that is what makes it ephemeral —
+  while the file tools' fence grants the distro's *real* `/tmp`. Both are writable, so
+  neither side is refused, but a file the write tool puts in `/tmp` is invisible to
+  `bash` and vice versa. Hand a file between them through the session workspace.
 - A distro that is stopped or unregistered while the app runs leaves the UNC share
   unreachable: the shell tools report `wsl.exe`'s `WSL_E_*` code with the reason, but
   the file tools can only report a file-level error, because the share itself is

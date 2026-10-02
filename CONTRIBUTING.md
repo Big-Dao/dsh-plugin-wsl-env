@@ -69,6 +69,9 @@ terminal if you would rather not see the prompt.
 | `npm run probe:sandbox` | what bubblewrap confines and what it does not | no |
 | `npm run probe:sandbox-shell` | the confined executor through a real boot | yes |
 | `npm run probe:terminal` | the terminal provider | yes |
+| `npm run probe:missing-wsl` | how a `wslPath` that cannot start is reported | yes |
+| `npm run probe:picker` | the picker's root level, its refusals and its cap | yes |
+| `npm run probe:mode` | which POSIX-mode facts survive the share | no; Windows Node | 
 
 Every script above is wired in `package.json`. `npm test` runs `lint:style`,
 `test:syntax` and `test:unit` in that order. `prepublishOnly` runs `npm test` again
@@ -144,10 +147,11 @@ On Windows 11 + WSL2 (Ubuntu 26.04) the following has been verified:
   outside the session workspace is refused inside the distro and the following
   wider-permission request succeeds.
 
-Counts: 50 unit assertions on a bare checkout, plus 5 in `test/sandbox.test.mjs`
-which need the `dsh-sandbox` peer and skip themselves without it; 19
-filesystem-probe assertions; 12 shell-probe checks; 10 sandbox expectations plus
-the recorded escape; and 3 terminal assertions.
+Counts: 55 unit assertions on a bare checkout (50 plus the 5 preset-decision
+checks), plus 5 in `test/sandbox.test.mjs` which need the `dsh-sandbox` peer and skip
+themselves without it; 19 filesystem-probe assertions; 12 shell-probe checks; 9 picker
+checks; 6 missing-executable checks; 5 mode checks and 10 sandbox expectations plus the
+recorded escape; and 3 terminal assertions.
 
 ## Commit and pull request conventions
 

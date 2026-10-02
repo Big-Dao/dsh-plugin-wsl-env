@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-wsl-env",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Run a DeepSeek Harness session against a WSL distro: a ctx.shell executor that runs commands inside the distro and a ctx.fs backend over its UNC share",
   "keywords": [
     "deepseek-harness",
@@ -46,12 +46,15 @@
   ],
   "scripts": {
     "test": "npm run lint:style && npm run test:syntax && npm run test:unit",
-    "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=85 --test-coverage-branches=85 --test-coverage-functions=70 test/paths.test.mjs test/listing.test.mjs test/shell.test.mjs test/terminal.test.mjs test/probe-cache.test.mjs",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=85 --test-coverage-branches=85 --test-coverage-functions=70 test/paths.test.mjs test/listing.test.mjs test/shell.test.mjs test/terminal.test.mjs test/probe-cache.test.mjs test/preset-choice.test.mjs",
     "test:syntax": "node test/syntax.mjs",
-    "test:unit": "node --test test/paths.test.mjs test/listing.test.mjs test/shell.test.mjs test/terminal.test.mjs test/probe-cache.test.mjs test/sandbox.test.mjs",
+    "test:unit": "node --test test/paths.test.mjs test/listing.test.mjs test/shell.test.mjs test/terminal.test.mjs test/probe-cache.test.mjs test/preset-choice.test.mjs test/sandbox.test.mjs",
     "lint:style": "node test/style.mjs",
     "prepublishOnly": "npm test",
     "probe": "bash test/probe/run.sh",
+    "probe:missing-wsl": "bash test/probe/missing-wsl.sh",
+    "probe:mode": "bash test/probe/mode.sh",
+    "probe:picker": "bash test/probe/picker.sh",
     "probe:terminal": "bash test/probe/terminal.sh",
     "probe:sandbox": "bash test/probe/sandbox.sh",
     "probe:sandbox-shell": "bash test/probe/sandbox-shell.sh",

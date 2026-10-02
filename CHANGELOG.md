@@ -12,6 +12,48 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-10-02
+
+Three probes that close coverage gaps a closure review named, the documentation of a
+`/tmp` asymmetry, and one clearer error message. No behaviour changed otherwise.
+
+### Added
+
+- `npm run probe:picker` drives the directory picker in a throwaway boot: the root
+  level's crumbs, the Windows home, every installed distro, the documented
+  `directory-unreadable` refusal for a relative path and for a directory that does not
+  exist, and `maxEntries` with its `truncated` flag. Nothing ran `lib/picker.js` before
+  this — the unit tests import only `lib/listing.js`.
+- `npm run probe:missing-wsl` boots a profile whose `wslPath` cannot start and pins how
+  that is reported: the executable is named, `wslPath` is suggested, the failure is not
+  dressed up as a sandbox refusal, and no sandbox facts are claimed for a command that
+  never ran. The other fail-closed state — `wsl.exe` works but the distro has no
+  `bubblewrap` — is asserted in `test/sandbox.test.mjs`, which drives
+  `WslSandbox.confine` against a failing probe, because driving that end to end needs a
+  distro without `bubblewrap`.
+- `npm run probe:mode` runs `test/probe/mode-probe.mjs`, which measures which POSIX-mode
+  facts survive the share. The file was cited by `docs/LIMITATIONS.md` and wired into
+  no script at all.
+- `test/preset-choice.test.mjs` covers the session-preset decision, now that the rule
+  is the pure `lib/preset-choice.js`. The frame timing that applies the decision still
+  needs the harness, and the test says so.
+
+### Changed
+
+- `runCapture` names the cause when the executable itself cannot start: the message now
+  points at `wslPath` and at WSL being installed, the same way it already did for a
+  token denied by the Windows sandbox. `npm run probe:missing-wsl` asserts it.
+
+### Documentation
+
+- `docs/LIMITATIONS.md` states the `/tmp` split: a confined command's `/tmp` is a fresh
+  tmpfs while the file tools' fence grants the distro's *real* `/tmp`, so both sides can
+  write but neither sees the other's files. Hand a file between them through the session
+  workspace. `docs/ARCHITECTURE.md` describes the same distinction where it explains the
+  fence, including why the Windows temp directory is deliberately not granted to a
+  distro session.
+
+
 ## [0.1.5] - 2026-10-02
 
 Three defects from a design-closure review. Two are cases where a documented remedy

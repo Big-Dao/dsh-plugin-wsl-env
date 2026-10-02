@@ -1,0 +1,34 @@
+# Missing-executable probe overlay — applied on top of the throwaway `wslfs` profile
+# that `test/probe/run.sh` documents.
+#
+# It mounts the WSL shell executor with a `wslPath` that cannot start, which is what a
+# mistyped `wslPath` — or a machine where WSL is not installed — looks like to the
+# plugin. The state it pins: the failure names the executable and suggests checking
+# `wslPath`, it is not dressed up as a sandbox refusal, and it claims no sandbox facts
+# for a command that never ran.
+#
+# The other fail-closed state — `wsl.exe` works but the distro has no `bubblewrap` — is
+# asserted where it can be reproduced cheaply: `test/sandbox.test.mjs` drives
+# `WslSandbox.confine` against a probe that fails and asserts `SANDBOX_UNAVAILABLE`.
+# Driving that end to end needs a distro without `bubblewrap`.
+#
+# TEMPLATE: `missing-wsl.sh` substitutes @MISSING_WSL@, @SCRATCH@, @PROBE_UNC@ and
+# @REPORT_UNC@ into a generated copy beside it.
+- id: bash-sandbox
+  disabled: true
+
+- id: pwsh-sandbox
+  disabled: true
+
+- insert:
+    - id: wsl-shell
+      name: 'dsh-plugin-wsl-env'
+      config:
+        wslPath: '@MISSING_WSL@'
+
+    - id: missing-wsl-probe
+      name: '@PROBE_UNC@'
+      config:
+        missingWsl: '@MISSING_WSL@'
+        workspaceRoot: @SCRATCH@
+        report: '@REPORT_UNC@'

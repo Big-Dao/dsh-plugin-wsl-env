@@ -124,9 +124,12 @@ behaviour and the error messages match a Linux host. The function
 | `workspace-write` | the above, plus the session workspace is writable and `/tmp` is a temporary mount |
 | `danger-full-access` | no sandbox; used for an approved wider-permission request |
 
-`WslFileSystem` checks writes against the same policy and the same writable list.
-That avoids a mismatch where `bash` could write `/tmp` but the write tool could
-not. The fence is complete for the model's reach: `writeText` and `editText` are
+`WslFileSystem` checks writes against the same policy and the same writable list,
+with one deliberate translation: for a session inside a distro the temp root is the
+distro's own `/tmp`, and the Windows temp directory is *not* granted, because it lies
+outside the execution world the policy describes. That avoids a mismatch where `bash`
+could write `/tmp` but the write tool could not. The two `/tmp`s are still different
+directories — the command's is a fresh tmpfs — see [LIMITATIONS.md](LIMITATIONS.md). The fence is complete for the model's reach: `writeText` and `editText` are
 the only mutation calls the model-facing file tools make on the filesystem seam,
 so checking those two checks everything the model can mutate. Both providers
 report their mode through `sandboxMode`. The tool layer and the Permissions
@@ -181,7 +184,8 @@ step with the checkout, and `npm run sync:windows` runs that script.
 | Syntax pass | [`test/syntax.mjs`](../test/syntax.mjs) | no |
 | Unit tests | `test/*.test.mjs` | no |
 | Sandbox probe | [`test/probe/sandbox.sh`](../test/probe/sandbox.sh) | no; it applies the profile arguments directly |
-| Harness probes | [`test/probe/run.sh`](../test/probe/run.sh), `terminal.sh`, `sandbox-shell.sh` | yes: Windows, WSL2, a mounted profile, and a linked checkout |
+| Harness probes | [`test/probe/run.sh`](../test/probe/run.sh), `terminal.sh`, `sandbox-shell.sh`, `picker.sh`, `missing-wsl.sh` | yes: Windows, WSL2, a mounted profile, and a linked checkout |
+| Host probes | [`test/probe/mode.sh`](../test/probe/mode.sh) | Windows Node, no harness |
 | Probe plugins | the `*-probe.mjs` and `*-probe.yml` files in `test/probe/` | loaded by the scripts above |
 
 The unit tests import only Node builtins, so they run on any platform. CI runs them

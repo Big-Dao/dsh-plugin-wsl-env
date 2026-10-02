@@ -21,3 +21,7 @@ Thumbs.db
 # UNC spelling of a path includes this machine's distro name; the probe scripts
 # substitute the real values into these generated copies.
 test/probe/.generated-*.yml
+
+# Probe reports for the newer probes, same reason as fs-probe.txt.
+test/probe/missing-wsl-report.txt
+test/probe/picker-report.txt

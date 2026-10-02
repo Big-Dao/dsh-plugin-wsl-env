@@ -40,10 +40,14 @@ npm run probe
 npm run probe:sandbox
 npm run probe:sandbox-shell
 npm run probe:terminal
+npm run probe:picker
+npm run probe:missing-wsl
+npm run probe:mode
 ```
 
-`npm run probe:sandbox` needs no harness. The other three need Windows, WSL2, a
-mounted profile, and a linked checkout.
+`npm run probe:sandbox` needs no harness; `npm run probe:mode` needs Windows Node
+but no harness. The rest need Windows, WSL2, a mounted profile and a linked
+checkout.
 
 `npm publish` runs the `prepublishOnly` script, which is `npm test`. The local
 gates therefore run again during the release step.

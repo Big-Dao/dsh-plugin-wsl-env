@@ -100,6 +100,9 @@ npm run probe:sandbox        # measure inside the distro what bubblewrap does an
 npm run probe                # filesystem probe against a real distro (Windows + WSL only)
 npm run probe:sandbox-shell  # boot a real harness and drive the confined executor
 npm run probe:terminal       # open a PTY through the terminal provider
+npm run probe:missing-wsl    # boot a profile whose wslPath cannot start (Windows + WSL only)
+npm run probe:picker         # list the picker's root level, refusals and its cap (Windows + WSL only)
+npm run probe:mode           # which POSIX-mode facts survive the share (Windows node only)
 ```
 
 There is nothing to install first: the package has no dependencies, and every module under test imports only Node builtins. CI runs `npm test` on Node 20, 22 and 24, on Linux and Windows, and `npm run test:coverage` on Node 24.

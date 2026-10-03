@@ -12,8 +12,158 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-03
+
+One theme: the file tools move into the distro. The `substrate: "agent"` I/O
+substrate and its kernel-enforced confined writes land together with the
+enterprise review that hardened them — the watchdog that killed the shared
+agent for a queue it never chose to join, the output captures nothing bounded,
+a root listing that sheared the first character off every child's name, and an
+overwrite guard that stopped at the host.
+
 ### Fixed
 
+- **One file carries one version string, whichever op answered.** `stat` and
+  `list` built their versions from different producers: the stat op used the
+  distro's `stat` directives (uutils `stat` rounds timestamps to microseconds)
+  while the list walk used `find -printf` (nanosecond-exact), so the same file
+  yielded two different version strings and a list-derived guard failed
+  against its own stat. `fs_stat` now reads through the same `find -printf`
+  the list walk uses — one producer, one string — and `find -L`'s habit of
+  reporting a dangling link as the link itself is refused the way the `stat`
+  it replaced was, so a dangling link still stats to null like the peer's.
+
+- **An overwrite or edit now re-verifies its version distro-side, one syscall
+  before the rename.** The module header claimed the mutation guard "survives
+  to the write", but the no-replace link guarded only `createIfAbsent`: an
+  overwrite or edit checked the version host-side and then published with an
+  unconditional `mv -f`, so a concurrent writer (an editor save, `git stash`,
+  another session) that landed between the model's stat and the publish was
+  silently clobbered with no `FS_STALE_VERSION`. The `write` op now carries
+  the version the write was based on (a `replaceIfVersion` guard's version,
+  or the stat an edit was read against), and the agent re-verifies it with a
+  fresh stat from the SAME producer `fs_stat` uses — refusing with
+  `FS_STALE_VERSION` ("file changed since it was read", or "file no longer
+  exists") while the concurrent writer's content stays untouched and no
+  staging debris is left behind. The window narrows from a host round trip to
+  kernel-adjacent — the honest wording, here and in the module headers,
+  LIMITATIONS.md and ARCHITECTURE.md, is that only the create case is closed
+  outright.
+
+- **The agent command path now enforces the output budget it always
+  advertised.** `maxOutputBytes` rode the config schema but nothing else: the
+  agent captured a command's whole stdout and stderr and base64ed both into
+  one RES line — multi-gigabyte output meant multi-gigabyte dash command
+  substitutions in the distro and a multi-gigabyte host line, with the result
+  claiming `truncated: false` all the way. The EXEC frame now carries the
+  caller's per-stream budget (`wsl-shell`'s `maxOutputBytes`, wired from the
+  agent execution path); the agent cuts each stream at it — only the first
+  bytes are encoded, so distro AND host memory are bounded — and the RES line
+  reports which streams were cut, which the handle surfaces as honest
+  per-stream `truncated` flags (a guarded-create synthesis and frames without
+  a budget still read `false`). The host also defends itself against a broken
+  or hostile agent: the unbounded readline accumulator is replaced with a
+  bounded line splitter that kills the transport when one stdout line exceeds
+  the protocol cap instead of buffering it whole.
+
+- **A short-budget request queued behind a long one no longer kills the shared
+  agent — and an in-flight command is never silently re-run.** Two defects
+  shared one root: the host armed each request's watchdog at SUBMISSION and
+  let it kill the one `wsl.exe` carrying every pending request, and the
+  rebuild relay then replayed all carried frames verbatim. In the default
+  configuration the 10 s `DSH_WSL_PORTS` poller (8 s budget, shared agent) did
+  exactly this against any command longer than ~21 s: the poll's watchdog
+  killed the transport, the command died mid-flight, and the rebuild
+  **re-executed it from scratch** — both callers seeing success (measured: a
+  killed `sleep 40` ran twice). Three changes close it: the agent answers
+  `ACK|<id>` when it dequeues a request and the host arms the watchdog there,
+  so queue time never spends a budget (wire protocol v3 — sync the runtime
+  copy and restart the app, an old agent fails the handshake loudly instead of
+  misbehaving quietly); the rebuild relays only provably read-only FS frames
+  (`stat`/`lstat`/`list`/`realpath`/`read`), failing an in-flight EXEC or
+  `write` with "its state is unknown — inspect the distro before retrying"
+  instead of re-running it; and an abort now addresses the request's CURRENT
+  id, so a relayed request's KILL (and map cleanup) can no longer miss. The
+  watchdog-vs-queue experiment now ends with the long command executed exactly
+  once and the transport alive.
+- **A root listing kept every child's name whole.** `listChildren` sliced each
+  `find` record at `parent.length + 1`, which against the bare `/` parent
+  sheared the first character off every name (`/etc` → `tc`), and a write to a
+  listed child then created `/tc`. The exact prefix is stripped instead, and
+  the child join owes its own slash, so `listDir` on
+  `\\wsl.localhost\<distro>\` names `/etc`, `/home`, `/usr` correctly.
+
+### Added
+
+- **`substrate: "agent"` — the filesystem's in-distro I/O substrate.** `wsl-fs`
+  gains a `substrate` key, default `agent`: the file tools are served through
+  the resident in-distro agent instead of the 9p share — identities are
+  distro-side `realpath`s, symlinks resolve where they live (no retry
+  machinery, `/etc/os-release` just works), mode bits are native, and a
+  mutation guard survives to the write's no-replace publication — the
+  check-then-write window the share documents closes, exactly as on a Linux
+  host. `substrate: "share"` is the opt-out that keeps the previous behaviour
+  byte for byte. Both substrates fence writes with the same host-side policy
+  check, so this changes fidelity and posture, not enforcement. Known
+  differences are in LIMITATIONS.md (notably: new files publish at 0600, the
+  peer's own POSIX semantics, where the share took the umask 0644), and an
+  agent outage fails with `FS_IO_ERROR` naming the substrate rather than
+  degrading to share semantics. Layers: FS operation frames on the agent wire
+  protocol (v3, `agent/wsl-agent.sh`), fsio-over-agent mechanics
+  (`lib/fsio-agent.js`), provider-shaped orchestration (`lib/fs-substrate.js`),
+  and the provider branch (`lib/index.js`). The pure text mechanics are
+  replicated from upstream pending the fsio export proposed in
+  docs/UPSTREAM-FSIO-EXPORT.md. Probed live: `npm run probe:substrate`.
+- **Stage two: kernel-enforced confined writes.** On the agent substrate, a
+  mutation under a confined policy rides its own long-lived resident — one
+  agent per (distro, mode, workspace), spawned inside the bwrap profile that
+  binds exactly what the mode grants (`lib/agent-confined.js`, `argvPrefix` on
+  the agent wire). The kernel now refuses what the host-side check would have,
+  so a check bug cannot become a write outside the workspace; a mount-table
+  refusal surfaces as `FS_SANDBOX_DENIED`, the command path's dialect, and a
+  distro without usable bwrap refuses confined writes with the bootstrap
+  command instead of downgrading. Escalated (`danger-full-access`) writes ride
+  the plain resident, and a policy change simply addresses a different key —
+  the previous resident retires through its idle timer. Probed live: the
+  confined write inside the workspace lands, and the one outside it is refused
+  by the kernel (`probe:substrate`).
+
+### Fixed
+
+- **Every mutation on the agent substrate failed: the confined resident's command
+  had no program** — `confinedAgent()` built the resident's `argvPrefix` from the
+  raw profile arguments, so the transport handed `wsl.exe` a command beginning at
+  `--ro-bind` instead of `bwrap --ro-bind`. The resident exited 1 during its
+  handshake, and every write, edit and guarded create on `substrate: "agent"`
+  failed with `FS_IO_ERROR: the distro file substrate is unavailable: agent exited
+  during handshake (code=1 signal=none)` while reads kept working. Both confinement
+  sites now assemble the command through the import-free `lib/bwrap.js`, which is
+  what `test/agent.test.mjs` asserts; the same bug stayed invisible because
+  `test/probe/substrate.sh` inlined a *third*, correct copy of those arguments —
+  it now imports the production builder, so the probe fails with the provider.
+- **`WslFileSystem` could not build its agent substrate at all: a constructor
+  field shadowed the method of the same name** — the constructor's
+  `this.agentSubstrate = undefined` (the cache) overwrote the prototype's
+  `async agentSubstrate()` (the accessor), so the first file operation that needed
+  the agent threw `this.agentSubstrate is not a function`, which is how a GUI
+  session failed its turn in the Desktop app. The cache is now
+  `this.agentSubstrateInstance`, named after the sibling `this.agentInstance`, and
+  `lib/index.js`'s instance fields no longer collide with any class member.
+- **A schemastery member the pinned peer does not publish took the `wsl` preset
+  down in the Desktop app** — `WslFileSystem.Config` declared
+  `substrate: z.enum(["share", "agent"])`, and `@deepseek-ai/schemastery` 3.18.4
+  (what every `@deepseek-ai/dsh-*` peer pins as `~3.18.4`) publishes no `enum`. A
+  Config schema is a class field, so the call ran while `lib/index.js` was still
+  being imported: the loader logs the `TypeError` and leaves that row with no
+  fiber, which the preset audit renders as `never started` — naming neither the
+  member nor the file, and only for `wsl-shell` and `wsl-fs`, the two rows that
+  load `lib/index.js`. The preset therefore failed to activate, so the app
+  reported `2 row(s) did not activate` for those two ids. Now
+  `z.union(["share", "agent"])`: same `agent` default, and a bad value still
+  fails with `expected "share" | "agent" but got "bogus"`. Measured against the
+  app's own runtime, both entries import; `test/syntax.mjs` now checks every
+  `z.<member>` in `lib/` against the pinned peer's surface, which fails on
+  `z.enum` and passes on `z.union`.
 - **`truncated` missing from the agent path's output streams** — the bash tool's
   canonical result copies the field unconditionally (`canonicalBashResult`), so an
   `undefined` failed the wire's lossless-JSON snapshot and EVERY shell tool call

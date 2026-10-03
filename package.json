@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-wsl-env",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "让 DeepSeek Harness 以 WSL 子系统作为会话的执行环境：shell、文件读写与命令执行均在子系统内完成，目录选择器与 GUI 终端同样定位到子系统路径，并通过子系统内的 bubblewrap 对命令进行沙箱隔离",
   "keywords": [
     "deepseek-harness",
@@ -51,7 +51,7 @@
     "test": "npm run lint:style && npm run test:syntax && npm run test:unit",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=85 --test-coverage-branches=85 --test-coverage-functions=70 test/paths.test.mjs test/listing.test.mjs test/shell.test.mjs test/terminal.test.mjs test/probe-cache.test.mjs test/preset-choice.test.mjs",
     "test:syntax": "node test/syntax.mjs",
-    "test:unit": "node --test test/paths.test.mjs test/listing.test.mjs test/shell.test.mjs test/terminal.test.mjs test/probe-cache.test.mjs test/preset-choice.test.mjs test/sandbox.test.mjs test/agent-protocol.test.mjs test/agent.test.mjs test/fs-publish.test.mjs test/agent-exec.test.mjs test/ports.test.mjs test/watcher.test.mjs",
+    "test:unit": "node --test test/paths.test.mjs test/listing.test.mjs test/shell.test.mjs test/terminal.test.mjs test/probe-cache.test.mjs test/preset-choice.test.mjs test/sandbox.test.mjs test/agent-protocol.test.mjs test/agent.test.mjs test/agent-fs-script.test.mjs test/fsio-agent.test.mjs test/fs-substrate.test.mjs test/fs-publish.test.mjs test/agent-exec.test.mjs test/ports.test.mjs test/watcher.test.mjs",
     "lint:style": "node test/style.mjs",
     "prepublishOnly": "npm test",
     "probe": "bash test/probe/run.sh",
@@ -64,6 +64,7 @@
     "probe:sandbox-shell": "bash test/probe/sandbox-shell.sh",
     "sync:windows": "bash test/probe/sync-to-windows.sh",
     "probe:watch": "bash test/probe/watch.sh",
+    "probe:substrate": "bash test/probe/substrate.sh",
     "probe:exec": "bash test/probe/exec.sh",
     "bootstrap": "bash scripts/bootstrap.sh"
   },

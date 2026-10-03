@@ -74,9 +74,13 @@ So the layer disables the shipped `subprocess` row and inserts
 overrides `spawnTerminal` only. Ordinary `spawn()`, the host ripgrep search, the
 pwsh executor, and the LSP host reach the shipped implementation unchanged.
 
-The cost is that the terminal follows the app configuration, not the session. A
-session opened on a Windows folder still gets a distro terminal, started in
-`/mnt/<drive>/...`.
+The terminal's execution world follows the session (`hostSessions`, default on):
+a WSL-folder session runs the distro shell, a Windows-folder session runs
+`powershell.exe` in its own directory. What still follows the app configuration
+is the shell menu and the tab title, both derived from the composition's single
+`WSL` shell profile — so a host session's tab reads `WSL` over a PowerShell
+process. See [LIMITATIONS.md](LIMITATIONS.md) and
+[UPSTREAM-TERMINAL-TITLE.md](UPSTREAM-TERMINAL-TITLE.md).
 
 ## Path coordinates
 

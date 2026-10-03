@@ -110,5 +110,15 @@ Everything below applies to the share substrate unless it says otherwise.
   default on): a WSL-folder session gets the distro shell, a Windows-folder session gets
   `powershell.exe` in its own directory. The shell MENU remains the single configured
   profile, and a directory-less launch still lands in the distro.
+- A host session's TAB TITLE still reads `WSL`, the composition's shell profile
+  name, over a PowerShell process. The controller titles a tab from that profile
+  before the provider rewrites the launch, and a plugin cannot correct it: a
+  patch layer asserts rather than renames a row's module, and the row's id is
+  load-bearing for the web composition (disabling it fails web boot with
+  "waiting for service: webTerminals"). The full account and the proposed
+  upstream change are in [UPSTREAM-TERMINAL-TITLE.md](UPSTREAM-TERMINAL-TITLE.md).
+  Meanwhile, double-click a tab's title to rename it, or add `shellCandidates`
+  to the `terminal-controller` row in your own profile layer — a manually
+  selected shell is titled after itself.
 - Terminal activity reporting stops at `wsl.exe`, so the controller never reclaims
   these terminals when they are idle.

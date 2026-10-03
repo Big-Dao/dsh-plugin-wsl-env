@@ -10,7 +10,7 @@
 
 **只支持 Windows + WSL2。** 安装只需一条命令，插件自身没有依赖。环境按会话生效：打开 Windows 文件夹的会话继续使用原来的 Windows 环境。
 
-[安装](#安装) · [使用](#使用) · [配置](#配置) · [沙箱](#沙箱) · [常见问题](#常见问题) ·
+[安装](#安装) · [使用](#使用) · [配置](#配置) · [配方](#配方) · [架构](#架构) · [沙箱](#沙箱) · [常见问题](#常见问题) ·
 [开发](#开发) · [文档](#文档)
 
 ## 安装
@@ -63,6 +63,36 @@ dsh --profile wsl                                  # 4. 启动
 
 [`cordis.patch.yml`](../cordis.patch.yml) 是每个随包值的注释参考。[docs/CONFIGURATION.md](CONFIGURATION.md) 列出其余键，包括 `shell`、`loginShell`、`cwd`、`timeoutMs`、`resolveSymlinks`、`preferredDistro` 和 `maxEntries`；[examples/profile.cordis.patch.yml](../examples/profile.cordis.patch.yml) 是一份可照抄的本机层。
 
+## 配方
+
+- **Git 凭据共享**：让子系统里的 git 使用 Windows 侧的 Git Credential Manager，避免每次输密码：
+  `git config --global credential.helper "/mnt/c/Program\ Files/Git/mingw64/bin/git-credential-manager.exe"`
+  （路径按 Windows 侧 Git 的安装位置调整；WSL2 的 localhost 转发是平台行为，子系统内监听的端口 Windows 直接可达。）
+- **路径与性能**：模型看到并操作的是子系统内的 Linux 路径（`/home/...`），写入子系统自身的 ext4；`/mnt/c` 通向 Windows 磁盘但走 9p，大批量小文件操作明显慢——重 IO 的项目请放在子系统文件系统内。`npm run bootstrap -- <子系统>` 会一并报告 ripgrep / inotifywait（搜索与监视的后端）是否就位。
+- **WSLENV 透传**：WSL 只导入 `WSLENV` 中列出的变量。本插件按前缀放行托管的 `DSH_*` 命名空间，其中带 Windows 路径的两个（`DSH_HOME`、`DSH_PROFILE_DIR`）加 `/p` 让 WSL 翻译成 `/mnt/c/...`。`PATH` 故意不透传——否则 Windows 的 PATH 会覆盖子系统自身的 PATH。
+
+## 架构
+
+一个 DSH 进程同时服务两类会话：工作区开在 Windows 目录的，和工作区在子系统内的。能做到这一点，是因为 provider 分两层挂载：
+
+```text
+组合层（composition，每个进程一份）
+├─ subprocess-wsl        GUI 终端的执行世界
+│                          子系统目录会话   → 子系统 shell，落在会话的 Linux 目录
+│                          Windows 目录会话 → powershell.exe，落在会话自己的目录
+├─ directory-picker-wsl  在 Windows 家目录旁列出已安装的子系统
+├─ wsl-shell-env         向模型暴露 DSH_WSL_DISTRO / _SHELL / _HOME / _PORTS
+└─ auto-preset           会话打开子系统目录时自动绑定 wsl preset
+
+preset-wsl（wsl agent preset；其服务运行在 isolate realm 内）
+├─ wsl-shell   ctx.shell — wsl.exe --exec <登录 shell>，在子系统内经 bubblewrap 约束
+└─ wsl-fs      ctx.fs    — 子系统的真实文件；agent 基座落在 ext4，或走 9p 共享
+```
+
+**为什么分两层。** `wsl-shell` 和 `wsl-fs` 位于 `wsl` agent preset 内，`auto-preset` 在会话工作区位于子系统内时自动绑定它：Windows 目录的会话继续使用原生 provider，子系统会话拿到 WSL provider——环境是会话的属性，而不是进程的。终端控制器是例外：它经根上下文解析执行世界，永远看不到 preset 的 isolate realm，所以 `subprocess-wsl` 必须挂在组合层。
+
+**命令与文件。** 命令以 `wsl.exe -d <子系统> --cd <Linux 目录> --exec <登录 shell> -lc <命令>` 执行，外层是子系统内的 bubblewrap profile，参数与 DSH 自家 Linux runner 完全一致——约束语义与报错文案都和 Linux 主机相同。文件工具读写子系统的真实文件，基座二选一：默认 `agent`——常驻子系统内的进程，读写与路径解析落在 ext4，原生符号链接与权限位；或 `share`——退出项：Windows 侧宿主文件栈走 9p 共享。两个基座与命令沙箱使用同一份策略检查写入。
+
 ## 沙箱
 
 命令由**子系统内的 `bubblewrap`** 约束，文件写入按同一份策略检查。Windows ACL 沙箱在这里用不了：它的受限令牌完全到不了 WSL。
@@ -73,19 +103,11 @@ dsh --profile wsl                                  # 4. 启动
 | `workspace-write` | 在上一行基础上，把会话工作区绑定为可写，并把 `/tmp` 挂成临时目录 |
 | `danger-full-access` | 不加沙箱；用于批准后的放宽权限请求 |
 
-**bubblewrap 是必需项，而且失败是关闭的。** 没有它时，每条受限命令都报 `SANDBOX_UNAVAILABLE`，而不是不受约束地运行。要退出约束就在任一 provider 上设 `sandbox: false`，工具层会如实告诉模型这些操作没有沙箱。
+**bubblewrap 是必需项，缺失即失败关闭。** 没有它时，每条受限命令都报 `SANDBOX_UNAVAILABLE`，而不是不受约束地运行。要退出约束就在任一 provider 上设 `sandbox: false`，工具层会如实告诉模型这些操作没有沙箱。
 
 **上报的强制程度是 `partial` 而不是 `full`。** 子系统里的进程仍可经 WSL interop 执行 Windows 程序（例如 `/mnt/c/.../*.exe`），bubblewrap 管不到它。`npm run probe:sandbox` 会在你的机器上演示这条边界。
 
 设计见 [docs/ARCHITECTURE.md](ARCHITECTURE.md#sandbox)，插件不做的事情见 [docs/LIMITATIONS.md](LIMITATIONS.md)。
-
-## 配方
-
-- **Git 凭据共享**：让子系统里的 git 使用 Windows 侧的 Git Credential Manager，避免每次输密码：
-  `git config --global credential.helper "/mnt/c/Program\ Files/Git/mingw64/bin/git-credential-manager.exe"`
-  （路径按 Windows 侧 Git 的安装位置调整；WSL2 的 localhost 转发是平台行为，子系统内监听的端口 Windows 直接可达。）
-- **路径与性能**：模型看到并操作的是子系统内的 Linux 路径（`/home/...`），写入子系统自身的 ext4；`/mnt/c` 通向 Windows 磁盘但走 9p，大批量小文件操作明显慢——重 IO 的项目请放在子系统文件系统内。`npm run bootstrap -- <子系统>` 会一并报告 ripgrep / inotifywait（搜索与监视的后端）是否就位。
-- **WSLENV 透传**：WSL 只导入 `WSLENV` 中列出的变量。本插件按前缀放行托管的 `DSH_*` 命名空间，其中带 Windows 路径的两个（`DSH_HOME`、`DSH_PROFILE_DIR`）加 `/p` 让 WSL 翻译成 `/mnt/c/...`。`PATH` 故意不透传——否则 Windows 的 PATH 会覆盖子系统自身的 PATH。
 
 ## 常见问题
 

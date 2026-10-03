@@ -32,6 +32,7 @@ are schema defaults, listed because they are the ones worth knowing.
 | `subprocess-wsl` | `distro` | `''` *(shipped)* | which distro the GUI terminal opens in |
 | | `shell` | `''` | pin a shell; empty lets `wsl.exe` decide |
 | | `loginShell` | `true` | whether a pinned shell uses login semantics |
+| | `hostSessions` | `true` | give a session opened on a Windows folder a host `powershell.exe` in its own directory instead of the distro shell at `/mnt/<drive>/…`; `false` restores the composition-owned distro terminal for every session |
 
 You can override the other keys in the same way; they keep their defaults. Those are
 `wslPath`, `hostCwd` and `forwardEnv` on the shell and terminal rows,

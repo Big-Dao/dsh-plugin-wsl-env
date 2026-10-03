@@ -43,10 +43,12 @@
 #      directory, so offering host executables there would advertise shells this
 #      terminal never starts.
 #
-# Consequence: the terminal follows the composition, not the Session. A Session
-# whose workspace is a Windows folder gets the same distro terminal, started in
-# that folder as `/mnt/<drive>/…`. That is the honest limit of a per-session
-# execution world that no Session identity reaches.
+# Consequence: a terminal's EXECUTION WORLD follows the Session — a WSL-folder
+# session runs the distro's shell, a Windows-folder session runs PowerShell in
+# its own directory (`hostSessions` on `subprocess-wsl`) — while the shell menu
+# and the tab title stay the composition's single `WSL` profile, which no
+# Session identity reaches. The title that implies is documented in
+# docs/LIMITATIONS.md and bridged upstream in docs/UPSTREAM-TERMINAL-TITLE.md.
 # ═════════════════════════════════════════════════════════════════════════════
 - id: subprocess
   disabled: true

@@ -10,7 +10,7 @@ This plugin lets [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 **Windows + WSL2 only.** One install command, no dependencies of its own. The environment applies per session, so a session on a Windows folder keeps its normal Windows environment.
 
-[Install](#install) · [Using it](#using-it) · [Configure](#configure) · [Sandbox](#sandbox) ·
+[Install](#install) · [Using it](#using-it) · [Configure](#configure) · [Recipes](#recipes) · [Architecture](#architecture) · [Sandbox](#sandbox) ·
 [Troubleshooting](#troubleshooting) · [Development](#development) · [Documentation](#documentation)
 
 ## Install
@@ -42,6 +42,7 @@ Open `\\wsl.localhost\ubuntu\home\you\project` as the workspace, then ask the mo
 - **Commands** run as `wsl.exe -d <distro> --cd <linux dir> --exec <your login shell> -lc <command>`, so your `PATH`, `nvm`, `cargo`, `pyenv` and rc files apply. The shell is not hardcoded to bash.
 - **Files are the distro's real files.** `/home/you/x` and `\\wsl.localhost\ubuntu\home\you\x` are the same file, and `/mnt/c/...` reaches the Windows disk.
 - **The terminal** (right sidebar, then *New terminal*) opens a shell inside the distro, in the session's folder.
+- **Port visibility.** The model sees which ports have a listener inside the distro (`DSH_WSL_PORTS`, refreshed about every 10 s), so it can hand you the exact URL of a dev server it just started; WSL2's localhost forwarding makes it reachable from Windows directly.
 - **The model sees its shell environment.** The plugin registers `DSH_WSL_DISTRO`, `DSH_WSL_SHELL` and `DSH_WSL_HOME` in the managed `DSH_*` namespace.
 - **Permissions work as on a Linux host.** The Permissions selector switches between `read-only`, `workspace-write` (the default) and `danger-full-access`. A refused command or write comes back with an offer to run it with wider permissions; if you approve, that one call runs without the sandbox.
 
@@ -62,22 +63,6 @@ Override a row by id in `$DSH_HOME/profiles/<name>/cordis.patch.yml`. The keys w
 
 [`cordis.patch.yml`](cordis.patch.yml) is the commented reference for every shipped value. [docs/CONFIGURATION.md](docs/CONFIGURATION.md) lists the rest, including `shell`, `loginShell`, `cwd`, `timeoutMs`, `resolveSymlinks`, `preferredDistro` and `maxEntries`; [examples/profile.cordis.patch.yml](examples/profile.cordis.patch.yml) is a machine-local layer to copy from.
 
-## Sandbox
-
-Commands are confined by `bubblewrap` inside the distro, and file writes are checked against the same policy. The Windows ACL sandbox cannot be used here: its restricted token cannot reach WSL at all.
-
-| Mode | What a command inside the distro can do |
-|---|---|
-| `read-only` | read the whole distro; a fresh `/dev` is mounted writable, so `/dev/null` and `/dev/shm` work, and nothing else does |
-| `workspace-write` | the above, plus the session workspace is writable and `/tmp` is a temporary mount |
-| `danger-full-access` | no sandbox; used for an approved wider-permission request |
-
-**`bubblewrap` is required, and the failure is closed.** Without it every confined command reports `SANDBOX_UNAVAILABLE` instead of running unconfined. Set `sandbox: false` on either provider to opt out; the tool layer then tells the model these operations have no sandbox.
-
-**The reported enforcement is `partial`, not `full`.** A process inside the distro can still run a Windows program through WSL interop, for example `/mnt/c/.../*.exe`, and bubblewrap does not govern it. `npm run probe:sandbox` demonstrates the boundary on your machine.
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#sandbox) for the design, and [docs/LIMITATIONS.md](docs/LIMITATIONS.md) for everything the plugin does not do.
-
 ## Recipes
 
 - **Git credential sharing**: let git inside the distro use the Windows-side Git
@@ -94,6 +79,44 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#sandbox) for the design, and [do
   This plugin admits the managed `DSH_*` namespace by prefix, translating the
   two Windows-path ones (`DSH_HOME`, `DSH_PROFILE_DIR`) with `/p`. `PATH` is
   deliberately never forwarded — it would shadow the distro's own PATH.
+
+## Architecture
+
+One DSH process serves both kinds of session at once — a workspace on a Windows folder, and a workspace inside the distro — because its providers mount at two levels:
+
+```text
+composition (app level, one per process)
+├─ subprocess-wsl        the GUI terminal's execution world
+│                          WSL-folder session     → the distro shell, in the session's Linux directory
+│                          Windows-folder session → powershell.exe, in the session's Windows directory
+├─ directory-picker-wsl  installed distros listed beside the Windows home
+├─ wsl-shell-env         the DSH_WSL_DISTRO / _SHELL / _HOME / _PORTS facts the model sees
+└─ auto-preset           binds the wsl preset when a session opens a distro folder
+
+preset-wsl (the wsl agent preset; its services run in isolate realms)
+├─ wsl-shell   ctx.shell — wsl.exe --exec <login shell>, confined by bubblewrap inside the distro
+└─ wsl-fs      ctx.fs    — real distro files; agent substrate on ext4, or the 9p share
+```
+
+**Why two levels.** `wsl-shell` and `wsl-fs` live inside the `wsl` agent preset, which `auto-preset` binds whenever a session's workspace is inside the distro: a Windows-folder session keeps the stock providers, a distro session gets the WSL ones — the environment is a property of the session, not of the process. The terminal controller is the exception: it resolves its execution world through the root context, which never sees a preset's isolate realms, so `subprocess-wsl` sits at the composition level instead.
+
+**Commands and files.** A command runs as `wsl.exe -d <distro> --cd <linux dir> --exec <login shell> -lc <cmd>` inside a distro-side bubblewrap profile assembled with the same arguments as DSH's own Linux runner, so confinement semantics and error messages match a Linux host. The file tools read and write real distro files on one of two substrates: the default `agent` — a resident in-distro process, where reads, writes and identities run on ext4 with native symlinks and mode bits — or `share`, the opt-out: the Windows-side host stack over the 9p share. Both check writes against the same policy the command sandbox enforces.
+
+## Sandbox
+
+Commands are confined by `bubblewrap` inside the distro, and file writes are checked against the same policy. The Windows ACL sandbox cannot be used here: its restricted token cannot reach WSL at all.
+
+| Mode | What a command inside the distro can do |
+|---|---|
+| `read-only` | read the whole distro; a fresh `/dev` is mounted writable, so `/dev/null` and `/dev/shm` work, and nothing else does |
+| `workspace-write` | the above, plus the session workspace is writable and `/tmp` is a temporary mount |
+| `danger-full-access` | no sandbox; used for an approved wider-permission request |
+
+**`bubblewrap` is required, and it fails closed.** Without it every confined command reports `SANDBOX_UNAVAILABLE` instead of running unconfined. Set `sandbox: false` on either provider to opt out; the tool layer then tells the model these operations have no sandbox.
+
+**The reported enforcement is `partial`, not `full`.** A process inside the distro can still run a Windows program through WSL interop, for example `/mnt/c/.../*.exe`, and bubblewrap does not govern it. `npm run probe:sandbox` demonstrates the boundary on your machine.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#sandbox) for the design, and [docs/LIMITATIONS.md](docs/LIMITATIONS.md) for everything the plugin does not do.
 
 ## Troubleshooting
 

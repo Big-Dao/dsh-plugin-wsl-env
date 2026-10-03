@@ -23,6 +23,32 @@ reference below points at that record's numbering.
   every row this package owns; previously the rows fell back to raw module
   specifiers (no description at all), and the two official rows it inserts
   keep their upstream English text, which only upstream locale files can fix.
+- **docs/UPSTREAM-TERMINAL-TITLE.md — the upstream proposal behind a documented
+  limitation, posted as
+  [deepseek-ai/deepseek-harness#8769](https://github.com/deepseek-ai/deepseek-harness/discussions/8769).** `subprocess-wsl.hostSessions` routes a Windows-folder session's
+  terminal to `powershell.exe`, but the tab still reads `WSL`: the controller
+  titles a tab from the composition's single shell profile before the provider
+  is consulted, the terminal spawn spec carries no display name, and a plugin
+  cannot bridge the gap (a patch layer asserts rather than renames a row's
+  module, and disabling the `terminal-controller` row fails web boot — its id
+  is what the client's `webTerminals` mount waits behind). The doc records the
+  gap, the three closed escape hatches with the web-boot failure that closed
+  the second one live, and the smallest upstream change that would close it.
+  LIMITATIONS.md gains the matching limitation paragraph with the workarounds
+  that do work: double-click rename, and a user-layer `shellCandidates` entry
+  whose manual selection is titled after itself.
+- **The README carries an Architecture section** (both languages): the two
+  mount heights — composition-level `subprocess-wsl` and the preset realm's
+  `wsl-shell` / `wsl-fs` — with the per-session terminal routing and the
+  command and file execution paths in one diagram and two paragraphs.
+  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) remains the full reference.
+
+### Fixed
+
+- Stale statements that `hostSessions` had already falsified were corrected in
+  place: `cordis.patch.yml`'s consequence note and ARCHITECTURE.md's "the
+  terminal follows the app configuration" paragraph still described the
+  pre-routing behaviour.
 
 ## [0.4.0] - 2026-10-03
 

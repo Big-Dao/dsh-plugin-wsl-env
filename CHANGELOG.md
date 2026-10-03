@@ -12,6 +12,17 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-03
+
+One theme: the enterprise review's remediation cycle completes. The
+security-decision layer gains its own peer-free module and unit tests, the
+coverage gate measures every unit file again, the fallback invariant is probed
+for real, and the file tools pick up the audit's fixes — a killed write no
+longer strands state, large reads stream instead of staging, `/tmp` writes
+land where readers read, cross-distro workdirs are refused, the resident's
+Windows environment is pinned, and `maskWindowsDrive` offers the interop
+mitigation.
+
 ### Added
 
 - **The filesystem provider's policy decisions are a peer-free module with

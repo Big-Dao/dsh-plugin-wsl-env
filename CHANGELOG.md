@@ -12,6 +12,14 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-04
+
+One theme: telling the truth, in the reader's language. The Plugins page now
+renders localized titles and descriptions for every row this bundle owns, the
+README runs shallow to deep and carries an Architecture section in both
+languages, the tab-title limitation is documented with its upstream proposal,
+and the statements `hostSessions` had already falsified are gone.
+
 ### Added
 
 - **The plugin page can speak the bundle's language.** The bundle and each of

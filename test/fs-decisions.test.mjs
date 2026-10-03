@@ -120,11 +120,12 @@ check("substrateFailure keeps a coded refusal byte-for-byte and wraps everything
   const plain = new Error("wsl.exe blew up");
   const wrapped = substrateFailure(plain);
   assert.equal(wrapped.code, "FS_IO_ERROR");
-  assert.equal(wrapped.message, "the distro file substrate is unavailable: wsl.exe blew up");
+  assert.match(wrapped.message, /the distro file substrate is unavailable: wsl\.exe blew up/);
+  assert.match(wrapped.message, /substrate: \\"share\\"/, "the failure names the documented opt-out");
   assert.equal(wrapped.cause, plain, "the cause survives for the tool layer");
 
   const stringError = substrateFailure("a string failure");
-  assert.equal(stringError.message, "the distro file substrate is unavailable: a string failure");
+  assert.match(stringError.message, /unavailable: a string failure\. Set/);
   assert.equal(stringError.cause, undefined, "a non-Error carries no cause");
 });
 

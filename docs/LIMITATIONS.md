@@ -22,6 +22,9 @@ host stack over the distro's 9p share. What differs:
   rather than quietly degrading to share semantics that cannot follow symlinks
   or keep mode bits. The share substrate dies with the distro anyway; the
   agent only adds its own failure mode, which is the one honest way to fail.
+  The failure message names the opt-out: set `substrate: "share"` in the
+  provider config to keep working on the Windows-side share while the agent
+  is out.
 - **The mutation guard survives to the write.** `createIfAbsent` publishes with
   a no-replace link inside the distro, which closes the check-then-write window
   for creates outright. An overwrite or edit carries the version it was based
@@ -90,7 +93,10 @@ Everything below applies to the share substrate unless it says otherwise.
 - The check before a write is "check, then write", which is not atomic. This backend
   checks the caller's guard itself, because the Windows backend publishes a guarded
   new file with a hard link, and the share does not support hard links. This is the
-  race that `dsh-fs-sandbox` already documents.
+  race that `dsh-fs-sandbox` already documents — and one reason the share substrate
+  is the documented FALLBACK rather than the main path: its publication rides the
+  unconfined agent, so it never receives the confined resident's kernel-enforced
+  containment. The agent substrate does.
 - `watch()` observes from inside the distro (a `find -newer` poll loop, see
   `lib/watcher.js`), so events are coarse invalidation, not per-file notifications,
   and they arrive on the poll cadence, not instantly. A file created with an mtime

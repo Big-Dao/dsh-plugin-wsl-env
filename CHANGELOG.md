@@ -12,6 +12,18 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+### Added
+
+- **The filesystem provider's policy decisions are a peer-free module with
+  their own unit tests.** The security-decision layer — which paths are
+  refused for naming another distro, which mode denies a mutation outright,
+  which write guards refuse which intents, how a substrate failure maps onto
+  the surfaced refusal, and whether a mutation routes to the confined
+  resident — used to live inline in `lib/index.js`, a file no unit test can
+  import. It is now `lib/fs-decisions.js` (pure in, refusal descriptor out,
+  byte-identical messages), with `test/fs-decisions.test.mjs` covering every
+  branch, and `lib/index.js` delegating at one `FsError` choke point.
+
 ### Fixed
 
 - **The fallback invariant is now probed, not just promised.** PARITY.md's

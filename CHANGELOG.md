@@ -14,6 +14,22 @@ reference below points at that record's numbering.
 
 ### Fixed
 
+- **A confined write to `/tmp` now lands in the distro's real `/tmp`, where
+  every reader reads.** The fence grants `/tmp` as a writable root, but the
+  confined resident's profile mounted an ephemeral tmpfs over it — so the
+  write reported success into a private tmpfs, the read tools (unconfined)
+  could not see it, the post-write stat produced a `missing:` version that
+  made the next edit fail with `FS_STALE_VERSION`, and the file evaporated
+  when the resident retired. The file-writes resident's profile now binds the
+  real `/tmp` read-write (`realTmp`, on by default for the confined factory):
+  the write lands where the fence said it would, reads and edits agree, and
+  user terminals see the file. Commands keep their ephemeral per-run tmpfs —
+  the fresh-temp-area property (and its anti-poisoning guarantee) is
+  unchanged, so a command still cannot see files the write tools placed in
+  `/tmp` — the documented command-vs-tools split, now safe in both
+  directions. Verified live: confined write → plain read returns the content;
+  a confined `cat` still reports it absent, as documented.
+
 - **A killed write no longer leaves its staging directory in your files.** A
   `KILL`/`SIGTERM` mid-write could not be trapped, so the private 0700
   staging dir (`.<name>.<pid>.<rand>.tmpdir`) sat in the target's own

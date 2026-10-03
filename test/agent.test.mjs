@@ -347,9 +347,23 @@ checkReg("the confined factory builds a whole command: program, profile, separat
     "the read-only base of the profile follows the program",
   );
   assert.deepEqual(
-    profile.slice(-5),
+    profile.slice(-6),
+    ["--bind", "/tmp", "/tmp", "--bind", "/home/u/ws", "/home/u/ws"],
+    "workspace-write binds the workspace AND the real /tmp the fence grants: a write the fence approved must land where every reader reads",
+  );
+  assert.equal(profile.includes("--tmpfs"), false, "the fs resident must not publish into an ephemeral tmpfs");
+
+  resetConfinedAgents();
+  const ephemeral = confinedAgent({
+    distro: "ubuntu",
+    policy: { mode: "workspace-write", workspaceRoot: "/home/u/ws" },
+    realTmp: false,
+  });
+  const ephemeralProfile = ephemeral.argvPrefix.slice(1, -1);
+  assert.deepEqual(
+    ephemeralProfile.slice(-5),
     ["--tmpfs", "/tmp", "--bind", "/home/u/ws", "/home/u/ws"],
-    "a workspace-write policy binds the workspace read-write",
+    "realTmp: false restores the ephemeral temp area (tests and probes only)",
   );
 
   resetConfinedAgents();
@@ -357,6 +371,7 @@ checkReg("the confined factory builds a whole command: program, profile, separat
   assert.equal(readOnly.argvPrefix[0], "bwrap");
   assert.equal(readOnly.argvPrefix.at(-1), "--");
   assert.equal(readOnly.argvPrefix.includes("--tmpfs"), false, "read-only grants no temp area");
+  assert.equal(readOnly.argvPrefix.includes("/tmp"), false, "read-only mounts no /tmp at all");
   resetConfinedAgents();
 });
 
@@ -369,6 +384,20 @@ checkReg("the profile option shadows /mnt after the read-only root", () => {
   assert.equal(unmasked.includes("/mnt"), false, "the default leaves the drive visible");
   const write = bwrapProfileArgs({ mode: "workspace-write", workspaceRoot: "/w" }, { maskWindowsDrive: true });
   assert.deepEqual(write.slice(-2), ["--tmpfs", "/mnt"], "the mask is last, shadowing whatever the root bind mounted");
+});
+
+checkReg("realTmp binds the real /tmp the fence grants, instead of an ephemeral tmpfs", () => {
+  const real = bwrapProfileArgs({ mode: "workspace-write", workspaceRoot: "/w" }, { realTmp: true });
+  assert.deepEqual(
+    real.slice(9),
+    ["--bind", "/tmp", "/tmp", "--bind", "/w", "/w"],
+    "the real /tmp is bound read-write where the ephemeral tmpfs used to sit",
+  );
+  assert.equal(real.includes("--tmpfs"), false, "no ephemeral temp area remains");
+  const ephemeral = bwrapProfileArgs({ mode: "workspace-write", workspaceRoot: "/w" });
+  assert.deepEqual(ephemeral.slice(9, 10), ["--tmpfs"], "the default keeps the ephemeral temp area");
+  const readOnly = bwrapProfileArgs({ mode: "read-only", workspaceRoot: "/" }, { realTmp: true });
+  assert.equal(readOnly.includes("/tmp"), false, "realTmp is inert under read-only: no /tmp mount exists to change");
 });
 
 checkReg("the confined factory keys the mask into the resident's identity", async () => {

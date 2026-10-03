@@ -16,6 +16,7 @@ import { AGENT_NAME, PROTOCOL_VERSION, encodeB64 } from "../lib/agent-protocol.j
 import { AgentUnavailableError } from "../lib/agent-errors.js";
 import { WslAgent } from "../lib/agent.js";
 import { confinedAgent, resetConfinedAgents } from "../lib/agent-confined.js";
+import { bwrapProfileArgs } from "../lib/bwrap.js";
 
 let passed = 0;
 const check = async (name, fn) => {
@@ -356,6 +357,29 @@ checkReg("the confined factory builds a whole command: program, profile, separat
   assert.equal(readOnly.argvPrefix[0], "bwrap");
   assert.equal(readOnly.argvPrefix.at(-1), "--");
   assert.equal(readOnly.argvPrefix.includes("--tmpfs"), false, "read-only grants no temp area");
+  resetConfinedAgents();
+});
+
+checkReg("the profile option shadows /mnt after the read-only root", () => {
+  const masked = bwrapProfileArgs({ mode: "read-only", workspaceRoot: "/" }, { maskWindowsDrive: true });
+  const mnt = masked.indexOf("/mnt");
+  assert.ok(mnt > masked.indexOf("--ro-bind"), "the mask must follow the root bind to shadow the drive");
+  assert.equal(masked[mnt - 1], "--tmpfs", "the mask is an empty tmpfs, not a bind");
+  const unmasked = bwrapProfileArgs({ mode: "read-only", workspaceRoot: "/" });
+  assert.equal(unmasked.includes("/mnt"), false, "the default leaves the drive visible");
+  const write = bwrapProfileArgs({ mode: "workspace-write", workspaceRoot: "/w" }, { maskWindowsDrive: true });
+  assert.deepEqual(write.slice(-2), ["--tmpfs", "/mnt"], "the mask is last, shadowing whatever the root bind mounted");
+});
+
+checkReg("the confined factory keys the mask into the resident's identity", async () => {
+  resetConfinedAgents();
+  const policy = { mode: "workspace-write", workspaceRoot: "/home/u/ws" };
+  const visible = confinedAgent({ distro: "ubuntu", policy });
+  const masked = confinedAgent({ distro: "ubuntu", policy, maskWindowsDrive: true });
+  assert.notEqual(visible, masked, "a different mount table is a different resident");
+  const mnt = masked.argvPrefix.indexOf("/mnt");
+  assert.ok(mnt !== -1 && masked.argvPrefix[mnt - 1] === "--tmpfs", "the masked resident's profile shadows /mnt");
+  assert.equal(visible.argvPrefix.includes("/mnt"), false, "the visible resident's profile leaves the drive in view");
   resetConfinedAgents();
 });
 

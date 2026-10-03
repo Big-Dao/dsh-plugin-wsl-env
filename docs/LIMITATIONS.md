@@ -59,6 +59,13 @@ Everything below applies to the share substrate unless it says otherwise.
 - **The sandbox does not govern WSL interop.** A confined command can still run a
   Windows program, which escapes the Linux-side boundary. The plugin reports this as
   `enforcement: partial`. See [ARCHITECTURE.md](ARCHITECTURE.md#reported-enforcement).
+  The `maskWindowsDrive` key on `wsl-shell` and `wsl-fs` narrows the hole: the
+  confined profile shadows `/mnt` with an empty tmpfs, so the drive's files cannot be
+  read or exfiltrated and its executables cannot be launched. It is not a closure — a
+  command that can write the workspace can write an executable there and run it
+  (binfmt interop dispatches on file content, not location) — so enforcement stays
+  `partial`, the result's sandbox fact reports `windowsDrive: "masked"`, and the only
+  complete closure remains distro-level (`[interop] enabled=false` in `wsl.conf`).
 - **`bubblewrap` must be installed**, or both providers fail immediately. The
   usability probe re-runs after a failure, so installing bubblewrap while the app
   runs is believed on the next command; only a success is cached.

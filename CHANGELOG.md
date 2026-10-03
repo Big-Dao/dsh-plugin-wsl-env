@@ -12,6 +12,21 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+### Added
+
+- **`maskWindowsDrive` on `wsl-shell` and `wsl-fs`** — the mitigation knob for
+  the interop hole the sandbox has always documented. The confined profile
+  mounts an empty tmpfs over `/mnt`, so the Windows drive's files cannot be
+  read or exfiltrated by a "sandboxed" command and its executables cannot be
+  launched through interop (the path by which such a command reaches your full
+  Windows token). Honest limits, stated wherever the key is: binfmt interop
+  dispatches on file content, so a command that can write the workspace can
+  still write an executable there and run it — enforcement stays `partial`,
+  the result's sandbox fact now carries `windowsDrive: "masked" | "visible"`
+  so the model can see which posture it runs under, and the only complete
+  closure is distro-level (`[interop] enabled=false` in `wsl.conf`). Default
+  `false`: the drive stays visible unless you ask for the mask.
+
 ## [0.3.0] - 2026-10-03
 
 One theme: the file tools move into the distro. The `substrate: "agent"` I/O

@@ -5,7 +5,7 @@
  *   node test/paths.test.mjs
  */
 import assert from "node:assert/strict";
-import { isRelativeWorldPath, isUnderDistro, isWorldPathUnder, isWslUnc, toDisplayPath, toLinuxPath, toWorldPath, uncToPosix, windowsToLinuxMount } from "../lib/paths.js";
+import { isAnotherDistrosUnc, isRelativeWorldPath, isUnderDistro, isWorldPathUnder, isWslUnc, toDisplayPath, toLinuxPath, toWorldPath, uncToPosix, windowsToLinuxMount } from "../lib/paths.js";
 
 const UNC = "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj";
 let passed = 0;
@@ -157,6 +157,17 @@ check("isWorldPathUnder refuses to guess across vocabularies", () => {
   assert.equal(isWorldPathUnder("/home/andy", "C:\\"), false);
   assert.equal(isWorldPathUnder("relative/x", "/home/andy"), false);
   assert.equal(isWorldPathUnder("", "/home/andy"), false);
+});
+
+check("isAnotherDistrosUnc names the cross-distro workdir the shell must refuse", () => {
+  // The bug this guards: toLinuxPath strips the UNC's distro name, so without
+  // this predicate a debian workspace's commands ran in the pinned ubuntu.
+  assert.equal(isAnotherDistrosUnc("\\\\wsl.localhost\\debian\\home\\x", "ubuntu"), true);
+  assert.equal(isAnotherDistrosUnc("\\\\wsl$\\debian\\x", "ubuntu"), true, "both share spellings count");
+  assert.equal(isAnotherDistrosUnc("\\\\wsl.localhost\\ubuntu\\home\\andy", "ubuntu"), false);
+  assert.equal(isAnotherDistrosUnc("\\\\wsl$\\UBUNTU\\x", "ubuntu"), false, "the distro name compares case-insensitively");
+  assert.equal(isAnotherDistrosUnc("/home/andy", "ubuntu"), false, "a Linux path is not a foreign distro");
+  assert.equal(isAnotherDistrosUnc("C:\\Users\\andyz", "ubuntu"), false, "a Windows drive path is not a foreign distro");
 });
 
 console.log(`\n${passed} checks passed`);

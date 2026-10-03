@@ -14,6 +14,16 @@ reference below points at that record's numbering.
 
 ### Fixed
 
+- **A shell command whose workdir names another WSL distro is refused, where
+  it used to run in the pinned distro against whatever tree shares the path.**
+  `toLinuxPath` strips a `\\wsl.localhost\<name>\…` UNC's distro name, and the
+  shell executor never compared it — so a `debian` workspace's commands ran
+  inside the pinned `ubuntu`, silently, while the fs side refused the same
+  workspace with `FS_OUTSIDE_DISTRO` ("open a session in that distro" — which
+  the user had done). The shell now refuses with the fs side's wording, and
+  the shell-env facts stay silent for a foreign-distro session instead of
+  presenting another distro's home and shell as this session's.
+
 - **The resident agent no longer inherits the Windows environment's WSLENV
   forwarding.** Spawned bare, `wsl.exe` carried this process's whole
   environment with it, and whatever the user's `WSLENV` names — dev machines

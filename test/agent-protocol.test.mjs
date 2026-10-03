@@ -10,10 +10,13 @@
 import assert from "node:assert/strict";
 import {
   AGENT_NAME,
+  FS_READ_CHUNK_BYTES,
+  MAX_FRAME_BYTES,
   PROTOCOL_VERSION,
   decodeB64,
   encodeB64,
   encodeExecFrame,
+  encodeFsFrame,
   encodeKill,
   encodeSetEnv,
   parseAgentLine,
@@ -44,8 +47,17 @@ check("a malformed base64 field decodes to empty instead of throwing", () => {
 
 check("the EXEC frame is a header line followed by one base64 line per argv word", () => {
   const lines = encodeExecFrame({ id: "r7", cwd: "/home/you", argv: ["bwrap", "--ro-bind", "/", "/"], timeoutMs: 2500 });
-  assert.equal(lines[0], `EXEC|r7|${encodeB64("/home/you")}|3|4`);
+  assert.equal(lines[0], `EXEC|r7|${encodeB64("/home/you")}|3|4|0`);
   assert.deepEqual(lines.slice(1), [encodeB64("bwrap"), encodeB64("--ro-bind"), encodeB64("/"), encodeB64("/")]);
+});
+
+check("the EXEC frame carries the per-stream capture budget the agent enforces", () => {
+  const capped = encodeExecFrame({ id: "r1", cwd: "/", argv: ["x"], timeoutMs: 0, maxOutputBytes: 64000 });
+  assert.equal(capped[0], `EXEC|r1|${encodeB64("/")}|0|1|64000`);
+  const fractional = encodeExecFrame({ id: "r2", cwd: "/", argv: ["x"], maxOutputBytes: 1024.9 });
+  assert.equal(fractional[0].split("|")[5], "1024", "a fractional cap floors to whole bytes");
+  const negative = encodeExecFrame({ id: "r3", cwd: "/", argv: ["x"], maxOutputBytes: -5 });
+  assert.equal(negative[0].split("|")[5], "0", "a nonsense cap is the unlimited 0");
 });
 
 check("a sub-second timeout rounds up; zero and negative disable it", () => {
@@ -77,6 +89,13 @@ check("a RES line yields the exit code and decoded output buffers", () => {
   assert.deepEqual(message.stderr, stderr);
 });
 
+check("a RES line's capture-cap flags say which streams were cut", () => {
+  const cut = parseAgentLine(`RES|r1|0|${encodeB64(Buffer.alloc(0))}|${encodeB64(Buffer.alloc(0))}|1|0`);
+  assert.deepEqual(cut.truncated, { stdout: true, stderr: false });
+  const whole = parseAgentLine(`RES|r1|0|${encodeB64(Buffer.alloc(0))}|${encodeB64(Buffer.alloc(0))}|0|0`);
+  assert.deepEqual(whole.truncated, { stdout: false, stderr: false });
+});
+
 check("an ERR line yields its reason and decoded message", () => {
   const message = parseAgentLine(`ERR|r3|cwd|${encodeB64("/gone")}`);
   assert.equal(message.type, "agentError");
@@ -90,6 +109,22 @@ check("PONG and unrecognized lines parse without throwing", () => {
   assert.deepEqual(parseAgentLine("total garbage"), { type: "unknown", line: "total garbage" });
 });
 
+check("an ACK line parses to the dequeue signal with its request id", () => {
+  assert.deepEqual(parseAgentLine("ACK|r4"), { type: "ack", id: "r4" });
+});
+
+check("the FS frame mirrors EXEC's shape: header, then one base64 line per argument", () => {
+  const lines = encodeFsFrame({ id: "r8", op: "write", args: ["/tmp/f.txt", "644", "replace", "aGk="], timeoutMs: 2500 });
+  assert.equal(lines[0], `FS|r8|write|3|4`);
+  assert.deepEqual(lines.slice(1), [encodeB64("/tmp/f.txt"), encodeB64("644"), encodeB64("replace"), encodeB64("aGk=")]);
+  assert.equal(encodeFsFrame({ id: "r9", op: "stat", args: ["/x"] })[0], `FS|r9|stat|0|1`);
+});
+
+check("the FS read chunk keeps one frame's payload modest", () => {
+  assert.ok(FS_READ_CHUNK_BYTES >= 64 * 1024, "chunk must not be tiny");
+  assert.ok(FS_READ_CHUNK_BYTES <= MAX_FRAME_BYTES, "chunk must ride one frame");
+});
+
 check("relabelFrame rewrites EXEC and KILL ids and leaves SETENV alone", () => {
   const frame = [encodeSetEnv("A", "1"), ...encodeExecFrame({ id: "r1", cwd: "/", argv: ["x"], timeoutMs: 0 })];
   const relabelled = relabelFrame(frame, "r9");
@@ -98,6 +133,13 @@ check("relabelFrame rewrites EXEC and KILL ids and leaves SETENV alone", () => {
   assert.deepEqual(relabelled.slice(2), frame.slice(2));
   assert.equal(relabelFrame(["KILL|r1"], "r9")[0], "KILL|r9");
   assert.deepEqual(relabelFrame(["PONG"], "r9"), ["PONG"]);
+});
+
+check("relabelFrame rewrites FS ids so a rebuild-relayed fs request does not collide", () => {
+  const frame = encodeFsFrame({ id: "r1", op: "read", args: ["/tmp/f", "0", "1024"] });
+  const relabelled = relabelFrame(frame, "r7");
+  assert.equal(relabelled[0], `FS|r7|read|0|3`);
+  assert.deepEqual(relabelled.slice(1), frame.slice(1));
 });
 
 console.log(`\n${passed} protocol checks pass`);

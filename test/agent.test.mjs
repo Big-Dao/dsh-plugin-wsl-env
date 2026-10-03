@@ -11,9 +11,11 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
+import { mock } from "node:test";
 import { AGENT_NAME, PROTOCOL_VERSION, encodeB64 } from "../lib/agent-protocol.js";
 import { AgentUnavailableError } from "../lib/agent-errors.js";
 import { WslAgent } from "../lib/agent.js";
+import { confinedAgent, resetConfinedAgents } from "../lib/agent-confined.js";
 
 let passed = 0;
 const check = async (name, fn) => {
@@ -74,9 +76,23 @@ class FakeAgentProcess extends EventEmitter {
       const header = line.split("|");
       const id = header[1];
       const nargs = Number(header[4]);
+      // Mirror the real agent: the dequeue ACK precedes the answer.
+      this.stdout.write(`ACK|${id}\n`);
       this.pendingArgs = nargs;
       this.pendingId = id;
       this.pendingWords = [];
+      return;
+    }
+    if (line.startsWith("FS|")) {
+      if (this.dieOnRequest) {
+        this.exitCode = 1;
+        this.emit("exit", 1, null);
+        return;
+      }
+      const [, id, op] = line.split("|");
+      this.stdout.write(`ACK|${id}\n`);
+      const payload = op === "read" ? Buffer.from("hello-bytes\n") : Buffer.alloc(0);
+      this.stdout.write(`RES|${id}|0|${encodeB64(payload)}|${encodeB64(Buffer.alloc(0))}\n`);
       return;
     }
     if (this.pendingId && this.pendingWords.length < this.pendingArgs) {
@@ -110,6 +126,9 @@ function scriptedTransport(children) {
 
 const CONFIG = { distro: "ubuntu", scriptPath: "/mnt/c/pkg/agent/wsl-agent.sh", idleMs: 0 };
 
+/** Two event-loop turns: enough for start() and the relay's microtask chain. */
+const flush = () => new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
+
 checkReg("exec rides the handshake and resolves with the decoded result", async () => {
   const child = new FakeAgentProcess();
   const { transport } = scriptedTransport([child]);
@@ -117,18 +136,119 @@ checkReg("exec rides the handshake and resolves with the decoded result", async 
   const result = await agent.exec({ cwd: "/tmp", argv: ["echo", "hi"], timeoutMs: 0 });
   assert.equal(result.exitCode, 0);
   assert.equal(result.stdout.toString("utf8"), "echo hi\n");
-  assert.equal(child.frames[0], `EXEC|r0|${encodeB64("/tmp")}|0|2`);
+  assert.equal(child.frames[0], `EXEC|r0|${encodeB64("/tmp")}|0|2|0`);
   await agent.close();
 });
 
-checkReg("a crash with requests in flight is rebuilt exactly once and they still answer", async () => {
-  const dying = new FakeAgentProcess({ dieOnRequest: true });
+checkReg("the caller's output budget rides the EXEC frame for the agent to enforce", async () => {
+  const child = new FakeAgentProcess();
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  await agent.exec({ cwd: "/tmp", argv: ["echo", "hi"], timeoutMs: 0, maxOutputBytes: 64000 });
+  assert.equal(child.frames[0], `EXEC|r0|${encodeB64("/tmp")}|0|2|64000`);
+  await agent.close();
+});
+
+checkReg("a stdout line past the protocol cap kills the agent instead of accumulating", async () => {
+  const child = new FakeAgentProcess();
+  child.silent = true; // nothing answers; the cap is what must end this
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, frameCapBytes: 64, spawnTransport: transport });
+  const settled = agent.exec({ cwd: "/", argv: ["yes"], timeoutMs: 0 }).then(
+    () => {
+      throw new Error("should not have resolved");
+    },
+    (error) => error,
+  );
+  await flush(); // the handshake is done: the cap acts on a READY agent's stream
+  child.stdout.write(`${"x".repeat(200)}\n`);
+  const error = await settled;
+  assert.equal(child.killed, true, "an oversized frame must kill the transport");
+  assert.match(error.message, /state is unknown/);
+  await agent.close();
+});
+
+checkReg("a crash relays a read-only FS request but fails an in-flight EXEC as unknown state", async () => {
+  const dying = new FakeAgentProcess();
+  dying.silent = true; // ACK/RES suppressed, so BOTH requests stay in flight
   const healthy = new FakeAgentProcess();
   const { transport } = scriptedTransport([dying, healthy]);
   const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
-  const result = await agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 });
-  assert.equal(result.exitCode, 0);
-  assert.ok(healthy.frames.some((line) => line.startsWith("EXEC|")));
+  // The command's side effects are unknowable once the agent died — replaying
+  // it could run non-idempotent work twice, so it must fail instead.
+  const command = agent.exec({ cwd: "/", argv: ["git", "commit"], timeoutMs: 0 }).then(
+    () => {
+      throw new Error("an in-flight EXEC must never be replayed");
+    },
+    (error) => error,
+  );
+  // The read provably changed nothing on its first attempt: it rides.
+  const read = agent.fs({ op: "read", args: ["/tmp/f", "0", "16"], timeoutMs: 0 });
+  await flush(); // handshake done; both frames sit unanswered on the dying child
+  dying.emit("exit", 1, null);
+  const [commandError, readResult] = await Promise.all([command, read]);
+  assert.match(commandError.message, /state is unknown/);
+  assert.ok(commandError instanceof AgentUnavailableError);
+  assert.equal(readResult.exitCode, 0);
+  assert.equal(readResult.stdout.toString("utf8"), "hello-bytes\n");
+  assert.ok(healthy.frames.some((line) => line.startsWith("FS|")), "the read-only frame rides the rebuild");
+  assert.equal(healthy.frames.some((line) => line.startsWith("EXEC|")), false, "an EXEC frame must never be replayed");
+  await agent.close();
+});
+
+checkReg("the watchdog starts at the dequeue ACK, so queue time never spends the budget", async () => {
+  const child = new FakeAgentProcess();
+  child.silent = true; // never answers; only the watchdog may end this
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const settled = agent.exec({ cwd: "/", argv: ["sleep", "100"], timeoutMs: 1000 }).then(
+      () => {
+        throw new Error("should not have resolved");
+      },
+      (error) => error,
+    );
+    await flush();
+    // Queued far past the budget with no dispatch: the shared transport must
+    // still be alive, because this request never started to execute.
+    mock.timers.tick(60_000);
+    assert.equal(child.killed, false, "queue time must not arm the watchdog");
+    // Dispatched: the ACK starts the clock — budget plus grace, then the kill.
+    child.stdout.write("ACK|r0\n");
+    await flush();
+    mock.timers.tick(1000 + 13_000 - 1);
+    assert.equal(child.killed, false, "the watchdog waits out the full grace");
+    mock.timers.tick(1);
+    assert.equal(child.killed, true, "a dispatched request that never answers trips its watchdog");
+    // The kill orphans the request: the rebuild refuses to replay an EXEC and
+    // says so, instead of running the command a second time.
+    const error = await settled;
+    assert.match(error.message, /state is unknown/);
+  } finally {
+    mock.timers.reset();
+  }
+  await agent.close();
+});
+
+checkReg("an abort after the relay kills the request under its relabelled id", async () => {
+  const dying = new FakeAgentProcess({ dieOnRequest: true });
+  const healthy = new FakeAgentProcess();
+  healthy.silent = true; // the relayed request must hang until the abort kills it
+  const { transport } = scriptedTransport([dying, healthy]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  const controller = new AbortController();
+  const settled = agent.fs({ op: "read", args: ["/tmp/f", "0", "16"], timeoutMs: 0, signal: controller.signal }).then(
+    () => {
+      throw new Error("should not have resolved");
+    },
+    (error) => error,
+  );
+  await flush(); // the rebuild has re-registered the request as r1
+  controller.abort(new Error("caller cancelled"));
+  const error = await settled;
+  assert.equal(error.message, "caller cancelled");
+  assert.ok(healthy.frames.includes("KILL|r1"), "the KILL must address the relabelled id, not the dead one");
   await agent.close();
 });
 
@@ -137,6 +257,10 @@ checkReg("a second crash marks the agent dead and rejects in-flight and future c
   const second = new FakeAgentProcess({ dieOnRequest: true });
   const { transport, made } = scriptedTransport([first, second]);
   const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  // The first crash fails its command with unknown state — an EXEC is never
+  // replayed — while the rebuild goes on in the background.
+  await assert.rejects(() => agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }), /state is unknown/);
+  await agent.start();
   await assert.rejects(() => agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }), AgentUnavailableError);
   assert.equal(agent.unavailable, true);
   assert.match(agent.unavailableReason, /falling back permanently/);
@@ -185,6 +309,54 @@ checkReg("ping warms the agent up and close returns it to idle, not dead", async
   await agent.close();
   assert.equal(agent.state, "idle");
   assert.equal(agent.unavailable, false);
+});
+
+checkReg("a confined agent's argvPrefix reaches the transport before the interpreter", async () => {
+  const child = new FakeAgentProcess();
+  const seen = [];
+  const agent = new WslAgent({
+    ...CONFIG,
+    argvPrefix: ["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--"],
+    spawnTransport: (options) => {
+      seen.push(options);
+      return child;
+    },
+  });
+  await agent.exec({ cwd: "/tmp", argv: ["true"], timeoutMs: 0 });
+  assert.equal(seen.length, 1);
+  assert.deepEqual(seen[0].argvPrefix, ["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--"]);
+  assert.equal(seen[0].scriptPath, CONFIG.scriptPath);
+});
+
+checkReg("the confined factory builds a whole command: program, profile, separator", async () => {
+  // The transport inserts this prefix directly after `wsl.exe --exec`, so a prefix
+  // that starts at `--ro-bind` asks the distro to execute an option: the resident
+  // dies with exit 1 during its handshake and every confined mutation fails.
+  resetConfinedAgents();
+  const confined = confinedAgent({
+    distro: "ubuntu",
+    policy: { mode: "workspace-write", workspaceRoot: "/home/u/ws" },
+  });
+  assert.equal(confined.argvPrefix[0], "bwrap", "the prefix must name the program");
+  assert.equal(confined.argvPrefix.at(-1), "--", "bwrap's own options end before the command");
+  const profile = confined.argvPrefix.slice(1, -1);
+  assert.deepEqual(
+    profile.slice(0, 5),
+    ["--ro-bind", "/", "/", "--dev", "/dev"],
+    "the read-only base of the profile follows the program",
+  );
+  assert.deepEqual(
+    profile.slice(-5),
+    ["--tmpfs", "/tmp", "--bind", "/home/u/ws", "/home/u/ws"],
+    "a workspace-write policy binds the workspace read-write",
+  );
+
+  resetConfinedAgents();
+  const readOnly = confinedAgent({ distro: "ubuntu", policy: { mode: "read-only", workspaceRoot: "/" } });
+  assert.equal(readOnly.argvPrefix[0], "bwrap");
+  assert.equal(readOnly.argvPrefix.at(-1), "--");
+  assert.equal(readOnly.argvPrefix.includes("--tmpfs"), false, "read-only grants no temp area");
+  resetConfinedAgents();
 });
 
 for (const [name, fn] of checks) {

@@ -56,6 +56,7 @@ Override a row by id in `$DSH_HOME/profiles/<name>/cordis.patch.yml`. The keys w
 | `wsl-fs` | `distro` | `''` | as above |
 | | `restrictToDistro` | `true` | refuse a path in **another distro**'s share; `/mnt/c` is inside this distro and is not affected. Refused with `FS_OUTSIDE_DISTRO`, which is not a sandbox denial and cannot be lifted by wider permissions |
 | | `sandbox` | `true` | check `writeText` and `editText` against the policy |
+| | `substrate` | `agent` | which I/O substrate serves the file tools: `agent` — the resident in-distro agent, where reads, writes and identities run on ext4 (native symlinks and mode bits; the write guard survives to publication, kernel-enforced under a confined policy); `share` — the opt-out: the Windows-side host stack over the 9p share. Both fence writes with the same policy; see [LIMITATIONS.md](docs/LIMITATIONS.md) for what changes |
 | `directory-picker-wsl` | `includeHostHome` | `true` | also list the Windows home directory |
 | `subprocess-wsl` | `distro` | `''` | which distro the GUI terminal opens in |
 
@@ -118,6 +119,7 @@ npm run probe:sandbox        # measure inside the distro what bubblewrap does an
 npm run probe                # filesystem probe against a real distro (Windows + WSL only)
 npm run probe:sandbox-shell  # boot a real harness and drive the confined executor
 npm run probe:terminal       # open a PTY through the terminal provider
+npm run probe:substrate      # drive the agent filesystem substrate over a real wsl.exe transport (from inside the distro)
 npm run probe:missing-wsl    # boot a profile whose wslPath cannot start (Windows + WSL only)
 npm run probe:picker         # list the picker's root level, refusals and its cap (Windows + WSL only)
 npm run probe:mode           # which POSIX-mode facts survive the share (Windows node only)

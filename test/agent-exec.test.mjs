@@ -61,6 +61,30 @@ check("a completed command shapes the result like the one-shot path", async () =
   assert.equal(result.stderr.truncated, false);
 });
 
+check("the agent's capture-cap flags surface as per-stream truncated, honestly", async () => {
+  const seen = {};
+  const proc = agentExecutionHandle({
+    agent: {
+      exec({ maxOutputBytes }) {
+        seen.maxOutputBytes = maxOutputBytes;
+        return Promise.resolve({
+          exitCode: 0,
+          stdout: Buffer.from("cut"),
+          stderr: Buffer.alloc(0),
+          truncated: { stdout: true, stderr: false },
+        });
+      },
+    },
+    cwd: "/tmp",
+    argv: ["yes"],
+    maxOutputBytes: 64000,
+  });
+  const result = await proc.result();
+  assert.equal(seen.maxOutputBytes, 64000, "the caller's budget reaches the agent");
+  assert.equal(result.stdout.truncated, true, "the cut stream reports truncated");
+  assert.equal(result.stderr.truncated, false, "the whole stream does not over-report");
+});
+
 check("the in-distro timeout reports a killed process with SIGTERM", async () => {
   const proc = agentExecutionHandle({
     // Simulates the agent's own timeout kill: resolves with exit 143 late.

@@ -168,6 +168,13 @@
                 config:
                   distro: ''
                   restrictToDistro: true
+                  # agent (the default): reads/writes/identities run inside the
+                  # distro over the resident agent (lib/fs-substrate.js) —
+                  # native symlinks and mode bits, the write guard survives to
+                  # publication, and confined mutations are kernel-enforced.
+                  # share: the opt-out — the Windows-side host fs stack over
+                  # the 9p share.
+                  substrate: agent
               - id: persona
                 name: '@deepseek-ai/dsh-persona'
                 config:

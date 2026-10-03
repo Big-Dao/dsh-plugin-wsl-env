@@ -57,6 +57,7 @@ dsh --profile wsl                                  # 4. 启动
 | `wsl-fs` | `distro` | `''` | 同上 |
 | | `restrictToDistro` | `true` | 拒绝指向**其它子系统**共享的路径；`/mnt/c` 属于本子系统内部，不受影响。拒绝码为 `FS_OUTSIDE_DISTRO`，它不是沙箱拒绝，放宽权限也无法解除 |
 | | `sandbox` | `true` | 写入时按策略检查 `writeText` 和 `editText` |
+| | `substrate` | `agent` | 文件工具使用哪种 I/O 基座：`agent` —— 常驻子系统内代理，读写与路径解析直接在 ext4 上完成（原生符号链接、原生权限位，写入 guard 存活到发布时刻，受限策略下由内核强制）；`share` —— 退出项：Windows 侧宿主文件栈走 9p 共享。两种基座使用同一策略围栏；差异详见 [LIMITATIONS.md](LIMITATIONS.md) |
 | `directory-picker-wsl` | `includeHostHome` | `true` | 同时列出 Windows 家目录 |
 | `subprocess-wsl` | `distro` | `''` | GUI 终端开在哪个子系统 |
 
@@ -110,6 +111,7 @@ npm run probe:sandbox        # 在子系统里实测 bubblewrap 能约束什么�
 npm run probe                # 文件系统探针，需要真实子系统（仅 Windows + WSL）
 npm run probe:sandbox-shell  # 启动真实 harness，驱动受限执行器
 npm run probe:terminal       # 通过终端 provider 打开一个 PTY
+npm run probe:substrate      # 用真实 wsl.exe 传输驱动 agent 文件基座（在子系统内运行）
 npm run probe:missing-wsl    # 启动一个 wslPath 无法启动的 profile（仅 Windows + WSL）
 npm run probe:picker         # 列出选择器的根级、拒绝路径与上限（仅 Windows + WSL）
 npm run probe:mode           # 哪些 POSIX 权限事实能穿过共享层（仅需 Windows node）

@@ -19,7 +19,7 @@ smaller integrations.
 | Service | Class | File | What it does |
 |---|---|---|---|
 | `ctx.shell` | `WslShellExecutor` | [`lib/index.js`](../lib/index.js) | Runs each command as `wsl.exe -d <distro> --cd <linux dir> --exec <login shell> -lc <cmd>`, wrapped in a distro-side `bwrap` sandbox. |
-| `ctx.fs` | `WslFileSystem` | [`lib/index.js`](../lib/index.js) | Maps Linux paths onto the distro's UNC share, so the host filesystem stack and the packaged ripgrep work on real distro files. |
+| `ctx.fs` | `WslFileSystem` | [`lib/index.js`](../lib/index.js) | Serves the file tools from real distro files, on one of two I/O substrates (see below): the Windows-side host stack over the distro's UNC share (default), or the resident in-distro agent on ext4. |
 | `ctx.subprocess` | `WslSubprocessRuntime` | [`lib/subprocess.js`](../lib/subprocess.js) | Opens the GUI terminal inside the distro, in the session workspace. |
 
 `WslShellExecutor` extends the shipped `LocalBashExecutor`, and `WslFileSystem`
@@ -91,6 +91,32 @@ Three coordinate systems appear in the code:
 [`lib/paths.js`](../lib/paths.js) converts between them. It is pure: it imports no
 DSH package and performs no I/O. Its containment helpers decide whether a target
 path sits under a writable root. The filesystem fence uses them.
+
+## The filesystem substrate
+
+`wsl-fs` serves `ctx.fs` on one of two I/O substrates, chosen by
+`substrate: share | agent` (default `agent`):
+
+| | `agent` (default) | `share` (opt-out) |
+|---|---|---|
+| Reads, writes, identities | the resident in-distro agent, on ext4 | the Windows-side host stack (`dsh-fs-local`) over the distro's 9p share |
+| Symlinks | native; every identity is a distro-side `realpath` | the share cannot traverse them, so a missing read is retried once through the distro's canonical path |
+| Mode bits | native; the publication rename is the kernel's | the share drops a host-side chmod, so publication re-applies the mode from inside the distro before an atomic rename |
+| Guarded creates | the guard is forwarded; publication is a no-replace link, closing the check-then-write window for creates. An overwrite or edit carries its version into the write op and the agent re-verifies it one syscall before the rename — a concurrent writer wins, the stale write refuses with `FS_STALE_VERSION` | checked, then published without a guard (the share has no hard links) |
+| Kernel enforcement | stage two: a mutation runs on a confined resident — one long-lived agent per (distro, policy), whose bwrap profile binds exactly what the mode grants — so the kernel refuses what the check would have, and a check bug cannot become a write outside the workspace. Escalated writes (`danger-full-access`) ride the plain resident. A kernel refusal carries `FS_SANDBOX_DENIED`, the same dialect as the command path. | none: the fence is the host-side check |
+| New files | 0600 — the host backend's own POSIX publication semantics, as on a Linux host | the distro's umask default (0644) |
+| Agent outage | `FS_IO_ERROR` naming the substrate; no silent fallback to the share. A distro without usable bwrap refuses confined mutations with the bootstrap command, the same closed failure the command path has | not applicable |
+
+Both substrates fence writes with the same host-side policy check
+(`checkedTarget`), and neither changes what `sandboxMode` reports. The wire
+protocol the agent substrate speaks is documented in
+[`agent/wsl-agent.sh`](../agent/wsl-agent.sh); the orchestration layers are
+[`lib/fsio-agent.js`](../lib/fsio-agent.js) (fsio's mechanics over the FS
+frames), [`lib/fs-substrate.js`](../lib/fs-substrate.js) (the provider-shaped
+operations, including the write/edit guard orchestration), and
+[`lib/fsio-text.js`](../lib/fsio-text.js) (the pure text mechanics, replicated
+from upstream pending the export proposed in
+[UPSTREAM-FSIO-EXPORT.md](UPSTREAM-FSIO-EXPORT.md)).
 
 ## Sandbox
 
@@ -238,6 +264,16 @@ lib/wsl.js          wsl.exe interop primitives (no DSH imports)
 lib/listing.js      pure directory listing and breadcrumb helpers (no DSH imports)
 lib/index.js        WslShellExecutor (ctx.shell) and WslFileSystem (ctx.fs)
 lib/sandbox.js      the distro-side bwrap confinement shared by both providers
+lib/bwrap.js        the bwrap command line both confinement sites assemble
+                    (no imports, so a bare checkout can assert it)
+lib/fsio-text.js    the peer's pure text mechanics, replicated pending the
+                    upstream fsio export (see UPSTREAM-FSIO-EXPORT.md)
+lib/fsio-agent.js   fsio's mechanics over the agent's FS frames
+lib/fs-substrate.js the agent substrate's provider-shaped operations
+lib/agent.js        the resident in-distro agent's host side
+lib/agent-confined.js the confined residents' factory (one per policy)
+lib/agent-protocol.js the wire protocol codecs (pure)
+agent/wsl-agent.sh  the resident in-distro agent (POSIX sh, coreutils only)
 lib/picker.js       WslDirectoryPicker (ctx.directoryPicker)
 lib/subprocess.js   WslSubprocessRuntime (ctx.subprocess), the terminal window
 lib/auto-preset.js  per-session environment selection

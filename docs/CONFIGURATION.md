@@ -21,7 +21,8 @@ are schema defaults, listed because they are the ones worth knowing.
 | `wsl-fs` | `distro` | `''` *(shipped)* | as above |
 | | `restrictToDistro` | `true` *(shipped)* | refuse a path in **another distro**'s share. `/mnt/c` is a directory *inside* the pinned distro, so it is not affected. The refusal carries `FS_OUTSIDE_DISTRO`; that is not a sandbox decision, so the file tools do not offer a wider permission for it. Set `false` to allow another distro's share |
 | | `sandbox` | `true` | check `writeText` and `editText` against the policy |
-| | `resolveSymlinks` | `true` | follow Linux symlinks that the share cannot traverse, such as `/etc/os-release` and `/bin` |
+| | `substrate` | `agent` *(shipped)* | which I/O substrate serves the file tools: `agent` — the resident in-distro agent (`lib/fs-substrate.js`), where reads, writes and identities run on ext4: native symlinks, native mode bits, and the mutation guard survives to the write's atomic publication, kernel-enforced by the confined resident when the policy is confined. `share` — the opt-out: the Windows-side host stack over the 9p share, with the symlink-retry and publication hooks. Both substrates fence writes with the same host-side policy check. See [LIMITATIONS.md](LIMITATIONS.md) for what changes between them |
+| | `resolveSymlinks` | `true` | *(share substrate only)* follow Linux symlinks that the share cannot traverse, such as `/etc/os-release` and `/bin` — the agent substrate follows them natively |
 | | `cwd` | `''` | base directory for relative paths; empty means the distro user's home |
 | `directory-picker-wsl` | `preferredDistro` | `''` *(shipped)* | the distro listed first in the picker |
 | | `includeHostHome` | `true` *(shipped)* | also list the Windows home directory |

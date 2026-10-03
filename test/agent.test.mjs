@@ -431,6 +431,19 @@ checkReg("the transport's Windows env is pinned: no user WSLENV forwarding reach
   assert.equal(bare.WSLENV, "", "a parent without WSLENV forwards nothing");
 });
 
+checkReg("a request that cannot be written is rejected, not stranded", async () => {
+  const child = new FakeAgentProcess();
+  child.stdin.end(); // the write side is gone before any request is made
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  await assert.rejects(
+    () => agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 5000 }),
+    /never ran/,
+    "an unwritable frame must fail its caller instead of waiting forever",
+  );
+  await agent.close();
+});
+
 for (const [name, fn] of checks) {
   await check(name, fn);
 }

@@ -14,6 +14,27 @@ reference below points at that record's numbering.
 
 ### Fixed
 
+- **Reading a large file no longer copies its remainder to a temp file for
+  every window.** `fs_read` staged `tail -c +offset` to disk before `head`
+  took the requested bytes — so a full read of a 1 GB file performed ~1000
+  window round trips AND ~500 GB of aggregate temp-file writes inside the
+  distro, and a window that took over 30 seconds died as an opaque
+  "distro I/O failure". The remainder now streams through a `tail | head`
+  pipe (the request's own bound is the only staging), read failures still
+  classify through the same stderr dialect, and windowed reads are verified
+  byte-exact including the final partial window.
+- **A request the transport cannot deliver now fails its caller instead of
+  stranding it.** `writeLines` used to drop a frame silently when the
+  `wsl.exe` process was gone (a thin race between exit handling and the next
+  request), leaving a pending entry nothing would ever answer — the caller
+  waited forever when it had no timeout, and the watchdog had no process
+  left to kill. An undeliverable frame now rejects with
+  `AgentUnavailableError` ("the agent exited before the request could be
+  sent; it never ran"), the rebuild relay fails undeliverable re-sends the
+  same way, and `close()` no longer writes `SHUTDOWN` into an ended stdin
+  (whose async write-after-end error could crash the process during its own
+  shutdown).
+
 - **A confined write to `/tmp` now lands in the distro's real `/tmp`, where
   every reader reads.** The fence grants `/tmp` as a writable root, but the
   confined resident's profile mounted an ephemeral tmpfs over it — so the

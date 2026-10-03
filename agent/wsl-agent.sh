@@ -260,18 +260,22 @@ fs_realpath() {
 fs_read() {
   # $1 = base64 path, $2 = base64 byte offset, $3 = base64 max bytes. The
   # window is the bound: at most $3 bytes leave the distro per request; the
-  # host loops.
-  local p offset max rd err
+  # host loops. The remainder is STREAMED through the pipe, never staged —
+  # staging copied the whole tail to a temp file once per window, which made
+  # a full read of a large file quadratic in the file's own size. tail's
+  # stderr lands in ERR_FILE (its SIGPIPE death once `head` has had its fill
+  # writes nothing there), so a real read failure is still classified.
+  local p offset max err
   p=$(b64dec "$1")
   offset=$(b64dec "$2")
   max=$(b64dec "$3")
   [ "$max" -gt 0 ] || return 0
-  rd="$TMPDIR_AGENT/read"
-  tail -c +"$(( offset + 1 ))" -- "$p" >"$rd" 2>"$ERR_FILE" || {
+  : >"$ERR_FILE"
+  tail -c +"$(( offset + 1 ))" -- "$p" 2>"$ERR_FILE" | head -c "$max" -- 2>/dev/null
+  if [ -s "$ERR_FILE" ]; then
     err=$(cat "$ERR_FILE")
     fs_fail "$(fs_classify "$err")" "$err"
-  }
-  head -c "$max" -- "$rd"
+  fi
 }
 
 norm_time() {

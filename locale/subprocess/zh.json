@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "WSL 子进程提供者",
+    "description": "组合级的 ctx.subprocess 后端：把 GUI 终端的 wsl.exe 启动改写到指定发行版与 Linux 目录，让右侧终端窗口直接落在 WSL 里。"
+  }
+}

@@ -12,6 +12,18 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+### Added
+
+- **The plugin page can speak the bundle's language.** The bundle and each of
+  its four inserted rows (`subprocess`, `picker`, `shell-env`, `auto-preset`)
+  now export localized display metadata — `locale/<lang>.json` with a
+  `meta.title` / `meta.description` pair, exposed through `exports` per row —
+  which is what the Plugins page reads before falling back to a package.json
+  `description`. A Chinese UI now renders Chinese titles and descriptions for
+  every row this package owns; previously the rows fell back to raw module
+  specifiers (no description at all), and the two official rows it inserts
+  keep their upstream English text, which only upstream locale files can fix.
+
 ## [0.4.0] - 2026-10-03
 
 One theme: the enterprise review's remediation cycle completes. The

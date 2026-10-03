@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "WSL shell 环境事实",
+    "description": "把 WSL 环境的事实（发行版、真实登录 shell、home、监听端口）贡献给注入每次模型 shell 调用的 DSH_* 托管命名空间——只对工作区位于发行版内的会话生效。"
+  }
+}

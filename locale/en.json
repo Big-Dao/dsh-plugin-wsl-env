@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "WSL execution environment",
+    "description": "Runs a DeepSeek Harness session against a WSL distro: shell, file reads/writes and command execution happen inside the distro, the directory picker and the GUI terminal target distro paths, and commands are confined by in-distro bubblewrap."
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "WSL shell environment facts",
+    "description": "Contributes the WSL environment's facts (distro, real login shell, home, listening ports) to the managed DSH_* namespace injected into every model shell call — for sessions whose workspace is inside a distro."
+  }
+}

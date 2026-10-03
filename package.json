@@ -23,7 +23,17 @@
     "./wsl": "./lib/wsl.js",
     "./paths": "./lib/paths.js",
     "./agent": "./lib/agent.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/en.json": "./locale/en.json",
+    "./locale/zh.json": "./locale/zh.json",
+    "./subprocess/locale/en.json": "./locale/subprocess/en.json",
+    "./subprocess/locale/zh.json": "./locale/subprocess/zh.json",
+    "./picker/locale/en.json": "./locale/picker/en.json",
+    "./picker/locale/zh.json": "./locale/picker/zh.json",
+    "./shell-env/locale/en.json": "./locale/shell-env/en.json",
+    "./shell-env/locale/zh.json": "./locale/shell-env/zh.json",
+    "./auto-preset/locale/en.json": "./locale/auto-preset/en.json",
+    "./auto-preset/locale/zh.json": "./locale/auto-preset/zh.json"
   },
   "dsh": {
     "bundle": {
@@ -33,6 +43,7 @@
   "files": [
     "lib/**/*.js",
     "agent/*.sh",
+    "locale/**/*.json",
     "cordis.patch.yml",
     "examples/**/*.yml",
     "README.md",

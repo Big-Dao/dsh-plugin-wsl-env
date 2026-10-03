@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "WSL-aware directory picker",
+    "description": "The workspace picker for both worlds: its root level lists the Windows home directory and every installed distro, so host and WSL workspaces share one dialog. The directory it returns is what auto-preset reads to choose the environment."
+  }
+}

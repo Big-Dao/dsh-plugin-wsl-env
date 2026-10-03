@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "WSL subprocess provider",
+    "description": "The composition-level ctx.subprocess backend: rewrites the GUI terminal's wsl.exe launch into the pinned distro and Linux directory, so the right-hand terminal window opens inside WSL."
+  }
+}

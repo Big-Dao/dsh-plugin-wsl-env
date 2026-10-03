@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "WSL preset 自动选择",
+    "description": "当新会话的工作目录位于发行版内时，为它绑定 WSL preset；操作者的显式选择不会被覆盖。"
+  }
+}

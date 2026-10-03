@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "WSL preset auto-selection",
+    "description": "Binds the WSL preset to a new session whose workspace directory is inside a distro, and never overrides an explicit operator choice."
+  }
+}

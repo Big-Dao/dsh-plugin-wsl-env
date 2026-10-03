@@ -128,6 +128,44 @@ await check("the publication script treats a creation as a plain rename", async 
   await agent.exec({ cwd: "/", argv: ["rm", "-rf", base], timeoutMs: 10000 });
 });
 
+// The fallback invariant (PARITY.md), exercised for real: `agent: false` runs
+// the ONE-SHOT `wsl.exe` path, and its outcomes must match the resident's
+// outcome-for-outcome. The comparison is at the outcome level — exit code,
+// stdout bytes, stderr bytes, working directory — never internals.
+const { spawn } = await import("node:child_process");
+const oneShot = (cdDir, script) => new Promise((resolve, reject) => {
+  const child = spawn("wsl.exe", ["-d", distro, "--cd", cdDir, "--exec", "sh", "-c", script]);
+  const stdout = [];
+  const stderr = [];
+  child.stdout.on("data", (chunk) => stdout.push(chunk));
+  child.stderr.on("data", (chunk) => stderr.push(chunk));
+  child.on("error", reject);
+  child.on("exit", (code) => resolve({ exitCode: code, stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr) }));
+});
+
+await check("fallback parity: exit code and stdout match the one-shot path", async () => {
+  const script = "printf '%s' 'a b $HOME x'; exit 3";
+  const on = await agent.exec({ cwd: "/tmp", argv: ["sh", "-c", script], timeoutMs: 15000 });
+  const off = await oneShot("/tmp", script);
+  assert.equal(on.exitCode, off.exitCode, "same exit code");
+  assert.deepEqual(on.stdout, off.stdout, "same stdout bytes");
+});
+
+await check("fallback parity: stderr and working directory match the one-shot path", async () => {
+  const script = "cd /etc && pwd && echo oops >&2";
+  const on = await agent.exec({ cwd: "/etc", argv: ["sh", "-c", script], timeoutMs: 15000 });
+  const off = await oneShot("/etc", script);
+  assert.equal(on.exitCode, off.exitCode);
+  assert.equal(on.stdout.toString("utf8"), off.stdout.toString("utf8"), "same working directory");
+  assert.equal(on.stderr.toString("utf8"), off.stderr.toString("utf8"), "same stderr bytes");
+});
+
+await check("fallback parity: NUL and CRLF round-trip on both paths", async () => {
+  const on = await agent.exec({ cwd: "/tmp", argv: ["printf", "a\\000b\\r\\nc"], timeoutMs: 15000 });
+  const off = await oneShot("/tmp", "printf 'a\\000b\\r\\nc'");
+  assert.deepEqual(on.stdout, off.stdout, "binary safety holds on both paths");
+});
+
 await agent.close();
 console.log(`\n${passed} agent probe checks pass`);
 process.exit(process.exitCode ?? 0);

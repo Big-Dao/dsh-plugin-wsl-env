@@ -11,7 +11,7 @@ distro. Everything users love — native ext4 semantics, inotify, native
 `rg`, low latency — is a derivative. This plugin's 9p-UNC plus one-shot
 `wsl.exe` model can only approach it. The plan therefore lands a resident
 in-distro agent and migrates the `fs` and `shell` seams onto it, keeping the
-current paths as the documented fallback (`wsl.agent: 'off'` must equal
+current paths as the documented fallback (`wsl.agent: false` must equal
 today's behaviour byte for byte).
 
 Not applicable, recorded so the gap is a decision and not an omission:
@@ -64,7 +64,8 @@ shaped a phase of the plan.
 
 ## Fallback invariant
 
-Every phase must keep `wsl.agent: 'off'` (and, per capability, any runtime
+Every phase must keep `wsl.agent: false` (and, per capability, any runtime
 fallback) behaviourally identical to the pre-phase release. Probes assert
-this: `agent.sh` runs the same operation with the agent off and on and
-compares outcomes, not internals.
+this: `agent.sh` runs the same operations through the resident and through
+the one-shot `wsl.exe` path and compares outcomes — exit code, stdout bytes,
+stderr bytes, working directory — not internals.

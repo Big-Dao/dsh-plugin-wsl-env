@@ -14,6 +14,16 @@ reference below points at that record's numbering.
 
 ### Fixed
 
+- **The fallback invariant is now probed, not just promised.** PARITY.md's
+  hard rule — "`agent: false` must behave like the pre-agent release" — cited
+  a probe leg that did not exist, and spelled the key as `wsl.agent: 'off'`
+  when it is a boolean. `test/probe/agent.sh` now runs the same operations
+  through the resident AND through the one-shot `wsl.exe` path and compares
+  outcomes: exit code and stdout bytes (including `$`-metacharacters), stderr
+  and working directory, and NUL/CRLF binary safety. All three legs pass
+  against a real distro; the doc now names the key correctly and describes
+  what the probe actually compares.
+
 - **The coverage gate measures every unit file again.** `test:coverage` listed
   six of the sixteen test files — the thresholds (85/85/70) were met by the
   narrowed set while the full suite sat at 82.45% branches, so branch

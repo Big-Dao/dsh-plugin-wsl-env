@@ -14,6 +14,19 @@ reference below points at that record's numbering.
 
 ### Fixed
 
+- **The coverage gate measures every unit file again.** `test:coverage` listed
+  six of the sixteen test files — the thresholds (85/85/70) were met by the
+  narrowed set while the full suite sat at 82.45% branches, so branch
+  regressions anywhere outside the six were invisible to the gate that claimed
+  to guard them. The gate now runs the whole unit suite (95.83% lines / 85.95%
+  branches / 91.01% functions), which got there the honest way: new tests for
+  the seams the audit found dark — the deny-dialect classification,
+  aborted-signal mapping, the transport env pin, handshake mismatch, protocol
+  garbage, cwd rejections, pre-aborted signals, idle retirement, mid-flight
+  over-cap buffers, failed rebuilds, watcher teardown and error paths, the
+  cross-distro workdir predicate, staging sweeps, setuid publication, and the
+  real-`/tmp` consistency the file tools now have.
+
 - **Reading a large file no longer copies its remainder to a temp file for
   every window.** `fs_read` staged `tail -c +offset` to disk before `head`
   took the requested bytes — so a full read of a 1 GB file performed ~1000

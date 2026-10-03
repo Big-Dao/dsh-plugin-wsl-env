@@ -13,7 +13,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { mock } from "node:test";
 import { AGENT_NAME, PROTOCOL_VERSION, encodeB64 } from "../lib/agent-protocol.js";
-import { AgentUnavailableError } from "../lib/agent-errors.js";
+import { AgentUnavailableError, CwdError } from "../lib/agent-errors.js";
 import { WslAgent, pinnedWindowsEnv } from "../lib/agent.js";
 import { confinedAgent, resetConfinedAgents } from "../lib/agent-confined.js";
 import { bwrapProfileArgs } from "../lib/bwrap.js";
@@ -35,7 +35,7 @@ const checkReg = (name, fn) => checks.push([name, fn]);
 
 /** A fake `wsl.exe --exec sh wsl-agent.sh` child the tests script directly. */
 class FakeAgentProcess extends EventEmitter {
-  constructor({ dieAfterHello = false, dieOnRequest = false } = {}) {
+  constructor({ dieAfterHello = false, dieOnRequest = false, noHello = false, helloVersion = PROTOCOL_VERSION } = {}) {
     super();
     this.stdin = new PassThrough();
     this.stdout = new PassThrough();
@@ -44,6 +44,7 @@ class FakeAgentProcess extends EventEmitter {
     this.exitCode = null;
     this.frames = [];
     this.silent = false;
+    this.noHello = noHello;
     let buffer = "";
     this.stdin.on("data", (chunk) => {
       buffer += chunk.toString("utf8");
@@ -58,7 +59,7 @@ class FakeAgentProcess extends EventEmitter {
     this.dieAfterHello = dieAfterHello;
     this.dieOnRequest = dieOnRequest;
     queueMicrotask(() => {
-      this.stdout.write(`HELLO|${AGENT_NAME}|${PROTOCOL_VERSION}\n`);
+      if (!this.noHello) this.stdout.write(`HELLO|${AGENT_NAME}|${helloVersion}\n`);
       if (this.dieAfterHello) this.emit("exit", 1, null);
     });
   }
@@ -429,6 +430,139 @@ checkReg("the transport's Windows env is pinned: no user WSLENV forwarding reach
   assert.equal(pinned.SystemRoot, "C:\\WINDOWS", "Windows essentials are kept for wsl.exe");
   const bare = pinnedWindowsEnv({});
   assert.equal(bare.WSLENV, "", "a parent without WSLENV forwards nothing");
+});
+
+checkReg("a handshake version mismatch kills the transport and fails the session", async () => {
+  const child = new FakeAgentProcess({ helloVersion: PROTOCOL_VERSION - 1 });
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  await assert.rejects(
+    () => agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }),
+    /handshake mismatch|exited during handshake/,
+    "a mismatched transport is killed and the session fails loudly",
+  );
+  assert.equal(child.killed, true, "the mismatched transport is killed, not left running");
+});
+
+checkReg("spawn failure and stderr chatter surface as diagnostics, not hangs", async () => {
+  const child = new FakeAgentProcess();
+  child.silent = true;
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  const settled = agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }).then(() => "resolved", (e) => e);
+  await flush();
+  child.stderr.write("wsl.exe: some diagnostic\n");
+  assert.match(agent.lastError, /some diagnostic/, "stderr chatter is captured as diagnostics");
+  // A spawn failure AFTER the handshake has settled cannot reject the session
+  // (that promise is already resolved); what it does is take the transport
+  // down, so the in-flight request rides the rebuild and comes back as
+  // unknown-state — never as a hang.
+  child.emit("error", new Error("spawn failed"));
+  child.emit("exit", 1, null);
+  const error = await settled;
+  assert.match(error.message, /state is unknown/);
+  await agent.close();
+});
+
+checkReg("protocol garbage after the handshake is dropped, and a cwd rejection reads as CwdError", async () => {
+  const child = new FakeAgentProcess();
+  child.silent = true;
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  const settled = agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }).then(() => "resolved", (e) => e);
+  await flush();
+  child.stdout.write("total garbage\n");
+  child.stdout.write(`ERR|r0|cwd|${encodeB64("/gone")}\n`);
+  const error = await settled;
+  assert.ok(error instanceof CwdError, "the command's own cwd refusal is a CwdError");
+  assert.match(error.message, /could not enter working directory "\/gone"/);
+  await agent.close();
+});
+
+checkReg("an agentError that is not cwd reads as the agent being out", async () => {
+  const child = new FakeAgentProcess();
+  child.silent = true;
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  const settled = agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }).then(() => "resolved", (e) => e);
+  await flush();
+  child.stdout.write(`ERR|r0|protocol|${encodeB64("unrecognized request")}\n`);
+  const error = await settled;
+  assert.ok(error instanceof AgentUnavailableError);
+  assert.match(error.message, /agent rejected request r0 \(protocol\)/);
+  await agent.close();
+});
+
+checkReg("a pre-aborted signal rejects exec and fs at the door", async () => {
+  const child = new FakeAgentProcess();
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  const controller = new AbortController();
+  controller.abort(new Error("cancelled up front"));
+  await assert.rejects(
+    () => agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0, signal: controller.signal }),
+    /cancelled up front/,
+  );
+  await assert.rejects(
+    () => agent.fs({ op: "stat", args: ["/x"], timeoutMs: 0, signal: controller.signal }),
+    /cancelled up front/,
+  );
+  await agent.close();
+});
+
+checkReg("ping refuses a dead agent at the door", async () => {
+  const dying = new FakeAgentProcess({ dieOnRequest: true });
+  const second = new FakeAgentProcess({ dieOnRequest: true });
+  const { transport } = scriptedTransport([dying, second]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  await assert.rejects(() => agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }), /state is unknown/);
+  await agent.start();
+  await assert.rejects(() => agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }), AgentUnavailableError);
+  assert.equal(agent.unavailable, true);
+  await assert.rejects(() => agent.ping(), AgentUnavailableError, "a dead agent refuses even a ping");
+});
+
+checkReg("an idle agent retires through its own timer", async () => {
+  const child = new FakeAgentProcess();
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ distro: "ubuntu", scriptPath: "/x", idleMs: 25, spawnTransport: transport });
+  await agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 });
+  await new Promise((r) => setTimeout(r, 90));
+  assert.equal(child.exitCode, 0, "the idle timer shut the agent down cleanly");
+  assert.equal(agent.state, "idle", "retirement is idle, not dead — a later call respawns");
+});
+
+checkReg("an over-cap buffer with no newline yet is dropped mid-flight", async () => {
+  const child = new FakeAgentProcess();
+  child.silent = true;
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, frameCapBytes: 64, spawnTransport: transport });
+  const settled = agent.exec({ cwd: "/", argv: ["yes"], timeoutMs: 0 }).then(() => "resolved", (e) => e);
+  await flush();
+  child.stdout.write("x".repeat(200)); // no newline — the accumulator itself must bail
+  const error = await settled;
+  assert.equal(child.killed, true, "the accumulator must not hold an over-cap line open");
+  assert.match(error.message, /state is unknown/);
+  await agent.close();
+});
+
+checkReg("a rebuild whose start fails marks the agent dead and fails the carried request", async () => {
+  const dying = new FakeAgentProcess();
+  dying.silent = true;
+  const broken = new FakeAgentProcess({ noHello: true }); // the rebuild never completes its handshake
+  const { transport } = scriptedTransport([dying, broken]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  const settled = agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }).then(() => "resolved", (e) => e);
+  await flush();
+  dying.emit("exit", 1, null); // the death triggers the single permitted rebuild
+  const error = await settled;
+  assert.match(error.message, /state is unknown/);
+  await flush(); // the rebuild has spawned `broken`; its handshake is now pending
+  assert.equal(agent.state, "starting");
+  broken.emit("error", new Error("spawn failed")); // the rebuild's start fails
+  await flush();
+  assert.equal(agent.unavailable, true, "a failed rebuild marks the agent permanently dead");
+  assert.equal(agent.state, "dead");
 });
 
 checkReg("a request that cannot be written is rejected, not stranded", async () => {

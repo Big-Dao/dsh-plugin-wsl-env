@@ -56,5 +56,12 @@ check("a failing runner yields an empty snapshot, never a throw", async () => {
   assert.deepEqual(ports, []);
 });
 
+check("a non-zero exit yields an empty snapshot too", async () => {
+  const ports = await listeningPorts({
+    exec: () => Promise.resolve({ exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }),
+  });
+  assert.deepEqual(ports, []);
+});
+
 for (const [name, fn] of checks) await runCheck(name, fn);
 console.log(`\n${passed} ports checks pass`);

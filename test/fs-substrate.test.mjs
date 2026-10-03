@@ -120,6 +120,18 @@ checks.push(["stat and lstat answer with the provider's row shapes", async () =>
   });
 }]);
 
+checks.push(["lstat refuses an empty path; edit refuses a directory", async () => {
+  await substrate(async (sub, root) => {
+    mkdirSync(join(root, "adir"));
+    await assert.rejects(sub.lstat(""), (error) => codeOf(error) === "FS_NOT_FOUND");
+    const dirTarget = await targetOf(sub, join(root, "adir"));
+    await assert.rejects(
+      sub.editText(dirTarget, { oldString: "x", newString: "y" }, undefined),
+      (error) => codeOf(error) === "FS_NOT_REGULAR_FILE",
+    );
+  });
+}]);
+
 checks.push(["writeText creates and updates with the peer's outcome shape", async () => {
   await substrate(async (sub, root) => {
     const target = await targetOf(sub, join(root, "a.txt"));

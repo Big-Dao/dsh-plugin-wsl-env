@@ -290,6 +290,41 @@ checks.push(["write publishes setuid whole, and the sweep clears a dead agent's 
   }
 }]);
 
+checks.push(["the deny dialect classifies a write's read-only bind as FS_SANDBOX_DENIED", () => {
+  const fs = new DistroFs({ agent: {}, distro: DISTRO });
+  const b64 = (s) => Buffer.from(s, "utf8").toString("base64");
+  const readonlyBind = { exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from(`dsh-fs|io|${b64("Read-only file system")}\n`) };
+  const denial = fs.fail("write", readonlyBind, "/ws/f.txt");
+  assert.equal(denial.code, "FS_SANDBOX_DENIED");
+  assert.equal(denial.message, `cannot write "/ws/f.txt": Read-only file system`);
+  const sameTextOnStat = fs.fail("stat", readonlyBind, "/ws/f.txt");
+  assert.equal(sameTextOnStat.code, "FS_IO_ERROR", "the denial dialect is the write op's alone");
+}]);
+
+checks.push(["request maps an aborted signal to FS_ABORTED and rethrows every other error", async () => {
+  const controller = new AbortController();
+  controller.abort(new Error("caller cancelled"));
+  const fs = new DistroFs({ agent: { fs: () => Promise.reject(new Error("transport gone")) }, distro: DISTRO });
+  await assert.rejects(fs.request("stat", ["/x"], controller.signal), (error) => error.code === "FS_ABORTED");
+  await assert.rejects(fs.request("stat", ["/x"], undefined), /transport gone/);
+}]);
+
+checks.push(["resolveTarget refuses an empty path before any agent round trip", async () => {
+  const fs = new DistroFs({ agent: { fs: () => { throw new Error("must not be called"); } }, distro: DISTRO });
+  await assert.rejects(fs.resolveTarget("   "), (error) => error.code === "FS_NOT_FOUND");
+}]);
+
+checks.push(["readTextForDiff degrades to null on a missing or binary file", async () => {
+  if (!POSIX) return;
+  await substrate(async (fs, root) => {
+    const missing = await fs.resolveTarget(join(root, "nope.txt"));
+    assert.equal(await fs.readTextForDiff(missing, 1024), null, "a vanished file serves no basis");
+    const bin = join(root, "b.bin");
+    writeFileSync(bin, Buffer.from([0, 1, 2]));
+    assert.equal(await fs.readTextForDiff(await fs.resolveTarget(bin), 1024), null, "binary degrades to null, like the peer");
+  });
+}]);
+
 checks.push(["readWholeText refuses directories, binaries and invalid UTF-8 with the peer's codes", async () => {
   if (!POSIX) return;
   await substrate(async (fs, root) => {

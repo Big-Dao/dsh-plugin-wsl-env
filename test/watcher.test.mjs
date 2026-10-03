@@ -98,6 +98,53 @@ checks.push(["an exited loop surfaces as an error, not silence", async () => {
   assert.equal(errors.length, 0);
 }]);
 
+checks.push(["close waits for the loop's exit event, not just the kill call", async () => {
+  const child = new FakeChild();
+  let killCount = 0;
+  child.kill = () => {
+    killCount += 1;
+    child.exitCode = 0;
+    queueMicrotask(() => child.emit("exit", 0, null)); // exit arrives AFTER kill returns
+  };
+  const { arm } = fakeSpawn(child);
+  const close = await armDistroWatcher({
+    wslPath: "wsl.exe",
+    distro: "ubuntu",
+    linuxPath: "/home/you/proj",
+    onChange: () => {},
+    signal: new AbortController().signal,
+    spawn: arm,
+  });
+  let closed = false;
+  await close().then(() => { closed = true; });
+  assert.equal(closed, true, "close resolved through the exit event");
+  assert.equal(killCount, 1, "exactly one kill");
+}]);
+
+checks.push(["an abort after the watcher is active surfaces through onError", async () => {
+  const child = new FakeChild();
+  const { arm } = fakeSpawn(child);
+  const controller = new AbortController();
+  const errors = [];
+  const close = await armDistroWatcher({
+    wslPath: "wsl.exe",
+    distro: "ubuntu",
+    linuxPath: "/home/you/proj",
+    onChange: () => {},
+    onError: (error) => errors.push(error),
+    signal: controller.signal,
+    spawn: arm,
+  });
+  controller.abort(new Error("teardown"));
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(errors.length, 1, "the already-active watcher reports the teardown");
+  assert.match(errors[0].message, /teardown/);
+  // After settle, the error is REPORTED, not acted on — stopping the loop is
+  // still the caller's close.
+  await close();
+  assert.equal(child.killed, true, "the caller's close stops the loop after the error");
+}]);
+
 checks.push(["a pre-aborted signal rejects without spawning", async () => {
   const controller = new AbortController();
   controller.abort(new Error("nope"));

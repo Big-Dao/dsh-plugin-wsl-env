@@ -12,6 +12,21 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The resident agent no longer inherits the Windows environment's WSLENV
+  forwarding.** Spawned bare, `wsl.exe` carried this process's whole
+  environment with it, and whatever the user's `WSLENV` names — dev machines
+  routinely route secrets (`GITHUB_TOKEN/u` is the documented example) — was
+  forwarded into the distro, where every model command inherited it. The
+  transport's Windows env is now pinned: the essentials `wsl.exe` itself
+  needs, the managed `DSH_*` facts, `WSL_UTF8=1`, and a `WSLENV` that names
+  only the managed entries with their original flags. Verified live: a secret
+  injected on the Windows side with a forwarding flag appears zero times in
+  the distro environment. `forwardEnv` remains one-shot-only today — the
+  resident path never forwarded it, and the pin keeps that posture instead of
+  widening it silently.
+
 ### Added
 
 - **`maskWindowsDrive` on `wsl-shell` and `wsl-fs`** — the mitigation knob for

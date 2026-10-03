@@ -14,7 +14,7 @@ import { PassThrough } from "node:stream";
 import { mock } from "node:test";
 import { AGENT_NAME, PROTOCOL_VERSION, encodeB64 } from "../lib/agent-protocol.js";
 import { AgentUnavailableError } from "../lib/agent-errors.js";
-import { WslAgent } from "../lib/agent.js";
+import { WslAgent, pinnedWindowsEnv } from "../lib/agent.js";
 import { confinedAgent, resetConfinedAgents } from "../lib/agent-confined.js";
 import { bwrapProfileArgs } from "../lib/bwrap.js";
 
@@ -381,6 +381,25 @@ checkReg("the confined factory keys the mask into the resident's identity", asyn
   assert.ok(mnt !== -1 && masked.argvPrefix[mnt - 1] === "--tmpfs", "the masked resident's profile shadows /mnt");
   assert.equal(visible.argvPrefix.includes("/mnt"), false, "the visible resident's profile leaves the drive in view");
   resetConfinedAgents();
+});
+
+checkReg("the transport's Windows env is pinned: no user WSLENV forwarding reaches the distro", () => {
+  const pinned = pinnedWindowsEnv({
+    SystemRoot: "C:\\WINDOWS",
+    PATH: "C:\\Windows\\system32",
+    GITHUB_TOKEN: "secret-token-value",
+    WSLENV: "GITHUB_TOKEN/u:DSH_WSL_DISTRO:PATH/w",
+    DSH_WSL_DISTRO: "ubuntu",
+  });
+  assert.equal(pinned.WSLENV, "DSH_WSL_DISTRO", "only the managed entry survives the pin, flags intact");
+  assert.equal("GITHUB_TOKEN" in pinned, false, "the secret never reaches the transport env");
+  assert.equal(pinned.WSLENV.includes("PATH"), false, "PATH is deliberately never listed in WSLENV");
+  assert.equal(pinned.PATH, "C:\\Windows\\system32", "the Windows PATH is kept for resolving wsl.exe");
+  assert.equal(pinned.DSH_WSL_DISTRO, "ubuntu", "managed facts still flow");
+  assert.equal(pinned.WSL_UTF8, "1", "the UTF-8 diagnostics pin rides along");
+  assert.equal(pinned.SystemRoot, "C:\\WINDOWS", "Windows essentials are kept for wsl.exe");
+  const bare = pinnedWindowsEnv({});
+  assert.equal(bare.WSLENV, "", "a parent without WSLENV forwards nothing");
 });
 
 for (const [name, fn] of checks) {

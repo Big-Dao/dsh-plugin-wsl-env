@@ -40,6 +40,8 @@
     "docs/CONFIGURATION.md",
     "docs/LIMITATIONS.md",
     "docs/PARITY.md",
+    "docs/PEER-PARITY.md",
+    "docs/UPSTREAM-FSIO-EXPORT.md",
     "docs/ARCHITECTURE.md",
     "CHANGELOG.md",
     "CONTRIBUTING.md",

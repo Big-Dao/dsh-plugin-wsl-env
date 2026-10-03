@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -155,14 +155,16 @@ checks.push(["write no-replace refuses an existing target with the exists reason
   }
 }]);
 
-checks.push(["write creates missing parent directories, mirroring fsio's mkdir -p", async () => {
+checks.push(["write refuses a missing parent chain instead of materializing it", async () => {
   const agent = new Harness();
   try {
     await agent.hello();
     const target = join(agent.dir, "deep", "er", "f.txt");
     const result = await agent.call("write", [target, "-", "replace", "-", "nested\n"]);
-    assert.equal(result.exitCode, 0, result.stderr.toString("utf8"));
-    assert.equal(readFileSync(target, "utf8"), "nested\n");
+    assert.notEqual(result.exitCode, 0, "a typo'd parent chain must fail, not be created");
+    const { reason } = Harness.fsFailure(result);
+    assert.equal(reason, "notfound", "the refusal is the peer's ENOENT dialect");
+    assert.equal(existsSync(target), false, "nothing was materialized");
   } finally {
     await agent.close();
   }

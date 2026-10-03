@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -116,6 +116,10 @@ checks.push(["parseStatRecord decodes the agent's TAB record into a probe-shaped
     ino: "6",
     version: "139:6:24:1790988738912215200:1790988738912215200",
   });
+  // Special bits ride the record whole (setuid 4755, sticky 1777): the write
+  // path re-applies them, which is what LIMITATIONS promises.
+  assert.equal(parseStatRecord(Buffer.from("f\t4755\t1\t139\t7\t1.0\t1.0", "utf8")).mode, 0o4755);
+  assert.equal(parseStatRecord(Buffer.from("f\t1777\t1\t139\t8\t1.0\t1.0", "utf8")).mode, 0o1777);
 }]);
 
 checks.push(["resolveTarget keeps the UNC identity and follows a symlinked path", async () => {
@@ -257,6 +261,33 @@ checks.push(["a stat's version and a list row's version are the same string on t
     // strings and a list-derived guard failed against its own stat.
     assert.equal(row.version, statVersion, "one file, one version string — whichever op answered");
   });
+}]);
+
+checks.push(["write publishes setuid whole, and the sweep clears a dead agent's staging", async () => {
+  if (!POSIX) return;
+  const agent = new ScriptAgent();
+  try {
+    await agent.hello();
+    const file = join(agent.dir, "setuid.bin");
+    // A dead agent's staging leftover for the same base: the PID 999999 in its
+    // name is not running, so the next write to this base sweeps it away.
+    const orphan = join(agent.dir, ".setuid.bin.999999.deadbeef.tmpdir");
+    mkdirSync(orphan);
+    writeFileSync(join(orphan, "setuid.bin.tmp"), "stale\n");
+    // A LIVE process's staging (this test itself) must be left alone.
+    const live = join(agent.dir, `.setuid.bin.${process.pid}.feedface.tmpdir`);
+    mkdirSync(live);
+    await agent.fs({ op: "write", args: [file, "4755", "replace", "-", "MZ"], timeoutMs: 30000 });
+    assert.equal(statSync(file).mode & 0o7777, 0o4755, "setuid rides the publication chmod");
+    assert.equal(existsSync(orphan), false, "the dead agent's staging was swept");
+    assert.equal(existsSync(live), true, "a live process's staging is left alone");
+    // An overwrite carrying the stat's (now whole) mode keeps the special bits.
+    await agent.fs({ op: "write", args: [file, "4755", "replace", "-", "MZ2"], timeoutMs: 30000 });
+    assert.equal(statSync(file).mode & 0o7777, 0o4755, "setuid survives the overwrite");
+  } finally {
+    rmSync(join(agent.dir, ".setuid.bin"), { force: true, recursive: true });
+    await agent.close();
+  }
 }]);
 
 checks.push(["readWholeText refuses directories, binaries and invalid UTF-8 with the peer's codes", async () => {

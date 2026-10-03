@@ -14,6 +14,27 @@ reference below points at that record's numbering.
 
 ### Fixed
 
+- **A killed write no longer leaves its staging directory in your files.** A
+  `KILL`/`SIGTERM` mid-write could not be trapped, so the private 0700
+  staging dir (`.<name>.<pid>.<rand>.tmpdir`) sat in the target's own
+  directory forever — and listings showed the debris to the model. The EXIT
+  trap now removes the in-flight staging along with the agent's temp dir, and
+  each write sweeps the target directory's leftovers whose creating agent's
+  PID (it rides the name) is no longer running — a live agent's staging is
+  left alone, PID reuse included.
+- **A write to a typo'd path refuses instead of materializing the chain.**
+  The staging `mkdir -p` silently created every missing parent directory and
+  reported success, where the peer's Node-fs publication fails `ENOENT` —
+  masking model errors as wins. Parents are no longer created: the refusal is
+  `FS_NOT_FOUND`, an existing directory stays fine, and a concurrent creator
+  of the directory still wins.
+- **Setuid, setgid and sticky bits survive an overwrite or edit.** The mode
+  was masked to `0o777` at the stat parse and again at the write, so a
+  `4755` binary became `755` and a `1777` directory file lost its sticky bit
+  — while LIMITATIONS claimed the bits were kept. The full mode now rides
+  stat and write end-to-end (`0o7777`), matching the share substrate's
+  `chmod --reference` behaviour.
+
 - **A shell command whose workdir names another WSL distro is refused, where
   it used to run in the pinned distro against whatever tree shares the path.**
   `toLinuxPath` strips a `\\wsl.localhost\<name>\…` UNC's distro name, and the

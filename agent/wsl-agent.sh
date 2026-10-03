@@ -57,11 +57,15 @@ PROTO_VERSION=3
 TMPDIR_AGENT=$(mktemp -d "${TMPDIR:-/tmp}/wsl-agent.XXXXXX")
 OUT_FILE="$TMPDIR_AGENT/out"
 ERR_FILE="$TMPDIR_AGENT/err"
-trap 'rm -rf "$TMPDIR_AGENT"; exit 0' EXIT
+trap 'rm -rf "$TMPDIR_AGENT"; [ -z "${CURRENT_STAGING:-}" ] || rm -rf -- "$CURRENT_STAGING"; exit 0' EXIT
 
 # The request currently in flight, for KILL and for the exit trap.
 CURRENT_PID=
 CURRENT_ID=
+# The staged-publication directory of an in-flight FS write. TERM/INT would
+# otherwise orphan it inside the target's own directory; a KILL cannot be
+# trapped, which is what the sweep in fs_write is for.
+CURRENT_STAGING=
 
 b64dec() {
   # `base64 -d` with GNU and BusyBox spellings; a decode failure yields empty.
@@ -299,6 +303,30 @@ fs_version() {
   printf '%s:%s:%s:%s:%s' "$dev" "$ino" "$size" "$(norm_time "$mtime")" "$(norm_time "$ctime")"
 }
 
+drop_staging() {
+  # Remove the current write's staging dir and forget it, so the EXIT trap
+  # never re-removes (or, worse, removes a newer write's staging) after it.
+  rm -rf -- "$staging"
+  CURRENT_STAGING=
+}
+
+sweep_staging() {
+  # $1 = directory, $2 = base name. Remove this directory's leftover staging
+  # dirs whose creating agent is gone — the PID rides the name, and a process
+  # that is not running cannot clean up after its own KILL. A live PID keeps
+  # its dir (the safe direction, PID reuse included).
+  local d pid
+  for d in "$1/.$2."*.*.tmpdir; do
+    [ -d "$d" ] || continue
+    pid=${d#"$1/.$2."}
+    pid=${pid%%.*}
+    case $pid in
+      ''|*[!0-9]*) continue ;;
+    esac
+    kill -0 "$pid" 2>/dev/null || rm -rf -- "$d"
+  done
+}
+
 fs_write() {
   # $1 = base64 path, $2 = base64 mode (`-` keeps none), $3 = base64
   # `replace` or `no-replace`, $4 = expected version (`-` for none) — the
@@ -315,10 +343,21 @@ fs_write() {
   dir=$(dirname -- "$path")
   base=$(basename -- "$path")
   [ -n "$base" ] && [ "$base" != "/" ] || fs_fail notfound "empty file name"
-  mkdir -p -- "$dir" 2>"$ERR_FILE" || {
-    err=$(cat "$ERR_FILE")
-    fs_fail "$(fs_classify "$err")" "$err"
-  }
+  # Leftover staging dirs from a KILLed write (a KILL cannot be trapped) would
+  # sit in the target's directory forever and show up in listings. The creating
+  # agent's PID rides the name: one whose process is gone is an orphan, so
+  # sweep it before staging this write.
+  sweep_staging "$dir" "$base"
+  if [ ! -d "$dir" ]; then
+    # Deliberately NO `mkdir -p`: a typo'd parent chain must refuse (the peer's
+    # Node-fs publication fails ENOENT there), not materialize silently. An
+    # existing directory after a failed mkdir is a concurrent creator, not an
+    # error.
+    mkdir -- "$dir" 2>"$ERR_FILE" || {
+      err=$(cat "$ERR_FILE")
+      [ -d "$dir" ] || fs_fail "$(fs_classify "$err")" "$err"
+    }
+  fi
   u=$(head -c 8 /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \n')
   staging="$dir/.$base.$$.${u:-0}.tmpdir"
   mkdir -- "$staging" 2>"$ERR_FILE" || {
@@ -327,12 +366,13 @@ fs_write() {
     err=$(cat "$ERR_FILE")
     fs_fail "$(fs_classify "$err")" "$err"
   }
+  CURRENT_STAGING=$staging
   chmod 700 -- "$staging" 2>/dev/null
   tmp="$staging/$base.tmp"
   # Decode straight to the file: the base64 text is the one form that crosses
   # a shell variable without a NUL-byte or quoting hazard.
   printf '%s' "$5" | base64 -d >"$tmp" 2>/dev/null || {
-    rm -rf -- "$staging"
+    drop_staging
     fs_fail io "cannot stage content"
   }
   chmod 600 -- "$tmp"
@@ -340,7 +380,7 @@ fs_write() {
   if [ "$mode" != "-" ]; then
     chmod "$mode" -- "$tmp" 2>"$ERR_FILE" || {
       err=$(cat "$ERR_FILE")
-      rm -rf -- "$staging"
+      drop_staging
       fs_fail io "$err"
     }
   fi
@@ -351,7 +391,7 @@ fs_write() {
     # trips the stat/find skew a list-derived version would.
     version=$(fs_version "$path")
     if [ "$version" != "$expected" ]; then
-      rm -rf -- "$staging"
+      drop_staging
       if [ -n "$version" ]; then
         fs_fail stale "cannot write \"$path\": file changed since it was read"
       fi
@@ -363,12 +403,12 @@ fs_write() {
     # it) where the peer's link(2) refuses any existing path, so the existence
     # guard is checked before the call and the landing spot verified after it.
     if [ -e "$path" ] || [ -L "$path" ]; then
-      rm -rf -- "$staging"
+      drop_staging
       fs_fail exists "cannot write \"$path\": it already exists"
     fi
     ln -- "$tmp" "$path" 2>"$ERR_FILE" || {
       err=$(cat "$ERR_FILE")
-      rm -rf -- "$staging"
+      drop_staging
       # A concurrent creator wins the race; classify by what is on disk now.
       if [ -e "$path" ] || [ -L "$path" ]; then
         fs_fail exists "$err"
@@ -379,17 +419,17 @@ fs_write() {
       # ln linked BESIDE the target (a directory appeared under us): undo the
       # stray link and refuse, the guarded create did not publish.
       rm -f -- "$path/${base}.tmp"
-      rm -rf -- "$staging"
+      drop_staging
       fs_fail exists "cannot write \"$path\": it was created concurrently"
     fi
   else
     mv -f -- "$tmp" "$path" 2>"$ERR_FILE" || {
       err=$(cat "$ERR_FILE")
-      rm -rf -- "$staging"
+      drop_staging
       fs_fail "$(fs_classify "$err")" "$err"
     }
   fi
-  rm -rf -- "$staging"
+  drop_staging
 }
 
 fs_dispatch() {

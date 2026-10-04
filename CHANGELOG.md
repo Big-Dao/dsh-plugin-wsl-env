@@ -12,26 +12,13 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
-### Added
+## [0.7.1] - 2026-10-04
 
-- **The GUI file tree and previews are served from inside the distro.**
-  `workspace-files` - the root-plane consumer behind the GUI's file tree and
-  previews - read UNC workspaces through the 9p share. The plugin replaces
-  the composition row with a distro-routed variant (`lib/workspace-files-wsl.js`):
-  listings, stats, line-paged reads and byte windows for a
-  \\wsl.localhost\\<distro> workspace run through the resident agent, with the
-  upstream refusals mirrored (not-found, outside-workspace, not-directory,
-  not-regular-file, too-large, not-text) and `absolutePath` synthesized in
-  the UNC display form so the GUI is unchanged. Windows-folder sessions keep
-  the shipped host-backed service; the watch stream delegates unchanged.
-  (`lib/workspace-files-route.js` holds the pure builders/parsers;
-  `test/workspace-files-wsl.test.mjs` covers every wire shape and refusal
-  over a fake agent runner.)
-
-- **bootstrap installs and reports git.** The git snapshot routing needs git
-  inside the distro; `bootstrap --install` includes it in every package
-  manager's list and the report names it alongside ripgrep (the snapshot
-  backend for workspace-changes).
+One theme: the remaining root-plane 9P consumers move inside the distro -
+the GUI file tree and previews, and the workspace-changes git snapshots -
+plus the test-infrastructure maturity (a REAL-composition boot test and
+the pure text-mechanics refusals under direct unit test) that the
+promotion work was built on.
 
 ### Added
 
@@ -50,6 +37,29 @@ reference below points at that record's numbering.
   env values into distro coordinates and forwards them through `WSLENV`.
   Verified against a live distro: the snapshot sequence completes with the
   user's index, object store, and refs untouched.
+- **The GUI file tree and previews are served from inside the distro.**
+  `workspace-files` - the root-plane consumer behind the GUI's file tree
+  and previews - read UNC workspaces through the 9p share. The plugin
+  replaces the composition row with a distro-routed variant
+  (`lib/workspace-files-wsl.js`): listings, stats, line-paged reads and
+  byte windows for a \\wsl.localhost\\<distro> workspace run through the
+  resident agent, with the upstream refusals mirrored (not-found,
+  outside-workspace, not-directory, not-regular-file, too-large,
+  not-text) and `absolutePath` synthesized in the UNC display form so
+  the GUI is unchanged. Windows-folder sessions keep the shipped
+  host-backed service; the watch stream delegates unchanged.
+  (`lib/workspace-files-route.js` holds the pure builders/parsers;
+  `test/workspace-files-wsl.test.mjs` covers every wire shape and refusal
+  over a fake agent runner.)
+- **bootstrap installs and reports git.** The git snapshot routing needs
+  git inside the distro; `bootstrap --install` includes it in every
+  package manager's list and the report names it alongside ripgrep (the
+  snapshot backend for workspace-changes).
+- **A REAL-composition boot test.** The plugin's fs row is booted through
+  the cordis Loader from a test-only yml composition and asserted against
+  a live distro read (`test/fs.boot.test.mjs`), alongside direct unit
+  tests for the pure text mechanics' refusal edges
+  (`test/fsio-text.test.mjs`).
 
 ## [0.7.0] - 2026-10-04
 

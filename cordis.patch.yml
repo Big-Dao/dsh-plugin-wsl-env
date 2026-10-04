@@ -102,6 +102,21 @@
 
     - id: directory-picker-browse-surface
       name: '@deepseek-ai/dsh-client-ui-directory-picker-browse'
+
+    # The GUI file tree and previews for a distro workspace are served from
+    # inside the distro (resident agent) instead of Windows-side 9P walks.
+    # Windows-folder sessions keep the shipped host-backed service.
+    - id: workspace-files
+      disabled: true
+
+    - insert:
+        - id: workspace-files-wsl
+          name: 'dsh-plugin-wsl-env/workspace-files-wsl'
+          config:
+            maxBytes: 2097152
+            maxFileBytes: 33554432
+            maxLines: 5000
+            maxEntries: 2000
     # Contributes the WSL environment's facts (distro / real shell / home) to the
     # managed DSH_* namespace that dsh-shell-env injects into every model shell
     # call. That is DSH's sanctioned channel for shell-environment facts.

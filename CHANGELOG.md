@@ -14,6 +14,20 @@ reference below points at that record's numbering.
 
 ### Added
 
+- **The GUI file tree and previews are served from inside the distro.**
+  `workspace-files` - the root-plane consumer behind the GUI's file tree and
+  previews - read UNC workspaces through the 9p share. The plugin replaces
+  the composition row with a distro-routed variant (`lib/workspace-files-wsl.js`):
+  listings, stats, line-paged reads and byte windows for a
+  \\wsl.localhost\\<distro> workspace run through the resident agent, with the
+  upstream refusals mirrored (not-found, outside-workspace, not-directory,
+  not-regular-file, too-large, not-text) and `absolutePath` synthesized in
+  the UNC display form so the GUI is unchanged. Windows-folder sessions keep
+  the shipped host-backed service; the watch stream delegates unchanged.
+  (`lib/workspace-files-route.js` holds the pure builders/parsers;
+  `test/workspace-files-wsl.test.mjs` covers every wire shape and refusal
+  over a fake agent runner.)
+
 - **bootstrap installs and reports git.** The git snapshot routing needs git
   inside the distro; `bootstrap --install` includes it in every package
   manager's list and the report names it alongside ripgrep (the snapshot

@@ -12,7 +12,11 @@
 # one thing a distro is guaranteed to have is a shell.
 #
 # Handshake — the first line the agent writes:
-#   HELLO|wsl-agent|<protocol version>
+#   HELLO|wsl-agent|<protocol version>|<sha256 of this script file>
+# The digest lets the host verify that the script it is about to rely on is
+# byte-identical to the copy it shipped. The script is read in place — a
+# /mnt/c mirror in the deployed layout — so a stale or half-synced runtime
+# copy would otherwise pass the version handshake while drifting in behavior.
 # Requests the agent accepts, one per line on stdin:
 #   PING                          -> PONG
 #   SHUTDOWN                      -> exits 0
@@ -57,11 +61,55 @@
 
 set -u
 
-PROTO_VERSION=3
+PROTO_VERSION=4
 TMPDIR_AGENT=$(mktemp -d "${TMPDIR:-/tmp}/wsl-agent.XXXXXX")
 OUT_FILE="$TMPDIR_AGENT/out"
 ERR_FILE="$TMPDIR_AGENT/err"
-trap 'rm -rf "$TMPDIR_AGENT"; [ -z "${CURRENT_STAGING:-}" ] || rm -rf -- "$CURRENT_STAGING"; exit 0' EXIT
+trap 'rm -rf "$TMPDIR_AGENT"; [ -z "${CURRENT_STAGING:-}" ] || rm -rf -- "$CURRENT_STAGING"; [ -z "${WATCHDOG_PID:-}" ] || kill "$WATCHDOG_PID" 2>/dev/null; exit 0' EXIT
+
+# The content identity of this script file, reported in the handshake: the
+# host hashes its own shipped copy and refuses an agent whose file differs.
+# cut with an explicit space: sha256sum separates hash and file with spaces,
+# and the default tab delimiter would leave the whole line in the field.
+AGENT_DIGEST=$(sha256sum -- "$0" 2>/dev/null | cut -d' ' -f1)
+
+# Bounded cleanup: temp dirs from agents whose host died without giving them
+# an EXIT (a `wsl --shutdown`, a force-killed wsl.exe). Own pattern only, and
+# only when nothing inside moved for an hour — a live agent's dir mtime moves
+# on every request (the inflight marker in run_capture is created and
+# removed), so a sibling being served right now is never touched. A confined
+# agent's /tmp is a private tmpfs: its own dir vanishes with it and it sees
+# no siblings, so the sweep is a no-op there.
+for stale in "${TMPDIR:-/tmp}"/wsl-agent.*; do
+  [ -d "$stale" ] || continue
+  [ "$stale" = "$TMPDIR_AGENT" ] && continue
+  [ -z "$(find "$stale" -maxdepth 1 -mmin -60 -print -quit 2>/dev/null)" ] && rm -rf -- "$stale" 2>/dev/null
+done
+
+# The client lease: when the host goes silent without closing the pipe (a
+# wedged relay, not a dead one — EOF exits the read loop), the agent
+# terminates itself after the lease window instead of lingering with its
+# temp dir. The window rides DSH_AGENT_LEASE_MS from the host's pinned
+# environment, set above the host's own idle shutdown, so the lease only
+# fires when the host is gone in every way that matters. A request in
+# flight pauses the lease (the inflight marker) — a long command with no
+# traffic is silence, not absence. Unset (an older host, a manual run)
+# disables the lease: the host keeps the lifetime it always had.
+LEASE_S=0
+case ${DSH_AGENT_LEASE_MS:-} in
+  ''|*[!0-9]*) ;;
+  *) if [ "$DSH_AGENT_LEASE_MS" -gt 0 ]; then
+       LEASE_S=$(( (DSH_AGENT_LEASE_MS + 999) / 1000 ))
+       (
+         while :; do
+           sleep "$LEASE_S" || exit 0
+           kill -0 "$$" 2>/dev/null || exit 0
+           [ -f "$TMPDIR_AGENT/inflight" ] || kill -s TERM "$$"
+         done
+       ) &
+       WATCHDOG_PID=$!
+     fi ;;
+esac
 
 # The request currently in flight, for KILL and for the exit trap.
 CURRENT_PID=
@@ -150,6 +198,10 @@ run_capture() {
   : >"$OUT_FILE"
   : >"$ERR_FILE"
   CURRENT_ID=$req_id
+  # The inflight marker pauses the lease watchdog for this request and
+  # refreshes the temp dir's mtime for the boot sweep; removing it after the
+  # answer re-arms both.
+  : >"$TMPDIR_AGENT/inflight"
   if [ "$mode" = subshell ]; then
     ( "$@" ) >"$OUT_FILE" 2>"$ERR_FILE" &
   elif [ -n "$SETSID" ]; then
@@ -192,6 +244,7 @@ run_capture() {
     printf 'RES|%s|%s|%s|%s|%s|%s\n' "$req_id" "$rc" \
       "$(b64enc_file "$OUT_FILE")" "$(b64enc_file "$ERR_FILE")" 0 0
   fi
+  rm -f "$TMPDIR_AGENT/inflight"
 }
 
 # --- filesystem substrate (FS frames) -------------------------------------
@@ -488,7 +541,7 @@ fs_dispatch() {
   esac
 }
 
-printf 'HELLO|wsl-agent|%s\n' "$PROTO_VERSION"
+printf 'HELLO|wsl-agent|%s|%s\n' "$PROTO_VERSION" "$AGENT_DIGEST"
 
 while IFS= read -r line; do
   case $line in

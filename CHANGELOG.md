@@ -14,6 +14,22 @@ reference below points at that record's numbering.
 
 ### Added
 
+- **The resident agent verifies its own deployment, and outlives a wedged
+  host only by lease.** The agent script is read in place from the
+  distro-visible path - in the deployed layout a `/mnt/c` mirror - so a
+  stale or half-synced runtime copy used to pass the version handshake
+  while drifting in behavior. The HELLO line now carries the sha256 of the
+  file the distro actually read (protocol v4), and both resident factories
+  pin the hash of the copy the package shipped: a mismatch is refused like
+  a version mismatch, with the resync command in the message. The agent
+  also terminates itself when its host goes silent without ever delivering
+  EOF - the wedged-relay case stdin EOF cannot cover: the host forwards a
+  client lease (`idleMs` + grace) through the managed `DSH_` namespace, and
+  an in-distro watchdog polls an in-flight marker so a long command's
+  silence never counts against it (dash has no `read -t`; a marker file is
+  the portable form). A boot sweep removes sibling `wsl-agent.*` temp dirs
+  no request has touched for an hour - the residue of agents whose host
+  died before their exit trap could run.
 - **The `@` completion's distro traversal is built and waiting for its seam.**
   The one 9P consumer the takeover series could not reach - the GUI's `@`
   file completion - funnels all workspace traversal through three

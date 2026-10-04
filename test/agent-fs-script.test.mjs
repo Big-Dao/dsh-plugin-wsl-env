@@ -10,6 +10,7 @@
  *   node test/agent-fs-script.test.mjs
  */
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -60,7 +61,13 @@ class Harness {
   async hello() {
     const line = await this.nextLine();
     const message = parseAgentLine(line);
-    assert.deepEqual(message, { type: "hello", name: AGENT_NAME, version: PROTOCOL_VERSION });
+    assert.equal(message.type, "hello");
+    assert.equal(message.name, AGENT_NAME);
+    assert.equal(message.version, PROTOCOL_VERSION);
+    // The digest is the script's own content identity; against the real file
+    // it must be exactly what a hash of that file reports.
+    const expected = createHash("sha256").update(readFileSync(SCRIPT)).digest("hex");
+    assert.equal(message.digest, expected);
     return line;
   }
 

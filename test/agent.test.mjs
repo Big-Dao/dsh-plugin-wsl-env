@@ -14,7 +14,7 @@ import { PassThrough } from "node:stream";
 import { mock } from "node:test";
 import { AGENT_NAME, PROTOCOL_VERSION, encodeB64 } from "../lib/agent-protocol.js";
 import { AgentUnavailableError, CwdError } from "../lib/agent-errors.js";
-import { WslAgent, pinnedWindowsEnv } from "../lib/agent.js";
+import { WslAgent, agentLeaseEnv, pinnedWindowsEnv } from "../lib/agent.js";
 import { confinedAgent, resetConfinedAgents } from "../lib/agent-confined.js";
 import { bwrapProfileArgs } from "../lib/bwrap.js";
 
@@ -35,7 +35,7 @@ const checkReg = (name, fn) => checks.push([name, fn]);
 
 /** A fake `wsl.exe --exec sh wsl-agent.sh` child the tests script directly. */
 class FakeAgentProcess extends EventEmitter {
-  constructor({ dieAfterHello = false, dieOnRequest = false, noHello = false, helloVersion = PROTOCOL_VERSION } = {}) {
+  constructor({ dieAfterHello = false, dieOnRequest = false, noHello = false, helloVersion = PROTOCOL_VERSION, helloDigest = TEST_DIGEST } = {}) {
     super();
     this.stdin = new PassThrough();
     this.stdout = new PassThrough();
@@ -59,7 +59,7 @@ class FakeAgentProcess extends EventEmitter {
     this.dieAfterHello = dieAfterHello;
     this.dieOnRequest = dieOnRequest;
     queueMicrotask(() => {
-      if (!this.noHello) this.stdout.write(`HELLO|${AGENT_NAME}|${helloVersion}\n`);
+      if (!this.noHello) this.stdout.write(`HELLO|${AGENT_NAME}|${helloVersion}|${helloDigest}\n`);
       if (this.dieAfterHello) this.emit("exit", 1, null);
     });
   }
@@ -126,7 +126,8 @@ function scriptedTransport(children) {
   };
 }
 
-const CONFIG = { distro: "ubuntu", scriptPath: "/mnt/c/pkg/agent/wsl-agent.sh", idleMs: 0 };
+const TEST_DIGEST = "6f".repeat(32);
+const CONFIG = { distro: "ubuntu", scriptPath: "/mnt/c/pkg/agent/wsl-agent.sh", idleMs: 0, expectedDigest: TEST_DIGEST };
 
 /** Two event-loop turns: enough for start() and the relay's microtask chain. */
 const flush = () => new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
@@ -152,10 +153,10 @@ checkReg("the caller's output budget rides the EXEC frame for the agent to enfor
 });
 
 checkReg("a stdout line past the protocol cap kills the agent instead of accumulating", async () => {
-  const child = new FakeAgentProcess();
+  const child = new FakeAgentProcess({ helloDigest: "" });
   child.silent = true; // nothing answers; the cap is what must end this
   const { transport } = scriptedTransport([child]);
-  const agent = new WslAgent({ ...CONFIG, frameCapBytes: 64, spawnTransport: transport });
+  const agent = new WslAgent({ ...CONFIG, expectedDigest: undefined, frameCapBytes: 64, spawnTransport: transport });
   const settled = agent.exec({ cwd: "/", argv: ["yes"], timeoutMs: 0 }).then(
     () => {
       throw new Error("should not have resolved");
@@ -533,10 +534,10 @@ checkReg("an idle agent retires through its own timer", async () => {
 });
 
 checkReg("an over-cap buffer with no newline yet is dropped mid-flight", async () => {
-  const child = new FakeAgentProcess();
+  const child = new FakeAgentProcess({ helloDigest: "" });
   child.silent = true;
   const { transport } = scriptedTransport([child]);
-  const agent = new WslAgent({ ...CONFIG, frameCapBytes: 64, spawnTransport: transport });
+  const agent = new WslAgent({ ...CONFIG, expectedDigest: undefined, frameCapBytes: 64, spawnTransport: transport });
   const settled = agent.exec({ cwd: "/", argv: ["yes"], timeoutMs: 0 }).then(() => "resolved", (e) => e);
   await flush();
   child.stdout.write("x".repeat(200)); // no newline — the accumulator itself must bail
@@ -576,6 +577,41 @@ checkReg("a request that cannot be written is rejected, not stranded", async () 
     "an unwritable frame must fail its caller instead of waiting forever",
   );
   await agent.close();
+});
+
+checkReg("a HELLO whose script digest differs from the shipped copy is refused like a version mismatch", async () => {
+  const child = new FakeAgentProcess({ helloDigest: "ff".repeat(32) });
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  await assert.rejects(
+    () => agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }),
+    /digest mismatch.*resync|exited during handshake/,
+    "a stale or half-synced runtime copy must fail loudly, with the fix in the message",
+  );
+  assert.equal(child.killed, true, "the mismatched transport is killed, not left running");
+  assert.match(agent.unavailableReason, /digest mismatch/);
+});
+
+checkReg("a HELLO without a digest cannot satisfy a host that expects one", async () => {
+  const child = new FakeAgentProcess({ helloDigest: "" });
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  await assert.rejects(
+    () => agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }),
+    /digest mismatch|exited during handshake/,
+    "an unhashable script is a refusal, not a silent skip of the verification",
+  );
+});
+
+checkReg("the client lease rides the managed namespace and its WSLENV entry", () => {
+  const pinned = pinnedWindowsEnv({ WSLENV: "DSH_HOME/p" });
+  const leased = agentLeaseEnv(pinned, 720000);
+  assert.equal(leased.DSH_AGENT_LEASE_MS, "720000", "the lease value rides the managed namespace");
+  assert.equal(leased.WSLENV, "DSH_HOME/p:DSH_AGENT_LEASE_MS", "the name rides WSLENV, or wsl.exe never imports it");
+  const bare = agentLeaseEnv(pinnedWindowsEnv({}), 720000);
+  assert.equal(bare.WSLENV, "DSH_AGENT_LEASE_MS", "an empty parent WSLENV gains no leading separator");
+  const off = agentLeaseEnv(pinned, 0);
+  assert.equal(off, pinned, "a disabled lease leaves the pinned environment untouched");
 });
 
 for (const [name, fn] of checks) {

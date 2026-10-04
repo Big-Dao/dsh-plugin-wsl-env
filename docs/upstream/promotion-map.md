@@ -9,7 +9,7 @@
 
 | ssh 家族 | 服务 | 本插件的对应物 | 状态 |
 |---|---|---|---|
-| `ssh`（连接/传输生命周期、helper 安装、digest、租约） | `ctx.ssh` | `lib/agent.js`（常驻 agent：EXEC/ACK/RES/KILL 行协议、watchdog、idle 自杀、一次重建）+ `lib/agent-shared.js`（按 distro 的进程级单例）+ `agent/wsl-agent.sh` | 🟡 结构就绪；缺 digest 验证与租约机制 |
+| `ssh`（连接/传输生命周期、helper 安装、digest、租约） | `ctx.ssh` | `lib/agent.js`（常驻 agent：EXEC/ACK/RES/KILL 行协议、watchdog、idle 自杀、一次重建）+ `lib/agent-shared.js`（按 distro 的进程级单例）+ `agent/wsl-agent.sh` | 🟢 就绪（0.7.2 后：HELLO 携带脚本内容 sha256，宿主拒绝与包内副本不符的部署物——镜像就地读取的半同步/过期是最现实的失效；客户端租约 `DSH_AGENT_LEASE_MS` 经托管命名空间下发，中继楔死无 EOF 时 agent 自杀；boot 清扫 60 分钟无活动的 `wsl-agent.*` 残留 tmpdir） |
 | `fs-ssh`（`ctx.fs`） | `ctx.fs` | `lib/fs-substrate.js` + `lib/fsio-agent.js`（distro 内 canonical/stat/读/原子写/守卫；写入守卫内联） | 🟢 就绪（PEER-PARITY 逐函数核对过 fsio 复刻） |
 | `subprocess-ssh`（`ctx.subprocess`） | `ctx.subprocess` | `lib/index.js` `WslShellExecutor`（agent 路 + one-shot 回退）+ `lib/agent-exec.js`（handle 形态） | 🟢 就绪（超时/终止/截断语义与 one-shot 对齐有 probe） |
 | `sandbox-ssh`（远端后端选择） | `ctx.sandbox` | `lib/sandbox-core.js` + `lib/bwrap.js` + `lib/agent-confined.js`（bwrap 组装、probe fail-closed、confined 常驻路由） | 🟢 就绪（enforcement=partial 的诚实报告与上游同款） |
@@ -50,8 +50,12 @@ C:\ 工作区与 `\\wsl.localhost` 工作区（`WorkspaceRegistry` 多条目并�
    seam（如 session 创建时的 environment resolver）。这是插件最脆弱的接缝。
 4. **搜索的 seam 化**——rg spawn 拦截依赖"argv[0] 基名为 rg"的形状识别；正式形态
    应是 tool-fs-search 暴露 provider 口（或根 subprocess 的 transport 抽象）。
-5. **helper 的 digest 验证与租约**——对照 `dsh-ssh` 的 artifact digest + 心跳
-   租约 + 有界清理；插件的 agent 协议已有 watchdog/idle/一次重建，缺部署物校验。
+5. **helper 的 digest 验证与租约**——已落地（协议 v4）：digest 在 HELLO 握手
+   对照包内副本（`agent-shared` 计算一次、两个 resident 工厂共用），租约经
+   `DSH_AGENT_LEASE_MS` + WSLENV 下发、脚本内看门狗子 shell 轮询 in-flight
+   标记（dash 无 `read -t`，文件标记是可用方案），boot 清扫过期 tmpdir。
+   与 ssh 家族的差异是形态性的：ssh 的租约由对端心跳续期，本插件的租约是
+   「静默即逝」，因为传输是同机管道——EOF 可靠，楔死才需要它。
 6. **未接管的 9P 消费者**——workspace-files（GUI 文件树/预览，根 ctx.fs）/
    workspace-changes（host git 跨 9P）/ file-reference-local（`@` 补全直读）/
    ptc-runtime。晋升后随根平面 provider 自动正确；在此之前维持 9P。

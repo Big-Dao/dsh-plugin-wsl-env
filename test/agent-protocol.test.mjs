@@ -74,8 +74,10 @@ check("SETENV and KILL frames carry their payloads base64-encoded where binary i
   assert.equal(encodeKill("r2"), "KILL|r2");
 });
 
-check("the HELLO handshake parses to name and version", () => {
-  assert.deepEqual(parseAgentLine(`HELLO|${AGENT_NAME}|${PROTOCOL_VERSION}`), { type: "hello", name: AGENT_NAME, version: PROTOCOL_VERSION });
+check("the HELLO handshake parses to name, version, and the script digest", () => {
+  assert.deepEqual(parseAgentLine(`HELLO|${AGENT_NAME}|${PROTOCOL_VERSION}`), { type: "hello", name: AGENT_NAME, version: PROTOCOL_VERSION, digest: "" });
+  const digest = "ab".repeat(32);
+  assert.deepEqual(parseAgentLine(`HELLO|${AGENT_NAME}|${PROTOCOL_VERSION}|${digest}`), { type: "hello", name: AGENT_NAME, version: PROTOCOL_VERSION, digest });
 });
 
 check("a RES line yields the exit code and decoded output buffers", () => {

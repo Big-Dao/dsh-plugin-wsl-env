@@ -103,39 +103,53 @@
     - id: directory-picker-browse-surface
       name: '@deepseek-ai/dsh-client-ui-directory-picker-browse'
 
-    # The GUI file tree and previews for a distro workspace are served from
-    # inside the distro (resident agent) instead of Windows-side 9P walks.
-    # Windows-folder sessions keep the shipped host-backed service.
-    - id: workspace-files
-      disabled: true
+# ═════════════════════════════════════════════════════════════════════════════
+# The distro-side takeovers of the two root-plane services.
+#
+# A patch layer is a flat list: an `id:` entry patches the shipped row, and a
+# bare `insert:` list appends new rows as data. A disable written INSIDE an
+# insert list is not a patch — it becomes a duplicate-id data row that shadows
+# the real service row (the loader keys rows by id, last occurrence wins), and
+# a nested `insert:` list is never interpreted at all. Both takeovers are
+# therefore two top-level entries: disable the shipped row by id, then append
+# the replacement with a bare insert. test/composition.test.mjs runs this file
+# through the real patch algorithm to keep the shape honest.
+# ═════════════════════════════════════════════════════════════════════════════
 
-    - insert:
-        - id: workspace-files-wsl
-          name: 'dsh-plugin-wsl-env/workspace-files-wsl'
-          config:
-            maxBytes: 2097152
-            maxFileBytes: 33554432
-            maxLines: 5000
-            maxEntries: 2000
+# The GUI file tree and previews for a distro workspace are served from inside
+# the distro (resident agent) instead of Windows-side 9P walks. The variant
+# extends the shipped service — a distro UNC routes distro-side, a drive path
+# calls super (host native), the watch stream delegates unchanged — so
+# replacing the row is safe for Windows-folder sessions too.
+- id: workspace-files
+  disabled: true
 
-    # The root-plane filesystem routes by coordinate: distro UNC identities
-    # are served by the resident agent (real watch events, ext4 reads), drive
-    # paths stay host-native. Replaces the root fs-sandbox row, whose write
-    # fence has no root-plane consumers (the model's writes ride the preset
-    # filesystems; see docs/root-fs-routing.md).
-    - id: fs-sandbox
-      disabled: true
+# The root-plane filesystem routes by coordinate: distro UNC identities are
+# served by the resident agent (real watch events, ext4 reads), drive paths
+# stay host-native. Replaces the root fs-sandbox row, whose write fence has no
+# root-plane consumers (the model's writes ride the preset filesystems; see
+# docs/root-fs-routing.md).
+- id: fs-sandbox
+  disabled: true
 
-    - insert:
-        - id: fs-routing
-          name: 'dsh-plugin-wsl-env/fs-routing'
-          config:
-            distro: ''
-            wslPath: wsl.exe
-            sandbox: true
-            maskWindowsDrive: false
-            restrictToDistro: true
-            watchMaxDepth: 0
+- insert:
+    - id: workspace-files-wsl
+      name: 'dsh-plugin-wsl-env/workspace-files-wsl'
+      config:
+        maxBytes: 2097152
+        maxFileBytes: 33554432
+        maxLines: 5000
+        maxEntries: 2000
+
+    - id: fs-routing
+      name: 'dsh-plugin-wsl-env/fs-routing'
+      config:
+        distro: ''
+        wslPath: wsl.exe
+        sandbox: true
+        maskWindowsDrive: false
+        restrictToDistro: true
+        watchMaxDepth: 0
     # Contributes the WSL environment's facts (distro / real shell / home) to the
     # managed DSH_* namespace that dsh-shell-env injects into every model shell
     # call. That is DSH's sanctioned channel for shell-environment facts.

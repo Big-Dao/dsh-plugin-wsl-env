@@ -74,10 +74,15 @@ if (process.platform !== "win32") {
     const run = () => parseTerminalActivity(spawnSync("sh", probe.argv.slice(1), { encoding: "utf8", timeout: 10_000 }).stdout);
     assert.equal(run(), "idle", "no marked process yet");
 
-    // A marked shell holding a live child for ~1.5 s: the parent carries the
-    // exported marker in its environ, the sleep is its child — busy for that
-    // window, idle again once the marked shell has exited.
-    const background = spawn("sh", ["-c", `export ${TERMINAL_ID_ENV}='${id}'; sleep 1.5 & wait`], { stdio: "ignore", detached: true });
+    // A marked shell holding a live child for ~1.5 s: the marker rides the
+    // spawn environment (what wsl.exe does when it imports DSH_TERMINAL_ID
+    // before --exec), so the shell is exec'd with it and the sleep inherits
+    // it at its own exec — two marked processes, busy for that window, idle
+    // again once the marked shell has exited. A runtime `export` inside the
+    // script would NOT do: /proc/<pid>/environ shows the exec-time block
+    // only, so the shell itself would stay unmarked and the count would
+    // never pass one.
+    const background = spawn("sh", ["-c", "sleep 1.5 & wait"], { stdio: "ignore", detached: true, env: { ...process.env, [TERMINAL_ID_ENV]: id } });
     background.unref();
     await delay(300);
     assert.equal(run(), "busy", "a marked shell with a live child is busy");

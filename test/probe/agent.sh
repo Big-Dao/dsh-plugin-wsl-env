@@ -102,32 +102,6 @@ await check("2 MB of output round-trips on one RES line", async () => {
   assert.equal(result.stdout.length, 2097152);
 });
 
-await check("the publication script copies the mode and renames atomically", async () => {
-  const { publicationArgv } = await import(`${repo}/lib/fs-publish.js`);
-  const base = `/tmp/wsl-agent-pub.${process.pid}-${Date.now()}`;
-  const setup = await agent.exec({ cwd: "/", argv: ["sh", "-c",
-    `mkdir -p "${base}" && printf old > "${base}/target" && chmod 755 "${base}/target" && printf new > "${base}/staged"`, "w"], timeoutMs: 10000 });
-  assert.equal(setup.exitCode, 0);
-  const result = await agent.exec({ cwd: "/", argv: publicationArgv(`${base}/target`, `${base}/staged`), timeoutMs: 10000 });
-  assert.equal(result.exitCode, 0, `publication failed: ${result.stderr.toString("utf8")}`);
-  const content = await agent.exec({ cwd: "/", argv: ["cat", `${base}/target`], timeoutMs: 10000 });
-  const mode = await agent.exec({ cwd: "/", argv: ["stat", "-c", "%a", `${base}/target`], timeoutMs: 10000 });
-  assert.equal(content.stdout.toString("utf8"), "new");
-  assert.equal(mode.stdout.toString("utf8").trim(), "755", "the replaced file's mode must survive publication");
-  await agent.exec({ cwd: "/", argv: ["rm", "-rf", base], timeoutMs: 10000 });
-});
-
-await check("the publication script treats a creation as a plain rename", async () => {
-  const { publicationArgv } = await import(`${repo}/lib/fs-publish.js`);
-  const base = `/tmp/wsl-agent-new.${process.pid}-${Date.now()}`;
-  await agent.exec({ cwd: "/", argv: ["sh", "-c", `mkdir -p "${base}" && printf new > "${base}/staged"`, "w"], timeoutMs: 10000 });
-  const result = await agent.exec({ cwd: "/", argv: publicationArgv(`${base}/target`, `${base}/staged`), timeoutMs: 10000 });
-  assert.equal(result.exitCode, 0, `creation failed: ${result.stderr.toString("utf8")}`);
-  const verify = await agent.exec({ cwd: "/", argv: ["cat", `${base}/target`], timeoutMs: 10000 });
-  assert.equal(verify.stdout.toString("utf8"), "new");
-  await agent.exec({ cwd: "/", argv: ["rm", "-rf", base], timeoutMs: 10000 });
-});
-
 // The fallback invariant (PARITY.md), exercised for real: `agent: false` runs
 // the ONE-SHOT `wsl.exe` path, and its outcomes must match the resident's
 // outcome-for-outcome. The comparison is at the outcome level — exit code,

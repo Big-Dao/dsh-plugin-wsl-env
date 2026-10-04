@@ -5,7 +5,7 @@
  *   node test/listing.test.mjs
  */
 import assert from "node:assert/strict";
-import { ancestryCrumbs, boundedInsert, breadcrumbs, fullyQualified } from "../lib/listing.js";
+import { ancestryCrumbs, boundedInsert, breadcrumbs, fullyQualified, lsListingArgv, parseLsListing } from "../lib/listing.js";
 import { UNC_PROVIDER_ROOT, distroRoot, isProviderRoot } from "../lib/paths.js";
 
 let passed = 0;
@@ -114,6 +114,43 @@ check("boundedInsert displaces the largest when a smaller candidate arrives", ()
     window.map((entry) => entry.name),
     ["a", "aa"],
   );
+});
+
+check("lsListingArgv lists one level with links resolved and directories marked", () => {
+  assert.deepEqual(lsListingArgv("/home/andy"), ["ls", "-1ALp", "--", "/home/andy"]);
+});
+
+check("parseLsListing keeps enterable rows and carries the UNC parent into paths", () => {
+  // `-L` folds the per-entry stat the host walk paid 9p round trips for:
+  // a symlink to a directory ends with `/`, a file never does, and a broken
+  // link is not listed at all.
+  const { rows, truncated } = parseLsListing(
+    "docs/\nnote.md\n.proj/\nZ/\n",
+    "\\\\wsl.localhost\\ubuntu\\home\\andy",
+    10,
+  );
+  assert.deepEqual(
+    rows.map((row) => row.name),
+    ["docs", ".proj", "Z"],
+  );
+  assert.equal(rows[1].hidden, true);
+  assert.equal(rows[0].hidden, false);
+  assert.equal(rows[0].path, "\\\\wsl.localhost\\ubuntu\\home\\andy\\docs");
+  assert.equal(truncated, false);
+});
+
+check("parseLsListing caps rows at maxEntries and flags the remainder", () => {
+  const { rows, truncated } = parseLsListing("a/\nb/\nc/\n", "\\\\wsl.localhost\\ubuntu\\root", 2);
+  assert.deepEqual(
+    rows.map((row) => row.name),
+    ["a", "b"],
+  );
+  assert.equal(truncated, true);
+});
+
+check("parseLsListing tolerates blank lines and an empty listing", () => {
+  assert.deepEqual(parseLsListing("", "\\\\wsl.localhost\\ubuntu", 5).rows, []);
+  assert.deepEqual(parseLsListing("\n\n", "\\\\wsl.localhost\\ubuntu", 5).rows, []);
 });
 
 console.log(`\n${passed} checks passed`);

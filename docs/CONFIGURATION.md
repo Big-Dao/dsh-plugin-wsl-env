@@ -23,8 +23,7 @@ are schema defaults, listed because they are the ones worth knowing.
 | | `restrictToDistro` | `true` *(shipped)* | refuse a path in **another distro**'s share. `/mnt/c` is a directory *inside* the pinned distro, so it is not affected. The refusal carries `FS_OUTSIDE_DISTRO`; that is not a sandbox decision, so the file tools do not offer a wider permission for it. Set `false` to allow another distro's share |
 | | `sandbox` | `true` | check `writeText` and `editText` against the policy |
 | | `maskWindowsDrive` | `false` | as on `wsl-shell`: confined fs mutations publish through a resident whose profile shadows `/mnt` (same honest limits) |
-| | `substrate` | `agent` *(shipped)* | which I/O substrate serves the file tools: `agent` — the resident in-distro agent (`lib/fs-substrate.js`), where reads, writes and identities run on ext4: native symlinks, native mode bits, and the mutation guard survives to the write's atomic publication, kernel-enforced by the confined resident when the policy is confined. `share` — the opt-out: the Windows-side host stack over the 9p share, with the symlink-retry and publication hooks. Both substrates fence writes with the same host-side policy check. See [LIMITATIONS.md](LIMITATIONS.md) for what changes between them |
-| | `resolveSymlinks` | `true` | *(share substrate only)* follow Linux symlinks that the share cannot traverse, such as `/etc/os-release` and `/bin` — the agent substrate follows them natively |
+| | `substrate` | `agent` *(shipped)* | which I/O substrate serves the file tools. Only the resident in-distro agent (`lib/fs-substrate.js`) exists: reads, writes and identities run on ext4 — native symlinks, native mode bits, and the mutation guard survives to the write's atomic publication, kernel-enforced by the confined resident when the policy is confined. The former `share` opt-out (the Windows-side host stack over the 9p share) is refused at boot; delete the line |
 | | `cwd` | `''` | base directory for relative paths; empty means the distro user's home |
 | | `watchMaxDepth` | `0` | how deep the in-distro watch scan walks; `0` walks the whole tree. Bound it (e.g. `4`) when the watched tree holds a `node_modules` — a change below the bound is seen only when another change above it fires the same callback |
 | `directory-picker-wsl` | `preferredDistro` | `''` *(shipped)* | the distro listed first in the picker |
@@ -34,6 +33,7 @@ are schema defaults, listed because they are the ones worth knowing.
 | | `shell` | `''` | pin a shell; empty lets `wsl.exe` decide |
 | | `loginShell` | `true` | whether a pinned shell uses login semantics |
 | | `hostSessions` | `true` | give a session opened on a Windows folder a host `powershell.exe` in its own directory instead of the distro shell at `/mnt/<drive>/…`; `false` restores the composition-owned distro terminal for every session |
+| | `terminalIdleReclaim` | `true` | let the controller reclaim an idle distro terminal: the launch is marked with a per-terminal `DSH_TERMINAL_ID`, and the handle's `inspectActivity` counts the marked processes through the resident agent — one (the shell at its prompt) is idle, more than one (a running command or a nested shell) is busy, `unknown` (agent out) pauses reclamation. `false` restores close-by-hand |
 
 You can override the other keys in the same way; they keep their defaults. Those are
 `wslPath`, `hostCwd` and `forwardEnv` on the shell and terminal rows,

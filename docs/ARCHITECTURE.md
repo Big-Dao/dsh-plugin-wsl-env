@@ -19,8 +19,8 @@ smaller integrations.
 | Service | Class | File | What it does |
 |---|---|---|---|
 | `ctx.shell` | `WslShellExecutor` | [`lib/index.js`](../lib/index.js) | Runs each command as `wsl.exe -d <distro> --cd <linux dir> --exec <login shell> -lc <cmd>`, wrapped in a distro-side `bwrap` sandbox. |
-| `ctx.fs` | `WslFileSystem` | [`lib/index.js`](../lib/index.js) | Serves the file tools from real distro files, on one of two I/O substrates (see below): the resident in-distro agent on ext4 (default), or the Windows-side host stack over the distro's UNC share. |
-| `ctx.subprocess` | `WslSubprocessRuntime` | [`lib/subprocess.js`](../lib/subprocess.js) | Opens the GUI terminal inside the distro, in the session workspace. |
+| `ctx.fs` | `WslFileSystem` | [`lib/index.js`](../lib/index.js) | Serves the file tools from real distro files on the resident in-distro agent, on ext4 — the former Windows-side share substrate is retired (see below). |
+| `ctx.subprocess` | `WslSubprocessRuntime` | [`lib/subprocess.js`](../lib/subprocess.js) | Opens the GUI terminal inside the distro, in the session workspace, and rewrites the file-search spawn into the distro's own rg (see below). |
 
 `WslShellExecutor` extends the shipped `LocalBashExecutor`, and `WslFileSystem`
 extends the shipped `LocalFileSystem`. Only the parts that need a distro are
@@ -30,7 +30,7 @@ overridden.
 
 | Subpath | Class or name | File | What it does |
 |---|---|---|---|
-| `dsh-plugin-wsl-env/picker` | `WslDirectoryPicker` | [`lib/picker.js`](../lib/picker.js) | Adds the installed distros to the folder picker, next to the Windows home directory. |
+| `dsh-plugin-wsl-env/picker` | `WslDirectoryPicker` | [`lib/picker.js`](../lib/picker.js) | Adds the installed distros to the folder picker, next to the Windows home directory, and lists distro levels from inside the distro (the resident's `ls`, one-shot `wsl.exe` when it is out). |
 | `dsh-plugin-wsl-env/auto-preset` | `auto-preset` | [`lib/auto-preset.js`](../lib/auto-preset.js) | Binds the `wsl` agent preset when a new session's workspace is inside a distro. |
 | `dsh-plugin-wsl-env/shell-env` | `wsl-shell-env` | [`lib/shell-env.js`](../lib/shell-env.js) | Contributes `DSH_WSL_DISTRO`, `DSH_WSL_SHELL`, and `DSH_WSL_HOME` to the managed `DSH_*` namespace. |
 
@@ -89,7 +89,7 @@ Three coordinate systems appear in the code:
 | System | Example | Used by |
 |---|---|---|
 | Linux inside the distro | `/home/you/proj/a.ts` | commands, `ctx.shell` |
-| The distro's UNC share | `\\wsl.localhost\ubuntu\home\you\proj\a.ts` | the host filesystem stack, `ctx.fs` |
+| The distro's UNC share | `\\wsl.localhost\ubuntu\home\you\proj\a.ts` | the harness's path identities (`ctx.fs` target keys), the picker and terminal routing — a coordinate, not an I/O path: no file tool reads or writes through the share |
 | The Windows filesystem | `C:\Users\you\...`, or `/mnt/c/Users/you/...` from inside | sessions opened on a Windows folder |
 
 [`lib/paths.js`](../lib/paths.js) converts between them. It is pure: it imports no
@@ -98,22 +98,35 @@ path sits under a writable root. The filesystem fence uses them.
 
 ## The filesystem substrate
 
-`wsl-fs` serves `ctx.fs` on one of two I/O substrates, chosen by
-`substrate: share | agent` (default `agent`):
+`wsl-fs` serves `ctx.fs` on one I/O substrate: the resident in-distro agent.
+The former Windows-side share backend (`substrate: "share"`) is retired — a
+profile carrying the value is refused at boot, and no file tool crosses the
+9p share. The substrate's facts:
 
-| | `agent` (default) | `share` (opt-out) |
-|---|---|---|
-| Reads, writes, identities | the resident in-distro agent, on ext4 | the Windows-side host stack (`dsh-fs-local`) over the distro's 9p share |
-| Symlinks | native; every identity is a distro-side `realpath` | the share cannot traverse them, so a missing read is retried once through the distro's canonical path |
-| Mode bits | native; the publication rename is the kernel's | the share drops a host-side chmod, so publication re-applies the mode from inside the distro before an atomic rename |
-| Guarded creates | the guard is forwarded; publication is a no-replace link, closing the check-then-write window for creates. An overwrite or edit carries its version into the write op and the agent re-verifies it one syscall before the rename — a concurrent writer wins, the stale write refuses with `FS_STALE_VERSION` | checked, then published without a guard (the share has no hard links) |
-| Kernel enforcement | stage two: a mutation runs on a confined resident — one long-lived agent per (distro, policy), whose bwrap profile binds exactly what the mode grants — so the kernel refuses what the check would have, and a check bug cannot become a write outside the workspace. Escalated writes (`danger-full-access`) ride the plain resident. A kernel refusal carries `FS_SANDBOX_DENIED`, the same dialect as the command path. | none: the fence is the host-side check |
-| New files | 0600 — the host backend's own POSIX publication semantics, as on a Linux host | the distro's umask default (0644) |
-| Agent outage | `FS_IO_ERROR` naming the substrate; no silent fallback to the share. A distro without usable bwrap refuses confined mutations with the bootstrap command, the same closed failure the command path has | not applicable |
+- **Reads, writes, identities** run on ext4 through the resident; symlinks and
+  mode bits are native (every identity is a distro-side `realpath`; the
+  publication rename is the kernel's).
+- **Guarded writes** carry their intent to the publication: a `createIfAbsent`
+  publishes with a no-replace link, closing the check-then-write window for
+  creates outright; an overwrite or edit carries its version into the write op
+  and the agent re-verifies it one syscall before the rename — a concurrent
+  writer wins, the stale write refuses with `FS_STALE_VERSION`.
+- **Kernel enforcement** is stage two: a mutation runs on a confined resident —
+  one long-lived agent per (distro, policy), whose bwrap profile binds exactly
+  what the mode grants — so the kernel refuses what the check would have, and a
+  check bug cannot become a write outside the workspace. Escalated writes
+  (`danger-full-access`) ride the plain resident. A kernel refusal carries
+  `FS_SANDBOX_DENIED`, the same dialect as the command path.
+- **New files** publish 0600 — the host backend's own POSIX publication
+  semantics, as on a Linux host.
+- **Agent outage** fails closed: `FS_IO_ERROR` naming the substrate and the
+  recovery path. There is no fallback I/O; a distro without usable bwrap
+  refuses confined mutations with the bootstrap command, the same closed
+  failure the command path has.
 
-Both substrates fence writes with the same host-side policy check
-(`checkedTarget`), and neither changes what `sandboxMode` reports. The wire
-protocol the agent substrate speaks is documented in
+Writes fence with the same host-side policy check (`checkedTarget`) the
+command path uses, and the substrate does not change what `sandboxMode`
+reports. The wire protocol the substrate speaks is documented in
 [`agent/wsl-agent.sh`](../agent/wsl-agent.sh); the orchestration layers are
 [`lib/fsio-agent.js`](../lib/fsio-agent.js) (fsio's mechanics over the FS
 frames), [`lib/fs-substrate.js`](../lib/fs-substrate.js) (the provider-shaped

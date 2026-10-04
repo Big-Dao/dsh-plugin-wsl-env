@@ -13,10 +13,10 @@
 import assert from "node:assert/strict";
 import { FsCodedError } from "../lib/fsio-text.js";
 import {
-  guardRefusal,
   isConfinedMutation,
   mutationModeRefusal,
   outsideDistroRefusal,
+  shareSubstrateRefusal,
   substrateFailure,
   workspaceWriteDenial,
 } from "../lib/fs-decisions.js";
@@ -83,35 +83,6 @@ check("workspaceWriteDenial is the containment refusal", () => {
   assert.equal(denial.message, 'cannot write "/etc/hosts": file access denied under workspace-write mode');
 });
 
-check("guardRefusal refuses the stale intents with the peer's wording", () => {
-  const vanished = guardRefusal(
-    { kind: "replaceIfVersion", version: "v1" },
-    undefined,
-    "/home/andy/f.txt",
-  );
-  assert.equal(vanished.code, "FS_STALE_VERSION");
-  assert.equal(vanished.message, 'cannot write "/home/andy/f.txt": file no longer exists');
-
-  const stale = guardRefusal(
-    { kind: "replaceIfVersion", version: "v1" },
-    { version: "v2" },
-    "/home/andy/f.txt",
-  );
-  assert.equal(stale.code, "FS_STALE_VERSION");
-  assert.equal(stale.message, 'cannot write "/home/andy/f.txt": file changed since it was read');
-
-  const current = guardRefusal({ kind: "replaceIfVersion", version: "v2" }, { version: "v2" }, "/home/andy/f.txt");
-  assert.equal(current, null, "a current version proceeds");
-});
-
-check("guardRefusal refuses an unobserved create and passes an unguarded write", () => {
-  const unobserved = guardRefusal({ kind: "createIfAbsent" }, { version: "v1" }, "/home/andy/new.txt");
-  assert.equal(unobserved.code, "FS_NOT_OBSERVED");
-  assert.equal(unobserved.message, 'cannot overwrite existing "/home/andy/new.txt" without reading it first');
-  assert.equal(guardRefusal({ kind: "createIfAbsent" }, undefined, "/home/andy/new.txt"), null, "the absent create proceeds");
-  assert.equal(guardRefusal(undefined, { version: "v1" }, "/home/andy/f.txt"), null, "no intent means no guard");
-});
-
 check("substrateFailure keeps a coded refusal byte-for-byte and wraps everything else", () => {
   const coded = new FsCodedError('cannot write "/x": it already exists', "FS_NOT_OBSERVED");
   const kept = substrateFailure(coded);
@@ -121,12 +92,22 @@ check("substrateFailure keeps a coded refusal byte-for-byte and wraps everything
   const wrapped = substrateFailure(plain);
   assert.equal(wrapped.code, "FS_IO_ERROR");
   assert.match(wrapped.message, /the distro file substrate is unavailable: wsl\.exe blew up/);
-  assert.match(wrapped.message, /substrate: \\"share\\"/, "the failure names the documented opt-out");
+  assert.match(wrapped.message, /wsl\.exe -l -v/, "the failure names the recovery path, not a share opt-out");
+  assert.doesNotMatch(wrapped.message, /share/, "the retired substrate is not offered as a way out");
   assert.equal(wrapped.cause, plain, "the cause survives for the tool layer");
 
   const stringError = substrateFailure("a string failure");
-  assert.match(stringError.message, /unavailable: a string failure\. Set/);
+  assert.match(stringError.message, /unavailable: a string failure\. The resident agent/);
   assert.equal(stringError.cause, undefined, "a non-Error carries no cause");
+});
+
+check("shareSubstrateRefusal refuses the retired substrate and admits the agent", () => {
+  const refusal = shareSubstrateRefusal("share");
+  assert.match(refusal.message, /substrate "share" is no longer available/);
+  assert.match(refusal.message, /9p share/, "the migration says what retired and why");
+  assert.match(refusal.message, /Delete the substrate line/, "the migration names the fix");
+  assert.equal(shareSubstrateRefusal("agent"), null, "the agent substrate proceeds");
+  assert.equal(shareSubstrateRefusal(undefined), null, "an unset substrate proceeds");
 });
 
 for (const [name, fn] of checks) await runCheck(name, fn);

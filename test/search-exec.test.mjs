@@ -1,0 +1,163 @@
+/**
+ * Assertion checks for the agent-backed search handle — the facade that runs
+ * the file-search command on the warm resident and degrades to the caller's
+ * one-shot handle when the agent is out. Pure shaping over injected
+ * collaborators, so every outcome is reachable without a distro.
+ *
+ * Not covered here: the provider wiring that builds the handle
+ * (`lib/subprocess.js` imports the DSH peers) — that remains the probes'
+ * territory.
+ *
+ *   node test/search-exec.test.mjs
+ */
+import assert from "node:assert/strict";
+import { AgentUnavailableError } from "../lib/agent-errors.js";
+import { searchExecutionHandle } from "../lib/search-exec.js";
+
+let passed = 0;
+const checks = [];
+const check = (name, fn) => checks.push([name, fn]);
+const runCheck = async (name, fn) => {
+  try {
+    await fn();
+    passed += 1;
+    console.log(`PASS  ${name}`);
+  } catch (error) {
+    console.log(`FAIL  ${name}\n      ${error.message}`);
+    process.exitCode = 1;
+  }
+};
+
+const CWD = "/home/andy/proj";
+const ARGV = ["rg", "--json", "--regexp=hole", "--", "."];
+
+/** A fake resident: records exec options, resolves from a script. */
+function fakeAgent(script) {
+  const calls = [];
+  return {
+    calls,
+    exec(options) {
+      calls.push(options);
+      const [outcome] = script.splice(0, 1);
+      if (outcome instanceof Error) return Promise.reject(outcome);
+      if (outcome instanceof Function) return outcome(options);
+      return Promise.resolve(outcome);
+    },
+  };
+}
+
+check("a successful agent exec fills collected and reports the exit code", async () => {
+  const agent = fakeAgent([{ exitCode: 0, stdout: Buffer.from("alpha\nbeta\n"), stderr: Buffer.alloc(0) }]);
+  const handle = searchExecutionHandle({ agent, cwd: CWD, argv: ARGV, maxOutputBytes: 4096 });
+  const outcome = await handle.done;
+  assert.deepEqual(outcome, { exitCode: 0, signal: null });
+  const stdout = handle.collected.stdout.readFrom(0);
+  assert.equal(stdout.text, "alpha\nbeta\n");
+  assert.equal(stdout.lossy, false);
+  assert.equal(handle.collected.stderr.readFrom(0).text, "");
+  assert.equal(agent.calls.length, 1);
+  assert.equal(agent.calls[0].cwd, CWD);
+  assert.deepEqual(agent.calls[0].argv, ARGV);
+  assert.equal(agent.calls[0].maxOutputBytes, 4096);
+  assert.ok(agent.calls[0].signal instanceof AbortSignal, "the exec rides the handle's kill channel");
+});
+
+check("readFrom consumes incrementally and clamps past the end", async () => {
+  const agent = fakeAgent([{ exitCode: 0, stdout: Buffer.from("one\ntwo\n"), stderr: Buffer.alloc(0) }]);
+  const handle = searchExecutionHandle({ agent, cwd: CWD, argv: ARGV });
+  await handle.done;
+  const first = handle.collected.stdout.readFrom(0);
+  assert.equal(first.text, "one\ntwo\n");
+  assert.equal(handle.collected.stdout.readFrom(first.nextOffset).text, "", "the second read continues at the offset");
+  assert.equal(handle.collected.stdout.readFrom(9999).text, "", "a read past the end is empty, not a throw");
+});
+
+check("rg's no-matches exit code rides through untouched", async () => {
+  const agent = fakeAgent([{ exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }]);
+  const handle = searchExecutionHandle({ agent, cwd: CWD, argv: ARGV });
+  const outcome = await handle.done;
+  assert.deepEqual(outcome, { exitCode: 1, signal: null }, "1 is the tool's no-matches dialect, not a failure");
+});
+
+check("an out agent falls back to the delegate and proxies it", async () => {
+  const agent = fakeAgent([new AgentUnavailableError("the resident is out")]);
+  let fallbacks = 0;
+  const delegateCollected = { stdout: { readFrom: () => ({ text: "delegated", lossy: false, nextOffset: 9 }) } };
+  const handle = searchExecutionHandle({
+    agent,
+    cwd: CWD,
+    argv: ARGV,
+    spawnFallback: () => {
+      fallbacks += 1;
+      return {
+        done: Promise.resolve({ exitCode: 0, signal: null }),
+        collected: delegateCollected,
+        kill() {},
+      };
+    },
+  });
+  const outcome = await handle.done;
+  assert.equal(fallbacks, 1, "the delegate is built lazily, once");
+  assert.deepEqual(outcome, { exitCode: 0, signal: null });
+  assert.equal(handle.collected, delegateCollected, "collected proxies the delegate verbatim");
+});
+
+check("a genuine agent failure propagates through done", async () => {
+  const failure = new Error("the workdir vanished");
+  const agent = fakeAgent([failure]);
+  const handle = searchExecutionHandle({ agent, cwd: CWD, argv: ARGV, spawnFallback: () => assert.fail("must not fall back") });
+  await assert.rejects(handle.done, (error) => error === failure);
+});
+
+check("a cancelled search settles as killed, not failed", async () => {
+  const controller = new AbortController();
+  const agent = fakeAgent([
+    (options) =>
+      new Promise((_resolve, reject) => {
+        options.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+      }),
+  ]);
+  const handle = searchExecutionHandle({ agent, cwd: CWD, argv: ARGV, signal: controller.signal });
+  controller.abort(new Error("tool timeout"));
+  const outcome = await handle.done;
+  assert.deepEqual(outcome, { exitCode: null, signal: "SIGTERM" });
+});
+
+check("kill() aborts a running agent exec", async () => {
+  const agent = fakeAgent([
+    (options) =>
+      new Promise((_resolve, reject) => {
+        options.signal?.addEventListener("abort", () => reject(new Error("killed")), { once: true });
+      }),
+  ]);
+  const handle = searchExecutionHandle({ agent, cwd: CWD, argv: ARGV });
+  assert.equal(handle.kill(), undefined, "kill is fire-and-forget");
+  const outcome = await handle.done;
+  assert.deepEqual(outcome, { exitCode: null, signal: "SIGTERM" });
+});
+
+check("kill() reaches the delegate once the fallback is active", async () => {
+  const agent = fakeAgent([new AgentUnavailableError("out")]);
+  let delegateKilled = 0;
+  const handle = searchExecutionHandle({
+    agent,
+    cwd: CWD,
+    argv: ARGV,
+    spawnFallback: () => ({
+      done: new Promise(() => {}),
+      collected: {},
+      kill() {
+        delegateKilled += 1;
+      },
+    }),
+  });
+  const settled = handle.done.catch(() => "pending");
+  await Promise.resolve();
+  handle.kill();
+  assert.equal(delegateKilled, 1, "the delegate's kill is forwarded");
+  void settled;
+});
+
+for (const [name, fn] of checks) await runCheck(name, fn);
+
+console.log(`\n${passed} search-exec checks pass`);

@@ -21,6 +21,13 @@ Not applicable, recorded so the gap is a decision and not an omission:
 - Settings Sync, Remote-SSH tunnel chaining, Codespaces: composition-layer
   responsibilities, not this plugin's.
 
+> **Update (2026-10-04).** The plan's transitional invariant — `wsl.agent:
+> false` must equal the pre-agent share-backed behaviour — is superseded: the
+> share substrate is refused at construction, and the search spawn rides the
+> distro's rg. The share is no longer a fallback path of this plugin; the
+> only fallbacks left are transport-level (one-shot `wsl.exe` where the
+> resident agent is out), never share I/O.
+
 ## Contract audit (Phase 0)
 
 Findings from reading the harness packages inside the app bundle; each one
@@ -40,10 +47,17 @@ shaped a phase of the plan.
    distro's share, rewrite the spawn to run a distro-side `rg` (falling back
    to `grep -rE` + `find` when absent) with identical stdout conventions.
    Under the agent, that exec rides the agent's `exec` capability.
-   **Not implemented, and recorded so the gap is a decision, not an
-   omission:** search still runs the packaged Windows rg over the share. The
-   interception was designed (above) but never landed; nothing in the phase
-   table below delivers it, and no phase claims it.
+   **LANDED (2026-10-04), as the design above has it:** `WslSubprocessRuntime`
+   .`spawn` performs the rewrite, the decision living in `lib/search-route.js`,
+   and the exec rides the agent's `exec` capability — Phase 1's resident —
+   through the minimal handle facade of `lib/search-exec.js` (the spawn seam
+   returns its handle synchronously, so the facade degrades inside `done`),
+   with the one-shot `wsl.exe --exec` handle as the fallback when the agent is
+   out. The `grep -rE` fallback is NOT implemented — grep does not read
+   `.gitignore`, so it is not an rg substitute; a missing distro rg surfaces
+   rg's own exit 127 with a bootstrap pointer instead. With the share
+   substrate retired the same day, no model-facing search crosses the 9p
+   share at all.
 3. **`dsh-fs-local` watches with chokidar over the share** — the behaviour
    this plugin replaces: chokidar on 9p is the unreliability that made
    `WslFileSystem.watch` refuse. The in-distro watcher replaces it wholesale.

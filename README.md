@@ -57,11 +57,11 @@ Override a row by id in `$DSH_HOME/profiles/<name>/cordis.patch.yml`. The keys w
 | `wsl-fs` | `distro` | `''` | as above |
 | | `restrictToDistro` | `true` | refuse a path in **another distro**'s share; `/mnt/c` is inside this distro and is not affected. Refused with `FS_OUTSIDE_DISTRO`, which is not a sandbox denial and cannot be lifted by wider permissions |
 | | `sandbox` | `true` | check `writeText` and `editText` against the policy |
-| | `substrate` | `agent` | which I/O substrate serves the file tools: `agent` — the resident in-distro agent, where reads, writes and identities run on ext4 (native symlinks and mode bits; the write guard survives to publication, kernel-enforced under a confined policy); `share` — the opt-out: the Windows-side host stack over the 9p share. Both fence writes with the same policy; see [LIMITATIONS.md](docs/LIMITATIONS.md) for what changes |
+| | `substrate` | `agent` | which I/O substrate serves the file tools. Only the resident in-distro agent remains: reads, writes and identities run on ext4 (native symlinks and mode bits; the write guard survives to publication, kernel-enforced under a confined policy). The former `"share"` opt-out — the Windows-side host stack over the 9p share — is refused at boot; no file tool crosses the share |
 | `directory-picker-wsl` | `includeHostHome` | `true` | also list the Windows home directory |
 | `subprocess-wsl` | `distro` | `''` | which distro the GUI terminal opens in |
 
-[`cordis.patch.yml`](cordis.patch.yml) is the commented reference for every shipped value. [docs/CONFIGURATION.md](docs/CONFIGURATION.md) lists the rest, including `shell`, `loginShell`, `cwd`, `timeoutMs`, `resolveSymlinks`, `preferredDistro` and `maxEntries`; [examples/profile.cordis.patch.yml](examples/profile.cordis.patch.yml) is a machine-local layer to copy from.
+[`cordis.patch.yml`](cordis.patch.yml) is the commented reference for every shipped value. [docs/CONFIGURATION.md](docs/CONFIGURATION.md) lists the rest, including `shell`, `loginShell`, `cwd`, `timeoutMs`, `preferredDistro` and `maxEntries`; [examples/profile.cordis.patch.yml](examples/profile.cordis.patch.yml) is a machine-local layer to copy from.
 
 ## Recipes
 
@@ -100,7 +100,7 @@ preset-wsl (the wsl agent preset; its services run in isolate realms)
 
 **Why two levels.** `wsl-shell` and `wsl-fs` live inside the `wsl` agent preset, which `auto-preset` binds whenever a session's workspace is inside the distro: a Windows-folder session keeps the stock providers, a distro session gets the WSL ones — the environment is a property of the session, not of the process. The terminal controller is the exception: it resolves its execution world through the root context, which never sees a preset's isolate realms, so `subprocess-wsl` sits at the composition level instead.
 
-**Commands and files.** A command runs as `wsl.exe -d <distro> --cd <linux dir> --exec <login shell> -lc <cmd>` inside a distro-side bubblewrap profile assembled with the same arguments as DSH's own Linux runner, so confinement semantics and error messages match a Linux host. The file tools read and write real distro files on one of two substrates: the default `agent` — a resident in-distro process, where reads, writes and identities run on ext4 with native symlinks and mode bits — or `share`, the opt-out: the Windows-side host stack over the 9p share. Both check writes against the same policy the command sandbox enforces.
+**Commands and files.** A command runs as `wsl.exe -d <distro> --cd <linux dir> --exec <login shell> -lc <cmd>` inside a distro-side bubblewrap profile assembled with the same arguments as DSH's own Linux runner, so confinement semantics and error messages match a Linux host. The file tools read and write real distro files on the resident in-distro agent — reads, writes and identities run on ext4 with native symlinks and mode bits — and the file-search spawn is rewritten the same way: a search over a distro workspace runs the distro's own `rg` (`wsl.exe --exec`), never the Windows binary over the 9p share. Writes are checked against the same policy the command sandbox enforces.
 
 ## Sandbox
 
@@ -129,8 +129,8 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#sandbox) for the design, and [do
 | the terminal still opens `cmd.exe` | the `terminal-controller` row from the layer did not apply | check that `dsh --profile wsl --dump-config` shows `shell: { path: wsl.exe, name: WSL }` |
 | changes to `lib/` have no effect | ES module cache | restart the app |
 | `link:\\wsl.localhost\...` leaves a broken symlink | pnpm cannot link a UNC path | link a Windows path instead; developing inside the distro needs the runtime mirror, see [Development](#development) |
-| `glob` and `grep` are slow | the Windows-side ripgrep walks the 9p share | expected; narrow the path, or use `bash` to call tools inside the distro |
-| the terminal reports `unknown` activity | shell integration only covers `bash`/`zsh` started directly on a POSIX host | close the tab to release the process; idle reclamation does not run for these terminals |
+| `glob` and `grep` are slow | a distro search without rg inside the distro falls back to rg's own "command not found"; a Windows-folder search is native and unaffected | run `npm run bootstrap -- <distro> --install` (installs ripgrep); distro searches always run the distro's rg — they never walk the 9p share |
+| the terminal reports `unknown` activity | only while the resident agent is out — distro terminals are observed from inside the distro (a `DSH_TERMINAL_ID` marker scanned in `/proc`: a shell alone is `idle`, a shell running anything is `busy`) | check the distro is running; idle terminals are reclaimed automatically after the controller's unattended timeout (2 h by default), and `terminalIdleReclaim: false` restores the close-by-hand posture |
 | a result names an `FS_*` code | the code says what refused it, and what clears it | see the error-code table in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#error-codes) |
 
 ## Development

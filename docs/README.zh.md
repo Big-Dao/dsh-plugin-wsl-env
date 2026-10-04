@@ -57,11 +57,11 @@ dsh --profile wsl                                  # 4. 启动
 | `wsl-fs` | `distro` | `''` | 同上 |
 | | `restrictToDistro` | `true` | 拒绝指向**其它子系统**共享的路径；`/mnt/c` 属于本子系统内部，不受影响。拒绝码为 `FS_OUTSIDE_DISTRO`，它不是沙箱拒绝，放宽权限也无法解除 |
 | | `sandbox` | `true` | 写入时按策略检查 `writeText` 和 `editText` |
-| | `substrate` | `agent` | 文件工具使用哪种 I/O 基座：`agent` —— 常驻子系统内代理，读写与路径解析直接在 ext4 上完成（原生符号链接、原生权限位，写入 guard 存活到发布时刻，受限策略下由内核强制）；`share` —— 退出项：Windows 侧宿主文件栈走 9p 共享。两种基座使用同一策略围栏；差异详见 [LIMITATIONS.md](LIMITATIONS.md) |
+| | `substrate` | `agent` | 文件工具使用哪种 I/O 基座。只剩常驻子系统内代理一种：读写与路径解析直接在 ext4 上完成（原生符号链接、原生权限位，写入 guard 存活到发布时刻，受限策略下由内核强制）。原 `"share"` 退出项——Windows 侧宿主文件栈走 9p 共享——已在启动时拒绝，文件工具不再经过共享 |
 | `directory-picker-wsl` | `includeHostHome` | `true` | 同时列出 Windows 家目录 |
 | `subprocess-wsl` | `distro` | `''` | GUI 终端开在哪个子系统 |
 
-[`cordis.patch.yml`](../cordis.patch.yml) 是每个随包值的注释参考。[docs/CONFIGURATION.md](CONFIGURATION.md) 列出其余键，包括 `shell`、`loginShell`、`cwd`、`timeoutMs`、`resolveSymlinks`、`preferredDistro` 和 `maxEntries`；[examples/profile.cordis.patch.yml](../examples/profile.cordis.patch.yml) 是一份可照抄的本机层。
+[`cordis.patch.yml`](../cordis.patch.yml) 是每个随包值的注释参考。[docs/CONFIGURATION.md](CONFIGURATION.md) 列出其余键，包括 `shell`、`loginShell`、`cwd`、`timeoutMs`、`preferredDistro` 和 `maxEntries`；[examples/profile.cordis.patch.yml](../examples/profile.cordis.patch.yml) 是一份可照抄的本机层。
 
 ## 配方
 
@@ -86,12 +86,12 @@ dsh --profile wsl                                  # 4. 启动
 
 preset-wsl（wsl agent preset；其服务运行在 isolate realm 内）
 ├─ wsl-shell   ctx.shell — wsl.exe --exec <登录 shell>，在子系统内经 bubblewrap 约束
-└─ wsl-fs      ctx.fs    — 子系统的真实文件；agent 基座落在 ext4，或走 9p 共享
+└─ wsl-fs      ctx.fs    — 子系统的真实文件；常驻代理基座落在 ext4
 ```
 
 **为什么分两层。** `wsl-shell` 和 `wsl-fs` 位于 `wsl` agent preset 内，`auto-preset` 在会话工作区位于子系统内时自动绑定它：Windows 目录的会话继续使用原生 provider，子系统会话拿到 WSL provider——环境是会话的属性，而不是进程的。终端控制器是例外：它经根上下文解析执行世界，永远看不到 preset 的 isolate realm，所以 `subprocess-wsl` 必须挂在组合层。
 
-**命令与文件。** 命令以 `wsl.exe -d <子系统> --cd <Linux 目录> --exec <登录 shell> -lc <命令>` 执行，外层是子系统内的 bubblewrap profile，参数与 DSH 自家 Linux runner 完全一致——约束语义与报错文案都和 Linux 主机相同。文件工具读写子系统的真实文件，基座二选一：默认 `agent`——常驻子系统内的进程，读写与路径解析落在 ext4，原生符号链接与权限位；或 `share`——退出项：Windows 侧宿主文件栈走 9p 共享。两个基座与命令沙箱使用同一份策略检查写入。
+**命令与文件。** 命令以 `wsl.exe -d <子系统> --cd <Linux 目录> --exec <登录 shell> -lc <命令>` 执行，外层是子系统内的 bubblewrap profile，参数与 DSH 自家 Linux runner 完全一致——约束语义与报错文案都和 Linux 主机相同。文件工具读写子系统的真实文件，基座只有常驻子系统内代理一种——读写与路径解析落在 ext4，原生符号链接与权限位；文件搜索的 spawn 以同样的方式改写：子系统工作区的搜索跑子系统自己的 `rg`（`wsl.exe --exec`），绝不让 Windows 侧二进制走 9p 共享。写入与命令沙箱使用同一份策略检查。
 
 ## 沙箱
 
@@ -120,8 +120,8 @@ preset-wsl（wsl agent preset；其服务运行在 isolate realm 内）
 | 终端打开后仍然是 `cmd.exe` | 这一层里的 `terminal-controller` 行没有生效 | 用 `dsh --profile wsl --dump-config` 确认能看到 `shell: { path: wsl.exe, name: WSL }` |
 | 改了 `lib/` 但不生效 | ES module 缓存 | 重启应用 |
 | 用 `link:\\wsl.localhost\...` 安装后符号链接是坏的 | pnpm 无法链接 UNC 路径 | 改成链接 Windows 路径；在子系统内开发时用运行时镜像，见[开发](#开发) |
-| `glob`/`grep` 很慢 | Windows 侧的 ripgrep 在 9p 共享上遍历 | 属于预期，收窄搜索路径，或改用 `bash` 调用子系统内的工具 |
-| 终端活动显示 `unknown` | 官方 shell 集成只对 POSIX 主机上直接启动的 `bash`/`zsh` 生效 | 关闭标签页以释放进程；空闲回收不会对它触发 |
+| `glob`/`grep` 很慢 | 子系统内没有 rg 时，搜索只能报 rg 自己的 "command not found"；Windows 目录的搜索走宿主原生 rg，不受影响 | 运行 `npm run bootstrap -- <子系统> --install`（安装 ripgrep）；子系统工作区的搜索始终跑子系统内的 rg，绝不遍历 9p 共享 |
+| 终端活动显示 `unknown` | 仅在常驻代理不可用时出现——distro 终端从子系统内部观测（`/proc` 中扫描 `DSH_TERMINAL_ID` 标记：shell 独处为 `idle`，运行任何命令为 `busy`） | 确认子系统在运行；空闲终端会在控制器的无人值守超时（默认 2 小时）后自动回收，`terminalIdleReclaim: false` 恢复手动关闭 |
 | 结果里出现 `FS_*` 码 | 码本身说明了是谁拒绝的、以及怎样解除 | 见 [docs/ARCHITECTURE.md](ARCHITECTURE.md#error-codes) 的错误码表 |
 
 ## 开发

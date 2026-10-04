@@ -12,6 +12,87 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+One theme: the 9p share is out of the model's reach. Two changes land together
+because they close the same measured gap — the file-search spawn was the one
+model-facing I/O path that still crossed the share, in its slow direction
+(~2 s per search where the distro's own rg answers in single-digit
+milliseconds; `\\wsl.localhost` metadata round trips at ~17 ms per file), and
+the share substrate was the configured way back onto that path.
+
+### Added
+
+- **The directory picker lists distro levels from inside the distro.** A level
+  under `\\wsl.localhost\<distro>` is served by the resident agent's
+  `ls -1ALp` in one round trip — a one-shot `wsl.exe --exec ls` when the
+  resident is out, never the host's 9p walk, which paid one metadata round
+  trip per entry plus one more per symlink, in the share's slow direction.
+  `-L` folds the per-entry symlink stat the host walk used to pay; `-p`'s
+  trailing `/` is what the row parser keys on, and a broken link drops out
+  exactly as the old per-entry `stat` dropped it. `createDirectory` follows
+  the same route (`mkdir` through the agent, one-shot otherwise). The parse
+  is the pure `parseLsListing`/`lsListingArgv` pair in `lib/listing.js`
+  (`test/listing.test.mjs`); the accepted limitation — a filename containing
+  a newline would split into two rows — is documented in LIMITATIONS.md.
+- **The file search runs the distro's own rg.** `WslSubprocessRuntime` now
+  overrides `spawn` beside `spawnTerminal`: a spawn of the packaged ripgrep
+  binary whose working directory names a distro (a `\\wsl.localhost\<distro>`
+  UNC — the form every distro workspace search carries) is rewritten into
+  `wsl.exe -d <distro> --cd <linux dir> --exec rg …` with every argument
+  forwarded verbatim, so the tool reads the distro rg's output format and exit
+  codes unchanged. The decision is the peer-free `lib/search-route.js`
+  (mirroring `terminal-route.js`), and the rewrite delegates to the shipped
+  spawn — the handle still wraps a real host process, so the consumer's output
+  budget, spill machinery and teardown all work unchanged. One guard rides
+  the rewrite: when the tool named no search path (its pattern rides
+  `--regexp=`; a bare `--` is how it spells a path), the rewrite appends
+  `-- .` — because `wsl.exe --exec` hands distro-side rg a relay fifo on
+  stdin, and rg's readable-stdin heuristic then searches stdin instead of the
+  directory. The packaged binary saw a non-readable NUL stdin under the old
+  path, which is why the heuristic never fired there. A drive-path
+  directory keeps the host binary, which is native there; a distro without rg
+  surfaces rg's own "command not found" (exit 127) instead of a silent fall
+  back to the share — `npm run bootstrap -- <distro> --install` installs it.
+  There is no 9p path left to fall back to, by design. (`test/search-route.test.mjs`.)
+- **The search rides the warm resident, not a one-shot spawn.** The rewrite's
+  distro command is exec'd by the resident agent — one round trip (~10 ms)
+  instead of a `wsl.exe` process startup (~400 ms) per search. The tool's
+  handle surface is small (`done` plus `collected`), and `lib/search-exec.js`
+  builds exactly that facade: the agent's out state is the lazy fallback cue,
+  delegating to the one-shot `wsl.exe --exec` handle inside `done` — never an
+  error, never the share. The tool's output budget rides the agent's
+  per-stream capture cap; cancellation and `kill()` abort the agent exec and
+  settle as the killed outcome the one-shot path reports.
+  (`test/search-exec.test.mjs`.)
+- **Idle distro terminals are reclaimed.** The controller reclaims an
+  unattended terminal after 2 h of observed idleness, but its observation is
+  host-side and a distro terminal can never answer it: the shipped
+  shell-activity integration is gated to interactive `bash`/`zsh` launched
+  directly on a POSIX host, every branch of `inspectActivity` settles on
+  `unknown` for a `wsl.exe` terminal, and `unknown` never accumulates idle —
+  so distro terminals had to be closed by hand. The terminal is now marked at
+  launch (a per-terminal `DSH_TERMINAL_ID` through the existing `WSLENV`
+  forwarding) and its `inspectActivity` counts the marked processes through
+  the resident agent: exactly one (the shell at its prompt) is idle, more
+  than one (a running command or a nested shell) is busy, and the agent
+  being out answers `unknown` — reclamation pauses, because a probe that
+  cannot answer must not authorize a close. A nested shell keeps the
+  terminal busy by design, as does anything a shell's startup files spawn
+  with the inherited marker. `terminalIdleReclaim: false` restores
+  close-by-hand. (`lib/terminal-activity.js`, `test/terminal-activity.test.mjs`.)
+
+### Breaking changes
+
+- **`substrate: "share"` is refused at construction.** The Windows-side share
+  backend was the file tools' opt-out onto the 9p share; the resident agent
+  serves every distro read and write, and no file tool crosses the share any
+  more. A profile still carrying the value fails to boot with the migration
+  (`shareSubstrateRefusal`): delete the `substrate` line or set it to
+  `"agent"`. The failure message for an agent that is out
+  (`substrateFailure`) no longer offers the share as a way out and names the
+  recovery path instead. The share-only plumbing (the symlink retry, the 9p
+  publication hooks, and the `agent` and `resolveSymlinks` keys that gated
+  them) is removed with this change — `lib/fs-publish.js` with it.
+
 ## [0.6.0] - 2026-10-04
 
 One theme: the P2 backlog from the 2026-10-03 review, closed with the same

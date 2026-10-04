@@ -12,6 +12,13 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-05
+
+One theme: the root-plane routing lands - and the composition that
+silently dropped it and the workspace-files takeover is repaired and
+pinned by a test that runs the plugin's real patch file through the
+loader's real patch algorithm.
+
 ### Added
 
 - **The root-plane filesystem routes by coordinate.** The root `ctx.fs`
@@ -23,6 +30,31 @@ reference below points at that record's numbering.
   round: the root plane has no write consumers (the model's writes ride the
   preset filesystems, which enforce their own containment). Design note:
   `docs/root-fs-routing.md`.
+
+### Fixed
+
+- **The 0.7.1 composition never mounted what it announced.** The
+  `workspace-files` disable, the `fs-sandbox` disable, and both replacement
+  rows were written inside a bare `insert:` list — but a patch layer is a
+  flat list: an `insert` list is data to append, never nested patches. The
+  loader therefore mounted the two disable rows as duplicate-id anonymous
+  entries that *shadowed the real upstream rows* (`EntryGroup.update` keys
+  rows by id, last occurrence wins): the running app had no root `ctx.fs`
+  and no GUI file-tree service at all, while `fs-routing` and
+  `workspace-files-wsl` - trapped inside nested `insert:` lists - never
+  started. Opening a distro workspace failed accordingly. Both takeovers are
+  now top-level entries: disable by id, then append the replacement with a
+  bare insert. `test/composition.test.mjs` runs the plugin's actual patch
+  file through the loader's actual `applyEntryPatches` over stand-in
+  upstream rows, asserting every composed row is a real named entry, ids
+  stay unique, the shipped rows are disabled under their own names, and
+  both replacements mount - the shape cannot regress silently again.
+- The terminal-activity live check marked its shell with a runtime
+  `export`, which `/proc/<pid>/environ` never shows (it reflects the
+  exec-time block only), so the probe could never count past one and the
+  busy assertion failed deterministically. The marker now rides the spawn
+  environment - what `wsl.exe` does when it imports `DSH_TERMINAL_ID`
+  before `--exec`.
 
 ## [0.7.1] - 2026-10-04
 

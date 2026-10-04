@@ -74,7 +74,7 @@ Override a row by id in `$DSH_HOME/profiles/<name>/cordis.patch.yml`. The keys w
   (`/home/...`) on the distro's own ext4. `/mnt/c` reaches the Windows disk over
   9p — noticeably slow for many small files; keep heavy-IO projects on the
   distro filesystem. `npm run bootstrap -- <distro>` also reports whether
-  ripgrep and inotifywait (the search and watch backends) are in place.
+  ripgrep, git and inotifywait (the search, snapshot and watch backends) are in place.
 - **WSLENV passthrough**: WSL imports only the variables listed in `WSLENV`.
   This plugin admits the managed `DSH_*` namespace by prefix, translating the
   two Windows-path ones (`DSH_HOME`, `DSH_PROFILE_DIR`) with `/p`. `PATH` is

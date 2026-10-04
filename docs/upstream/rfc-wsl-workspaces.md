@@ -120,6 +120,25 @@ observation, and directory-picker integration. It exists mostly as evidence
 that Direction B is reachable incrementally, and as a source of live
 measurements and probes; happy to contribute either.
 
+## Addendum: two seams the inventory points at
+
+Implementing Direction B incrementally (as the third-party plugin does)
+surfaced two places where a small upstream seam would let a provider serve
+UNC workspaces without per-consumer patches:
+
+1. **The `@` completion traversal.** `file-reference-local` walks the
+   workspace with `node:fs/promises` readdir/lstat through two
+   module-internal functions (`readDirectory`, `readWorkspaceRoot`) that
+   funnel all traversal. Exposing them as an injectable strategy is a
+   ~10-line change and would let a provider answer completions with a
+   distro-side `find` instead of a 9P walk.
+2. **A coordinate-routing root filesystem.** Several root consumers
+   (`workspace-files`, `workspace-changes`, and future ones) consume the root
+   `ctx.fs`, which a per-session preset cannot influence (the root plane is
+   session-less). A root-plane filesystem that routes by coordinates — UNC →
+   a distro provider, drive → the local implementation — would make every
+   current and future root consumer correct on both workspace kinds.
+
 ## Questions for maintainers
 
 1. Is Direction A acceptable as an interim guardrail, or would rejecting

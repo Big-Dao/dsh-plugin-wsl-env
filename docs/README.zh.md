@@ -68,7 +68,7 @@ dsh --profile wsl                                  # 4. 启动
 - **Git 凭据共享**：让子系统里的 git 使用 Windows 侧的 Git Credential Manager，避免每次输密码：
   `git config --global credential.helper "/mnt/c/Program\ Files/Git/mingw64/bin/git-credential-manager.exe"`
   （路径按 Windows 侧 Git 的安装位置调整；WSL2 的 localhost 转发是平台行为，子系统内监听的端口 Windows 直接可达。）
-- **路径与性能**：模型看到并操作的是子系统内的 Linux 路径（`/home/...`），写入子系统自身的 ext4；`/mnt/c` 通向 Windows 磁盘但走 9p，大批量小文件操作明显慢——重 IO 的项目请放在子系统文件系统内。`npm run bootstrap -- <子系统>` 会一并报告 ripgrep / inotifywait（搜索与监视的后端）是否就位。
+- **路径与性能**：模型看到并操作的是子系统内的 Linux 路径（`/home/...`），写入子系统自身的 ext4；`/mnt/c` 通向 Windows 磁盘但走 9p，大批量小文件操作明显慢——重 IO 的项目请放在子系统文件系统内。`npm run bootstrap -- <子系统>` 会一并报告 ripgrep、git、inotifywait（搜索、快照与监视的后端）是否就位。
 - **WSLENV 透传**：WSL 只导入 `WSLENV` 中列出的变量。本插件按前缀放行托管的 `DSH_*` 命名空间，其中带 Windows 路径的两个（`DSH_HOME`、`DSH_PROFILE_DIR`）加 `/p` 让 WSL 翻译成 `/mnt/c/...`。`PATH` 故意不透传——否则 Windows 的 PATH 会覆盖子系统自身的 PATH。
 
 ## 架构

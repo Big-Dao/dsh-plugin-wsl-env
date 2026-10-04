@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Prepare a distro for this plugin: bubblewrap (required, commands fail closed
 # without it) plus the optional tools later phases use — ripgrep for in-distro
-# search, inotifywait for the watcher's primary backend.
+# search, git for workspace-changes snapshots, inotifywait for the watcher's
+# primary backend.
 #
 #   scripts/bootstrap.sh [distro]            detect, print what is missing
 #   scripts/bootstrap.sh [distro] --install  ALSO run the install commands
@@ -49,11 +50,11 @@ family() {
 
 install_command() {
   case "$(family)" in
-    apt-get) echo 'apt-get install -y bubblewrap ripgrep inotify-tools' ;;
-    dnf) echo 'dnf install -y bubblewrap ripgrep inotify-tools' ;;
-    pacman) echo 'pacman -Sy --noconfirm bubblewrap ripgrep inotify-tools' ;;
-    zypper) echo 'zypper --non-interactive install bubblewrap ripgrep inotify-tools' ;;
-    *) echo 'apt-get install -y bubblewrap ripgrep inotify-tools' ;;
+    apt-get) echo 'apt-get install -y bubblewrap git ripgrep inotify-tools' ;;
+    dnf) echo 'dnf install -y bubblewrap git ripgrep inotify-tools' ;;
+    pacman) echo 'pacman -Sy --noconfirm bubblewrap git ripgrep inotify-tools' ;;
+    zypper) echo 'zypper --non-interactive install bubblewrap git ripgrep inotify-tools' ;;
+    *) echo 'apt-get install -y bubblewrap git ripgrep inotify-tools' ;;
   esac
 }
 
@@ -80,6 +81,7 @@ else
   echo "MISSING   bubblewrap (REQUIRED; every command fails closed without it)"
 fi
 report "ripgrep (in-distro search backend)" "rg"
+  report "git (workspace-changes snapshot backend)" "git"
 report "inotifywait (watcher primary backend)" "inotifywait"
 
 CMD="$(install_command)"

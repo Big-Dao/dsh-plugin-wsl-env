@@ -14,6 +14,13 @@ reference below points at that record's numbering.
 
 ### Added
 
+- **bootstrap installs and reports git.** The git snapshot routing needs git
+  inside the distro; `bootstrap --install` includes it in every package
+  manager's list and the report names it alongside ripgrep (the snapshot
+  backend for workspace-changes).
+
+### Added
+
 - **git snapshot commands run the distro's git.** `workspace-changes`
   snapshots a workspace by spawning the host git through
   `ctx.subprocess.spawn` — on a distro workspace that was Windows git

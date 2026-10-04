@@ -103,7 +103,19 @@
   "bugs": {
     "url": "https://github.com/Big-Dao/dsh-plugin-wsl-env/issues"
   },
-  "peerDependencies": {
+    "devDependencies": {
+    "@deepseek-ai/dsh-bash-local": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-fs": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-fs-local": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-host-directory-picker": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-sandbox": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-sandbox-policy": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-subprocess": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-subprocess-local": "0.2.0-rc.2",
+    "@deepseek-ai/cordis-plugin-include": "*",
+    "@deepseek-ai/cordis-plugin-loader": "*"
+  },
+"peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.4",
     "@deepseek-ai/dsh-bash-local": "0.2.0-rc.2",
     "@deepseek-ai/dsh-fs": "0.2.0-rc.2",

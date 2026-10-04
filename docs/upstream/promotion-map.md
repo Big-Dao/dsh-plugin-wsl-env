@@ -114,7 +114,7 @@ git 自己的 "command not found"（exit 127），与搜索的 fail-open 语义�
 
 | 消费者 | 源码事实 | 接管评估 |
 |---|---|---|
-| `file-reference-local`（`@` 补全） | `inject=['agents']`，**不走 ctx.fs**——`search.ts:9,273,286` 直接 `node:fs/promises` readdir/lstat | 行替换（插件模式）需 peer 包 `@deepseek-ai/dsh-file-reference-local` 可导入——本仓 dev 环境未安装，**晋升时做**；形态 = 子类覆写 `search()`，遍历改经 agent `ls`（无路径语义问题：补全只产出名字，路径由客户端拼接） |
+| `file-reference-local`（`@` 补全） | `inject=['agents']`，**不走 ctx.fs**——`search.ts:9,273,286` 直接 `node:fs/promises` readdir/lstat | **需要上游小 seam**（RFC 增补提案①）：遍历漏斗在两个模块函数里，插件无法从子类到达；忠实的模糊排序引擎（代际/陈旧即答/排名）复刻是行为回归。peer 包已可装，上游给口即可接管 |
 | `workspace-files`（GUI 文件树/预览） | `inject=['fs','sandboxPolicy','sessions','typert']`（`index.ts:184`）——消费**根 ctx.fs**（fs-sandbox，host fs） | 两层结论：①行替换可行但拿到的是根 ctx.fs，要配一个**按坐标路由的 fs facade**（UNC→agent，盘符→host）；②战略终局 = 把该 facade 提升为根平面 `fs-sandbox` 行的替换（所有根消费者自动正确），但根 fs 是 session-less 的，facade 必须纯坐标判定（UNC→distro、盘符→host）且放弃 per-session 语义——需要单独的评审 |
 | `workspace-changes`（git 快照） | `git.ts:58` 经根 `ctx.subprocess` spawn host git | ✅ **已接管**（git-route，见附录 A） |
 

@@ -40,8 +40,12 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
-      # No install step on purpose: the package has no dependencies, and every
-      # module under test imports only Node builtins.
+      # The 0.7.x tests import pinned dev dependencies: the composition and boot
+      # tests run the loader's REAL patch algorithm (`@deepseek-ai/cordis-plugin-include`)
+      # and `workspace-files-wsl` tests the service's pure builders against the
+      # typert protocol shapes. `npm ci` reproduces the locked tree; the runtime
+      # package itself still ships zero dependencies.
+      - run: npm ci
       - run: npm test
 
   coverage:
@@ -53,6 +57,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
+      - run: npm ci
       # The threshold flags need Node >= 22.8, so this runs on one version only.
       # It covers the pure modules. `lib/index.js`, `lib/picker.js`,
       # `lib/auto-preset.js`, `lib/shell-env.js` and the spawning half of

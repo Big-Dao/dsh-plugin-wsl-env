@@ -37,6 +37,10 @@ jobs:
           registry-url: https://registry.npmjs.org
       - name: Tag matches the package version
         run: node scripts/check-release-tag.mjs "$GITHUB_REF_NAME"
+      # The gates import pinned dev dependencies (the composition and boot tests
+      # run the loader's real patch algorithm); `npm ci` reproduces the locked tree.
+      - name: Install
+        run: npm ci
       - name: Gates
         run: npm test && npm run test:coverage
       # Re-running a release after a partial failure must not end at a 409. Ask the

@@ -73,6 +73,32 @@ C:\ 工作区与 `\\wsl.localhost` 工作区（`WorkspaceRegistry` 多条目并�
 - **诚实语义**：enforcement=partial、FS_SANDBOX_DENIED、unknown 不回收、
   sandboxMode 与强制共同进退
 
+
+## 附录 A：git 拦截的设计分析（已实现）
+
+`workspace-changes` 的 git 快照经根 `ctx.subprocess` 跑 `[host git, ...args]`，
+cwd = 工作区。这是 9P 上最重的操作（`git add --all` 是全工作树扫描）。拦截设计
+的三个关键事实（全部源码级确认）：
+
+1. **快照本来就跑在私有 git 环境里**（`git.ts:140-175`）：`GIT_INDEX_FILE` 指向
+   私有 scratch index（从仓库 index 复制种子），`GIT_OBJECT_DIRECTORY` +
+   `GIT_ALTERNATE_OBJECT_DIRECTORIES` 指向私有对象库——"the repository's index,
+   object store, work tree, and refs stay unchanged"。因此 distro git 用同样的
+   私有环境干活，**用户仓库零风险**；活体验证（真 distro、私有 env、add --all +
+   write-tree + ls-tree + cat-file）：用户 index 未触碰、私有树 138 文件、
+   确定性可复现。
+2. **env 里的路径是坐标翻译问题**：scratch 在 Windows temp（盘符）、仓库身份在
+   UNC——`uncToPosix` 与 `windowsToLinuxMount` 恰好是确定性翻译，无需 wslpath。
+3. **发现类命令必须留在 host**：`rev-parse --show-toplevel/--absolute-git-dir/
+   --git-path` 输出绝对路径，调用方 `resolve(cwd, line)` 按 UNC 世界解析——
+   distro git 会答 Linux 路径破坏解析。排除规则 = argv 含这三个旗标即不拦截。
+
+实现：`lib/git-route.js`（纯决策 + env 翻译）+ `subprocess.js` spawn 的 git
+分支（**只走 one-shot**——快照操作不敏感延迟，且 stdin 中继/收集流是宿主
+handle 原生的，避免扩展 agent 协议）。已知限制：多目录 `GIT_ALTERNATE_OBJECT_
+DIRECTORIES`（冒号列表）不翻译，原样透传（现无调用方）；distro 无 git 时报
+git 自己的 "command not found"（exit 127），与搜索的 fail-open 语义一致。
+
 ## 5. 显式决策记录
 
 - **保留 UNC 身份**：缓存/会话头/GUI 的 key 全部是 `\\wsl.localhost\...`；改用

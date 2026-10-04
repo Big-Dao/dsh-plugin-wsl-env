@@ -12,6 +12,24 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+### Added
+
+- **git snapshot commands run the distro's git.** `workspace-changes`
+  snapshots a workspace by spawning the host git through
+  `ctx.subprocess.spawn` — on a distro workspace that was Windows git
+  scanning the full work tree across the 9p share, the most
+  metadata-heavy operation there is. Spawns whose working directory names
+  a distro and whose argv carries none of the absolute-output discovery
+  flags are rewritten into `wsl.exe -d <distro> --cd <linux dir> --exec
+  git …` (`lib/git-route.js`). The snapshot is safe to route because it
+  already runs in a fully isolated git environment (`GIT_INDEX_FILE` /
+  `GIT_OBJECT_DIRECTORY` / `GIT_ALTERNATE_OBJECT_DIRECTORIES` in the
+  tool's private scratch — the repository's index, object store, work
+  tree, and refs stay unchanged); the route translates those path-shaped
+  env values into distro coordinates and forwards them through `WSLENV`.
+  Verified against a live distro: the snapshot sequence completes with the
+  user's index, object store, and refs untouched.
+
 ## [0.7.0] - 2026-10-04
 
 One theme: the 9p share is out of the model's reach. Two changes land together

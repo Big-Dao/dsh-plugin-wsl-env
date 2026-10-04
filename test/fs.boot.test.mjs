@@ -19,6 +19,7 @@ import { Context } from "@deepseek-ai/cordis";
 import Include from "@deepseek-ai/cordis-plugin-include";
 import Loader from "@deepseek-ai/cordis-plugin-loader";
 import { WslFileSystem } from "../lib/index.js";
+import { listDistros } from "../lib/wsl.js";
 import { sharedAgent } from "../lib/agent-shared.js";
 
 const TEST_DISTRO = "ubuntu";
@@ -70,8 +71,20 @@ it("boots the plugin's fs row through the Loader into a real service", async () 
   assert.equal(typeof context.fs.watch, "function", "the seam surface is complete");
 });
 
+/** Whether the real-distro topology exists: Windows, wsl.exe, AND this
+ * test's distro actually installed. The CI Windows runners ship wsl.exe
+ * with no distro, and booting there must read as a skip, not a failure. */
+async function distroInstalled() {
+  if (process.platform !== "win32") return false; // wsl.exe lives on the Windows host
+  try {
+    return (await listDistros()).includes(TEST_DISTRO);
+  } catch {
+    return false;
+  }
+}
+
 it("serves a real distro read end to end when wsl.exe is available", async (t) => {
-  if (process.platform !== "win32") return; // wsl.exe lives on the Windows host
+  if (!await distroInstalled()) return;
   await boot();
   t.after(async () => {
     // The resident agent is a module-level shared instance; an explicit close
@@ -87,7 +100,7 @@ it("serves a real distro read end to end when wsl.exe is available", async (t) =
 }, 60_000);
 
 it("answers honestly when the workspace leaves the pinned distro", async () => {
-  if (process.platform !== "win32") return;
+  if (!await distroInstalled()) return;
   await boot();
   await assert.rejects(
     () => context.fs.resolve("\\\\wsl.localhost\\debian\\etc\\hostname"),

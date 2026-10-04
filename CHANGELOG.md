@@ -28,6 +28,23 @@ and the real-distro probes run green over the changed paths.
   keeps the whole-tree walk); and the loop's stderr is drained continuously
   with its tail kept for error context, so a chatty `sh` can no longer stall
   the watch at the 64 KiB pipe limit.
+- **`watchMaxDepth` no longer takes both preset rows down at import (a
+  regression the M10 entry above introduced, caught after the first
+  sync-and-restart).** The key was written `z.number().int().min(0)`, but the
+  pinned schemastery publishes no `int` on any schema instance, and a Config
+  schema is a class field — so `lib/index.js` threw
+  `TypeError: z.number(...).int is not a function` while it was still being
+  imported, the loader left `wsl-shell` and `wsl-fs` fiber-less, and the preset
+  audit reported exactly those two rows as `never started`: every session in a
+  distro workspace, new or historical, failed at the first message. The key is
+  now `z.natural().default(0)` — the pinned spelling of "integer >= 0", the
+  idiom `picker` and `auto-preset` already use — and `test/syntax.mjs` now
+  reads the chained half of the schemastery surface (a balanced walk that
+  survives nested call arguments, string literals and template
+  interpolations), so a member the peer does not publish fails the suite
+  instead of waiting for the Desktop app. Reproduced and verified in a
+  peer-stub harness: the `lib/index.js` import went from the `TypeError` to
+  clean with the fix, and the new check fails on the old line.
 - **A wedged WSL service can no longer hang a tool call forever (review M11).**
   Every `wsl.exe` resolution call in `lib/wsl.js` now runs under a deadline
   (`DEFAULT_WSL_DEADLINE_MS`, 60 s — generous on purpose for cold boots, `0`

@@ -1,6 +1,7 @@
 /**
  * Parse-check every shipped module with `node --check`, and check the
- * schemastery surface the modules call against the surface the pinned peer has.
+ * schemastery surface the modules call — the static members and the members
+ * chained onto a factory's instance — against the surface the pinned peer has.
  *
  * The unit tests cannot cover `lib/index.js`, `lib/picker.js`, `lib/auto-preset.js`
  * or `lib/shell-env.js`: they import DSH peers that a bare checkout does not have,
@@ -28,6 +29,23 @@
  *     ValidationError any array arrayBuffer bitset boolean const date dict
  *     extend from function intersect is lazy natural never number object
  *     percent regExp resolve string transform tuple union
+ *
+ * The static list is only half the surface. A chain member is called on the
+ * INSTANCE a factory returns — `z.natural().min(1)` — and the same import-time
+ * TypeError applies there: the `watchMaxDepth` key of the M10 fix called
+ * `z.number().int()` in `WslFileSystem.Config`, the pinned schemastery has no
+ * `int` on any schema instance (`z.natural()` is the pinned spelling of
+ * "integer >= 0"), and the Desktop app again reported `wsl-shell` and `wsl-fs`
+ * and nothing else. The second list is that peer's instance prototype — every
+ * factory's instance shares it — read from the same 3.18.4:
+ *
+ *     collapse comment default deprecated description disabled experimental
+ *     extra hidden i18n link loose max min pattern push required role set
+ *     simplify step toJSON toString volatile
+ *
+ * The chained half is read with a balanced walk rather than a regex, so nested
+ * call arguments, string literals and template interpolations cannot end a
+ * chain early or splice two statements into one.
  *
  *   node test/syntax.mjs
  */
@@ -69,6 +87,39 @@ const SCHEMASTERY_SURFACE = new Set([
   "union",
 ]);
 
+/**
+ * Members every schemastery instance publishes — the chain half of the surface;
+ * see the module doc for provenance. Every factory's instance shares one
+ * prototype, so one list serves `z.number().min(0)` and `z.natural().max(4)`
+ * alike; a member absent here fails at import exactly like an absent static.
+ */
+const SCHEMASTERY_INSTANCE_SURFACE = new Set([
+  "collapse",
+  "comment",
+  "default",
+  "deprecated",
+  "description",
+  "disabled",
+  "experimental",
+  "extra",
+  "hidden",
+  "i18n",
+  "link",
+  "loose",
+  "max",
+  "min",
+  "pattern",
+  "push",
+  "required",
+  "role",
+  "set",
+  "simplify",
+  "step",
+  "toJSON",
+  "toString",
+  "volatile",
+]);
+
 const modules = readdirSync(LIB)
   .filter((name) => name.endsWith(".js"))
   .sort();
@@ -78,6 +129,100 @@ function codeOf(name) {
   return readFileSync(join(LIB, name), "utf8")
     .replace(/\/\*[\s\S]*?\*\//gu, " ")
     .replace(/(^|[^:])\/\/[^\n]*/gu, "$1 ");
+}
+
+/**
+ * Index just past the `)` that closes the group opening at `start` — the caller
+ * points `start` at a `(`. Walks the three string literals and template
+ * interpolations so a quoted paren cannot close the group early; an
+ * interpolation's `${...}` is code again, so it recurses through the same
+ * rules. A file whose groups never balance (truncation) ends at `code.length`.
+ */
+function endOfGroup(code, start) {
+  let depth = 0;
+  for (let i = start; i < code.length; i += 1) {
+    const ch = code[i];
+    if (ch === "(") {
+      depth += 1;
+    } else if (ch === ")") {
+      depth -= 1;
+      if (depth === 0) return i + 1;
+    } else if (ch === '"' || ch === "'") {
+      i = endOfQuoted(code, i, ch);
+    } else if (ch === "`") {
+      i = endOfTemplate(code, i);
+    }
+  }
+  return code.length;
+}
+
+/** Index of the closing quote at or after `start`; a trailing escape is tolerated. */
+function endOfQuoted(code, start, quote) {
+  for (let i = start + 1; i < code.length; i += 1) {
+    if (code[i] === "\\") {
+      i += 1;
+    } else if (code[i] === quote) {
+      return i;
+    }
+  }
+  return code.length;
+}
+
+/** Index of the closing backtick at or after `start`, interpolations included. */
+function endOfTemplate(code, start) {
+  for (let i = start + 1; i < code.length; i += 1) {
+    if (code[i] === "\\") {
+      i += 1;
+    } else if (code[i] === "`") {
+      return i;
+    } else if (code[i] === "$" && code[i + 1] === "{") {
+      i = endOfBraces(code, i + 1);
+    }
+  }
+  return code.length;
+}
+
+/** Index of the `}` closing the `${` whose `{` sits at `start`, code rules inside. */
+function endOfBraces(code, start) {
+  let depth = 0;
+  for (let i = start; i < code.length; i += 1) {
+    const ch = code[i];
+    if (ch === "{") {
+      depth += 1;
+    } else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return i;
+    } else if (ch === '"' || ch === "'") {
+      i = endOfQuoted(code, i, ch);
+    } else if (ch === "`") {
+      i = endOfTemplate(code, i);
+    }
+  }
+  return code.length;
+}
+
+/**
+ * The members chained after each `z.<factory>(...)` call, as one flat list per
+ * match site: `z.natural().min(1).default(1)` reads `["min", "default"]`. The
+ * lookbehind keeps `wsl.exe (`-shaped prose and `a.z.foo()` out; the balanced
+ * walk keeps nested-call arguments from ending a chain early.
+ */
+function chainedMembers(code) {
+  const found = [];
+  const opener = /(?<![\w$."'])z\.([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/g;
+  let open;
+  while ((open = opener.exec(code)) !== null) {
+    let at = endOfGroup(code, opener.lastIndex - 1);
+    const chain = [];
+    for (;;) {
+      const next = /^\s*\.\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/.exec(code.slice(at, at + 200));
+      if (next === null) break;
+      chain.push(next[1]);
+      at = endOfGroup(code, at + next[0].length - 1);
+    }
+    if (chain.length > 0) found.push(chain);
+  }
+  return found;
 }
 
 let failed = 0;
@@ -112,4 +257,24 @@ for (const [member, files] of unknown) {
 const called = [...members.keys()].sort();
 console.log(`\n${unknown.length === 0 ? "PASS" : "FAIL"}  schemastery members used: ${called.join(", ")}`);
 console.log(`${called.length - unknown.length}/${called.length} members exist on the pinned peer`);
+
+const chainedFiles = new Map();
+for (const name of modules) {
+  for (const chain of chainedMembers(codeOf(name))) {
+    for (const member of chain) {
+      if (!chainedFiles.has(member)) chainedFiles.set(member, []);
+      if (!chainedFiles.get(member).includes(name)) chainedFiles.get(member).push(name);
+    }
+  }
+}
+
+const chainUnknown = [...chainedFiles].filter(([member]) => !SCHEMASTERY_INSTANCE_SURFACE.has(member));
+for (const [member, files] of chainUnknown) {
+  failed += 1;
+  console.log(`FAIL  .${member}() is not on the pinned schemastery instance surface\n      called from ${files.map((name) => `lib/${name}`).join(", ")}`);
+}
+
+const chained = [...chainedFiles.keys()].sort();
+console.log(`\n${chainUnknown.length === 0 ? "PASS" : "FAIL"}  chained members used: ${chained.join(", ")}`);
+console.log(`${chained.length - chainUnknown.length}/${chained.length} chained members exist on the pinned peer`);
 if (failed > 0) process.exitCode = 1;

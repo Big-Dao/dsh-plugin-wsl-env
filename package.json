@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-wsl-env",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "让 DeepSeek Harness 以 WSL 子系统作为会话的执行环境：shell、文件读写与命令执行均在子系统内完成，目录选择器与 GUI 终端同样定位到子系统路径，并通过子系统内的 bubblewrap 对命令进行沙箱隔离",
   "keywords": [
     "deepseek-harness",

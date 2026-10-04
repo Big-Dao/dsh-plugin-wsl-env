@@ -12,9 +12,17 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-04
+
 One theme: the P2 backlog from the 2026-10-03 review, closed with the same
 evidence bar as its P0/P1 — every fix carries a check that fails without it,
-and the real-distro probes run green over the changed paths.
+and the real-distro probes run green over the changed paths — plus the
+import-time regression that backlog carried, caught at the first
+sync-and-restart: `watchMaxDepth` was written `z.number().int()`, a member the
+pinned schemastery does not publish, which took `wsl-shell` and `wsl-fs` down
+in every distro workspace session. The key now uses `z.natural()`, and
+`test/syntax.mjs` reads the chained half of the schemastery surface so the
+next such member dies in CI instead of in the app.
 
 ### Fixed
 

@@ -40,10 +40,11 @@ C:\ 工作区与 `\\wsl.localhost` 工作区（`WorkspaceRegistry` 多条目并�
 1. **TypeScript 化 + monorepo 包布局**（`src/types.ts`、tsconfig 叶子、tests 移至
    包级、README 的 Model Experience 格式与 i18n、`## Known Limitations and
    Deferred Work` 章节）。本插件为 JS + JSDoc，无构建链。
-2. **REAL-composition boot 测试**——上游要求 product-visible 插件必须经 Loader
-   启动测试用 cordis.yml（`packages/AGENTS.md` testing 政策），而本仓库测试环境
-   缺少多数 peer 包（`dsh-bash-local`/`dsh-fs-local`/`dsh-fs`/`agent-loop` 等），
-   无法在本仓跑；现以 probes（真机、真 profile）替代。晋升时并入其测试体系。
+2. **REAL-composition boot 测试**——0.7.1 起已在本仓落地（`test/fs.boot.test.mjs`
+   把 fs 行经 Loader + cordis.yml 启动；devDependencies 锁定 peer 包，CI 安装后
+   全量运行），0.7.2 又加了组合测试（`test/composition.test.mjs` 用真实
+   `applyEntryPatches` 跑插件的 patch 文件）。残余差距只剩覆盖面：上游形态还
+   要求整个组合（agent-loop 等）经 Loader 启动，那要等晋升时并入其测试体系。
 3. **`ensureSession` monkey-patch 的替换**——`auto-preset.js` 补丁了 host 的
    sessionController 以实现"目录→preset"。上游不会接受补丁式 hook；需提案正式
    seam（如 session 创建时的 environment resolver）。这是插件最脆弱的接缝。
@@ -114,7 +115,7 @@ git 自己的 "command not found"（exit 127），与搜索的 fail-open 语义�
 
 | 消费者 | 源码事实 | 接管评估 |
 |---|---|---|
-| `file-reference-local`（`@` 补全） | `inject=['agents']`，**不走 ctx.fs**——`search.ts:9,273,286` 直接 `node:fs/promises` readdir/lstat | **需要上游小 seam**（RFC 增补提案①）：遍历漏斗在两个模块函数里，插件无法从子类到达；忠实的模糊排序引擎（代际/陈旧即答/排名）复刻是行为回归。peer 包已可装，上游给口即可接管 |
+| `file-reference-local`（`@` 补全） | `inject=['agents']`，**不走 ctx.fs**——`search.ts:9,273,286` 直接 `node:fs/promises` readdir/lstat | 🟡 **预就绪**（RFC 增补①已成文：`FileReferenceTraversal` 三函数接口 + Dirent/错误/坐标系三条语义）：遍历漏斗在模块内函数里，插件无法从子类到达——排序引擎（代际/陈旧即答/排名）必须留给上游。消费侧原型 `lib/file-reference-wsl.js` 已测（agent `find -printf '%y'` 保 Dirent 语义、单次 exec 走段替代逐段 lstat、UNC↔POSIX 换算），seam 落地即接管 |
 | `workspace-files`（GUI 文件树/预览） | `inject=['fs','sandboxPolicy','sessions','typert']`（`index.ts:184`）——消费**根 ctx.fs**（fs-sandbox，host fs） | 两层结论：①行替换可行但拿到的是根 ctx.fs，要配一个**按坐标路由的 fs facade**（UNC→agent，盘符→host）；②战略终局 = 把该 facade 提升为根平面 `fs-sandbox` 行的替换（所有根消费者自动正确），但根 fs 是 session-less 的，facade 必须纯坐标判定（UNC→distro、盘符→host）且放弃 per-session 语义——需要单独的评审 |
 | `workspace-changes`（git 快照） | `git.ts:58` 经根 `ctx.subprocess` spawn host git | ✅ **已接管**（git-route，见附录 A） |
 

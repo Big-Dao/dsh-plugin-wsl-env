@@ -12,6 +12,26 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+### Added
+
+- **The `@` completion's distro traversal is built and waiting for its seam.**
+  The one 9P consumer the takeover series could not reach - the GUI's `@`
+  file completion - funnels all workspace traversal through three
+  module-internal functions of the upstream `file-reference-local` service,
+  so no row replacement can reach them. The plugin now ships the consumer
+  side of RFC addendum ① (`lib/file-reference-wsl.js`): a traversal strategy
+  that lists a distro workspace through the resident agent with
+  `find -printf '%y\t%f'` - keeping readdir's Dirent fidelity, where
+  symlinks report neither kind and are skipped instead of resolved through
+  like `ls -L` would - replaces the upstream per-segment lstat walk with one
+  agent exec, and returns absolutes in the root's own coordinate system,
+  which the upstream scan joins children with. Deliberately not wired into
+  the composition: with the seam absent, reaching the funnels would mean
+  re-implementing the fuzzy ranking engine, the behavior-regression path
+  the RFC rules out. The module ships tested; the takeover lands the day
+  upstream takes the ~10-line parameter. The RFC addendum now carries the
+  concrete interface proposal.
+
 ## [0.7.2] - 2026-10-05
 
 One theme: the root-plane routing lands - and the composition that

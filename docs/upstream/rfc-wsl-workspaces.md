@@ -132,12 +132,50 @@ UNC workspaces without per-consumer patches:
    funnel all traversal. Exposing them as an injectable strategy is a
    ~10-line change and would let a provider answer completions with a
    distro-side `find` instead of a 9P walk.
+
+   **The concrete proposal.** Group the three filesystem touches into one
+   strategy and take it as a third `WorkspaceFileSearch` constructor
+   parameter (and a `LocalFileReferenceService` hook beside it), defaulting
+   to today's implementations:
+
+   ```ts
+   interface FileReferenceTraversal {
+     readWorkspaceRoot(absolute: string, signal: AbortSignal): Promise<Dirent[]>;
+     readDirectory(absolute: string, signal: AbortSignal): Promise<Dirent[]>;
+     resolveDisplayDirectory(root: string, displayDirectory: string,
+       signal: AbortSignal): Promise<string | undefined>;
+   }
+   ```
+
+   The third function matters as much as the two listers: directory-scoped
+   queries (`@src/`) reach the filesystem through it, and its per-segment
+   `lstat` walk is one 9P round trip per path component in the slow
+   direction. Everything above the strategy — the bounded index, the
+   generation/invalidation dance, the fuzzy ranking, the excluded-directory
+   list — stays upstream-owned, so a provider changes *where* the bytes come
+   from, never *how* candidates are chosen.
+
+   The provider side must hold three semantics the current Dirent flow
+   implies: entries keep the `{name, isDirectory(), isFile()}` shape with
+   symlinks reporting neither (readdir Dirents are lstat-based — a distro
+   listing needs `find -printf '%y'`, not `ls -L`, to match); an unreadable
+   directory yields `[]` while a failed *root* rejects; and returned
+   absolutes stay in the root's own coordinate system, because
+   `scanWorkspace` joins children with the host `node:path`. The plugin
+   ships a tested implementation of exactly this strategy
+   (`lib/file-reference-wsl.js`: resident-agent `find` listings, a
+   one-exec segment walk replacing N sequential lstats, UNC↔POSIX
+   translation) — the takeover lands the day the parameter exists.
+
 2. **A coordinate-routing root filesystem.** Several root consumers
    (`workspace-files`, `workspace-changes`, and future ones) consume the root
    `ctx.fs`, which a per-session preset cannot influence (the root plane is
    session-less). A root-plane filesystem that routes by coordinates — UNC →
    a distro provider, drive → the local implementation — would make every
    current and future root consumer correct on both workspace kinds.
+   *(Status note: the plugin now carries a working implementation of this
+   shape — `lib/fs-routing.js`, released as 0.7.2 — usable as the reference
+   for the upstream form.)*
 
 ## Questions for maintainers
 

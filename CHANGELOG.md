@@ -12,6 +12,13 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-10-05
+
+One theme: the resident agent stops taking its world on faith - the
+handshake now verifies the deployment's content, the agent's lifetime
+survives a wedged host only by lease, and the one 9P consumer no row
+replacement could reach ships its seam-ready traversal.
+
 ### Added
 
 - **The resident agent verifies its own deployment, and outlives a wedged
@@ -47,6 +54,16 @@ reference below points at that record's numbering.
   the RFC rules out. The module ships tested; the takeover lands the day
   upstream takes the ~10-line parameter. The RFC addendum now carries the
   concrete interface proposal.
+
+### Fixed
+
+- **The Windows CI legs are green again.** The fs boot test's end-to-end
+  legs read `platform is win32` as `the real-distro topology exists`, but
+  the CI Windows runners ship wsl.exe with no distro installed - every
+  Windows leg since the boot test landed failed there, which kept the
+  release gates red through 0.7.0-0.7.2 even after the missing-module
+  fix. The guard now asks WSL for its distro list and skips unless the
+  test's distro is actually installed.
 
 ## [0.7.2] - 2026-10-05
 

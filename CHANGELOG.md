@@ -12,6 +12,18 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+### Added
+
+- **The root-plane filesystem routes by coordinate.** The root `ctx.fs`
+  (behind the GUI's change feed and every un-mounted root consumer) is
+  replaced by a coordinate-routing variant (`lib/fs-routing.js`): distro UNC
+  identities are served by the resident agent - ext4 reads, and real watch
+  events for the change feed, which previously never fired on a 9p share -
+  while drive paths stay host-native. The root write fence retires with this
+  round: the root plane has no write consumers (the model's writes ride the
+  preset filesystems, which enforce their own containment). Design note:
+  `docs/root-fs-routing.md`.
+
 ## [0.7.1] - 2026-10-04
 
 One theme: the remaining root-plane 9P consumers move inside the distro -

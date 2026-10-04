@@ -117,6 +117,25 @@
             maxFileBytes: 33554432
             maxLines: 5000
             maxEntries: 2000
+
+    # The root-plane filesystem routes by coordinate: distro UNC identities
+    # are served by the resident agent (real watch events, ext4 reads), drive
+    # paths stay host-native. Replaces the root fs-sandbox row, whose write
+    # fence has no root-plane consumers (the model's writes ride the preset
+    # filesystems; see docs/root-fs-routing.md).
+    - id: fs-sandbox
+      disabled: true
+
+    - insert:
+        - id: fs-routing
+          name: 'dsh-plugin-wsl-env/fs-routing'
+          config:
+            distro: ''
+            wslPath: wsl.exe
+            sandbox: true
+            maskWindowsDrive: false
+            restrictToDistro: true
+            watchMaxDepth: 0
     # Contributes the WSL environment's facts (distro / real shell / home) to the
     # managed DSH_* namespace that dsh-shell-env injects into every model shell
     # call. That is DSH's sanctioned channel for shell-environment facts.

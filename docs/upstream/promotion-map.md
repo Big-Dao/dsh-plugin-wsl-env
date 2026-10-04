@@ -118,6 +118,11 @@ git 自己的 "command not found"（exit 127），与搜索的 fail-open 语义�
 | `workspace-files`（GUI 文件树/预览） | `inject=['fs','sandboxPolicy','sessions','typert']`（`index.ts:184`）——消费**根 ctx.fs**（fs-sandbox，host fs） | 两层结论：①行替换可行但拿到的是根 ctx.fs，要配一个**按坐标路由的 fs facade**（UNC→agent，盘符→host）；②战略终局 = 把该 facade 提升为根平面 `fs-sandbox` 行的替换（所有根消费者自动正确），但根 fs 是 session-less 的，facade 必须纯坐标判定（UNC→distro、盘符→host）且放弃 per-session 语义——需要单独的评审 |
 | `workspace-changes`（git 快照） | `git.ts:58` 经根 `ctx.subprocess` spawn host git | ✅ **已接管**（git-route，见附录 A） |
 
+**落地记录（2026-10-04）**：路线二已实现——`lib/fs-routing.js` 的
+`WslRoutingFileSystem` 替换根 `fs-sandbox` 行（设计文档
+`docs/root-fs-routing.md`）；workspace-files 的四操作维持 agent 直连（快于
+本路由），change feed 经路由 fs 获得 distro 真实 watch 事件。
+
 **战略注记**：②的"根平面路由 fs facade"与 ssh 家族的"成对远程 provider"在效果上汇合——
 区别只在挂载位置（替换根 fs 行 vs 三个 seam 成对）。若上游未来做 desktop+WSL 的正式支持，
 这就是合并点。

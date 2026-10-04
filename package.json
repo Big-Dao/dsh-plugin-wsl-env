@@ -19,6 +19,7 @@
     "./subprocess": "./lib/subprocess.js",
     "./picker": "./lib/picker.js",
     "./workspace-files-wsl": "./lib/workspace-files-wsl.js",
+    "./fs-routing": "./lib/fs-routing.js",
     "./auto-preset": "./lib/auto-preset.js",
     "./shell-env": "./lib/shell-env.js",
     "./wsl": "./lib/wsl.js",
@@ -114,6 +115,7 @@
     "@deepseek-ai/dsh-subprocess": "0.2.0-rc.2",
     "@deepseek-ai/dsh-subprocess-local": "0.2.0-rc.2",
     "@deepseek-ai/dsh-api-workspace-files": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-fs-sandbox": "0.2.0-rc.2",
     "@deepseek-ai/cordis-plugin-include": "*",
     "@deepseek-ai/cordis-plugin-loader": "*"
   },

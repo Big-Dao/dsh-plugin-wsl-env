@@ -12,6 +12,8 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-04
+
 One theme: the 9p share is out of the model's reach. Two changes land together
 because they close the same measured gap — the file-search spawn was the one
 model-facing I/O path that still crossed the share, in its slow direction

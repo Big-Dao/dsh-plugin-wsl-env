@@ -19,14 +19,29 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WS="${DSH_WSL_ENV_WORKSPACE:-$(cd "$HERE/../.." && pwd)}"
+REPO="$(cd "$HERE/../.." && pwd)"
+WS="${DSH_WSL_ENV_WORKSPACE:-$REPO}"
 CMD_EXE="${DSH_WSL_ENV_CMD:-/mnt/c/Windows/System32/cmd.exe}"
 
-# The exact profile @deepseek-ai/dsh-sandbox-local builds for its Linux bwrap
-# rung (`packages/sandbox/sandbox-local/src/profiles.ts`), read-only form plus
-# the workspace-write grant. Kept in lockstep with lib/sandbox.js.
-RO=('--ro-bind' / / '--dev' /dev '--unshare-pid' '--proc' /proc '--die-with-parent')
-WW=("${RO[@]}" '--tmpfs' /tmp '--bind' "$WS" "$WS")
+# This probe needs node only to READ lib/bwrap.js: the profiles below are
+# derived from the shipped builder, not spelled inline. An inline copy here
+# once meant a profile change would pass this probe while the plugin confined
+# with something else — the exact failure lib/bwrap.js's module doc records.
+if [ -d "$HOME/.local/share/fnm" ] && ! command -v node >/dev/null 2>&1; then
+  export PATH="$HOME/.local/share/fnm/aliases/default/bin:$PATH"
+fi
+command -v node >/dev/null 2>&1 || { echo "sandbox probe: node not found (fnm env not loaded?)" >&2; exit 1; }
+build_profile() { # build_profile <mode> <workspaceRoot> — lib/bwrap.js's argv, one per line
+  DSH_WSL_ENV_BWRAP_REPO="$REPO" node --input-type=module -e '
+const { bwrapProfileArgs } = await import(`${process.env.DSH_WSL_ENV_BWRAP_REPO}/lib/bwrap.js`);
+const [mode, workspaceRoot] = [process.argv[1], process.argv[2]];
+console.log(bwrapProfileArgs({ mode, workspaceRoot }).join("\n"));
+' "$1" "$2"
+}
+# The exact profile the plugin ships for each mode: read-only, and the
+# workspace-write grant under this probe's workspace.
+mapfile -t RO < <(build_profile read-only /)
+mapfile -t WW < <(build_profile workspace-write "$WS")
 
 OUTSIDE="/home/$USER/dsh-sandbox-probe-outside.txt"
 SCRATCH="$WS/.sandbox-probe"

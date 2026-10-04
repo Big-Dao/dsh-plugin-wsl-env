@@ -14,7 +14,9 @@ they could not do before? -->
 - [ ] Behaviour changed, so `CHANGELOG.md` has an entry under `## [Unreleased]`
 - [ ] The two READMEs still match section for section (`README.md`, `docs/README.zh.md`)
 - [ ] Probes run where they apply, or this PR says why not: `npm run probe`,
-      `npm run probe:sandbox`, `npm run probe:sandbox-shell`, `npm run probe:terminal`
+      `npm run probe:sandbox`, `npm run probe:sandbox-shell`, `npm run probe:terminal`,
+      and inside the distro `npm run probe:substrate`, `npm run probe:watch`,
+      `npm run probe:agent`, `npm run probe:exec`
 
 ## Notes for the reviewer
 

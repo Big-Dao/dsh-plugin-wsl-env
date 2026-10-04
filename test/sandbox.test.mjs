@@ -5,10 +5,13 @@
  * remembered, or installing `bubblewrap` while the app runs changes nothing until
  * the next restart — while the error tells the user to install it.
  *
- * `lib/sandbox.js` imports `@deepseek-ai/dsh-sandbox`, so these checks need that
- * peer present and skip themselves where it is not (a bare checkout, and CI, which
- * installs nothing). The Windows legs skip them for a second reason: the fake
- * `wsl.exe` is a POSIX shell script, and Windows cannot execute one.
+ * The checks run against the peer-free core (`lib/sandbox-core.js`) with a
+ * stand-in for the peer's `SandboxUnavailableError` whose contract is the one
+ * consumers match — `code: "SANDBOX_UNAVAILABLE"` — so what CI exercises here
+ * is the code that ships, not a copy of it. The shipped binding to the peer's
+ * own class is one line in `lib/sandbox.js`, left to `npm run probe:sandbox`
+ * against a real distro. The Windows legs skip: the fake `wsl.exe` is a POSIX
+ * shell script, and Windows cannot execute one.
  *
  *   node test/sandbox.test.mjs
  */
@@ -16,19 +19,23 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createSandboxCore } from "../lib/sandbox-core.js";
 
 if (process.platform === "win32") {
   console.log("SKIP  sandbox checks: the fake wsl.exe is a POSIX script");
   process.exit(0);
 }
 
-let WslSandbox;
-try {
-  ({ WslSandbox } = await import("../lib/sandbox.js"));
-} catch {
-  console.log("SKIP  sandbox checks: @deepseek-ai/dsh-sandbox is not installed");
-  process.exit(0);
+/** Mirrors the peer error's documented contract; see the core module's doc. */
+class SandboxUnavailableError extends Error {
+  constructor(mode, detail) {
+    super(`sandbox mode "${mode}" is unavailable: ${detail}`);
+    this.name = "SandboxUnavailableError";
+    this.code = "SANDBOX_UNAVAILABLE";
+  }
 }
+
+const WslSandbox = createSandboxCore({ SandboxUnavailableError });
 
 const dir = await mkdtemp(join(tmpdir(), "dsh-wsl-sandbox-"));
 const marker = join(dir, "usable");

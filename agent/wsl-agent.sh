@@ -27,6 +27,10 @@
 #          With a cap, stdout and stderr are each cut at that many bytes and
 #          the flags say which streams were cut; 0 means the whole capture.
 #          or ERR|<id>|<reason>|<b64 message>   (reason: cwd)
+#       An EXEC request runs as its own session and process group (`setsid`),
+#       so a timeout or a KILL frame takes the whole descendant tree — not
+#       just the direct child, which is how a build tool's daemonized
+#       grandchild outlives the kill.
 #   FS|<id>|<op>|<timeout seconds|0>|<n args>
 #       followed by <n args> lines of base64, one argument each — arguments
 #       arrive still base64 so a write's content never passes through a shell
@@ -81,8 +85,19 @@ b64enc_file() {
 
 kill_current() {
   if [ -n "$CURRENT_PID" ]; then
-    kill -TERM "$CURRENT_PID" 2>/dev/null
+    kill_request TERM "$CURRENT_PID"
   fi
+}
+
+# Signal one in-flight request, descendants included. With `setsid` (EXEC
+# requests, below) the request is its own process-group leader, so the
+# negative PID signals the WHOLE group — every descendant that did not make
+# its own session. Without it the group does not exist, the negative-PID kill
+# fails with ESRCH, and the direct kill keeps the old guarantee. A shell whose
+# `kill` builtin cannot parse `-- -PID` at all also lands here.
+kill_request() {
+  # $1 = signal name, $2 = request PID.
+  kill -s "$1" -- "-$2" 2>/dev/null || kill -s "$1" "$2" 2>/dev/null || :
 }
 
 shutdown() {
@@ -91,21 +106,37 @@ shutdown() {
 }
 trap shutdown TERM INT HUP
 
+# Whether EXEC requests can run as their own session. `setsid` makes the
+# request process a session AND process-group leader (pid = pgid), which is
+# what lets kill_request signal the whole descendant tree; the agent's own
+# shell cannot do this portably — `set -m` in a non-interactive dash has been
+# observed skipping the setpgid entirely, and a kill against a PID that is
+# not a group leader is a no-op. A distro without `setsid` keeps working:
+# requests then run in the agent's own group and the direct-child kill of the
+# pre-setsid behaviour applies.
+SETSID=
+if command -v setsid >/dev/null 2>&1; then
+  SETSID=setsid
+fi
+
 timeout_watcher() {
-  # $1 = seconds, $2 = pid, $3 = grace seconds. TERM first; a process that
-  # ignores TERM gets KILLed after the grace, so a stuck command cannot hang
-  # the request forever.
+  # $1 = seconds, $2 = pid, $3 = grace seconds. TERM first — the whole group,
+  # so a command that ignores TERM takes its descendants with it when the
+  # KILL lands; a process that ignores TERM gets KILLed after the grace, so a
+  # stuck command cannot hang the request forever.
   sleep "$1"
-  kill -TERM "$2" 2>/dev/null
+  kill_request TERM "$2"
   sleep "${3:-3}"
-  kill -KILL "$2" 2>/dev/null
+  kill_request KILL "$2"
 }
 
 # Capture one request's output and answer with RES. $1 = request id, $2 =
 # timeout seconds ('' or 0 = none), $3 = per-stream output cap in bytes (0 or
 # empty = unlimited), $4 = launch mode: `exec` runs "$@" (argv words) as the
-# request process; `subshell` runs ( "$@" ) in a forked subshell, which is how
-# the FS handlers — shell functions, not executables — run.
+# request process, in its own session via `setsid` when the distro has it —
+# the timeout and KILL then signal the whole descendant group; `subshell` runs
+# ( "$@" ) in a forked subshell, which is how the FS handlers — shell
+# functions, not executables — run.
 run_capture() {
   local req_id timeout_s maxout mode rc watcher_pid out_cut err_cut
   req_id=$1
@@ -121,6 +152,8 @@ run_capture() {
   CURRENT_ID=$req_id
   if [ "$mode" = subshell ]; then
     ( "$@" ) >"$OUT_FILE" 2>"$ERR_FILE" &
+  elif [ -n "$SETSID" ]; then
+    ( exec setsid "$@" ) >"$OUT_FILE" 2>"$ERR_FILE" &
   else
     "$@" >"$OUT_FILE" 2>"$ERR_FILE" &
   fi

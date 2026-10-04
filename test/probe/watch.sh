@@ -70,20 +70,26 @@ const freshDir = () => {
 };
 const arm = (path) => {
   const changes = [];
+  const errors = [];
   let notify = () => {};
+  let notifyError = () => {};
   const armed = armDistroWatcher({
     wslPath: "wsl.exe",
     distro,
     linuxPath: path,
     onChange: () => { changes.push(1); notify(); },
-    onError: (error) => console.log(`WATCHERR ${error.message}`),
+    onError: (error) => { errors.push(error); notifyError(); },
     intervalSeconds: 1,
     signal: new AbortController().signal,
   });
   const close = async () => (await armed)();
-  return { changes, armed, close, waitForChange: (timeoutMs = 8000) => new Promise((resolve, reject) => {
+  return { changes, errors, armed, close, waitForChange: (timeoutMs = 8000) => new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`no change within ${timeoutMs}ms (changes so far: ${changes.length})`)), timeoutMs);
     notify = () => { clearTimeout(timer); notify = () => {}; resolve(); };
+  }), waitForError: (timeoutMs = 8000) => new Promise((resolve, reject) => {
+    if (errors.length > 0) return resolve();
+    const timer = setTimeout(() => reject(new Error(`no watcher error within ${timeoutMs}ms`)), timeoutMs);
+    notifyError = () => { clearTimeout(timer); notifyError = () => {}; resolve(); };
   }) };
 };
 
@@ -132,8 +138,33 @@ await check("close stops the loop: no callbacks afterwards", async () => {
   assert.equal(watch.changes.length, 0);
 });
 
+await check("a vanished target reports through onError instead of arming silently", async () => {
+  const path = freshDir();
+  const watch = arm(path);
+  await watch.armed;
+  execFileSync("wsl.exe", ["-d", distro, "--exec", "rm", "-rf", path]);
+  await watch.waitForError();
+  assert.match(watch.errors[0].message, /no longer exists/, `got: ${watch.errors[0].message}`);
+  assert.equal(watch.changes.length, 0);
+  await watch.close();
+});
+
+await check("closed loops leave no stamp behind (EXIT trap)", async () => {
+  const stamps = () => execFileSync("wsl.exe", ["-d", distro, "--exec", "sh", "-c",
+    "ls -1 \"${TMPDIR:-/tmp}\"/wsl-watch.*.stamp 2>/dev/null || true", "s"]).toString().split("\n").filter(Boolean);
+  const before = stamps();
+  const path = freshDir();
+  const watch = arm(path);
+  await watch.armed;
+  await watch.close();
+  // The in-distro sh defers a signal trap until its current `sleep` ends, so
+  // give the removal one cadence before demanding a clean /tmp.
+  await new Promise((resolve) => setTimeout(resolve, 2500));
+  assert.deepEqual(stamps(), before, "every armed loop removed its stamp file");
+});
+
 execFileSync("wsl.exe", ["-d", distro, "--exec", "rm", "-rf", dir]);
-for (let i = 1; i <= 4; i++) execFileSync("wsl.exe", ["-d", distro, "--exec", "rm", "-rf", `${dir}.c${i}`]);
+for (let i = 1; i <= 6; i++) execFileSync("wsl.exe", ["-d", distro, "--exec", "rm", "-rf", `${dir}.c${i}`]);
 console.log(`\n${passed} watch probe checks pass`);
 process.exit(process.exitCode ?? 0);
 EOF

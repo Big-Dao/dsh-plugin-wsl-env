@@ -28,9 +28,13 @@ import { execFileSync } from "node:child_process";
 const repo = process.env.DSH_WSL_ENV_EXEC_REPO;
 const { WslAgent } = await import(`${repo}/lib/agent.js`);
 const { agentExecutionHandle } = await import(`${repo}/lib/agent-exec.js`);
-// The read-only bwrap profile, spelled out: lib/sandbox.js would pull the
-// harness's dsh-sandbox peer, which this WSL-side checkout does not install.
-const readOnlyWrap = (argv) => ["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--unshare-pid", "--proc", "/proc", "--die-with-parent", "--", ...argv];
+// The read-only profile comes from lib/bwrap.js itself — the builder the
+// shipped confinement composes from. An inline copy here (as this probe once
+// had) would mask a profile regression exactly the way lib/bwrap.js's module
+// doc records; bwrap.js imports nothing, so the bare WSL-side checkout can
+// import it.
+const { bwrapArgvPrefix } = await import(`${repo}/lib/bwrap.js`);
+const readOnlyWrap = (argv) => [...bwrapArgvPrefix({ mode: "read-only", workspaceRoot: "/" }), ...argv];
 
 const distro = process.env.WSL_DISTRO_NAME || "ubuntu";
 const agent = new WslAgent({ distro, scriptPath: `${repo}/agent/wsl-agent.sh`, idleMs: 0 });

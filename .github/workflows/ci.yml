@@ -18,7 +18,8 @@ concurrency:
 # What cannot run here, and why: `test/probe/` needs Windows, WSL2 with a distro,
 # `bubblewrap` inside that distro, a harness profile and a linked checkout. A hosted
 # runner has none of that, so the probes stay a manual step on the development
-# machine (`npm run probe`, `probe:sandbox`, `probe:sandbox-shell`, `probe:terminal`).
+# machine (`npm run probe`, `probe:sandbox`, `probe:sandbox-shell`, `probe:terminal`,
+# and inside the distro `probe:substrate`, `probe:watch`, `probe:agent`, `probe:exec`).
 # See docs/RELEASING.md, and the archived record §16.6 for what that gap once cost.
 jobs:
   test:

@@ -69,6 +69,10 @@ terminal if you would rather not see the prompt.
 | `npm run probe:sandbox` | what bubblewrap confines and what it does not | no |
 | `npm run probe:sandbox-shell` | the confined executor through a real boot | yes |
 | `npm run probe:terminal` | the terminal provider | yes |
+| `npm run probe:substrate` | the agent filesystem substrate over a real `wsl.exe` transport | yes; inside the distro |
+| `npm run probe:watch` | the in-distro watcher over a real directory | yes; inside the distro |
+| `npm run probe:agent` | the resident-vs-one-shot fallback parity legs | yes; inside the distro |
+| `npm run probe:exec` | the agent-backed execution handle: timeout, kill, cwd failure | yes; inside the distro |
 | `npm run probe:missing-wsl` | how a `wslPath` that cannot start is reported | yes |
 | `npm run probe:picker` | the picker's root level, its refusals and its cap | yes |
 | `npm run probe:mode` | which POSIX-mode facts survive the share | no; Windows Node |

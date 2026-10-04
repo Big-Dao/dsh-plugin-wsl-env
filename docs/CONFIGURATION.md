@@ -26,6 +26,7 @@ are schema defaults, listed because they are the ones worth knowing.
 | | `substrate` | `agent` *(shipped)* | which I/O substrate serves the file tools: `agent` — the resident in-distro agent (`lib/fs-substrate.js`), where reads, writes and identities run on ext4: native symlinks, native mode bits, and the mutation guard survives to the write's atomic publication, kernel-enforced by the confined resident when the policy is confined. `share` — the opt-out: the Windows-side host stack over the 9p share, with the symlink-retry and publication hooks. Both substrates fence writes with the same host-side policy check. See [LIMITATIONS.md](LIMITATIONS.md) for what changes between them |
 | | `resolveSymlinks` | `true` | *(share substrate only)* follow Linux symlinks that the share cannot traverse, such as `/etc/os-release` and `/bin` — the agent substrate follows them natively |
 | | `cwd` | `''` | base directory for relative paths; empty means the distro user's home |
+| | `watchMaxDepth` | `0` | how deep the in-distro watch scan walks; `0` walks the whole tree. Bound it (e.g. `4`) when the watched tree holds a `node_modules` — a change below the bound is seen only when another change above it fires the same callback |
 | `directory-picker-wsl` | `preferredDistro` | `''` *(shipped)* | the distro listed first in the picker |
 | | `includeHostHome` | `true` *(shipped)* | also list the Windows home directory |
 | | `maxEntries` | `1000` *(shipped)* | maximum entries listed per directory |

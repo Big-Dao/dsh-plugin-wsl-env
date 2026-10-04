@@ -35,6 +35,50 @@ checks.push(["the loop script scans the directory itself, so deletions are seen"
   assert.equal(watchLoopScript(0), watchLoopScript(1), "a sub-second cadence clamps to 1s");
 }]);
 
+checks.push(["the loop script removes its stamp on every way out", () => {
+  const script = watchLoopScript(2);
+  assert.match(script, /trap 'rm -f "\$S"' EXIT/, "the EXIT trap removes the stamp");
+  assert.match(script, /trap 'exit 0' TERM INT HUP/, "signals route through a plain exit so the EXIT trap runs");
+}]);
+
+checks.push(["the loop script dies loudly when the watched directory vanishes", () => {
+  const script = watchLoopScript(2);
+  assert.match(script, /\[ ! -d "\$D" \]/, "each tick checks the target still exists");
+  assert.match(script, /printf 'E\\n'/, "the E line tells the host, instead of silent never-firing");
+  assert.match(script, /exit 1/, "the loop exits rather than spinning on a missing directory");
+}]);
+
+checks.push(["an E line reports the vanished target and survives the follow-up exit", async () => {
+  const child = new FakeChild();
+  const { arm } = fakeSpawn(child);
+  const errors = [];
+  const changes = [];
+  const close = await armDistroWatcher({
+    wslPath: "wsl.exe",
+    distro: "ubuntu",
+    linuxPath: "/home/you/gone",
+    onChange: () => changes.push(1),
+    onError: (error) => errors.push(error),
+    signal: new AbortController().signal,
+    spawn: arm,
+  });
+  child.line("E");
+  child.emit("exit", 1, null); // the loop's own exit right after E
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(errors.length, 1, "exactly one report — E, not E plus the exit");
+  assert.match(errors[0].message, /\/home\/you\/gone/);
+  assert.match(errors[0].message, /no longer exists/);
+  await close(); // still closable, and killing an already-dead loop is a no-op
+  assert.equal(changes.length, 0);
+}]);
+
+checks.push(["a bounded scan puts -maxdepth right after the path", () => {
+  const script = watchLoopScript(2, 4);
+  assert.match(script, /find "\$D" -maxdepth 4 -newer "\$S"/);
+  assert.equal(watchLoopScript(2, 0), watchLoopScript(2), "0 means the unbounded whole-tree walk");
+  assert.equal(watchLoopScript(2, -3), watchLoopScript(2), "nonsense depths fall back to unbounded");
+}]);
+
 checks.push(["arming resolves only on the loop's READY barrier, not before", async () => {
   const child = new FakeChild(false);
   const { arm } = fakeSpawn(child);

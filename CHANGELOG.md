@@ -12,6 +12,61 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+One theme: the P2 backlog from the 2026-10-03 review, closed with the same
+evidence bar as its P0/P1 — every fix carries a check that fails without it,
+and the real-distro probes run green over the changed paths.
+
+### Fixed
+
+- **The in-distro watcher no longer fails silently (review M10).** Four defects
+  in `lib/watcher.js`, fixed together because they share one loop:
+  the stamp file is removed on every way out (EXIT trap; TERM/INT/HUP routed
+  through a plain exit so the trap runs); a target that vanishes mid-watch now
+  ends the loop with a report through the error channel instead of arming
+  forever (`E` protocol line, unit- and probe-tested); the scan's depth is
+  boundable through the new `wsl-fs.watchMaxDepth` key (`0`, the default,
+  keeps the whole-tree walk); and the loop's stderr is drained continuously
+  with its tail kept for error context, so a chatty `sh` can no longer stall
+  the watch at the 64 KiB pipe limit.
+- **A wedged WSL service can no longer hang a tool call forever (review M11).**
+  Every `wsl.exe` resolution call in `lib/wsl.js` now runs under a deadline
+  (`DEFAULT_WSL_DEADLINE_MS`, 60 s — generous on purpose for cold boots, `0`
+  waits forever), and the deadline kill is named for what it is in the error,
+  with the `wsl.exe --shutdown` remedy. Separately, the agent execution path's
+  `confine()` now receives the request's abort signal, the same one the
+  one-shot path always passed.
+- **A timed-out command can no longer leave descendants running (review M12).**
+  EXEC requests run as their own session and process group (`setsid`, detected
+  at startup with a documented fallback), and the in-distro timeout and KILL
+  frames signal the whole group — TERM, then KILL after the grace, descendants
+  included. Proven by a new real-script check: a command that backgrounds a
+  marked shell and outlives its budget leaves zero survivors.
+- **Documentation drift cluster (review M9).** ARCHITECTURE.md's service table
+  claimed the share substrate was the default (it is `agent`), pointed at
+  `lib/sandbox.js` for `bwrapProfileArgs` (built in `lib/bwrap.js`), and kept
+  the long-gone `watch()` refusal in the error-code table; the `substrate`
+  schema docstring claimed watches run through the substrate (both substrates
+  ride the same `lib/watcher.js` poll loop); PARITY.md now records the rg
+  interception as designed-but-never-implemented instead of leaving it
+  implied; and the probe checklists (both READMEs, CONTRIBUTING, RELEASING,
+  the PR template, CI's comment) list the agent, watch, substrate and exec
+  probes that had shipped without being listed anywhere.
+
+### Changed
+
+- **Test structure (review M15).** The sandbox checks run everywhere now:
+  the probe-and-confine logic moved to the peer-free `lib/sandbox-core.js`
+  (one implementation, still shipped), `lib/sandbox.js` binds it to the peer's
+  `SandboxUnavailableError`, and the tests inject a stand-in with the same
+  `code` — CI no longer skips them. `FS_SANDBOX_DENIED`'s write-only
+  classification carries three unit checks (write denial classified, the same
+  signature ignored off the write path, ordinary permission failures keep
+  theirs). The probes stopped carrying inline bwrap profiles: `exec.sh` and
+  `sandbox.sh` derive their profiles from `lib/bwrap.js` itself, so a profile
+  change fails the probe instead of hiding behind a copy. `lib/wsl.js`'s
+  spawning half — previously probe-only — gained `test/wsl.test.mjs`.
+  `test/probe/agent.sh` is wired as `npm run probe:agent` like its siblings.
+
 ## [0.5.0] - 2026-10-04
 
 One theme: telling the truth, in the reader's language. The Plugins page now

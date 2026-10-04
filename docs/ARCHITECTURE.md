@@ -19,7 +19,7 @@ smaller integrations.
 | Service | Class | File | What it does |
 |---|---|---|---|
 | `ctx.shell` | `WslShellExecutor` | [`lib/index.js`](../lib/index.js) | Runs each command as `wsl.exe -d <distro> --cd <linux dir> --exec <login shell> -lc <cmd>`, wrapped in a distro-side `bwrap` sandbox. |
-| `ctx.fs` | `WslFileSystem` | [`lib/index.js`](../lib/index.js) | Serves the file tools from real distro files, on one of two I/O substrates (see below): the Windows-side host stack over the distro's UNC share (default), or the resident in-distro agent on ext4. |
+| `ctx.fs` | `WslFileSystem` | [`lib/index.js`](../lib/index.js) | Serves the file tools from real distro files, on one of two I/O substrates (see below): the resident in-distro agent on ext4 (default), or the Windows-side host stack over the distro's UNC share. |
 | `ctx.subprocess` | `WslSubprocessRuntime` | [`lib/subprocess.js`](../lib/subprocess.js) | Opens the GUI terminal inside the distro, in the session workspace. |
 
 `WslShellExecutor` extends the shipped `LocalBashExecutor`, and `WslFileSystem`
@@ -146,7 +146,8 @@ wsl.exe -d <distro> --cd <linux dir> --exec bwrap \
 
 These are the same arguments DSH's Linux runner uses (`dsh-sandbox-local`), so the
 behaviour and the error messages match a Linux host. The function
-`bwrapProfileArgs` in [`lib/sandbox.js`](../lib/sandbox.js) builds them.
+`bwrapProfileArgs` in [`lib/bwrap.js`](../lib/bwrap.js) builds them — the
+peer-free builder every confinement site composes from.
 
 | Mode | What a command inside the distro can do |
 |---|---|
@@ -208,7 +209,7 @@ finds it here.
 | `FS_OUTSIDE_DISTRO` | `WslFileSystem.worldPath` | `restrictToDistro` is on and the path names **another distro**'s share — a configuration fence, not a sandbox decision | open a session in that distro, or set `restrictToDistro: false`. A wider permission does **not** lift it |
 | `FS_NOT_OBSERVED` | `WslFileSystem.assertGuard` | a guarded create (`createIfAbsent`) targeted a file that exists and had not been read first | read the file, then overwrite with the version guard or edit it |
 | `FS_STALE_VERSION` | `WslFileSystem.assertGuard` | the version the caller holds no longer matches: the file changed, or is gone | read it again and retry with the fresh version |
-| `FS_IO_ERROR` | `WslFileSystem.watch` | `watch()` is refused, because a 9p share cannot be watched reliably | poll, or watch from inside the distro |
+| `FS_IO_ERROR` | `WslFileSystem.watch` | the watch target is not a path inside the pinned distro, so there is nothing the in-distro poll loop can observe | watch a distro path; the watch itself runs where the files live (`lib/watcher.js`) |
 | `FS_NOT_FOUND` | the host filesystem stack | the path does not exist — the ordinary answer, passed through | — |
 
 Two failures come from `wsl.exe` itself rather than from a code of ours, and both used

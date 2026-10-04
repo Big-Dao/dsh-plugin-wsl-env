@@ -258,5 +258,46 @@ checks.push(["EXEC and PING still work beside the FS frames", async () => {
   }
 }]);
 
+checks.push(["a timed-out EXEC takes the command's descendants with it", async () => {
+  // The command backgrounds a shell whose ARGV carries a unique marker and
+  // then sleeps far past its own budget. The timeout must answer promptly AND
+  // the whole tree must be gone — the pre-process-group behaviour killed only
+  // the direct child, orphaning the background shell for its natural life.
+  if (!POSIX) return; // the agent and pgrep are POSIX-side
+  const agent = new Harness();
+  const marker = `wsl-agent-gkill-${process.pid}-${Date.now()}`;
+  try {
+    await agent.hello();
+    const id = `x${agent.n++}`;
+    const startedAt = Date.now();
+    for (const line of encodeExecFrame({
+      id,
+      cwd: "/",
+      // The inner shell's argv carries the marker, so its survival is
+      // observable; the bracket in the probe pattern below keeps pgrep from
+      // matching its own command line.
+      argv: ["sh", "-c", `sh -c "touch /tmp/${marker} && sleep 60" & sleep 60`],
+      timeoutMs: 1200,
+    })) {
+      agent.child.stdin.write(`${line}\n`);
+    }
+    for (;;) {
+      const message = parseAgentLine(await agent.nextLine());
+      if (message.type === "result" && message.id === id) break;
+    }
+    const elapsed = Date.now() - startedAt;
+    assert.ok(elapsed < 10_000, `the timeout answered after ${elapsed}ms`);
+    // The grace is 3s (TERM, then KILL); give the second signal its moment,
+    // then demand a clean tree.
+    await new Promise((resolve) => setTimeout(resolve, 4500));
+    const { execFileSync } = await import("node:child_process");
+    const survivors = execFileSync("sh", ["-c", `pgrep -f "wsl-agent-gki[l]l-${process.pid}-" | wc -l`]).toString().trim();
+    assert.equal(survivors, "0", "no descendant of the timed-out request survives");
+  } finally {
+    await agent.close();
+    rmSync(`/tmp/${marker}`, { force: true });
+  }
+}]);
+
 for (const [name, fn] of checks) await check(name, fn);
 console.log(`\n${passed} agent fs script checks pass${POSIX ? "" : " (skipped: not a POSIX shell host)"}`);

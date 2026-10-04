@@ -40,6 +40,10 @@ shaped a phase of the plan.
    distro's share, rewrite the spawn to run a distro-side `rg` (falling back
    to `grep -rE` + `find` when absent) with identical stdout conventions.
    Under the agent, that exec rides the agent's `exec` capability.
+   **Not implemented, and recorded so the gap is a decision, not an
+   omission:** search still runs the packaged Windows rg over the share. The
+   interception was designed (above) but never landed; nothing in the phase
+   table below delivers it, and no phase claims it.
 3. **`dsh-fs-local` watches with chokidar over the share** — the behaviour
    this plugin replaces: chokidar on 9p is the unreliability that made
    `WslFileSystem.watch` refuse. The in-distro watcher replaces it wholesale.

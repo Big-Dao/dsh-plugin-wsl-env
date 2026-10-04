@@ -480,5 +480,48 @@ checks.push(["the EXEC frame is untouched by the adapter's arrival", () => {
   assert.equal(lines[0].split("|")[0], "EXEC");
 }]);
 
+/** An agent returning one canned FS result, whatever op it is asked. */
+function cannedAgent(result) {
+  return { fs: async () => result };
+}
+const fsLine = (reason, message) => Buffer.from(`dsh-fs|${reason}|${Buffer.from(message, "utf8").toString("base64")}\n`, "utf8");
+
+checks.push(["a kernel read-only denial on a WRITE is the sandbox refusal, not an I/O error", async () => {
+  // The head-teacher claim of the confined substrate: a write the mount table
+  // refused carries FS_SANDBOX_DISABLED's sibling — the code the tool layer
+  // turns into an escalation offer. Before this check existed, the mapping
+  // was guarded only by a manual Windows probe.
+  const fs = new DistroFs({
+    agent: cannedAgent({ exitCode: 1, stdout: Buffer.alloc(0), stderr: fsLine("io", 'mv: cannot move: Read-only file system') }),
+    distro: DISTRO,
+  });
+  await assert.rejects(
+    () => fs.writeFileAtomic("/doc/file.txt", "content"),
+    (error) => {
+      assert.equal(error.code, "FS_SANDBOX_DENIED");
+      assert.match(error.message, /cannot write "\/doc\/file\.txt"/);
+      return true;
+    },
+  );
+}]);
+
+checks.push(["the same signature is sandbox-classified ONLY on the write path", async () => {
+  // A read-side op reporting the dialect is an I/O failure — the read mounts
+  // are never read-only-refused in a way the fence caused.
+  const fs = new DistroFs({
+    agent: cannedAgent({ exitCode: 1, stdout: Buffer.alloc(0), stderr: fsLine("io", "Read-only file system") }),
+    distro: DISTRO,
+  });
+  await assert.rejects(() => fs.stat("/doc/gone"), (error) => error.code === "FS_IO_ERROR");
+}]);
+
+checks.push(["a write refused on ordinary permissions keeps its I/O classification", async () => {
+  const fs = new DistroFs({
+    agent: cannedAgent({ exitCode: 1, stdout: Buffer.alloc(0), stderr: fsLine("perm", "Permission denied") }),
+    distro: DISTRO,
+  });
+  await assert.rejects(() => fs.writeFileAtomic("/doc/file.txt", "content"), (error) => error.code === "FS_IO_ERROR");
+}]);
+
 for (const [name, fn] of checks) await check(name, fn);
 console.log(`\n${passed} fsio-agent checks pass${POSIX ? "" : " (record parsing only: not a POSIX shell host)"}`);

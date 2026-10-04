@@ -134,6 +134,9 @@ npm run probe                # 文件系统探针，需要真实子系统（仅 
 npm run probe:sandbox-shell  # 启动真实 harness，驱动受限执行器
 npm run probe:terminal       # 通过终端 provider 打开一个 PTY
 npm run probe:substrate      # 用真实 wsl.exe 传输驱动 agent 文件基座（在子系统内运行）
+npm run probe:watch          # 在真实目录上装上 distro 内轮询 watcher（在子系统内运行）
+npm run probe:agent          # resident 与 one-shot 的回退不变量对比腿（在子系统内运行）
+npm run probe:exec           # agent 执行句柄：超时、杀停、cwd 失败（在子系统内运行）
 npm run probe:missing-wsl    # 启动一个 wslPath 无法启动的 profile（仅 Windows + WSL）
 npm run probe:picker         # 列出选择器的根级、拒绝路径与上限（仅 Windows + WSL）
 npm run probe:mode           # 哪些 POSIX 权限事实能穿过共享层（仅需 Windows node）

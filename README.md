@@ -143,6 +143,9 @@ npm run probe                # filesystem probe against a real distro (Windows +
 npm run probe:sandbox-shell  # boot a real harness and drive the confined executor
 npm run probe:terminal       # open a PTY through the terminal provider
 npm run probe:substrate      # drive the agent filesystem substrate over a real wsl.exe transport (from inside the distro)
+npm run probe:watch          # arm the in-distro watcher over a real directory (from inside the distro)
+npm run probe:agent          # the resident-vs-one-shot fallback parity legs (from inside the distro)
+npm run probe:exec           # the agent-backed execution handle: timeout, kill, cwd failure (from inside the distro)
 npm run probe:missing-wsl    # boot a profile whose wslPath cannot start (Windows + WSL only)
 npm run probe:picker         # list the picker's root level, refusals and its cap (Windows + WSL only)
 npm run probe:mode           # which POSIX-mode facts survive the share (Windows node only)

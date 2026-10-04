@@ -121,3 +121,53 @@ git 自己的 "command not found"（exit 127），与搜索的 fail-open 语义�
 **战略注记**：②的"根平面路由 fs facade"与 ssh 家族的"成对远程 provider"在效果上汇合——
 区别只在挂载位置（替换根 fs 行 vs 三个 seam 成对）。若上游未来做 desktop+WSL 的正式支持，
 这就是合并点。
+
+## 附录 C：workspace-files 接管设计评审
+
+源码事实（`packages/api/workspace-files/src/index.ts`，465 行）：`WorkspaceFiles
+extends TypertRemoteService`，`inject=['fs','sandboxPolicy','sessions','typert']`；
+read/readBytes/stat/list/changes 五个 @Remote 操作**全部漏斗到 `this.ctx.fs`**
+（resolve/lstat/stat/listDir/readByteRange/readBytes/contains/processPath/
+fileUrl），坐标基点 = `workspaceFileScope.workspaceRoot` = session header cwd
+（WSL 工作区即 UNC）。行替换（插件模式）拿到的仍是根 ctx.fs——**子类无法通过
+继承改换 fs**，因为 fs 来自 context 而非字段。
+
+### 路线一（推荐，本轮可实现）：子类覆写 @Remote 操作 + agent 直连
+
+`WorkspaceFilesWsl extends WorkspaceFiles`，覆写 read/readBytes/stat/list/
+changes 五个操作：`scope.workspaceRoot` 非 distro UNC → `super.*`（host 原生）；
+distro UNC → 常驻 agent 直连，distro 内复刻各操作的语义：
+
+| 操作 | distro 侧实现 | 语义要点 |
+|---|---|---|
+| list | agent `ls -1Ap <dir>` + maxEntries 截断 | 含 `--` 路径尾、目录 `/` 后缀；contains = Linux 路径前缀检查（workspaceRoot 的 Linux 形态） |
+| stat | agent `stat -c '%d:%i:%s:%Y:%Z'`（合成 version） | version 与 fsio 格式不同但仅 GUI 消费（不透明字符串） |
+| read（行分页） | agent `sed -n '<offset>,<limit>p'` + NUL 检测（`grep -q $'\0'` 前置） | eof = 行数 < limit |
+| readBytes | agent `dd if=<f> skip=<offset> count=<len> bs=1`（或 head -c 管道） | eof 按size 判定 |
+| changes（watch 流） | **不接管**：委托 super（其 feed 走 ctx.fs.watch=轮询，行为不变） | 保持现状 |
+
+- 优点：不动根平面；与 picker 完全同构；工作树增量可控。
+- 代价：**语义复刻面**（分页字节边界、NUL、排序稳定性、错误码映射
+  not-found/outside-workspace）——每项都要对拍上游行为；上游改 WorkspaceFiles
+  时子类要跟。
+- 变更面：cordis.patch.yml 禁 `file-reference-local` 同款（禁 `workspace-files`
+  行 + 插入 wsl 变体）。
+
+### 路线二（战略终局，下一大弧线）：根平面路由 fs facade
+
+替换根 `fs-sandbox` 行为**按坐标路由的 fs**：UNC → distro substrate
+（现 WslFileSystem 全套），盘符 → 宿主原生（fs-local，保留 ACL 语义与
+fs-sandbox 围栏）。一次替换，**所有根消费者自动正确**（workspace-files 无需
+子类、workspace-changes 的 fs 侧、未来消费者）。
+
+- 决定性风险：根 fs 是 session-less 的；路由必须**纯坐标判定**（UNC→distro、
+  盘符→host），放弃 per-session 语义（根 fs-sandbox 的 policy 围栏对 UNC 路径
+  的可写根判定要重新推导——policy.workspaceRoot 是部署默认，多工作区下的
+  writableRoots 语义要重设计）。
+- 与 ssh 家族的关系：这就是"成对远程 provider"在单进程混合世界的落法——
+  上游若做 desktop+WSL 正式支持，合并点在此。
+
+### 建议
+
+路线一先行（风险可控、用户可感），路线二作为独立评审的弧线——其核心未决问题
+（根平面 fs 的 per-session 语义）值得单独一份设计文档而不是顺手做。

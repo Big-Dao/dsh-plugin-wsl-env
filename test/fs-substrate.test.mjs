@@ -148,14 +148,12 @@ checks.push(["the per-target lock serializes concurrent mutations FIFO and a fai
     assert.equal(readFileSync(p, "utf8"), "two\n", "the second write lands last, byte-true");
 
     // A rejecting holder must not poison the next in line: the tail swallows.
-    const gate = Promise.withResolvers();
     const failing = sub.writeText(target, "x\n", undefined, undefined).then(
       () => order.push("failing-resolved"),
       () => order.push("failing-rejected"),
     );
     await new Promise((r) => setImmediate(r));
     const after = sub.writeText(target, "three\n", undefined, undefined).then(() => order.push("after"));
-    gate.resolve();
     await Promise.all([failing, after]);
     assert.ok(order.includes("after"), "the lock outlives a rejecting holder");
     assert.equal(readFileSync(p, "utf8"), "three\n");

@@ -1,4 +1,80 @@
 /**
+ * Host side of the resident in-distro agent.
+ *
+ * One {@link WslAgent} instance owns one long-lived `wsl.exe` process per
+ * distro. The lifetime rules, in order of importance:
+ *
+ * 1. **Correctness before speed.** Any agent failure is answered by at most
+ *    one rebuild; the requests that were in flight ride it ONLY when their
+ *    first execution provably changed nothing (the read-only FS ops). A
+ *    command or a write that was in flight has UNKNOWN state — replaying it
+ *    would run non-idempotent work twice or report a create that actually
+ *    succeeded as a refusal — so it fails instead, and the caller re-reads
+ *    before retrying. A second failure marks the agent permanently dead and
+ *    every future call rejects with {@link AgentUnavailableError} — the
+ *    executor's cue to fall back to the one-shot `wsl.exe` path it shipped
+ *    with, so the worst case of the agent is "today's behaviour, plus one
+ *    failed round trip".
+ * 2. **The in-distro timeout is the real one.** The EXEC frame carries the
+ *    timeout in whole seconds and the agent SIGTERMs the child itself, so a
+ *    timed-out command dies where it lives instead of leaving an orphan
+ *    behind a dead `wsl.exe`. The host-side watchdog is armed on the agent's
+ *    `ACK` — the dequeue signal — so it measures EXECUTION, never the queue
+ *    wait: a short-budget request queued behind a long one can no longer
+ *    kill the shared transport for a stall that was never its own. It still
+ *    catches an agent that accepted a request and then stopped answering at
+ *    all.
+ * 3. **Idle agents go away.** `idleMs` after the last exchange the process is
+ *    killed; the next call starts a fresh one. WSL VMs are shared, but every
+ *    process is a promise someone has to keep.
+ *
+ * The transport is injectable so the lifecycle and the fallback decision are
+ * unit-testable without a distro.
+ *
+ * This is a TypeScript source built to `lib/agent.js`; edit THIS file and run
+ * `pnpm run build` — the artifact under `lib/` is generated, and `pnpm test`
+ * fails when it drifts.
+ *
+ * @module dsh-plugin-wsl/agent
+ */
+import type { ChildProcess } from "node:child_process";
+/** One settled command result, as `exec` resolves it. */
+export interface ExecResult {
+    /** The command's exit status. */
+    exitCode: number;
+    /** Captured stdout. */
+    stdout: Buffer;
+    /** Captured stderr. */
+    stderr: Buffer;
+    /** Which streams the capture cap cut. */
+    truncated: {
+        stdout: boolean;
+        stderr: boolean;
+    };
+}
+/**
+ * One request in flight on an agent: its frame, its settlement callbacks, and
+ * the ACK-armed watchdog.
+ */
+export interface PendingRequest {
+    /** The request id, as the agent echoes it. */
+    id: string;
+    /** The frame lines (kept so a rebuild can re-send). */
+    lines: string[];
+    /** Settles a RES. */
+    resolve: (result: ExecResult) => void;
+    /** Settles a failure. */
+    reject: (error: Error) => void;
+    /** The ACK-armed watchdog timer. */
+    watchdog: NodeJS.Timeout | null;
+    /** The caller's cancellation, when any. */
+    signal: AbortSignal | null;
+    /** The abort listener, for removal. */
+    onAbort: (() => void) | null;
+    /** Arms `watchdog`; null when the request carries no timeout. */
+    armWatchdog: (() => void) | null;
+}
+/**
  * The Windows environment the transport starts from, pinned.
  *
  * Spawned bare, `wsl.exe` would inherit this process's whole environment — and
@@ -16,22 +92,10 @@
  * has never forwarded them, and this pin keeps that posture instead of
  * widening it silently.
  *
- * @param {Record<string, string|undefined>} parent - this process's environment.
- * @returns {Record<string, string>} the pinned environment for `wsl.exe`.
+ * @param parent - this process's environment.
+ * @returns the pinned environment for `wsl.exe`.
  */
-export function pinnedWindowsEnv(parent: Record<string, string | undefined>): Record<string, string>;
-/**
- * @param {object} options - the spawn options.
- * @param {string} options.wslPath - the `wsl.exe` path.
- * @param {string} options.distro - the distro name.
- * @param {string} options.scriptPath - the agent script as a Linux path inside
- *   the distro (a `/mnt/<drive>/...` translation of the package's
- *   `agent/wsl-agent.sh`).
- * @param {number} [options.leaseMs] - the agent's own client lease, forwarded
- *   through the managed `DSH_` namespace so the script can self-terminate
- *   when a wedged relay stops carrying traffic without ever delivering EOF.
- * @returns {import("node:child_process").ChildProcess} the spawned process.
- */
+export declare function pinnedWindowsEnv(parent: Record<string, string | undefined>): Record<string, string>;
 /**
  * The spawn environment for one resident, with the client lease folded in.
  * The pinned environment forwards only the managed `DSH_` namespace, and it
@@ -39,90 +103,97 @@ export function pinnedWindowsEnv(parent: Record<string, string | undefined>): Re
  * both: the value on the variable, the name on `WSLENV`. A non-positive
  * lease leaves the environment as the pin built it (the script treats an
  * unset variable as no lease).
- * @param {Record<string, string>} env - the pinned environment.
- * @param {number} leaseMs - the agent's client lease in ms; 0 disables.
- * @returns {Record<string, string>} the environment to spawn with.
+ *
+ * @param env - the pinned environment.
+ * @param leaseMs - the agent's client lease in ms; 0 disables.
+ * @returns the environment to spawn with.
  */
-export function agentLeaseEnv(env: Record<string, string>, leaseMs: number): Record<string, string>;
-/**
- * Rewrite the request id inside a stored frame so a resent request does not
- * collide with ids the new process has already seen. SETENV lines pass
- * through unchanged (they are id-less and idempotent).
- * @param {string[]} lines - the stored frame.
- * @param {string} newId - the new request id.
- * @returns {string[]} the relabelled frame.
- */
-export function relabelFrame(lines: string[], newId: string): string[];
-/**
- * The resident agent for one distro.
- */
-export class WslAgent {
-    /**
-     * @param {object} config - the agent configuration.
-     * @param {string} config.distro - the distro this agent serves.
-     * @param {string} config.scriptPath - the agent script as a Linux path
-     *   inside the distro (see {@link spawnDefault}).
-   * @param {string} [config.wslPath] - the `wsl.exe` path.
-   * @param {number} [config.idleMs] - idle shutdown delay; 0 disables.
-   * @param {string} [config.expectedDigest] - the sha256 of the agent script
-   *   as this package shipped it; a HELLO whose digest differs is refused the
-   *   same way a version mismatch is (the script is read in place, so a stale
-   *   or half-synced runtime copy is the failure this catches).
-   * @param {string[]} [config.argvPrefix] - arguments inserted between
-     *   `wsl.exe --exec` and the `sh script` pair — the confinement wrapper
-     *   (`bwrap … --`) a confined agent runs its whole lifetime under, so every
-     *   filesystem op it performs is kernel-enforced. Empty for the plain agent.
-   * @param {number} [config.frameCapBytes] - hard ceiling in bytes on one stdout
-   *   protocol line; defaults to {@link MAX_FRAME_BYTES}.
-   * @param {(options: {wslPath: string, distro: string, scriptPath: string, argvPrefix: string[]}) => import("node:child_process").ChildProcess} [config.spawnTransport]
-     *   injectable process factory for tests.
-     */
-    constructor(config: {
-        distro: string;
-        scriptPath: string;
-        wslPath?: string | undefined;
-        idleMs?: number | undefined;
-        expectedDigest?: string | undefined;
-        argvPrefix?: string[] | undefined;
-        frameCapBytes?: number | undefined;
-        spawnTransport?: ((options: {
-            wslPath: string;
-            distro: string;
-            scriptPath: string;
-            argvPrefix: string[];
-        }) => import("node:child_process").ChildProcess) | undefined;
-    });
+export declare function agentLeaseEnv(env: Record<string, string>, leaseMs: number): Record<string, string>;
+/** The resident agent for one distro. */
+export declare class WslAgent {
+    /** The distro this agent serves. */
     distro: string;
+    /** The agent script as a Linux path inside the distro (see {@link spawnDefault}). */
     scriptPath: string;
+    /** The `wsl.exe` path. */
     wslPath: string;
+    /** Arguments between `wsl.exe --exec` and the `sh script` pair. */
     argvPrefix: string[];
+    /** Idle shutdown delay; 0 disables. */
     idleMs: number;
+    /** The sha256 of the agent script as this package shipped it. */
     expectedDigest: string | undefined;
-    /** Hard ceiling on one stdout protocol line; a longer line is a broken or
-     * hostile agent, not data to hold — readline used to accumulate it all. */
+    /**
+     * Hard ceiling on one stdout protocol line; a longer line is a broken or
+     * hostile agent, not data to hold — readline used to accumulate it all.
+     */
     frameCapBytes: number;
+    /** The injectable process factory, when the caller supplied one. */
     configuredSpawn: ((options: {
         wslPath: string;
         distro: string;
         scriptPath: string;
         argvPrefix: string[];
-    }) => import("node:child_process").ChildProcess) | undefined;
-    /** @type {import("node:child_process").ChildProcess|null} */
-    process: import("node:child_process").ChildProcess | null;
-    /** @type {"idle"|"starting"|"ready"|"dead"} */
+    }) => ChildProcess) | undefined;
+    /** The live resident process, when any. */
+    process: ChildProcess | null;
+    /** The lifecycle state. */
     state: "idle" | "starting" | "ready" | "dead";
-    /** @type {Promise<void>|null} */
+    /** The in-flight start, shared by concurrent callers. */
     startPromise: Promise<void> | null;
+    /** The next request id. */
     nextRequestId: number;
-    /** @type {Map<string, PendingRequest>} */
+    /** The requests in flight, keyed by their current id. */
     pending: Map<string, PendingRequest>;
+    /** Whether the one permitted rebuild has been spent. */
     rebuildUsed: boolean;
-    /** @type {NodeJS.Timeout|null} */
+    /** The idle-shutdown timer. */
     idleTimer: NodeJS.Timeout | null;
+    /** The last failure, for `unavailableReason` and log messages. */
     lastError: string;
     /**
+     * @param config - the agent configuration.
+     */
+    constructor(config: {
+        /** The distro this agent serves. */
+        distro: string;
+        /**
+         * The agent script as a Linux path inside the distro (see
+         * {@link spawnDefault}).
+         */
+        scriptPath: string;
+        /** The `wsl.exe` path. */
+        wslPath?: string;
+        /** Idle shutdown delay; 0 disables. */
+        idleMs?: number;
+        /**
+         * The sha256 of the agent script as this package shipped it; a HELLO whose
+         * digest differs is refused the same way a version mismatch is (the script
+         * is read in place, so a stale or half-synced runtime copy is the failure
+         * this catches).
+         */
+        expectedDigest?: string;
+        /**
+         * Arguments inserted between `wsl.exe --exec` and the `sh script` pair —
+         * the confinement wrapper (`bwrap … --`) a confined agent runs its whole
+         * lifetime under, so every filesystem op it performs is kernel-enforced.
+         * Empty for the plain agent.
+         */
+        argvPrefix?: string[];
+        /** Hard ceiling in bytes on one stdout protocol line; defaults to {@link MAX_FRAME_BYTES}. */
+        frameCapBytes?: number;
+        /** Injectable process factory for tests. */
+        spawnTransport?: (options: {
+            wslPath: string;
+            distro: string;
+            scriptPath: string;
+            argvPrefix: string[];
+        }) => ChildProcess;
+    });
+    /**
      * Whether the agent is permanently out — the executor's fallback cue.
-     * @returns {boolean}
+     *
+     * @returns true once the rebuild budget is spent.
      */
     get unavailable(): boolean;
     /** Human-readable reason for the last transition to `dead`, for logging. */
@@ -130,24 +201,24 @@ export class WslAgent {
     /**
      * Start the process and wait for the handshake. Re-entrant: concurrent
      * callers share the one start.
-     * @returns {Promise<void>} resolved once the state is `ready`.
+     *
+     * @returns resolved once the state is `ready`.
      */
     start(): Promise<void>;
     /**
      * One stdout line from the agent. The first must be a matching HELLO.
-     * @param {string} line - one protocol line, terminator stripped.
-     * @param {(error?: unknown) => void} settleStart - the handshake settler.
-     * @param {NodeJS.Timeout} handshakeTimer - the handshake watchdog.
-     * @private
+     *
+     * @param line - one protocol line, terminator stripped.
+     * @param settleStart - the handshake settler.
+     * @param handshakeTimer - the handshake watchdog.
      */
     private handleLine;
     /**
      * The process died. Requests in flight ride exactly one rebuild; a second
      * death is permanent.
-     * @param {number | null} code - the exit code, null when killed by a signal.
-     * @param {NodeJS.Signals | null} signalName - the killing signal, null on a
-     *   normal exit.
-     * @private
+     *
+     * @param code - the exit code, null when killed by a signal.
+     * @param signalName - the killing signal, null on a normal exit.
      */
     private handleProcessExit;
     /**
@@ -157,41 +228,41 @@ export class WslAgent {
      * dequeue `ACK`, so time spent queued behind an earlier request never
      * spends this request's budget and never kills the shared transport for a
      * stall that was not its own.
-     * @param {object} request - the request to register.
-     * @param {string} request.id - the request's id.
-     * @param {string[]} request.lines - the frame lines to write.
-     * @param {(result: ExecResult) => void} request.resolve - settles a RES.
-     * @param {(error: Error) => void} request.reject - settles a failure.
-     * @param {number} request.timeoutMs - the in-distro timeout in ms; 0 means none.
-     * @param {AbortSignal} [request.signal] - the caller's cancellation.
-     * @private
+     *
+     * @param request - the request to register.
      */
     private track;
     /**
      * Run one command inside the distro through the agent.
-     * @param {object} request - the execution request.
-     * @param {string} request.cwd - Linux path to run in.
-     * @param {string[]} request.argv - the argv, already bwrap-wrapped when the
-     *   caller confines.
-     * @param {number} [request.timeoutMs] - in-distro timeout, whole seconds
-     *   upward, measured from the agent's dequeue ACK; `<= 0` or omitted means
-     *   none. Queue time ahead of the dispatch is never counted.
-     * @param {Record<string, string>} [request.env] - extra environment for this
-     *   request only; values lose trailing newlines (protocol limitation).
-     * @param {number} [request.maxOutputBytes] - per-stream capture ceiling the
-     *   agent enforces (carried on the EXEC frame); the RES line reports which
-     *   streams were cut. 0 (the default) keeps the unbounded capture.
-     * @param {AbortSignal} [request.signal] - cancels the request (KILL + reject).
-     * @returns {Promise<{exitCode: number, stdout: Buffer, stderr: Buffer, truncated: {stdout: boolean, stderr: boolean}}>}
+     *
+     * @param request - the execution request.
+     * @returns the settled result.
      * @throws {AgentUnavailableError} when the agent is out for this process.
      */
     exec({ cwd, argv, timeoutMs, maxOutputBytes, env, signal }: {
+        /** Linux path to run in. */
         cwd: string;
+        /** The argv, already bwrap-wrapped when the caller confines. */
         argv: string[];
-        timeoutMs?: number | undefined;
-        env?: Record<string, string> | undefined;
-        maxOutputBytes?: number | undefined;
-        signal?: AbortSignal | undefined;
+        /**
+         * In-distro timeout, whole seconds upward, measured from the agent's
+         * dequeue ACK; `<= 0` or omitted means none. Queue time ahead of the
+         * dispatch is never counted.
+         */
+        timeoutMs?: number;
+        /**
+         * Extra environment for this request only; values lose trailing newlines
+         * (protocol limitation).
+         */
+        env?: Record<string, string>;
+        /**
+         * Per-stream capture ceiling the agent enforces (carried on the EXEC
+         * frame); the RES line reports which streams were cut. 0 (the default)
+         * keeps the unbounded capture.
+         */
+        maxOutputBytes?: number;
+        /** Cancels the request (KILL + reject). */
+        signal?: AbortSignal;
     }): Promise<{
         exitCode: number;
         stdout: Buffer;
@@ -207,22 +278,26 @@ export class WslAgent {
      * watchdog are exactly the command path's. The rebuild relay differs by op:
      * a read-only op rides a rebuild, a `write` in flight fails with an
      * unknown-state error instead of being replayed.
-     * @param {object} request - the filesystem request.
-     * @param {string} request.op - op name (`stat`, `lstat`, `list`, `realpath`,
-     *   `read`, `write`), dispatched by `agent/wsl-agent.sh`.
-     * @param {string[]} request.args - op arguments; each rides one base64 line.
-     * @param {number} [request.timeoutMs] - in-distro timeout, whole seconds
-     *   upward, measured from the agent's dequeue ACK; `<= 0` or omitted means
-     *   none.
-     * @param {AbortSignal} [request.signal] - cancels the request (KILL + reject).
-     * @returns {Promise<{exitCode: number, stdout: Buffer, stderr: Buffer}>}
+     *
+     * @param request - the filesystem request.
+     * @returns the settled result.
      * @throws {AgentUnavailableError} when the agent is out for this process.
      */
     fs({ op, args, timeoutMs, signal }: {
+        /**
+         * Op name (`stat`, `lstat`, `list`, `realpath`, `read`, `write`),
+         * dispatched by `agent/wsl-agent.sh`.
+         */
         op: string;
+        /** Op arguments; each rides one base64 line. */
         args: string[];
-        timeoutMs?: number | undefined;
-        signal?: AbortSignal | undefined;
+        /**
+         * In-distro timeout, whole seconds upward, measured from the agent's
+         * dequeue ACK; `<= 0` or omitted means none.
+         */
+        timeoutMs?: number;
+        /** Cancels the request (KILL + reject). */
+        signal?: AbortSignal;
     }): Promise<{
         exitCode: number;
         stdout: Buffer;
@@ -230,106 +305,49 @@ export class WslAgent {
     }>;
     /**
      * Liveness probe, also used to warm the agent up.
-     * @param {AbortSignal} [signal] - cancels the wait.
-     * @returns {Promise<void>} resolved on PONG.
+     *
+     * @param signal - cancels the wait.
+     * @returns resolved on PONG.
      */
     ping(signal?: AbortSignal): Promise<void>;
     /**
      * Shut the agent down: SHUTDOWN first, then kill after a short grace. The
      * agent becomes reusable — a later `exec` starts a fresh process.
-     * @returns {Promise<void>}
+     *
+     * @returns resolved once the process is gone.
      */
     close(): Promise<void>;
     /**
-     * @param {string[]} lines - the frame lines to write.
-     * @returns {boolean} whether the frame was written.
-     * @private
+     * Write one frame to the live process.
+     *
+     * @param lines - the frame lines to write.
+     * @returns whether the frame was written.
      */
     private writeLines;
     /**
-     * @param {import("node:child_process").ChildProcess} child - the process being
-     *   shut down.
-     * @param {string[]} lines - the lines to write.
-     * @private
+     * Write one frame to a specific process, tolerating a dead pipe.
+     *
+     * @param child - the process being shut down.
+     * @param lines - the lines to write.
      */
     private writeLinesSafe;
-    /** @private */
+    /** Restart the idle-shutdown countdown. */
     private rearmIdleTimer;
     /**
-     * @param {PendingRequest} pending - the entry to detach its timer and abort
-     *   listener from.
-     * @private
+     * Detach an entry's timer and abort listener.
+     *
+     * @param pending - the entry to clear.
      */
     private clearPending;
 }
+/**
+ * Rewrite the request id inside a stored frame so a resent request does not
+ * collide with ids the new process has already seen. SETENV lines pass
+ * through unchanged (they are id-less and idempotent).
+ *
+ * @param lines - the stored frame.
+ * @param newId - the new request id.
+ * @returns the relabelled frame.
+ */
+export declare function relabelFrame(lines: string[], newId: string): string[];
 export default WslAgent;
-/**
- * One settled command result, as `exec` resolves it.
- */
-export type ExecResult = {
-    /**
-     * - the command's exit status.
-     */
-    exitCode: number;
-    /**
-     * - captured stdout.
-     */
-    stdout: Buffer;
-    /**
-     * - captured stderr.
-     */
-    stderr: Buffer;
-    /**
-     * - which streams the
-     * capture cap cut.
-     */
-    truncated: {
-        stdout: boolean;
-        stderr: boolean;
-    };
-};
-/**
- * One request in flight on an agent: its frame, its settlement callbacks, and
- * the ACK-armed watchdog.
- */
-export type PendingRequest = {
-    /**
-     * - the request id, as the agent echoes it.
-     */
-    id: string;
-    /**
-     * - the frame lines (kept so a rebuild can re-send).
-     */
-    lines: string[];
-    /**
-     * - settles a RES.
-     */
-    resolve: (result: ExecResult) => void;
-    /**
-     * - settles a failure.
-     */
-    reject: (error: Error) => void;
-    /**
-     * - the ACK-armed watchdog timer.
-     */
-    watchdog: NodeJS.Timeout | null;
-    /**
-     * - the caller's cancellation, when any.
-     */
-    signal: AbortSignal | null;
-    /**
-     * - the abort listener, for removal.
-     */
-    onAbort: (() => void) | null;
-    /**
-     * - arms `watchdog`; null when the
-     * request carries no timeout.
-     */
-    armWatchdog: (() => void) | null;
-};
-/**
- * The parsed protocol messages `parseAgentLine` returns — the union lives with
- * the protocol module now (`src/agent-protocol.ts`, built to the `.d.ts` this
- * import resolves), so no consumer restates it.
- */
-export type AgentMessage = import("./agent-protocol.js").AgentMessage;

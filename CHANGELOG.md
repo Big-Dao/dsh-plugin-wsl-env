@@ -171,6 +171,15 @@ are absorbed into the types. Thirty-two of the thirty-six modules are
 TypeScript; the last four are `agent`, `fsio-agent`, `workspace-files-wsl`
 and `index`.
 
+`agent` follows — the resident in-distro agent's whole lifecycle (756 lines).
+Its seven internal methods stay `private`, which surfaced the migration's one
+structural seam: a class with private members is nominal, so the declaration
+generated for the still-un-migrated `fsio-agent` and the one this source emits
+are not interchangeable even though the runtime object is the same class. The
+one boundary (`fs-substrate` handing agents to `DistroFs`) crosses it through a
+single documented assertion naming the lib-side type; it disappears when
+`fsio-agent` migrates. Thirty-three of the thirty-six modules are TypeScript.
+
 ## [0.7.5] - 2026-10-05
 
 One theme: a failed environment probe retries instead of being trusted

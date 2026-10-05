@@ -12,7 +12,22 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-10-05
+
+One theme: the 0.2.0 review's engineering debt closes out - the five
+open groups land with tests, the bootstrap remedy ships with the
+package, and the real-distro probes re-run green on the protocol v4
+stack.
+
 ### Fixed
+
+- **The bootstrap remedy is shipped with the package.** The refused-write
+  and sandbox messages point at `scripts/bootstrap.sh <distro> --install`,
+  which the `files` list never packaged - on an npm install the advice was
+  a dead end. The script rides in the tarball now (the other two files in
+  `scripts/` are CI-only and stay unpackaged). The real-distro probes were
+  re-run against the protocol v4 stack: agent 11/11, substrate 8/8, exec
+  5/5, watch 6/6.
 
 - **The review's remaining engineering items close out.** A `SETENV` key
   that is not a POSIX identifier is refused with a protocol error instead

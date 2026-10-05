@@ -234,7 +234,21 @@ would never run; `test/probe/env.sh` lists the flag now, composed with any
 the distro, which the resident agent's lease watchdog — introduced after the
 probes last ran — makes non-zero by construction, alongside in-flight timeout
 watchers; the check counts its own command line now, so a kill that really
-leaked still fails it.
+leaked still fails it. And the suite's live log sits inside the checkout,
+where the mirror sync's `tar` read it while it grew — `file changed as we read
+it`, exit 1, `set -e` failing the probe before it ran; the sync excludes
+`test/probe/.scratch` now, which is run scratch nothing at runtime reads.
+
+One real defect fell out of the type gate's migration notes and closes here:
+the agent execution path handed the EXEC frame the volatile wrapper object
+where a byte budget belongs. `encodeExecFrame`'s `> 0` test was false on an
+object, the frame carried 0, and 0 is the agent's "uncapped" — so the cut at
+the caller's per-stream budget that `agent-exec` documents never ran, and a
+chatty command cost unbounded distro memory. `src/index.ts` now reads
+`config.maxOutputBytes.get()` like every other volatile field, and
+`test/provider.test.mjs` pins the resolved number in the frame (the check
+fails against the previous artifact). The one-shot path was always correct —
+it reads the same field through the upstream executor's own `.get()`.
 
 ## [0.7.5] - 2026-10-05
 

@@ -516,6 +516,24 @@ check("a confined agent command runs the confined argv in the distro coordinate"
   assert.deepEqual(factsOf(result), { mode: "workspace-write", denied: false, enforcement: "full", windowsDrive: "visible" });
 });
 
+check("the agent frame carries the resolved maxOutputBytes, not the volatile wrapper", async () => {
+  const { executor, agentCalls } = makeExecutor();
+  // The schema hands volatile fields out as `{ get, set }` wrappers (upstream's
+  // Config types them as `Volatile<number>`). A frame carrying the wrapper made
+  // `encodeExecFrame`'s `> 0` test false, and 0 is the agent's "uncapped" — the
+  // documented cut at the caller's budget silently never ran.
+  const budget = executor.config.maxOutputBytes;
+  assert.equal(typeof budget.get, "function", "precondition: the field arrives as a volatile wrapper");
+  await executor.execute(spec({
+    command: "echo hi",
+    workdir: WORKSPACE,
+    timeoutMs: 5000,
+    sandboxPolicy: { mode: "workspace-write", workspaceRoot: WORKSPACE },
+  }));
+  assert.equal(typeof agentCalls[0].maxOutputBytes, "number", "the frame carries a number, not the wrapper");
+  assert.equal(agentCalls[0].maxOutputBytes, budget.get(), "and it is the configured budget, resolved");
+});
+
 check("a denial signature on a confined failure reports denied: true", async () => {
   const { executor } = makeExecutor();
   (/** @type {NonNullable<WslShellExecutor["sandbox"]>} */ (executor.sandbox)).confine = async (argv) => ({

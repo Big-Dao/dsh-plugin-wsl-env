@@ -29,7 +29,24 @@ SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # `cd` on both sides so a symlinked path cannot make the two look identical.
 [ "$(cd "$SRC" && pwd -P)" != "$(cd "$DST" && pwd -P)" ] || { echo "source and destination are the same directory: $SRC" >&2; exit 1; }
 
-tar -C "$SRC" --exclude=./.git --exclude=./node_modules -cf - . | tar -C "$DST" -xf -
+# `.scratch` is the probes' own run scratch — including the full suite's live
+# log, which is appended to while this runs. Nothing at runtime reads it and
+# git ignores it, so it is not copied at all.
+#
+# The mirror is a best-effort copy by design ("additive on purpose ... nothing
+# here needs the mirror to be exact") and every probe re-syncs, so a file that
+# changes while tar reads it — GNU tar's exit 1, `file changed as we read it`,
+# observed with the full suite running — is re-copied on the next probe rather
+# than failing this one on `set -e`. A real tar failure (exit 2) and any
+# extraction failure still abort.
+set +e
+tar -C "$SRC" --exclude=./.git --exclude=./node_modules --exclude=./test/probe/.scratch -cf - . | tar -C "$DST" -xf -
+STATUS=("${PIPESTATUS[@]}")
+set -e
+if [ "${STATUS[1]}" -ne 0 ] || [ "${STATUS[0]}" -gt 1 ]; then
+  echo "sync-to-windows: tar exited ${STATUS[0]}/${STATUS[1]}" >&2
+  exit 1
+fi
 
 echo "synced $SRC -> $DST"
 if diff -rq -x .git -x node_modules "$SRC" "$DST" >/dev/null; then

@@ -757,8 +757,12 @@ export class WslShellExecutor
       timeoutMs: resolved.timeoutMs,
       // The agent enforces the collect budget distro-side (the EXEC frame
       // carries it); `maxSpillBytes` stays one-shot-only — the agent path has
-      // no spill files by design, its capture is bounded instead.
-      maxOutputBytes: config.maxOutputBytes as unknown as number,
+      // no spill files by design, its capture is bounded instead. The budget
+      // is the executor's own per-stream cap, read through the volatile
+      // wrapper like every other volatile field: handing the wrapper over raw
+      // made `encodeExecFrame`'s `> 0` test false, so the frame carried 0 —
+      // which the agent reads as "uncapped", and the documented cut never ran.
+      maxOutputBytes: config.maxOutputBytes.get(),
       signal: resolved.signal,
       onStarted: confined !== undefined
         ? (proc) => {

@@ -12,6 +12,14 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-06
+
+The toolchain's TypeScript story completes (pnpm, a checkJs gate, and 36 of 36
+modules with their declarations shipped), and with it three behaviour fixes
+land: the byte-window cap is enforced, the agent path's EXEC capture budget is
+honoured, and the filesystem's host-path mapping speaks its synchronous
+contract.
+
 One theme: the toolchain moves from npm to pnpm. `pnpm-lock.yaml` replaces
 `package-lock.json`, CI installs through corepack with
 `pnpm install --frozen-lockfile` (the `packageManager` field pins pnpm 11.7.0,

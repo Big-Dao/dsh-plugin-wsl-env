@@ -12,19 +12,34 @@ import assert from "node:assert/strict";
 import { parseTerminalActivity, TERMINAL_ID_ENV, terminalActivityProbe, wrapTerminalHandle } from "../lib/terminal-activity.js";
 
 let passed = 0;
+/** @type {Array<[string, () => void | Promise<void>]>} */
 const checks = [];
+/**
+ * Defers one check; the loop at the bottom runs each through `runCheck`.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const check = (name, fn) => checks.push([name, fn]);
+/**
+ * Runs one check now, printing its verdict; a throw fails the process exit code.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const runCheck = async (name, fn) => {
   try {
     await fn();
     passed += 1;
     console.log(`PASS  ${name}`);
   } catch (error) {
-    console.log(`FAIL  ${name}\n      ${error.message}`);
+    console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
     process.exitCode = 1;
   }
 };
 
+/**
+ * @param {number} ms - how long to wait.
+ * @returns {Promise<void>} resolves after the delay.
+ */
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 check("the probe targets the distro shell with the id as an argument, never interpolated", () => {
@@ -46,20 +61,22 @@ check("parseTerminalActivity reads exactly the two reported states", () => {
 });
 
 check("wrapTerminalHandle forwards methods bound to the real handle", () => {
+  /** @type {{pid: number, write(text: string): string}} */
   const handle = {
     pid: 4242,
+    /** @param {string} text - the bytes to write. @returns {string} the echoed write. */
     write(text) {
       return `wrote:${this.pid}:${text}`;
     },
   };
-  const wrapped = wrapTerminalHandle(handle, async () => ({ state: "idle", revision: 1 }));
+  const wrapped = wrapTerminalHandle(/** @type {import("@deepseek-ai/dsh-subprocess").SubprocessTerminalHandle} */ (/** @type {unknown} */ (handle)), async () => ({ state: "idle", revision: 1 }));
   assert.equal(wrapped.pid, 4242, "non-function props pass through");
   assert.equal(wrapped.write("x"), "wrote:4242:x", "methods see the real handle as this");
   assert.notEqual(wrapped, handle);
 });
 
 check("wrapTerminalHandle replaces inspectActivity wholesale", async () => {
-  const handle = { inspectActivity: async () => ({ state: "unknown", revision: 0 }) };
+  const handle = /** @type {import("@deepseek-ai/dsh-subprocess").SubprocessTerminalHandle} */ (/** @type {unknown} */ ({ inspectActivity: async () => ({ state: "unknown", revision: 0 }) }));
   const wrapped = wrapTerminalHandle(handle, async () => ({ state: "idle", revision: 7 }));
   // The controller binds the property off the wrapped object — the replacement
   // must survive exactly that access pattern.

@@ -22,15 +22,26 @@ import {
 } from "../lib/fs-decisions.js";
 
 let passed = 0;
+/** @type {Array<[string, () => void | Promise<void>]>} */
 const checks = [];
+/**
+ * Defers one check; the loop at the bottom runs each through `runCheck`.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const check = (name, fn) => checks.push([name, fn]);
+/**
+ * Runs one check now, printing its verdict; a throw fails the process exit code.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const runCheck = async (name, fn) => {
   try {
     await fn();
     passed += 1;
     console.log(`PASS  ${name}`);
   } catch (error) {
-    console.log(`FAIL  ${name}\n      ${error.message}`);
+    console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
     process.exitCode = 1;
   }
 };
@@ -44,6 +55,7 @@ check("outsideDistroRefusal refuses a foreign-distro path while restrictToDistro
     distro: "ubuntu",
     restrictToDistro: true,
   });
+  assert.ok(refusal, "the foreign distro is refused");
   assert.equal(refusal.code, "FS_OUTSIDE_DISTRO", "deliberately NOT a sandbox denial: no permission lifts it");
   assert.match(refusal.message, /names a path in another WSL distro/);
   assert.match(refusal.message, /pins its filesystem to "ubuntu"/);
@@ -71,6 +83,7 @@ check("isConfinedMutation routes mutations to the confined resident", () => {
 
 check("mutationModeRefusal denies read-only outright and lets the escalation through", () => {
   const refusal = mutationModeRefusal("read-only", "/home/andy/f.txt");
+  assert.ok(refusal, "read-only refuses the mutation");
   assert.equal(refusal.code, "FS_SANDBOX_DENIED");
   assert.equal(refusal.message, 'cannot write "/home/andy/f.txt": file access denied under read-only mode');
   assert.equal(mutationModeRefusal("danger-full-access", "/etc/passwd"), null, "the escalation is not fenced here");
@@ -103,6 +116,7 @@ check("substrateFailure keeps a coded refusal byte-for-byte and wraps everything
 
 check("shareSubstrateRefusal refuses the retired substrate and admits the agent", () => {
   const refusal = shareSubstrateRefusal("share");
+  assert.ok(refusal, "the retired substrate is refused");
   assert.match(refusal.message, /substrate "share" is no longer available/);
   assert.match(refusal.message, /9p share/, "the migration says what retired and why");
   assert.match(refusal.message, /Delete the substrate line/, "the migration names the fix");

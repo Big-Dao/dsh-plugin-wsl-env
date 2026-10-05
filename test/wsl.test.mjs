@@ -14,22 +14,32 @@
 import assert from "node:assert/strict";
 import { runCapture, DEFAULT_WSL_DEADLINE_MS, parseDistroList, parseHomePath } from "../lib/wsl.js";
 
-/** A Node child that outlives any deadline the checks use. */
+/**
+ * A Node child that outlives any deadline the checks use.
+ * @param {number} ms - how long the child sleeps.
+ * @returns {string[]} the argv of a child that outlives the deadline.
+ */
 const slow = (ms) => [process.execPath, "-e", `setTimeout(() => {}, ${ms})`];
 const immediate = () => [process.execPath, "-e", "process.stdout.write('done')"];
 
 let passed = 0;
+/**
+ * Runs one check now, printing its verdict; a throw fails the process exit code.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const check = async (name, fn) => {
   try {
     await fn();
     passed += 1;
     console.log(`PASS  ${name}`);
   } catch (error) {
-    console.log(`FAIL  ${name}\n      ${error.message}`);
+    console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
     process.exitCode = 1;
   }
 };
 
+/** @type {Array<[string, () => void | Promise<void>]>} */
 const checks = [];
 
 checks.push(["a capture resolves with the child's stdout", async () => {
@@ -42,8 +52,8 @@ checks.push(["a hung call dies at the deadline, named as a wedged service", asyn
   await assert.rejects(
     () => runCapture(slow(60_000), undefined, 250),
     (error) => {
-      assert.match(error.message, /no completion within 250ms/, "the deadline is named");
-      assert.match(error.message, /wsl\.exe --shutdown/, "the remedy is named");
+      assert.match(/** @type {Error} */ (error).message, /no completion within 250ms/, "the deadline is named");
+      assert.match(/** @type {Error} */ (error).message, /wsl\.exe --shutdown/, "the remedy is named");
       return true;
     },
   );
@@ -58,8 +68,8 @@ checks.push(["an abort is cancellation, not a deadline report", async () => {
   await assert.rejects(
     () => pending,
     (error) => {
-      assert.equal(error.name, "AbortError", "the abort keeps its own error shape");
-      assert.ok(!/no completion within/.test(error.message), "no deadline wording on a cancellation");
+      assert.equal((/** @type {Error} */ (error)).name, "AbortError", "the abort keeps its own error shape");
+      assert.ok(!/no completion within/.test(/** @type {Error} */ (error).message), "no deadline wording on a cancellation");
       return true;
     },
   );

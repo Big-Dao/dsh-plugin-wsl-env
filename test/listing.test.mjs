@@ -9,13 +9,18 @@ import { ancestryCrumbs, boundedInsert, breadcrumbs, fullyQualified, lsListingAr
 import { UNC_PROVIDER_ROOT, distroRoot, isProviderRoot } from "../lib/paths.js";
 
 let passed = 0;
+/**
+ * Runs one check now, printing its verdict; a throw fails the process exit code.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const check = (name, fn) => {
   try {
     fn();
     passed += 1;
     console.log(`PASS  ${name}`);
   } catch (error) {
-    console.log(`FAIL  ${name}\n      ${error.message}`);
+    console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
     process.exitCode = 1;
   }
 };
@@ -87,6 +92,7 @@ check("breadcrumbs leaves an ordinary Windows chain alone", () => {
 });
 
 check("boundedInsert keeps the window name-sorted", () => {
+  /** @type {Array<{name: string}>} */
   const window = [];
   for (const name of ["c", "a", "b"]) assert.equal(boundedInsert(window, { name }, 10), false);
   assert.deepEqual(
@@ -96,6 +102,7 @@ check("boundedInsert keeps the window name-sorted", () => {
 });
 
 check("boundedInsert refuses candidates past a full window", () => {
+  /** @type {Array<{name: string}>} */
   const window = [];
   assert.equal(boundedInsert(window, { name: "a" }, 2), false);
   assert.equal(boundedInsert(window, { name: "b" }, 2), false);

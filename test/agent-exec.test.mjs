@@ -13,25 +13,42 @@ import { AgentUnavailableError, CwdError } from "../lib/agent-errors.js";
 import { agentExecutionHandle } from "../lib/agent-exec.js";
 
 let passed = 0;
+/** @type {Array<[string, () => void | Promise<void>]>} */
 const checks = [];
+/**
+ * Defers one check; the loop at the bottom runs each through `runCheck`.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const check = (name, fn) => checks.push([name, fn]);
+/**
+ * Runs one check, printing its verdict; a throw fails the process exit code.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const runCheck = async (name, fn) => {
   try {
     await fn();
     passed += 1;
     console.log(`PASS  ${name}`);
   } catch (error) {
-    console.log(`FAIL  ${name}\n      ${error.message}`);
+    console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
     process.exitCode = 1;
   }
 };
 
-/** A runner resolving after `ms` with the given outcome. */
+/**
+ * A runner resolving after `ms` with the given outcome.
+ * @param {{exitCode?: number, stdout?: Buffer, stderr?: Buffer, truncated?: {stdout: boolean, stderr: boolean}, throw?: Error}} outcome
+ *   what the fake's exec settles with — a result, or `throw` to reject.
+ * @param {number} [ms] - the delay before the outcome settles.
+ * @returns {import("../lib/agent-exec.js").AgentExecRunner} the fake runner.
+ */
 function fakeAgent(outcome, ms = 5) {
   return {
     exec({ signal }) {
       return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => (outcome.throw ? reject(outcome.throw) : resolve(outcome)), ms);
+        const timer = setTimeout(() => (outcome.throw ? reject(outcome.throw) : resolve(/** @type {import("../lib/agent-exec.js").AgentExecResult} */ (outcome))), ms);
         signal?.addEventListener("abort", () => {
           clearTimeout(timer);
           reject(new Error("aborted"));
@@ -62,6 +79,7 @@ check("a completed command shapes the result like the one-shot path", async () =
 });
 
 check("the agent's capture-cap flags surface as per-stream truncated, honestly", async () => {
+  /** @type {{maxOutputBytes?: number}} */
   const seen = {};
   const proc = agentExecutionHandle({
     agent: {

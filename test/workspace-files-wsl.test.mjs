@@ -30,24 +30,60 @@ import {
 } from "../lib/workspace-files-route.js";
 
 let passed = 0;
+/** @type {Array<[string, () => void | Promise<void>]>} */
 const checks = [];
+/**
+ * Defers one check; the loop at the bottom runs each through `runCheck`.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const check = (name, fn) => checks.push([name, fn]);
+/**
+ * Runs one check now, printing its verdict; a throw fails the process exit code.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const runCheck = async (name, fn) => {
   try {
     await fn();
     passed += 1;
     console.log(`PASS  ${name}`);
   } catch (error) {
-    console.log(`FAIL  ${name}\n      ${error.stack?.split('\n').slice(0, 3).join(' | ') ?? error}`);
+    console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).stack?.split('\n').slice(0, 3).join(' | ') ?? error}`);
     process.exitCode = 1;
   }
 };
 
 const ROOT = "/home/andy/proj";
 
+/** @typedef {import("../lib/agent.js").WslAgent} WslAgent */
+
+/** One `exec` frame as these checks script it. */
+/** @typedef {{ cwd: string, argv: string[] }} RunnerCall */
+/**
+ * The runner slice these checks script: `exec` answering whatever the check
+ * queued (plain outcome shapes, not the real `ExecResult`).
+ * @typedef {{ exec: (frame: RunnerCall) => unknown }} ScriptedRunner
+ */
+
+/**
+ * Views a scripted runner as the resident `WslAgent` the distro ops take;
+ * only `exec` is exercised (the real class carries the protocol).
+ * @param {ScriptedRunner} fake - the scripted runner.
+ * @returns {WslAgent} the same object, as the seam's declared agent.
+ */
+const asRunner = (fake) => /** @type {WslAgent} */ (/** @type {unknown} */ (fake));
+
+/**
+ * A scripted runner: each `exec` shifts the next outcome off the script.
+ * @param {Array<{exitCode: number, stdout: string|Uint8Array, stderr: string|Uint8Array}|Error|((options: RunnerCall) => unknown)>} script - the queued outcomes.
+ * @returns {WslAgent & { calls: RunnerCall[] }} the runner and every frame it saw.
+ */
 function fakeAgent(script) {
+  /** @type {RunnerCall[]} */
   const calls = [];
-  return {
+  /** @type {ScriptedRunner & { calls: RunnerCall[] }} */
+  const runner = {
     calls,
     exec(options) {
       calls.push(options);
@@ -57,7 +93,26 @@ function fakeAgent(script) {
       return Promise.resolve(outcome);
     },
   };
+  return /** @type {WslAgent & { calls: RunnerCall[] }} */ (/** @type {unknown} */ (runner));
 }
+
+/**
+ * A workspace scope for the checks: the routed layer reads only
+ * `workspaceRoot`; the session identity is the wire layer's to mint.
+ * @param {string} workspaceRoot - the share root naming the distro scope.
+ * @returns {import("@deepseek-ai/dsh-api-workspace-files").WorkspaceFileScope} the scope, as the task seam declares it.
+ */
+const scopeOf = (workspaceRoot) => /** @type {import("@deepseek-ai/dsh-api-workspace-files").WorkspaceFileScope} */ (/** @type {unknown} */ ({ workspaceRoot }));
+
+/**
+ * The service config these checks mount: `{}` is the whole input, and the
+ * declared parameter type is the RESOLVED shape the schema fills in.
+ * @returns {ConstructorParameters<typeof WorkspaceFilesWsl>[1]} the schema-defaulted config.
+ */
+const serviceConfig = () => /** @type {ConstructorParameters<typeof WorkspaceFilesWsl>[1]} */ (WorkspaceFilesWsl.Config(/** @type {Parameters<typeof WorkspaceFilesWsl.Config>[0]} */ (/** @type {unknown} */ ({}))));
+
+/** One unaborted signal stands in for the wire layer's per-call cancellation. */
+const SIGNAL = new AbortController().signal;
 
 check("route predicate and path helpers", () => {
   assert.equal(isDistroWorkspace("\\\\wsl.localhost\\ubuntu\\home\\x"), true);
@@ -216,6 +271,15 @@ check("distroReadBytes caps whole-file reads and reports EOF", async () => {
     (error) => error instanceof RemoteError && error.code === "workspace-file/too-large",
     "a file above the complete-file cap is refused, never truncated",
   );
+  await assert.rejects(
+    () => distroReadBytes({
+      runner, distro: "ubuntu", linuxRoot: ROOT, path: "a.txt",
+      offset: 0, length: 4096, maxBytes: 100, maxFileBytes: 65536,
+      distroWorkspaceRoot: "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj",
+    }),
+    (error) => error instanceof RemoteError && error.code === "workspace-file/too-large" && /exceed the 100 byte cap/.test(error.message),
+    "a byte window asking past the cap is refused before the runner, never shortened",
+  );
   const window = await distroReadBytes({
     runner, distro: "ubuntu", linuxRoot: ROOT, path: "a.txt",
     offset: data.length - 2, length: 64, maxFileBytes: 65536,
@@ -227,6 +291,7 @@ check("distroReadBytes caps whole-file reads and reports EOF", async () => {
 
 check("parseStatRecordFromStderr picks the tab-separated record line", () => {
   const record = parseStatRecordFromStderr("noise\nregular file\t24\tfc03\t1\t1760000000\t1759000000\n");
+  assert.ok(record, "the record line is found");
   assert.equal(record.type, "file");
   assert.equal(parseStatRecordFromStderr("no record here"), undefined);
 });
@@ -235,16 +300,17 @@ check("parseStatRecordFromStderr picks the tab-separated record line", () => {
 
 check("the class routes a distro scope through the runner and a drive scope to super", async () => {
   const ctx = new Context();
-  ctx.inject = () => {}; // the feed's wiring needs services no unit test mounts
-  const service = new WorkspaceFilesWsl(ctx, WorkspaceFilesWsl.Config({}));
+  ctx.inject = /** @type {typeof ctx.inject} */ (/** @type {unknown} */ (() => {})); // the feed's wiring needs services no unit test mounts
+  const service = new WorkspaceFilesWsl(ctx, serviceConfig());
+  /** @type {string[]} */
   const runnerCalls = [];
-  service.runnerFor = (distro) => ({
+  service.runnerFor = (distro) => asRunner({
     exec: async ({ argv }) => {
       runnerCalls.push(distro);
       return { exitCode: 0, stdout: "src/\nREADME.md\n", stderr: Buffer.alloc(0) };
     },
   });
-  const distro = await service.list({ workspaceRoot: "\\\\wsl.localhost\\ubuntu\\home\\x" }, "", undefined);
+  const distro = await service.list(scopeOf("\\\\wsl.localhost\\ubuntu\\home\\x"), "", SIGNAL);
   assert.equal(distro.path, "");
   assert.deepEqual(distro.entries.map((e) => e.name), ["src", "README.md"]);
   assert.deepEqual(runnerCalls, ["ubuntu"], "the distro scope rides the agent");
@@ -253,7 +319,7 @@ check("the class routes a distro scope through the runner and a drive scope to s
   // so its remote dispatch rejects — the assertion is that the ROUTING chose
   // super, visible in the runner never being called.
   await assert.rejects(
-    () => service.list({ workspaceRoot: "C:\\proj" }, "", undefined),
+    () => service.list(scopeOf("C:\\proj"), "", SIGNAL),
     () => true,
   );
   assert.deepEqual(runnerCalls, ["ubuntu"], "the drive scope never reached the agent");
@@ -261,19 +327,19 @@ check("the class routes a distro scope through the runner and a drive scope to s
 
 check("read validates its page before reaching the runner", async () => {
   const ctx = new Context();
-  ctx.inject = () => {};
-  const service = new WorkspaceFilesWsl(ctx, WorkspaceFilesWsl.Config({}));
+  ctx.inject = /** @type {typeof ctx.inject} */ (/** @type {unknown} */ (() => {}));
+  const service = new WorkspaceFilesWsl(ctx, serviceConfig());
   service.runnerFor = () => {
     throw new Error("must not be reached");
   };
-  const scope = { workspaceRoot: "\\\\wsl.localhost\\ubuntu\\home\\x" };
+  const scope = scopeOf("\\\\wsl.localhost\\ubuntu\\home\\x");
   await assert.rejects(
-    () => service.read(scope, "a.ts", { offset: 0, limit: 10 }, undefined),
+    () => service.read(scope, "a.ts", { offset: 0, limit: 10 }, SIGNAL),
     (error) => error instanceof RemoteError && /offset/.test(error.message),
     "offset 0 is not a line number",
   );
   await assert.rejects(
-    () => service.read(scope, "a.ts", { offset: 1, limit: 999999 }, undefined),
+    () => service.read(scope, "a.ts", { offset: 1, limit: 999999 }, SIGNAL),
     (error) => error instanceof RemoteError && /limit/.test(error.message),
     "a limit past the cap refuses before any work",
   );
@@ -296,9 +362,9 @@ check("the read route's refusal ladder: not-found, not-regular-file, not-text, h
         distroWorkspaceRoot: "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj",
       }),
       (error) => {
-        if (name === "missing") return error.code === "workspace-file/not-found";
-        if (name === "wrongKind") return error.code === "workspace-file/not-regular-file";
-        if (name === "binary") return error.code === "workspace-file/not-text";
+        if (name === "missing") return /** @type {{code?: string}} */ (error).code === "workspace-file/not-found";
+        if (name === "wrongKind") return /** @type {{code?: string}} */ (error).code === "workspace-file/not-regular-file";
+        if (name === "binary") return /** @type {{code?: string}} */ (error).code === "workspace-file/not-text";
         return !(error instanceof RemoteError) || error.code === undefined;
       },
       `${name} reads as its own refusal`,
@@ -308,8 +374,8 @@ check("the read route's refusal ladder: not-found, not-regular-file, not-text, h
 
 check("stat, read, readBytes and readByteRange route distro scopes through the runner", async () => {
   const ctx = new Context();
-  ctx.inject = () => {};
-  const service = new WorkspaceFilesWsl(ctx, WorkspaceFilesWsl.Config({}));
+  ctx.inject = /** @type {typeof ctx.inject} */ (/** @type {unknown} */ (() => {}));
+  const service = new WorkspaceFilesWsl(ctx, serviceConfig());
   const record = "regular file\t24\tfc03\t1\t1760000000\t1759000000";
   const responses = [
     { exitCode: 0, stdout: `regular file\t512\tfc03\t917517\t1760000000\t1759000000\n`, stderr: "" }, // stat
@@ -317,24 +383,24 @@ check("stat, read, readBytes and readByteRange route distro scopes through the r
     { exitCode: 0, stdout: Buffer.from("window"), stderr: `${record}\n` }, // readBytes
     { exitCode: 0, stdout: Buffer.from("range"), stderr: `${record}\n` }, // readByteRange
   ];
-  service.runnerFor = () => ({
+  service.runnerFor = () => asRunner({
     exec: async () => responses.shift(),
   });
-  const scope = { workspaceRoot: "\\\\wsl.localhost\\ubuntu\\home\\x" };
-  const stat = await service.stat(scope, "a.txt", undefined);
+  const scope = scopeOf("\\\\wsl.localhost\\ubuntu\\home\\x");
+  const stat = await service.stat(scope, "a.txt", SIGNAL);
   assert.equal(stat.absolutePath, "\\\\wsl.localhost\\ubuntu\\home\\x\\a.txt");
-  const page = await service.read(scope, "a.txt", { offset: 1, limit: 10 }, undefined);
+  const page = await service.read(scope, "a.txt", { offset: 1, limit: 10 }, SIGNAL);
   assert.equal(page.eof, true);
-  const bytes = await service.readBytes(scope, "a.txt", { range: { offset: 0, length: 6 } }, undefined);
+  const bytes = await service.readBytes(scope, "a.txt", { range: { offset: 0, length: 6 } }, SIGNAL);
   assert.ok(bytes);
-  const range = await service.readByteRange(scope, "a.txt", 0, 5, undefined);
+  const range = await service.readByteRange(scope, "a.txt", 0, 5, SIGNAL);
   assert.ok(range);
 });
 
 check("the default runnerFor hands back the distro's shared agent", () => {
   const ctx = new Context();
-  ctx.inject = () => {};
-  const service = new WorkspaceFilesWsl(ctx, WorkspaceFilesWsl.Config({}));
+  ctx.inject = /** @type {typeof ctx.inject} */ (/** @type {unknown} */ (() => {}));
+  const service = new WorkspaceFilesWsl(ctx, serviceConfig());
   const runner = service.runnerFor("ubuntu");
   assert.equal(runner, service.runnerFor("ubuntu"), "the shared singleton, keyed by distro");
   assert.notEqual(runner, service.runnerFor("debian"));
@@ -342,8 +408,8 @@ check("the default runnerFor hands back the distro's shared agent", () => {
 
 check("coords reads the distro and root from any depth of the same share", () => {
   const ctx = new Context();
-  ctx.inject = () => {};
-  const service = new WorkspaceFilesWsl(ctx, WorkspaceFilesWsl.Config({}));
+  ctx.inject = /** @type {typeof ctx.inject} */ (/** @type {unknown} */ (() => {}));
+  const service = new WorkspaceFilesWsl(ctx, serviceConfig());
   assert.deepEqual(service.coords("\\\\wsl.localhost\\ubuntu\\home\\x"), { distro: "ubuntu", linuxRoot: "/home/x" });
   assert.deepEqual(service.coords("\\\\wsl.localhost\\ubuntu"), { distro: "ubuntu", linuxRoot: "/" });
 });

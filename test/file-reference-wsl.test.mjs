@@ -17,15 +17,26 @@ import {
 } from "../lib/file-reference-wsl.js";
 
 let passed = 0;
+/** @type {Array<[string, () => void | Promise<void>]>} */
 const checks = [];
+/**
+ * Defers one check; the loop at the bottom runs each through `runCheck`.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const check = (name, fn) => checks.push([name, fn]);
+/**
+ * Runs one check now, printing its verdict; a throw fails the process exit code.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const runCheck = async (name, fn) => {
   try {
     await fn();
     passed += 1;
     console.log(`PASS  ${name}`);
   } catch (error) {
-    console.log(`FAIL  ${name}\n      ${error.message}`);
+    console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
     process.exitCode = 1;
   }
 };
@@ -33,15 +44,32 @@ const runCheck = async (name, fn) => {
 const ROOT = "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj";
 const LIVE = new AbortController().signal;
 
+/** @typedef {import("../lib/agent.js").WslAgent} WslAgent */
+
+/** One `exec` frame as these checks script it. */
+/** @typedef {{ cwd: string, argv: string[] }} RunnerCall */
+/**
+ * The runner slice these checks script: `exec` answering the queued outcome.
+ * @typedef {{ exec: (frame: RunnerCall) => Promise<unknown> }} ScriptedRunner
+ */
+
+/**
+ * A scripted runner.
+ * @param {{exitCode: number, stdout: string|Uint8Array, stderr: string|Uint8Array} | ((options: RunnerCall) => unknown)} result - the queued outcome.
+ * @returns {WslAgent & { calls: RunnerCall[] }} the runner and every frame it saw.
+ */
 const fakeRunner = (result) => {
+  /** @type {RunnerCall[]} */
   const calls = [];
-  return {
+  /** @type {ScriptedRunner & { calls: RunnerCall[] }} */
+  const runner = {
     calls,
     exec: async (options) => {
       calls.push(options);
       return typeof result === "function" ? result(options) : result;
     },
   };
+  return /** @type {WslAgent & { calls: RunnerCall[] }} */ (/** @type {unknown} */ (runner));
 };
 const DEFAULT = {
   readWorkspaceRoot: async () => {
@@ -191,12 +219,14 @@ check("a drive-shaped absolute inside a distro strategy defers to the default", 
 check("the host default traversal mirrors the upstream default semantics", async () => {
   const entries = [{ name: "a", isDirectory: () => true, isFile: () => false }];
   const deps = {
+    /** @param {string} path - the level to read. @returns {Promise<Array<{name: string, isDirectory: () => boolean, isFile: () => boolean}>>} the level's entries. */
     readdir: async (path) => {
       if (String(path).endsWith("locked") || String(path) === "C:\\missing") {
         throw Object.assign(new Error("unreadable"), { code: "EACCES" });
       }
       return entries;
     },
+    /** @param {string} path - the path to stat. @returns {Promise<{isSymbolicLink: () => boolean, isDirectory: () => boolean}>} the lstat shape. */
     lstat: async (path) => {
       if (path.endsWith("link")) {
         return { isSymbolicLink: () => true, isDirectory: () => false };
@@ -207,7 +237,9 @@ check("the host default traversal mirrors the upstream default semantics", async
       return { isSymbolicLink: () => false, isDirectory: () => true };
     },
   };
-  const traversal = hostFileReferenceTraversal(deps);
+  // The stubs are the scripted slice of `node:fs/promises`, whose overloads a
+  // duck cannot satisfy; the call goes through the declared deps type.
+  const traversal = hostFileReferenceTraversal(/** @type {Parameters<typeof hostFileReferenceTraversal>[0]} */ (/** @type {unknown} */ (deps)));
   assert.equal(await traversal.readWorkspaceRoot("C:\\w", LIVE), entries);
   assert.deepEqual(await traversal.readDirectory("C:\\w\\locked", LIVE), [], "a readdir error on a level is []");
   await assert.rejects(traversal.readWorkspaceRoot("C:\\missing", LIVE), "the root failing stays a rejection");

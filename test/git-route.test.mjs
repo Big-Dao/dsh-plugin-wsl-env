@@ -12,15 +12,26 @@ import assert from "node:assert/strict";
 import { isGitProgram, gitSpawnRewrite, translateGitEnv, translateGitEnvValue } from "../lib/git-route.js";
 
 let passed = 0;
+/** @type {Array<[string, () => void | Promise<void>]>} */
 const checks = [];
+/**
+ * Defers one check; the loop at the bottom runs each through `runCheck`.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const check = (name, fn) => checks.push([name, fn]);
+/**
+ * Runs one check now, printing its verdict; a throw fails the process exit code.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const runCheck = async (name, fn) => {
   try {
     await fn();
     passed += 1;
     console.log(`PASS  ${name}`);
   } catch (error) {
-    console.log(`FAIL  ${name}\n      ${error.message}`);
+    console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
     process.exitCode = 1;
   }
 };
@@ -43,7 +54,7 @@ check("a distro workspace's git snapshot is rewritten into the distro's git", ()
     cwd: WORKSPACE,
     wslPath: "C:\\Windows\\System32\\wsl.exe",
   });
-  assert.notEqual(rewrite, undefined);
+  assert.ok(rewrite, "the distro workspace's git snapshot is rewritten");
   assert.equal(rewrite.distro, "ubuntu");
   assert.equal(rewrite.linuxCwd, "/home/andy/proj");
   assert.deepEqual(rewrite.wslArgv, [

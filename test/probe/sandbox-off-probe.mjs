@@ -16,6 +16,24 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PROBE_DIR } from "./env.mjs";
 
+/**
+ * Type-only import: the harness context this probe drives its seams through.
+ * @import { Context } from "@deepseek-ai/cordis";
+ */
+
+/**
+ * The probe's config, as the overlay composes it.
+ * @typedef {{ outside: string, report?: string }} ProbeConfig
+ */
+
+/** What a failed step throws: the ordinary `Error` surface plus its optional facts. */
+/** @typedef {Error & {code?: string}} CodedError */
+
+/**
+ * The probe's plugin entry: wait for `shell`/`fs`, then run the checks.
+ * @param {Context} ctx - the probe context.
+ * @param {ProbeConfig} config - the overlay's outside path and report path.
+ */
 export default function sandboxOffProbe(ctx, config) {
   ctx.inject(["shell", "fs"], (scoped) => {
     void run(scoped, config);
@@ -24,16 +42,24 @@ export default function sandboxOffProbe(ctx, config) {
 
 /**
  * Prove the absence of confinement on both providers, then clean up.
- * @param ctx - the context carrying the injected `ctx.shell` and `ctx.fs`.
- * @param config - the overlay's outside path and report path.
+ * @param {Context} ctx - the context carrying the injected `ctx.shell` and `ctx.fs`.
+ * @param {ProbeConfig} config - the overlay's outside path and report path.
  */
 async function run(ctx, config) {
+  /** @type {string[]} */
   const lines = [];
+  /** @type {string[]} */
   const failures = [];
+  /** @param {string} line - the line to record. */
   const report = (line) => {
     lines.push(`SANDBOXOFF ${line}`);
     console.log(`SANDBOXOFF ${line}`);
   };
+  /**
+   * @param {string} name - the check's name.
+   * @param {boolean} ok - the verdict.
+   * @param {string} [detail] - the evidence line.
+   */
   const check = (name, ok, detail = "") => {
     report(`${ok ? "PASS" : "FAIL"} ${name}${detail === "" ? "" : `  — ${detail}`}`);
     if (!ok) failures.push(name);
@@ -50,7 +76,7 @@ async function run(ctx, config) {
     check("a command outside the workspace runs", result.exitCode === 0 && result.stdout.text.includes("unconfined"), `exit=${result.exitCode} stderr=${JSON.stringify(result.stderr.text.slice(0, 80))}`);
     check("the shell result claims no sandbox", result.sandbox === undefined, `sandbox=${JSON.stringify(result.sandbox)}`);
   } catch (error) {
-    check("a command outside the workspace runs", false, `${error?.code ?? error?.name}: ${error?.message}`);
+    check("a command outside the workspace runs", false, `${(/** @type {CodedError} */ (error)).code ?? (/** @type {CodedError} */ (error)).name}: ${(/** @type {CodedError} */ (error)).message}`);
   }
 
   // The filesystem fence: with no policy passed at all, a write outside the root would
@@ -62,7 +88,7 @@ async function run(ctx, config) {
     const text = await ctx.fs.readText(resolved);
     check("a write outside the workspace root is not fenced", written?.operation !== undefined && text === "unconfined\n", `operation=${String(written?.operation)} text=${JSON.stringify(text)}`);
   } catch (error) {
-    check("a write outside the workspace root is not fenced", false, `${error?.code ?? error?.name}: ${error?.message}`);
+    check("a write outside the workspace root is not fenced", false, `${(/** @type {CodedError} */ (error)).code ?? (/** @type {CodedError} */ (error)).name}: ${(/** @type {CodedError} */ (error)).message}`);
   }
 
   // Clean up unconfined, since that is all that is available here.

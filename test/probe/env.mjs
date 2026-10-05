@@ -25,7 +25,11 @@ export const DISTRO = process.env.DSH_WSL_ENV_DISTRO ?? (PROBE_DIR.match(/^\\\\[
 /** The `wsl.exe` arguments that address DISTRO, or none when it is unknown. */
 const distroArgs = DISTRO === "" ? [] : ["-d", DISTRO];
 
-/** Run one command in the distro and return its trimmed stdout. */
+/**
+ * Run one command in the distro and return its trimmed stdout.
+ * @param {...string} argv - the program and its arguments, in the distro.
+ * @returns {string} the command's trimmed stdout.
+ */
 export function inDistro(...argv) {
   return execFileSync("wsl.exe", [...distroArgs, "--exec", ...argv], {
     encoding: "utf8",
@@ -38,7 +42,11 @@ export function distroHome() {
   return inDistro("sh", "-c", 'printf %s "$HOME"');
 }
 
-/** The UNC spelling of an absolute POSIX path inside the distro. */
+/**
+ * The UNC spelling of an absolute POSIX path inside the distro.
+ * @param {string} linuxPath - absolute POSIX path inside the distro.
+ * @returns {string} the `\\wsl.localhost\...` spelling of the same file.
+ */
 export function windowsPath(linuxPath) {
   return `\\\\wsl.localhost\\${DISTRO}${linuxPath.replace(/\//g, "\\")}`;
 }

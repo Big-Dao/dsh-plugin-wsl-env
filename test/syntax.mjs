@@ -127,6 +127,10 @@ const modules = readdirSync(LIB)
   .sort();
 
 /** Source with comments blanked, so a mention in prose is not read as a call. */
+/**
+ * @param {string} name - the module's file name under `lib/`.
+ * @returns {string} its source with comments blanked.
+ */
 function codeOf(name) {
   return readFileSync(join(LIB, name), "utf8")
     .replace(/\/\*[\s\S]*?\*\//gu, " ")
@@ -139,6 +143,9 @@ function codeOf(name) {
  * interpolations so a quoted paren cannot close the group early; an
  * interpolation's `${...}` is code again, so it recurses through the same
  * rules. A file whose groups never balance (truncation) ends at `code.length`.
+ * @param {string} code - the source to walk.
+ * @param {number} start - the index of the opening `(`.
+ * @returns {number} the index just past the matching `)`.
  */
 function endOfGroup(code, start) {
   let depth = 0;
@@ -158,7 +165,13 @@ function endOfGroup(code, start) {
   return code.length;
 }
 
-/** Index of the closing quote at or after `start`; a trailing escape is tolerated. */
+/**
+ * Index of the closing quote at or after `start`; a trailing escape is tolerated.
+ * @param {string} code - the source to walk.
+ * @param {number} start - the index of the opening quote.
+ * @param {string} quote - the quote character to close on.
+ * @returns {number} the index of the closing quote, or `code.length`.
+ */
 function endOfQuoted(code, start, quote) {
   for (let i = start + 1; i < code.length; i += 1) {
     if (code[i] === "\\") {
@@ -170,7 +183,12 @@ function endOfQuoted(code, start, quote) {
   return code.length;
 }
 
-/** Index of the closing backtick at or after `start`, interpolations included. */
+/**
+ * Index of the closing backtick at or after `start`, interpolations included.
+ * @param {string} code - the source to walk.
+ * @param {number} start - the index of the opening backtick.
+ * @returns {number} the index of the closing backtick, or `code.length`.
+ */
 function endOfTemplate(code, start) {
   for (let i = start + 1; i < code.length; i += 1) {
     if (code[i] === "\\") {
@@ -184,7 +202,12 @@ function endOfTemplate(code, start) {
   return code.length;
 }
 
-/** Index of the `}` closing the `${` whose `{` sits at `start`, code rules inside. */
+/**
+ * Index of the `}` closing the `${` whose `{` sits at `start`, code rules inside.
+ * @param {string} code - the source to walk.
+ * @param {number} start - the index of the `${`'s `{`.
+ * @returns {number} the index of the matching `}`.
+ */
 function endOfBraces(code, start) {
   let depth = 0;
   for (let i = start; i < code.length; i += 1) {
@@ -208,8 +231,11 @@ function endOfBraces(code, start) {
  * match site: `z.natural().min(1).default(1)` reads `["min", "default"]`. The
  * lookbehind keeps `wsl.exe (`-shaped prose and `a.z.foo()` out; the balanced
  * walk keeps nested-call arguments from ending a chain early.
+ * @param {string} code - the source to walk.
+ * @returns {string[][]} one flat member list per match site.
  */
 function chainedMembers(code) {
+  /** @type {string[][]} */
   const found = [];
   const opener = /(?<![\w$."'])z\.([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/g;
   let open;
@@ -234,19 +260,21 @@ for (const name of modules) {
     console.log(`PASS  lib/${name} parses`);
   } catch (error) {
     failed += 1;
-    const detail = String(error.stderr ?? error.message).trim().split("\n").slice(0, 6).join("\n      ");
+    const detail = String((/** @type {{stderr?: unknown}} */ (error)).stderr ?? (/** @type {Error} */ (error)).message).trim().split("\n").slice(0, 6).join("\n      ");
     console.log(`FAIL  lib/${name}\n      ${detail}`);
   }
 }
 
 console.log(`\n${modules.length - failed}/${modules.length} modules parse`);
 
+/** @type {Map<string, string[]>} */
 const members = new Map();
 for (const name of modules) {
   for (const match of codeOf(name).matchAll(/\bz\.([A-Za-z_$][A-Za-z0-9_$]*)/gu)) {
     const member = match[1];
-    if (!members.has(member)) members.set(member, []);
-    if (!members.get(member).includes(name)) members.get(member).push(name);
+    const callers = members.get(member) ?? [];
+    if (!callers.includes(name)) callers.push(name);
+    members.set(member, callers);
   }
 }
 
@@ -260,12 +288,14 @@ const called = [...members.keys()].sort();
 console.log(`\n${unknown.length === 0 ? "PASS" : "FAIL"}  schemastery members used: ${called.join(", ")}`);
 console.log(`${called.length - unknown.length}/${called.length} members exist on the pinned peer`);
 
+/** @type {Map<string, string[]>} */
 const chainedFiles = new Map();
 for (const name of modules) {
   for (const chain of chainedMembers(codeOf(name))) {
     for (const member of chain) {
-      if (!chainedFiles.has(member)) chainedFiles.set(member, []);
-      if (!chainedFiles.get(member).includes(name)) chainedFiles.get(member).push(name);
+      const callers = chainedFiles.get(member) ?? [];
+      if (!callers.includes(name)) callers.push(name);
+      chainedFiles.set(member, callers);
     }
   }
 }

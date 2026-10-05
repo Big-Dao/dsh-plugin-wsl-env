@@ -24,6 +24,11 @@ const POSIX = process.platform !== "win32";
 const DISTRO = "ubuntu";
 
 let passed = 0;
+/**
+ * Runs one check now, printing its verdict; a throw fails the process exit code.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const check = async (name, fn) => {
   if (!POSIX) return;
   try {
@@ -31,19 +36,40 @@ const check = async (name, fn) => {
     passed += 1;
     console.log(`PASS  ${name}`);
   } catch (error) {
-    console.log(`FAIL  ${name}\n      ${error.message}`);
+    console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
     process.exitCode = 1;
   }
 };
 
+/** @type {Array<[string, () => void | Promise<void>]>} */
 const checks = [];
+
+/** @typedef {import("../lib/agent.js").WslAgent} WslAgent */
+
+/**
+ * The parsed protocol messages `parseAgentLine` returns — its own `@returns`
+ * stops at `object`, so the union is restated here (as `lib/agent.js` does).
+ * @typedef {{type: "hello", name: string, version: number, digest: string}} HelloMessage
+ * @typedef {{type: "result", id: string, exitCode: number, stdout: Buffer, stderr: Buffer, truncated: {stdout: boolean, stderr: boolean}}} ResultMessage
+ * @typedef {HelloMessage | ResultMessage | {type: "pong"} | {type: "ack", id: string} | {type: "agentError", id: string, reason: string, message: string} | {type: "unknown", line: string}} AgentMessage
+ */
+
+/**
+ * Views a scripted transport as the resident `WslAgent` the substrate takes;
+ * only the `fs` round trip is exercised (the real class carries the protocol).
+ * @param {{ fs: WslAgent["fs"] }} fake - the scripted transport.
+ * @returns {WslAgent} the same object, as the substrate's declared agent.
+ */
+const asAgent = (fake) => /** @type {WslAgent} */ (/** @type {unknown} */ (fake));
 
 class ScriptAgent {
   constructor() {
     this.dir = mkdtempSync(join(tmpdir(), "wsl-substrate-"));
     this.child = spawn("sh", [SCRIPT], { stdio: ["pipe", "pipe", "pipe"] });
     this.lines = createInterface({ input: this.child.stdout });
+    /** @type {string[]} */
     this.queue = [];
+    /** @type {Array<(line: string) => void>} */
     this.waiters = [];
     this.n = 0;
     this.lines.on("line", (line) => {
@@ -54,18 +80,23 @@ class ScriptAgent {
   }
 
   async hello() {
-    assert.equal(parseAgentLine(await this.nextLine()).type, "hello");
+    assert.equal(/** @type {HelloMessage} */ (parseAgentLine(await this.nextLine())).type, "hello");
   }
 
   nextLine() {
     return this.queue.shift() ?? new Promise((resolve) => this.waiters.push(resolve));
   }
 
+  /**
+   * The `WslAgent.fs` shape, over the script.
+   * @param {{ op: string, args: string[], timeoutMs?: number }} request - the op and its wire arguments.
+   * @returns {Promise<{exitCode: number, stdout: Buffer, stderr: Buffer}>} the RES projection for this request.
+   */
   async fs({ op, args, timeoutMs = 30000 }) {
     const id = `t${this.n++}`;
     for (const line of encodeFsFrame({ id, op, args, timeoutMs })) this.child.stdin.write(`${line}\n`);
     for (;;) {
-      const message = parseAgentLine(await this.nextLine());
+      const message = /** @type {AgentMessage} */ (parseAgentLine(await this.nextLine()));
       if (message.type === "result" && message.id === id) {
         return { exitCode: message.exitCode, stdout: message.stdout, stderr: message.stderr };
       }
@@ -79,18 +110,31 @@ class ScriptAgent {
   }
 }
 
-/** One substrate over one live script-backed agent, with a `root` workdir. */
+/**
+ * One substrate over one live script-backed agent, with a `root` workdir.
+ * @param {(sub: AgentSubstrate, root: string, agent: ScriptAgent) => Promise<void>} setup - the check body over the live substrate.
+ */
 async function substrate(setup) {
   const agent = new ScriptAgent();
   await agent.hello();
-  const sub = new AgentSubstrate({ agent, distro: DISTRO });
+  const sub = new AgentSubstrate({ agent: asAgent(agent), distro: DISTRO });
   const root = join(agent.dir, "root");
   mkdirSync(root, { recursive: true });
   await setup(sub, root, agent);
   await agent.close();
 }
 
-const codeOf = (error) => (error && typeof error === "object" ? error.code : undefined);
+/**
+ * The `code` a coded error carries, when the thrown value has one.
+ * @param {unknown} error - the thrown value.
+ * @returns {string | undefined} its `code`, if any.
+ */
+const codeOf = (error) => (error && typeof error === "object" ? /** @type {{code?: string}} */ (error).code : undefined);
+/**
+ * @param {AgentSubstrate} sub - the substrate.
+ * @param {string} path - the Linux path to resolve.
+ * @returns {Promise<{displayPath: string, targetKey: string}>} its resolved target.
+ */
 const targetOf = async (sub, path) => sub.resolve(path);
 
 checks.push(["resolve returns the canonical Linux spelling and the distro's UNC identity", async () => {
@@ -112,9 +156,12 @@ checks.push(["stat and lstat answer with the provider's row shapes", async () =>
     writeFileSync(join(root, "a.txt"), "x\n");
     symlinkSync("a.txt", join(root, "link"));
     const target = await targetOf(sub, join(root, "a.txt"));
-    assert.equal((await sub.stat(target)).type, "file");
+    const info = await sub.stat(target);
+    assert.ok(info, "the file is observed");
+    assert.equal(info.type, "file");
     assert.equal(await sub.stat(await targetOf(sub, join(root, "gone"))), undefined);
     const link = await sub.lstat(join(root, "link"));
+    assert.ok(link, "the link is observed");
     assert.equal(link.type, "symlink", "lstat sees the link itself");
     assert.equal(link.size, "a.txt".length);
   });
@@ -136,6 +183,7 @@ checks.push(["the per-target lock serializes concurrent mutations FIFO and a fai
   await substrate(async (sub, root) => {
     const p = join(root, "contended.txt");
     const target = await targetOf(sub, p);
+    /** @type {string[]} */
     const order = [];
     let releaseFirst;
     const first = sub.writeText(target, "one\n", undefined, undefined).then(() => order.push("first"));
@@ -207,13 +255,13 @@ checks.push(["writeText forwards the guard: stale versions and unread files are 
     const first = await sub.writeText(target, "one\n", undefined);
     await assert.rejects(
       sub.writeText(target, "two\n", { kind: "replaceIfVersion", version: "bogus" }),
-      (error) => codeOf(error) === "FS_STALE_VERSION" && /changed since it was read/.test(error.message),
+      (error) => codeOf(error) === "FS_STALE_VERSION" && /changed since it was read/.test(/** @type {Error} */ (error).message),
     );
     const again = await sub.writeText(target, "two\n", { kind: "replaceIfVersion", version: first.version });
     assert.equal(again.operation, "update");
     await assert.rejects(
       sub.writeText(target, "three\n", { kind: "createIfAbsent" }),
-      (error) => codeOf(error) === "FS_NOT_OBSERVED" && /without reading it first/.test(error.message),
+      (error) => codeOf(error) === "FS_NOT_OBSERVED" && /without reading it first/.test(/** @type {Error} */ (error).message),
     );
     assert.equal(readFileSync(join(root, "a.txt"), "utf8"), "two\n");
   });
@@ -285,7 +333,12 @@ checks.push(["stage-two routing sends mutations to the policy's agent and reads 
   if (!POSIX) return;
   const agent = new ScriptAgent();
   await agent.hello();
+  /** @type {string[]} */
   const confinedCalls = [];
+  /**
+   * The confined resident stand-in: one `fs` round trip through the plain agent.
+   * @type {{ fs: WslAgent["fs"], close: () => Promise<void> }}
+   */
   const confined = {
     fs: async ({ op, args }) => {
       confinedCalls.push(op);
@@ -294,9 +347,9 @@ checks.push(["stage-two routing sends mutations to the policy's agent and reads 
     close: () => agent.close(),
   };
   const sub = new AgentSubstrate({
-    agent,
+    agent: asAgent(agent),
     distro: DISTRO,
-    agentFor: (policy) => (policy?.mode === "workspace-write" ? Promise.resolve(confined) : Promise.resolve(agent)),
+    agentFor: (policy) => (policy?.mode === "workspace-write" ? Promise.resolve(asAgent(confined)) : Promise.resolve(asAgent(agent))),
   });
   const root = join(agent.dir, "root");
   mkdirSync(root, { recursive: true });

@@ -13,18 +13,26 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { armDistroWatcher, watchLoopScript } from "../lib/watcher.js";
 
+/** @typedef {import("node:child_process").ChildProcess} ChildProcess */
+
 let passed = 0;
+/**
+ * Runs one check now, printing its verdict; a throw fails the process exit code.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const check = async (name, fn) => {
   try {
     await fn();
     passed += 1;
     console.log(`PASS  ${name}`);
   } catch (error) {
-    console.log(`FAIL  ${name}\n      ${error.message}`);
+    console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
     process.exitCode = 1;
   }
 };
 
+/** @type {Array<[string, () => void | Promise<void>]>} */
 const checks = [];
 
 checks.push(["the loop script scans the directory itself, so deletions are seen", () => {
@@ -51,6 +59,7 @@ checks.push(["the loop script dies loudly when the watched directory vanishes", 
 checks.push(["an E line reports the vanished target and survives the follow-up exit", async () => {
   const child = new FakeChild();
   const { arm } = fakeSpawn(child);
+  /** @type {Error[]} */
   const errors = [];
   const changes = [];
   const close = await armDistroWatcher({
@@ -125,6 +134,7 @@ checks.push(["an exited loop surfaces as an error, not silence", async () => {
   const child = new FakeChild();
   const { arm } = fakeSpawn(child);
   const controller = new AbortController();
+  /** @type {Error[]} */
   const errors = [];
   const closePromise = armDistroWatcher({
     wslPath: "wsl.exe",
@@ -169,6 +179,7 @@ checks.push(["an abort after the watcher is active surfaces through onError", as
   const child = new FakeChild();
   const { arm } = fakeSpawn(child);
   const controller = new AbortController();
+  /** @type {Error[]} */
   const errors = [];
   const close = await armDistroWatcher({
     wslPath: "wsl.exe",
@@ -202,7 +213,7 @@ checks.push(["a pre-aborted signal rejects without spawning", async () => {
       signal: controller.signal,
       spawn: () => {
         spawned += 1;
-        return new FakeChild();
+        return asChild(new FakeChild());
       },
     }),
     /nope/,
@@ -216,20 +227,24 @@ class FakeChild extends EventEmitter {
    * @param autoReady - emit the loop's READY line on construction, as the real
    *   loop does; the barrier test passes false to script the handshake itself.
    */
+  /** @param {boolean} [autoReady] - whether the fake announces READY up front. */
   constructor(autoReady = true) {
     super();
     this.stdout = new PassThrough();
+    /** @type {PassThrough | undefined} */
     this.stderr = new PassThrough();
     this.killed = false;
     this.exitCode = null;
     this.signalCode = null;
     if (autoReady) queueMicrotask(() => this.line("R"));
   }
+  /** @param {string} text - the line to write, terminator added. */
   line(text) {
     this.stdout.write(`${text}\n`);
   }
   // The real loop prints READY right after its stamp; tests that arm a
   // "working" watcher get it for free, tests that script raw lines do not.
+  /** @param {string} text - the raw bytes to write. */
   write(text) {
     this.stdout.write(text);
   }
@@ -240,9 +255,20 @@ class FakeChild extends EventEmitter {
   }
 }
 
-/** A spawn double handing back a scripted child. */
+/**
+ * Views a scripted child as the `ChildProcess` the watcher's spawn hook returns.
+ * @param {FakeChild} child - the scripted child.
+ * @returns {ChildProcess} the same object, as the seam's declared child type.
+ */
+const asChild = (child) => /** @type {ChildProcess} */ (/** @type {unknown} */ (child));
+
+/**
+ * A spawn double handing back a scripted child.
+ * @param {FakeChild} child - the child to hand out.
+ * @returns {{arm: () => ChildProcess}} the spawn hook.
+ */
 function fakeSpawn(child) {
-  return { arm: () => child };
+  return { arm: () => asChild(child) };
 }
 
 checks.push(["a child without stderr arms cleanly, and close after exit resolves without waiting", async () => {

@@ -13,20 +13,34 @@
  *
  *   node --check test/probe/terminal-probe.mjs
  */
+/**
+ * The overlay's config for this probe.
+ * @typedef {object} TerminalProbeConfig
+ * @property {string} cwd - the workspace cwd the terminal controller would pass.
+ * @property {string} expectPwd - the distro directory `cwd` must resolve to.
+ */
+
+/**
+ * Mount the probe and run it once the subprocess service is up.
+ * @param {import("@deepseek-ai/cordis").Context} ctx - the plugin context.
+ * @param {TerminalProbeConfig} config - the overlay's `cwd` (what the controller would pass) and the
+ *   `expectPwd` that directory must resolve to inside the distro.
+ */
 export default function terminalProbe(ctx, config) {
-  ctx.inject(["subprocess"], (scoped) => {
+  ctx.inject(["subprocess"], (/** @type {import("@deepseek-ai/cordis").Context} */ scoped) => {
     void run(scoped, config);
   });
 }
 
 /**
  * Open one terminal the way the GUI does, type the assertions, and report.
- * @param ctx - the context carrying the injected `ctx.subprocess`.
- * @param config - the overlay's `cwd` (what the controller would pass) and the
+ * @param {import("@deepseek-ai/cordis").Context} ctx - the context carrying the injected `ctx.subprocess`.
+ * @param {TerminalProbeConfig} config - the overlay's `cwd` (what the controller would pass) and the
  *   `expectPwd` that directory must resolve to inside the distro.
  */
 async function run(ctx, config) {
   const session = "wsl-terminal-probe";
+  /** @param {string} line - the line to report. */
   const report = (line) => console.log(`TERMPROBE ${line}`);
   let handle;
   try {
@@ -41,7 +55,7 @@ async function run(ctx, config) {
       shellActivity: true,
     });
   } catch (error) {
-    report(`SPAWN FAILED ${String(error?.stack ?? error)}`);
+    report(`SPAWN FAILED ${String((/** @type {Error} */ (error))?.stack ?? error)}`);
     process.exit(1);
   }
   report("SPAWNED");
@@ -82,7 +96,11 @@ async function run(ctx, config) {
   process.exit(Object.values(checks).every(Boolean) ? 0 : 2);
 }
 
-/** @param ms - milliseconds to wait. */
+/**
+ * Wait for the terminal to make progress.
+ * @param {number} ms - milliseconds to wait.
+ * @returns {Promise<void>} a promise that settles when the wait is over.
+ */
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

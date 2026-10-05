@@ -20,6 +20,22 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PROBE_DIR } from "./env.mjs";
 
+/**
+ * Type-only imports: the harness context and the policy vocabulary this probe drives.
+ * @import { Context } from "@deepseek-ai/cordis";
+ * @import { SandboxExecutionPolicy, SandboxMode } from "@deepseek-ai/dsh-sandbox";
+ */
+
+/**
+ * The probe's config, as the overlay composes it.
+ * @typedef {{ workspaceRoot: string, outside: string, home: string, report?: string }} ProbeConfig
+ */
+
+/**
+ * The probe's plugin entry: wait for `shell`, then run the checks.
+ * @param {Context} ctx - the probe context.
+ * @param {ProbeConfig} config - the overlay's writable root, the outside path to refuse, and the distro home.
+ */
 export default function shellSandboxProbe(ctx, config) {
   ctx.inject(["shell"], (scoped) => {
     void run(scoped, config);
@@ -28,25 +44,41 @@ export default function shellSandboxProbe(ctx, config) {
 
 /**
  * Drive one confined command per mode and report what the seam answered.
- * @param ctx - the context carrying the injected `ctx.shell`.
- * @param config - the overlay's writable root, the outside path to refuse, and
+ * @param {Context} ctx - the context carrying the injected `ctx.shell`.
+ * @param {ProbeConfig} config - the overlay's writable root, the outside path to refuse, and
  *   the distro home a defaulted workdir must land on.
  */
 async function run(ctx, config) {
+  /** @type {string[]} */
   const lines = [];
+  /** @param {string} line - the line to record. */
   const report = (line) => {
     lines.push(`SHELLPROBE ${line}`);
     console.log(`SHELLPROBE ${line}`);
   };
+  /** @type {string[]} */
   const failures = [];
+  /**
+   * @param {string} name - the check's name.
+   * @param {boolean} ok - the verdict.
+   * @param {string} [detail] - the evidence line.
+   */
   const check = (name, ok, detail = "") => {
     report(`${ok ? "PASS" : "FAIL"} ${name}${detail === "" ? "" : `  — ${detail}`}`);
     if (!ok) failures.push(name);
   };
 
+  /**
+   * @param {SandboxMode} mode - the mode to run under.
+   * @returns {SandboxExecutionPolicy} the per-call policy.
+   */
   const policy = (mode) => ({ mode, workspaceRoot: config.workspaceRoot });
 
   /** Run one command under an explicit policy and settle it. */
+  /**
+   * @param {string} command - the shell line to run.
+   * @param {SandboxMode} mode - the mode to run it under.
+   */
   const exec = async (command, mode) => {
     const spec = ctx.shell.resolve({ command, workdir: config.workspaceRoot, sandboxPolicy: policy(mode) });
     const execution = await ctx.shell.execute(spec);
@@ -54,8 +86,14 @@ async function run(ctx, config) {
   };
 
   /** Run one command that DEFAULTS its workdir, and settle it. */
+  /**
+   * @param {string} command - the shell line to run.
+   * @param {string|undefined} workdir - the workdir to request, or undefined to default it.
+   * @param {SandboxMode} mode - the mode to run it under.
+   * @param {number} [timeoutMs] - the deadline, when the check needs one.
+   */
   const execDefaulted = async (command, workdir, mode, timeoutMs) => {
-    const request = { command, sandboxPolicy: policy(mode) };
+    const request = /** @type {Parameters<Context["shell"]["resolve"]>[0]} */ ({ command, sandboxPolicy: policy(mode) });
     if (workdir !== undefined) request.workdir = workdir;
     if (timeoutMs !== undefined) request.timeoutMs = timeoutMs;
     const execution = await ctx.shell.execute(ctx.shell.resolve(request));
@@ -63,6 +101,10 @@ async function run(ctx, config) {
   };
 
   /** The distro-side view of a path, without going through the executor. */
+  /**
+   * @param {string} path - the distro path to test.
+   * @returns {Promise<boolean>} whether the path exists in the distro.
+   */
   const exists = async (path) => (await exec(`test -e ${path} && echo yes || echo no`, "danger-full-access")).stdout.text.includes("yes");
 
   try {
@@ -96,6 +138,7 @@ async function run(ctx, config) {
     // `/`, and exits 0. A command that ran somewhere else must not be reported as a
     // success, so the provider turns that shape into an error naming the directory.
     const absentWorkdir = `${config.workspaceRoot}/absent-dir`;
+    /** @type {unknown} */
     let wrongDir;
     try {
       await execDefaulted("pwd", absentWorkdir, "danger-full-access");
@@ -104,8 +147,8 @@ async function run(ctx, config) {
     }
     check(
       "a workdir that does not exist fails instead of running in /",
-      wrongDir !== undefined && String(wrongDir.message).includes(absentWorkdir),
-      wrongDir === undefined ? "it settled as a success" : String(wrongDir.message).slice(0, 120),
+      wrongDir !== undefined && String((/** @type {Error} */ (wrongDir)).message).includes(absentWorkdir),
+      wrongDir === undefined ? "it settled as a success" : String((/** @type {Error} */ (wrongDir)).message).slice(0, 120),
     );
 
     // workspace-write grants the root.
@@ -147,7 +190,7 @@ async function run(ctx, config) {
     // never wrote.
     await exec(`rm -rf ${config.workspaceRoot} ${config.outside}`, "danger-full-access");
   } catch (error) {
-    check("the probe ran to completion", false, String(error?.stack ?? error));
+    check("the probe ran to completion", false, String((/** @type {Error} */ (error))?.stack ?? error));
   }
 
   report(failures.length === 0 ? "RESULT: all checks passed" : `RESULT: ${failures.length} check(s) failed`);

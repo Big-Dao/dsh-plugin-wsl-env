@@ -23,14 +23,30 @@ host's own floor (`^22.19.0 || >=24.0.0`), so the Node 20 legs are gone, and
 the per-target lock test drops its unused `withResolvers` gate, a Node 22+ API
 that hung those legs on every push.
 
-One more theme: `lib/` comes under a TypeScript check gate. `tsc --noEmit`
-under `strict`/`checkJs` now runs as part of `pnpm test`, with the types taken
-from the peer packages' own declarations and the service augmentations loaded
-through `types/dsh-services.d.ts`; the tests and probes are the next scope
-increment. The gate's first pass surfaced the seam work this package already
-carries: the private `spawnSpec` the WSL spawn directory needs
+One more theme: the whole repository comes under a TypeScript check gate.
+`tsc --noEmit` under `strict`/`checkJs` now runs as part of `pnpm test` over
+`lib/**`, `test/**` and the probe scripts, with the types taken from the peer
+packages' own declarations and the service augmentations loaded through
+`types/dsh-services.d.ts`. The gate's first pass surfaced the seam work this
+package already carries: the private `spawnSpec` the WSL spawn directory needs
 (`docs/UPSTREAM-SPAWN-SEAM.md` bridges it) and a synchronous-contract violation
 in `processPathFromHostPath`, pending a design decision.
+
+Extending the gate to the tests found real defects the untyped corners had
+been hiding: `distroReadBytes` accepted the byte-window cap (both call sites
+pass it) but neither documented nor enforced it, so a ranged `readBytes`
+asking past the page cap was served instead of refused — upstream refuses a
+window the same way it refuses a page. Fixed against the upstream wording and
+arithmetic (`lib/workspace-files-wsl.js`), with an absent length now
+defaulting to the window cap rather than the whole-file cap, as upstream's
+`resolveWindow` defaults it; the refusal is pinned in
+`test/workspace-files-wsl.test.mjs`. Two hand-written JSDoc contracts wider
+than their code (`gitSpawnRewrite`'s `argv`/`cwd`, `wslErrorCode`'s
+`stdout`/`stderr` — both tolerate absence at runtime) and one narrower than
+its caller (`uncToPosix`'s path) were corrected to what the functions actually
+take. Test doubles are typed as the slice of the seam they script, reaching
+the seam's declared type through one documented cast at the injection point —
+no `any` and no new `@ts-expect-error` anywhere in the suite.
 
 ## [0.7.5] - 2026-10-05
 

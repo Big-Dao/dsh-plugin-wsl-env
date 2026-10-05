@@ -22,6 +22,19 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { distroHome, inDistro, windowsPath } from "./env.mjs";
 
+/**
+ * Type-only imports: the seams this probe drives through the harness context.
+ * @import { Context } from "@deepseek-ai/cordis";
+ * @import { FsEditRequest, FsTarget, FsVersion, FsWriteIntent } from "@deepseek-ai/dsh-fs";
+ * @import { SandboxExecutionPolicy } from "@deepseek-ai/dsh-sandbox";
+ */
+
+/**
+ * What a refused mutation throws: the backend's `FsError`, spelled as the
+ * ordinary `Error` surface plus its stable `code`.
+ * @typedef {Error & {code?: string}} CodedError
+ */
+
 export const inject = ["fs"];
 
 /** Where the report lands: beside this module, in the spelling this process uses. */
@@ -34,19 +47,28 @@ const OUT = join(dirname(fileURLToPath(import.meta.url)), "fs-probe.txt");
  */
 const RELATIVE = "dsh-wsl-probe-relative.txt";
 
-/** The file's POSIX mode as the distro sees it, or a marker when unreadable. */
+/**
+ * The file's POSIX mode as the distro sees it, or a marker when unreadable.
+ * @param {string} linuxPath - absolute POSIX path inside the distro.
+ * @returns {string} the octal mode, or an `unreadable (...)` marker.
+ */
 function modeOf(linuxPath) {
   try {
     return inDistro("stat", "-c", "%a", linuxPath);
   } catch (error) {
-    return `unreadable (${error?.message ?? error})`;
+    return `unreadable (${(/** @type {CodedError} */ (error))?.message ?? error})`;
   }
 }
 
+/**
+ * Run the mutation probe and write its report beside this module.
+ * @param {Context} ctx - the probe profile's context, `ctx.fs` bound to the distro.
+ */
 export async function apply(ctx) {
+  /** @type {string[]} */
   const lines = [];
-  const say = (line) => lines.push(line);
-  const record = (name, ok, detail = "") => say(`${ok ? "PASS" : "FAIL"}  ${name}${detail === "" ? "" : `  — ${detail}`}`);
+  const say = (/** @type {string} */ line) => lines.push(line);
+  const record = (/** @type {string} */ name, /** @type {boolean} */ ok, /** @type {string} */ detail = "") => say(`${ok ? "PASS" : "FAIL"}  ${name}${detail === "" ? "" : `  — ${detail}`}`);
 
   // Every mutation runs under an explicit file-effect policy. A real tool
   // resolves this from the calling session (`ctx.sandboxPolicy.resolve({ session })`,
@@ -59,30 +81,41 @@ export async function apply(ctx) {
   const HOME = distroHome();
   const DIR = `${HOME}/.dsh-fsprobe`;
   const FILE = `${DIR}/probe.txt`;
+  /** @type {SandboxExecutionPolicy} */
   const POLICY = { mode: "workspace-write", workspaceRoot: windowsPath(DIR) };
   const OUTSIDE = `${HOME}/dsh-fsprobe-outside.txt`;
-  const write = (target, content, intent, policy = POLICY) => ctx.fs.writeText(target, content, intent, undefined, policy);
-  const edit = (target, request, expected, policy = POLICY) => ctx.fs.editText(target, request, expected, undefined, policy);
+  const write = (/** @type {FsTarget} */ target, /** @type {string} */ content, /** @type {FsWriteIntent | undefined} */ intent, /** @type {SandboxExecutionPolicy | undefined} */ policy = POLICY) => ctx.fs.writeText(target, content, intent, undefined, policy);
+  const edit = (/** @type {FsTarget} */ target, /** @type {{oldString: string, newString: string}} */ request, /** @type {{kind: string, version: string} | undefined} */ expected, /** @type {SandboxExecutionPolicy | undefined} */ policy = POLICY) => ctx.fs.editText(target, /** @type {FsEditRequest} */ (request), /** @type {{version: FsVersion} | undefined} */ (expected), undefined, policy);
 
-  /** Run one probe step, recording a thrown error instead of aborting the run. */
+  /**
+   * Run one probe step, recording a thrown error instead of aborting the run.
+   * @param {string} name - the step's report name.
+   * @param {() => string | undefined | Promise<string | undefined>} body - the step to run.
+   * @returns {Promise<boolean>} whether the step passed.
+   */
   const step = async (name, body) => {
     try {
       const detail = await body();
       record(name, true, detail ?? "");
       return true;
     } catch (error) {
-      record(name, false, `${error?.code ?? error?.name ?? "Error"}: ${error?.message ?? String(error)}`);
+      record(name, false, `${(/** @type {CodedError} */ (error))?.code ?? (/** @type {CodedError} */ (error))?.name ?? "Error"}: ${(/** @type {CodedError} */ (error))?.message ?? String(error)}`);
       return false;
     }
   };
 
-  /** Assert that one mutation is refused with the fence's structured code. */
+  /**
+   * Assert that one mutation is refused with the fence's structured code.
+   * @param {string} name - the step's report name.
+   * @param {() => unknown | Promise<unknown>} body - the mutation that must be refused.
+   * @returns {Promise<boolean>} whether the refusal carried `FS_SANDBOX_DENIED`.
+   */
   const refuses = async (name, body) => step(name, async () => {
     try {
       await body();
     } catch (error) {
-      if (error?.code !== "FS_SANDBOX_DENIED") throw new Error(`wrong code ${error?.code}: ${error?.message}`);
-      return error.code;
+      if ((/** @type {CodedError} */ (error))?.code !== "FS_SANDBOX_DENIED") throw new Error(`wrong code ${(/** @type {CodedError} */ (error))?.code}: ${(/** @type {CodedError} */ (error))?.message}`);
+      return /** @type {CodedError} */ (error).code;
     }
     throw new Error("the fenced mutation was accepted");
   });
@@ -102,6 +135,7 @@ export async function apply(ctx) {
   say(`mode before the run: ${modeOf(FILE)}`);
   say("");
 
+  /** @type {FsTarget} */
   let target;
   if (!(await step("resolve an absent path", async () => {
     target = await ctx.fs.resolve(FILE);
@@ -134,10 +168,10 @@ export async function apply(ctx) {
     try {
       await ctx.fs.resolve("\\\\wsl.localhost\\definitely-not-this-one\\home");
     } catch (error) {
-      if (error?.code !== "FS_OUTSIDE_DISTRO") {
-        throw new Error(`wrong code ${error?.code} (${error?.message})`);
+      if ((/** @type {CodedError} */ (error))?.code !== "FS_OUTSIDE_DISTRO") {
+        throw new Error(`wrong code ${(/** @type {CodedError} */ (error))?.code} (${(/** @type {CodedError} */ (error))?.message})`);
       }
-      return error.code;
+      return /** @type {CodedError} */ (error).code;
     }
     throw new Error("a path in another distro was accepted");
   });
@@ -166,10 +200,11 @@ export async function apply(ctx) {
   });
   say(`mode after create: ${modeOf(FILE)}`);
 
+  /** @type {FsVersion} */
   let version;
   await step("stat exposes a version", async () => {
     const info = await ctx.fs.stat(target);
-    version = info?.version;
+    version = /** @type {FsVersion} */ (info?.version);
     return `type=${info?.type} size=${info?.size} version=${version}`;
   });
 
@@ -194,7 +229,7 @@ export async function apply(ctx) {
   // is exactly what a model does by re-reading before an edit.
   await step("re-stat after the chmod", async () => {
     const info = await ctx.fs.stat(target);
-    version = info?.version;
+    version = /** @type {FsVersion} */ (info?.version);
     return `version=${version}`;
   });
 
@@ -234,8 +269,8 @@ export async function apply(ctx) {
     try {
       await write(target, "delta\n", { kind: "createIfAbsent" });
     } catch (error) {
-      if (error?.code !== "FS_NOT_OBSERVED") throw new Error(`wrong code ${error?.code}: ${error?.message}`);
-      return error.code;
+      if ((/** @type {CodedError} */ (error))?.code !== "FS_NOT_OBSERVED") throw new Error(`wrong code ${(/** @type {CodedError} */ (error))?.code}: ${(/** @type {CodedError} */ (error))?.message}`);
+      return /** @type {CodedError} */ (error).code;
     }
     throw new Error("the guarded create was accepted");
   });
@@ -244,8 +279,8 @@ export async function apply(ctx) {
     try {
       await edit(target, { oldString: "gamma", newString: "delta" }, { kind: "replaceIfVersion", version: "stale" });
     } catch (error) {
-      if (error?.code !== "FS_STALE_VERSION") throw new Error(`wrong code ${error?.code}: ${error?.message}`);
-      return error.code;
+      if ((/** @type {CodedError} */ (error))?.code !== "FS_STALE_VERSION") throw new Error(`wrong code ${(/** @type {CodedError} */ (error))?.code}: ${(/** @type {CodedError} */ (error))?.message}`);
+      return /** @type {CodedError} */ (error).code;
     }
     throw new Error("the stale edit was accepted");
   });
@@ -253,7 +288,10 @@ export async function apply(ctx) {
   finish(lines);
 }
 
-/** Write the report and end the run; absence of the file is the failure signal. */
+/**
+ * Write the report and end the run; absence of the file is the failure signal.
+ * @param {string[]} lines - the report lines collected so far.
+ */
 function finish(lines) {
   const failed = lines.filter((line) => line.startsWith("FAIL")).length;
   lines.push("", failed === 0 ? "RESULT: all steps passed" : `RESULT: ${failed} step(s) failed`);

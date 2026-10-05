@@ -19,22 +19,40 @@ import { confinedAgent, resetConfinedAgents } from "../lib/agent-confined.js";
 import { bwrapProfileArgs } from "../lib/bwrap.js";
 
 let passed = 0;
+/**
+ * Runs one check now, printing its verdict; a throw fails the process exit code.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const check = async (name, fn) => {
   try {
     await fn();
     passed += 1;
     console.log(`PASS  ${name}`);
   } catch (error) {
-    console.log(`FAIL  ${name}\n      ${error.message}`);
+    console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
     process.exitCode = 1;
   }
 };
 
+/** @type {Array<[string, () => void | Promise<void>]>} */
 const checks = [];
+/**
+ * Defers one check; the loop at the bottom runs each through `check`.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const checkReg = (name, fn) => checks.push([name, fn]);
 
 /** A fake `wsl.exe --exec sh wsl-agent.sh` child the tests script directly. */
 class FakeAgentProcess extends EventEmitter {
+  /** @type {string|null} - the EXEC request id whose argv words are still arriving. */
+  pendingId = null;
+  /** @type {number} - how many argv words the pending EXEC expects. */
+  pendingArgs = 0;
+  /** @type {string[]} - the pending EXEC's argv words decoded so far. */
+  pendingWords = [];
+
   constructor({ dieAfterHello = false, dieOnRequest = false, noHello = false, helloVersion = PROTOCOL_VERSION, helloDigest = TEST_DIGEST } = {}) {
     super();
     this.stdin = new PassThrough();
@@ -42,6 +60,7 @@ class FakeAgentProcess extends EventEmitter {
     this.stderr = new PassThrough();
     this.killed = false;
     this.exitCode = null;
+    /** @type {string[]} */
     this.frames = [];
     this.silent = false;
     this.noHello = noHello;
@@ -63,6 +82,10 @@ class FakeAgentProcess extends EventEmitter {
       if (this.dieAfterHello) this.emit("exit", 1, null);
     });
   }
+  /**
+   * Answers one protocol line the way the real agent script would.
+   * @param {string} line - one protocol line, terminator stripped.
+   */
   handleLine(line) {
     if (line === "SHUTDOWN") {
       this.exitCode = 0;
@@ -113,14 +136,21 @@ class FakeAgentProcess extends EventEmitter {
   }
 }
 
-/** A transport factory handing out scripted children in order. */
+/**
+ * A transport factory handing out scripted children in order.
+ * @param {FakeAgentProcess[]} children - the children to hand out; when the
+ *   list holds one child, it serves every spawn.
+ * @returns {{transport: (options: {wslPath: string, distro: string, scriptPath: string, argvPrefix: string[]}) => import("node:child_process").ChildProcess, made: Array<FakeAgentProcess | undefined>}}
+ *   the factory `WslAgent` accepts, plus every child it handed out.
+ */
 function scriptedTransport(children) {
+  /** @type {Array<FakeAgentProcess | undefined>} */
   const made = [];
   return {
     transport: () => {
       const child = children.length > 1 ? children.shift() : children[0];
       made.push(child);
-      return child;
+      return /** @type {import("node:child_process").ChildProcess} */ (/** @type {*} */ (child));
     },
     made,
   };
@@ -316,13 +346,14 @@ checkReg("ping warms the agent up and close returns it to idle, not dead", async
 
 checkReg("a confined agent's argvPrefix reaches the transport before the interpreter", async () => {
   const child = new FakeAgentProcess();
+  /** @type {{wslPath: string, distro: string, scriptPath: string, argvPrefix: string[]}[]} */
   const seen = [];
   const agent = new WslAgent({
     ...CONFIG,
     argvPrefix: ["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--"],
     spawnTransport: (options) => {
       seen.push(options);
-      return child;
+      return /** @type {import("node:child_process").ChildProcess} */ (/** @type {*} */ (child));
     },
   });
   await agent.exec({ cwd: "/tmp", argv: ["true"], timeoutMs: 0 });

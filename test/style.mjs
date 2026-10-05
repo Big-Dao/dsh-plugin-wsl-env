@@ -36,14 +36,24 @@ const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: ROOT, encoding: "
   .filter(Boolean)
   .sort();
 
-/** Tracked files that are text as far as these checks are concerned. */
+/**
+ * Tracked files that are text as far as these checks are concerned.
+ * @param {string} file - the tracked path, relative to the repo root.
+ * @returns {string|undefined} its text, or undefined for binary content.
+ */
 function readText(file) {
   const buffer = readFileSync(join(ROOT, file));
   if (buffer.includes(0)) return undefined;
   return buffer.toString("utf8");
 }
 
+/** @type {Array<{name: string, offenders: string[]}>} */
 const results = [];
+/**
+ * @param {string} name - the check's name.
+ * @param {string[]} offenders - the offending paths.
+ * @param {string} [total] - the count line to print on success.
+ */
 function check(name, offenders, total) {
   results.push({ name, offenders });
   if (offenders.length === 0) {
@@ -57,13 +67,20 @@ function check(name, offenders, total) {
 
 const BOM = "\uFEFF";
 const CRLF_EXTENSIONS = [".js", ".mjs", ".json", ".yml", ".yaml", ".sh", ".md", ".editorconfig", ""];
+/** @param {string} file - the tracked path. @returns {boolean} whether it is code/config. */
 const isSource = (file) => [".js", ".mjs", ".json", ".yml", ".yaml"].includes(extension(file));
+/** @param {string} file - the tracked path. @returns {boolean} whether it is Markdown. */
 const isMarkdown = (file) => file.endsWith(".md");
+/**
+ * @param {string} file - the tracked path.
+ * @returns {string} its extension, dot included, or "" when it has none.
+ */
 function extension(file) {
   const base = file.slice(file.lastIndexOf("/") + 1);
   return base.startsWith(".") ? base : base.includes(".") ? base.slice(base.indexOf(".")) : "";
 }
 
+/** @type {Map<string, string>} */
 const texts = new Map();
 for (const file of tracked) {
   const text = readText(file);
@@ -72,7 +89,7 @@ for (const file of tracked) {
 
 check(
   "line endings are LF",
-  [...texts].filter(([file]) => CRLF_EXTENSIONS.includes(extension(file)) && texts.get(file).includes("\r\n")).map(([file]) => file),
+  [...texts].filter(([file]) => CRLF_EXTENSIONS.includes(extension(file)) && texts.get(file)?.includes("\r\n")).map(([file]) => file),
 );
 check(
   "every text file ends with a newline",
@@ -94,9 +111,14 @@ check(
   [...texts].filter(([, text]) => text.startsWith(BOM)).map(([file]) => file),
 );
 
-const pkg = JSON.parse(texts.get("package.json"));
+// package.json is a tracked text file, so the map holds it.
+const pkg = JSON.parse(/** @type {string} */ (texts.get("package.json")));
 
-/** Translate one `files` entry into a matcher over tracked paths (posix). */
+/**
+ * Translate one `files` entry into a matcher over tracked paths (posix).
+ * @param {string} entry - one `package.json` `files` entry.
+ * @returns {RegExp} the matcher over tracked paths.
+ */
 function filesEntryToRegExp(entry) {
   // `?` is escaped rather than expanded: no entry uses it as a wildcard, and a
   // literal avoids colliding with the `?` inside the (?:.*/)? fragment inserted below.
@@ -108,10 +130,10 @@ function filesEntryToRegExp(entry) {
   return new RegExp(`^${pattern}$`);
 }
 
-const unmatched = pkg.files.filter((entry) => !tracked.some((file) => filesEntryToRegExp(entry).test(file)));
+const unmatched = pkg.files.filter((/** @type {string} */ entry) => !tracked.some((file) => filesEntryToRegExp(entry).test(file)));
 check(
   "every \"files\" entry matches tracked content",
-  unmatched.map((entry) => `"${entry}" matches nothing`),
+  unmatched.map((/** @type {string} */ entry) => `"${entry}" matches nothing`),
   `${pkg.files.length} entries`,
 );
 

@@ -28,6 +28,10 @@ if (process.platform === "win32") {
 
 /** Mirrors the peer error's documented contract; see the core module's doc. */
 class SandboxUnavailableError extends Error {
+  /**
+   * @param {string} mode - the mode that is unavailable.
+   * @param {string} [detail] - the operator-facing reason.
+   */
   constructor(mode, detail) {
     super(`sandbox mode "${mode}" is unavailable: ${detail}`);
     this.name = "SandboxUnavailableError";
@@ -39,22 +43,32 @@ const WslSandbox = createSandboxCore({ SandboxUnavailableError });
 
 const dir = await mkdtemp(join(tmpdir(), "dsh-wsl-sandbox-"));
 const marker = join(dir, "usable");
-/** A fake `wsl.exe` that reports a working `bwrap` only once the marker exists. */
+/**
+ * A fake `wsl.exe` that reports a working `bwrap` only once the marker exists.
+ * @param {string} name - the fake's file name under the scratch dir.
+ * @returns {Promise<string>} the fake's path.
+ */
 const fakeWsl = async (name) => {
   const path = join(dir, name);
   await writeFile(path, `#!/bin/sh\n[ -f "${marker}" ] && exit 0 || exit 1\n`, { mode: 0o755 });
   return path;
 };
+/** @type {{mode: "workspace-write", workspaceRoot: string}} */
 const policy = { mode: "workspace-write", workspaceRoot: "/tmp" };
 
 let passed = 0;
+/**
+ * Runs one check now, printing its verdict; a throw fails the process exit code.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const check = async (name, fn) => {
   try {
     await fn();
     passed += 1;
     console.log(`PASS  ${name}`);
   } catch (error) {
-    console.log(`FAIL  ${name}\n      ${error.message}`);
+    console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
     process.exitCode = 1;
   }
 };
@@ -65,7 +79,7 @@ await check("a failed probe fails closed", async () => {
   assert.equal(await flipping.usable("ubuntu"), false);
   await assert.rejects(
     () => flipping.confine(["sh", "-c", "true"], policy, { distro: "ubuntu" }),
-    (error) => error?.code === "SANDBOX_UNAVAILABLE",
+    (error) => /** @type {{code?: string}} */ (error).code === "SANDBOX_UNAVAILABLE",
     "an unusable backend must refuse to run unconfined",
   );
 });

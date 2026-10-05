@@ -25,18 +25,57 @@ const POSIX = process.platform !== "win32";
 const DISTRO = "ubuntu";
 
 let passed = 0;
+/**
+ * Runs one check now, printing its verdict; a throw fails the process exit code.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const check = async (name, fn) => {
   try {
     await fn();
     passed += 1;
     console.log(`PASS  ${name}`);
   } catch (error) {
-    console.log(`FAIL  ${name}\n      ${error.message}`);
+    console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
     process.exitCode = 1;
   }
 };
 
+/** @type {Array<[string, () => void | Promise<void>]>} */
 const checks = [];
+
+/** @typedef {import("../lib/agent.js").WslAgent} WslAgent */
+
+/**
+ * The parsed protocol messages `parseAgentLine` returns — its own `@returns`
+ * stops at `object`, so the union is restated here (as `lib/agent.js` does).
+ * @typedef {{type: "hello", name: string, version: number, digest: string}} HelloMessage
+ * @typedef {{type: "result", id: string, exitCode: number, stdout: Buffer, stderr: Buffer, truncated: {stdout: boolean, stderr: boolean}}} ResultMessage
+ * @typedef {HelloMessage | ResultMessage | {type: "pong"} | {type: "ack", id: string} | {type: "agentError", id: string, reason: string, message: string} | {type: "unknown", line: string}} AgentMessage
+ */
+
+/**
+ * Views a scripted transport as the resident `WslAgent` the substrate takes;
+ * only the `fs` round trip is exercised (the real class carries the protocol).
+ * @param {{ fs: WslAgent["fs"] }} fake - the scripted transport.
+ * @returns {WslAgent} the same object, as the substrate's declared agent.
+ */
+const asAgent = (fake) => /** @type {WslAgent} */ (/** @type {unknown} */ (fake));
+
+/**
+ * The private seams these unit checks reach for directly: `fail` (the op
+ * failure classifier) and `request` (the round-trip wrapper).
+ * @typedef {object} DistroFsSeams
+ * @property {(op: string, result: {exitCode: number, stdout: Buffer, stderr: Buffer}, displayPath: string) => {code?: string, message: string}} fail
+ * @property {(op: string, args: Array<string|Uint8Array>, signal?: AbortSignal|undefined) => Promise<unknown>} request
+ */
+
+/**
+ * Views a substrate through its private seams.
+ * @param {DistroFs} fs - the substrate under test.
+ * @returns {DistroFsSeams} the private seams.
+ */
+const seamsOf = (fs) => /** @type {DistroFsSeams} */ (/** @type {unknown} */ (fs));
 
 /** An agent-like transport backed by the real script under the local `sh`. */
 class ScriptAgent {
@@ -44,7 +83,9 @@ class ScriptAgent {
     this.dir = mkdtempSync(join(tmpdir(), "wsl-fsio-"));
     this.child = spawn("sh", [SCRIPT], { stdio: ["pipe", "pipe", "pipe"] });
     this.lines = createInterface({ input: this.child.stdout });
+    /** @type {string[]} */
     this.queue = [];
+    /** @type {Array<(line: string) => void>} */
     this.waiters = [];
     this.n = 0;
     this.lines.on("line", (line) => {
@@ -55,7 +96,7 @@ class ScriptAgent {
   }
 
   async hello() {
-    const message = parseAgentLine(await this.nextLine());
+    const message = /** @type {HelloMessage} */ (parseAgentLine(await this.nextLine()));
     assert.equal(message.type, "hello");
   }
 
@@ -63,12 +104,16 @@ class ScriptAgent {
     return this.queue.shift() ?? new Promise((resolve) => this.waiters.push(resolve));
   }
 
-  /** The `WslAgent.fs` shape, over the script. */
+  /**
+   * The `WslAgent.fs` shape, over the script.
+   * @param {{ op: string, args: string[], timeoutMs?: number }} request - the op and its wire arguments.
+   * @returns {Promise<{exitCode: number, stdout: Buffer, stderr: Buffer}>} the RES projection for this request.
+   */
   async fs({ op, args, timeoutMs = 30000 }) {
     const id = `t${this.n++}`;
     for (const line of encodeFsFrame({ id, op, args, timeoutMs })) this.child.stdin.write(`${line}\n`);
     for (;;) {
-      const message = parseAgentLine(await this.nextLine());
+      const message = /** @type {AgentMessage} */ (parseAgentLine(await this.nextLine()));
       if (message.type === "result" && message.id === id) {
         return { exitCode: message.exitCode, stdout: message.stdout, stderr: message.stderr };
       }
@@ -82,18 +127,26 @@ class ScriptAgent {
   }
 }
 
-/** One substrate bound to one live script-backed agent. */
+/**
+ * One substrate bound to one live script-backed agent.
+ * @param {(fs: DistroFs, root: string, agent: ScriptAgent) => Promise<void>} setup - the check body over the live substrate.
+ */
 async function substrate(setup) {
   const agent = new ScriptAgent();
   await agent.hello();
-  const fs = new DistroFs({ agent, distro: DISTRO });
+  const fs = new DistroFs({ agent: asAgent(agent), distro: DISTRO });
   const root = join(agent.dir, "root");
   mkdirSync(root, { recursive: true });
   await setup(fs, root, agent);
   await agent.close();
 }
 
-const codeOf = (error) => (error && typeof error === "object" ? error.code : undefined);
+/**
+ * The `code` a coded error carries, when the thrown value has one.
+ * @param {unknown} error - the thrown value.
+ * @returns {string | undefined} its `code`, if any.
+ */
+const codeOf = (error) => (error && typeof error === "object" ? /** @type {{code?: string}} */ (error).code : undefined);
 
 checks.push(["nanoseconds normalizes stat's 9-digit and find's 10-digit fractions alike", () => {
   assert.equal(nanoseconds("1790988738.912215200"), "1790988738912215200");
@@ -142,6 +195,7 @@ checks.push(["stat returns null for a missing path and probe-shaped info for a r
     writeFileSync(join(root, "a.txt"), "x\n", { mode: 0o600 });
     assert.equal(await fs.stat(join(root, "nope")), null);
     const info = await fs.stat(join(root, "a.txt"));
+    assert.ok(info, "the file is observed");
     assert.equal(info.type, "f");
     assert.equal(info.mode, 0o600);
     assert.equal(info.size, 2);
@@ -186,6 +240,7 @@ checks.push(["listChildren keeps every root child's name whole against the bare 
       assert.ok(names.includes(known), `root lists "${known}" whole`);
     }
     const etc = entries.find((entry) => entry.name === "etc");
+    assert.ok(etc, "etc is listed");
     assert.ok(etc.target.targetKey.endsWith("etc"), "the child identity is the whole path, not a sheared one");
   });
 }]);
@@ -205,7 +260,7 @@ checks.push(["run_capture honours the output budget and reports which streams we
     })) agent.child.stdin.write(`${line}\n`);
     let message;
     for (;;) {
-      message = parseAgentLine(await agent.nextLine());
+      message = /** @type {AgentMessage} */ (parseAgentLine(await agent.nextLine()));
       if (message.type === "result" && message.id === id) break;
     }
     assert.equal(message.exitCode, 0);
@@ -224,24 +279,27 @@ checks.push(["writeFileAtomic re-verifies the expected version distro-side befor
     const path = join(root, "guarded.txt");
     await fs.writeFileAtomic(path, "first\n", {});
     const before = await fs.stat(path);
+    assert.ok(before, "the first write is observable");
     // A write whose expected version is current lands.
     await fs.writeFileAtomic(path, "second\n", { expectedVersion: before.version });
     assert.equal(readFileSync(path, "utf8"), "second\n");
     // The file changes underneath — an editor save, a git stash.
     writeFileSync(path, "concurrent edit\n");
     const external = await fs.stat(path);
+    assert.ok(external, "the external change is observable");
     assert.notEqual(external.version, before.version, "the external change is a new version");
     await assert.rejects(
       fs.writeFileAtomic(path, "stale write\n", { expectedVersion: before.version }),
-      (error) => codeOf(error) === "FS_STALE_VERSION" && /file changed since it was read/.test(error.message),
+      (error) => codeOf(error) === "FS_STALE_VERSION" && /file changed since it was read/.test(/** @type {Error} */ (error).message),
     );
     assert.equal(readFileSync(path, "utf8"), "concurrent edit\n", "the concurrent writer's content is untouched");
     // A vanished target is the same refusal, in the host's own wording.
     const gone = await fs.stat(path);
+    assert.ok(gone, "the file is observed before it vanishes");
     rmSync(path);
     await assert.rejects(
       fs.writeFileAtomic(path, "write into the void\n", { expectedVersion: gone.version }),
-      (error) => codeOf(error) === "FS_STALE_VERSION" && /no longer exists/.test(error.message),
+      (error) => codeOf(error) === "FS_STALE_VERSION" && /no longer exists/.test(/** @type {Error} */ (error).message),
     );
     // The refusals leave no staging debris in the target's directory.
     assert.deepEqual(readdirSync(root).filter((name) => name.includes(".tmpdir")), []);
@@ -252,7 +310,9 @@ checks.push(["a stat's version and a list row's version are the same string on t
   if (!POSIX) return;
   await substrate(async (fs, root) => {
     writeFileSync(join(root, "skewed.txt"), "x\n");
-    const statVersion = (await fs.stat(join(root, "skewed.txt"))).version;
+    const statInfo = await fs.stat(join(root, "skewed.txt"));
+    assert.ok(statInfo, "the file is observed");
+    const statVersion = statInfo.version;
     const target = await fs.resolveTarget(root);
     const row = (await fs.listChildren(target)).find((entry) => entry.name === "skewed.txt");
     assert.ok(row, "the file is listed");
@@ -291,27 +351,31 @@ checks.push(["write publishes setuid whole, and the sweep clears a dead agent's 
 }]);
 
 checks.push(["the deny dialect classifies a write's read-only bind as FS_SANDBOX_DENIED", () => {
-  const fs = new DistroFs({ agent: {}, distro: DISTRO });
+  const fs = new DistroFs({ agent: asAgent({ fs: () => { throw new Error("must not be called"); } }), distro: DISTRO });
+  /**
+   * @param {string} s - the text to encode.
+   * @returns {string} its base64.
+   */
   const b64 = (s) => Buffer.from(s, "utf8").toString("base64");
   const readonlyBind = { exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from(`dsh-fs|io|${b64("Read-only file system")}\n`) };
-  const denial = fs.fail("write", readonlyBind, "/ws/f.txt");
+  const denial = seamsOf(fs).fail("write", readonlyBind, "/ws/f.txt");
   assert.equal(denial.code, "FS_SANDBOX_DENIED");
   assert.equal(denial.message, `cannot write "/ws/f.txt": Read-only file system`);
-  const sameTextOnStat = fs.fail("stat", readonlyBind, "/ws/f.txt");
+  const sameTextOnStat = seamsOf(fs).fail("stat", readonlyBind, "/ws/f.txt");
   assert.equal(sameTextOnStat.code, "FS_IO_ERROR", "the denial dialect is the write op's alone");
 }]);
 
 checks.push(["request maps an aborted signal to FS_ABORTED and rethrows every other error", async () => {
   const controller = new AbortController();
   controller.abort(new Error("caller cancelled"));
-  const fs = new DistroFs({ agent: { fs: () => Promise.reject(new Error("transport gone")) }, distro: DISTRO });
-  await assert.rejects(fs.request("stat", ["/x"], controller.signal), (error) => error.code === "FS_ABORTED");
-  await assert.rejects(fs.request("stat", ["/x"], undefined), /transport gone/);
+  const fs = new DistroFs({ agent: asAgent({ fs: () => Promise.reject(new Error("transport gone")) }), distro: DISTRO });
+  await assert.rejects(seamsOf(fs).request("stat", ["/x"], controller.signal), (error) => /** @type {{code?: string}} */ (error).code === "FS_ABORTED");
+  await assert.rejects(seamsOf(fs).request("stat", ["/x"], undefined), /transport gone/);
 }]);
 
 checks.push(["resolveTarget refuses an empty path before any agent round trip", async () => {
-  const fs = new DistroFs({ agent: { fs: () => { throw new Error("must not be called"); } }, distro: DISTRO });
-  await assert.rejects(fs.resolveTarget("   "), (error) => error.code === "FS_NOT_FOUND");
+  const fs = new DistroFs({ agent: asAgent({ fs: () => { throw new Error("must not be called"); } }), distro: DISTRO });
+  await assert.rejects(fs.resolveTarget("   "), (error) => /** @type {{code?: string}} */ (error).code === "FS_NOT_FOUND");
 }]);
 
 checks.push(["readTextForDiff degrades to null on a missing or binary file", async () => {
@@ -334,7 +398,7 @@ checks.push(["readWholeText refuses directories, binaries and invalid UTF-8 with
     const binaryPath = join(root, "bin.dat");
     writeFileSync(binaryPath, Buffer.from([0x61, 0, 0x62]));
     const binary = await fs.resolveTarget(binaryPath);
-    await assert.rejects(fs.readWholeText(binary), (error) => codeOf(error) === "FS_NOT_TEXT" && /binary file/.test(error.message));
+    await assert.rejects(fs.readWholeText(binary), (error) => codeOf(error) === "FS_NOT_TEXT" && /binary file/.test(/** @type {Error} */ (error).message));
     const invalidPath = join(root, "bad.txt");
     writeFileSync(invalidPath, Buffer.from([0xc3, 0x28]));
     const invalid = await fs.resolveTarget(invalidPath);
@@ -362,7 +426,7 @@ checks.push(["readWholeBytes caps the content and reports the peer's TOO_LARGE s
     const target = await fs.resolveTarget(path);
     assert.equal(Buffer.from(await fs.readWholeBytes(target, undefined, 8)).toString(), "abcdefgh", "the exact size passes");
     assert.equal(Buffer.from(await fs.readWholeBytes(target, undefined, 9)).toString(), "abcdefgh");
-    await assert.rejects(fs.readWholeBytes(target, undefined, 4), (error) => codeOf(error) === "FS_TOO_LARGE" && /8 bytes exceeds the 4-byte limit/.test(error.message));
+    await assert.rejects(fs.readWholeBytes(target, undefined, 4), (error) => codeOf(error) === "FS_TOO_LARGE" && /8 bytes exceeds the 4-byte limit/.test(/** @type {Error} */ (error).message));
   });
 }]);
 
@@ -402,15 +466,21 @@ checks.push(["writeFileAtomic creates with the peer's POSIX mode and preserves o
     const fresh = join(root, "new.txt");
     await fs.writeFileAtomic(fresh, "created\n");
     assert.equal(readFileSync(fresh, "utf8"), "created\n");
-    assert.equal((await fs.stat(fresh)).mode, 0o600, "a new file takes the peer's POSIX publication mode");
+    const created = await fs.stat(fresh);
+    assert.ok(created, "the fresh write is observable");
+    assert.equal(created.mode, 0o600, "a new file takes the peer's POSIX publication mode");
     const existing = join(root, "old.txt");
     writeFileSync(existing, "old\n");
     chmodSync(existing, 0o604);
-    const { version } = await fs.stat(existing);
+    const existingInfo = await fs.stat(existing);
+    assert.ok(existingInfo, "the existing file is observable");
+    const { version } = existingInfo;
     await fs.writeFileAtomic(existing, "newer\n", { mode: 0o604 });
     assert.equal(readFileSync(existing, "utf8"), "newer\n");
-    assert.equal((await fs.stat(existing)).mode, 0o604, "the existing mode is preserved");
-    assert.notEqual((await fs.stat(existing)).version, version, "the version moved with the write");
+    const preserved = await fs.stat(existing);
+    assert.ok(preserved, "the rewritten file is observable");
+    assert.equal(preserved.mode, 0o604, "the existing mode is preserved");
+    assert.notEqual(preserved.version, version, "the version moved with the write");
     assert.equal(readdirSync(root).filter((name) => name.includes(".tmpdir")).length, 0, "no staging dir survives");
   });
 }]);
@@ -422,7 +492,7 @@ checks.push(["a guarded create refuses an unread file, and a directory incumbent
     writeFileSync(existing, "keep\n");
     await assert.rejects(
       fs.writeFileAtomic(existing, "nope\n", { createIfAbsent: { displayPath: existing } }),
-      (error) => codeOf(error) === "FS_NOT_OBSERVED" && /without reading it first/.test(error.message),
+      (error) => codeOf(error) === "FS_NOT_OBSERVED" && /without reading it first/.test(/** @type {Error} */ (error).message),
     );
     assert.equal(readFileSync(existing, "utf8"), "keep\n", "the incumbent survives the refusal");
     const dir = join(root, "adir");
@@ -451,7 +521,7 @@ checks.push(["readForEdit detects CRLF and the edit round trip restores it", asy
 
 checks.push(["applyLiteralEdit refuses an empty needle, a miss, and an ambiguous match", () => {
   assert.throws(() => applyLiteralEdit("abc", "", "x", false, "p"), (error) => codeOf(error) === "FS_EDIT_NOT_FOUND");
-  assert.throws(() => applyLiteralEdit("abc", "zz", "x", false, "p"), (error) => codeOf(error) === "FS_EDIT_NOT_FOUND" && /was not found in "p"/.test(error.message));
+  assert.throws(() => applyLiteralEdit("abc", "zz", "x", false, "p"), (error) => codeOf(error) === "FS_EDIT_NOT_FOUND" && /was not found in "p"/.test(/** @type {Error} */ (error).message));
   assert.throws(() => applyLiteralEdit("abcb", "b", "x", false, "p"), (error) => codeOf(error) === "FS_AMBIGUOUS_EDIT");
   assert.deepEqual(applyLiteralEdit("abcb", "b", "x", true, "p"), { content: "axcx", replacements: 2 });
   assert.deepEqual(applyLiteralEdit("a\nb", "a\r\nb", "c", false, "p").content, "c", "CRLF inside the needle is normalized");
@@ -481,9 +551,18 @@ checks.push(["the EXEC frame is untouched by the adapter's arrival", () => {
 }]);
 
 /** An agent returning one canned FS result, whatever op it is asked. */
+/**
+ * @param {{exitCode: number, stdout: Buffer, stderr: Buffer}} result - the canned round trip.
+ * @returns {{ fs: WslAgent["fs"] }} the one-answer transport.
+ */
 function cannedAgent(result) {
   return { fs: async () => result };
 }
+/**
+ * @param {string} reason - the wire reason token.
+ * @param {string} message - the failure message text.
+ * @returns {Buffer} the `dsh-fs|reason|base64` protocol line.
+ */
 const fsLine = (reason, message) => Buffer.from(`dsh-fs|${reason}|${Buffer.from(message, "utf8").toString("base64")}\n`, "utf8");
 
 checks.push(["a kernel read-only denial on a WRITE is the sandbox refusal, not an I/O error", async () => {
@@ -492,14 +571,14 @@ checks.push(["a kernel read-only denial on a WRITE is the sandbox refusal, not a
   // turns into an escalation offer. Before this check existed, the mapping
   // was guarded only by a manual Windows probe.
   const fs = new DistroFs({
-    agent: cannedAgent({ exitCode: 1, stdout: Buffer.alloc(0), stderr: fsLine("io", 'mv: cannot move: Read-only file system') }),
+    agent: asAgent(cannedAgent({ exitCode: 1, stdout: Buffer.alloc(0), stderr: fsLine("io", 'mv: cannot move: Read-only file system') })),
     distro: DISTRO,
   });
   await assert.rejects(
     () => fs.writeFileAtomic("/doc/file.txt", "content"),
     (error) => {
-      assert.equal(error.code, "FS_SANDBOX_DENIED");
-      assert.match(error.message, /cannot write "\/doc\/file\.txt"/);
+      assert.equal(/** @type {{code?: string}} */ (error).code, "FS_SANDBOX_DENIED");
+      assert.match(/** @type {Error} */ (error).message, /cannot write "\/doc\/file\.txt"/);
       return true;
     },
   );
@@ -509,18 +588,18 @@ checks.push(["the same signature is sandbox-classified ONLY on the write path", 
   // A read-side op reporting the dialect is an I/O failure — the read mounts
   // are never read-only-refused in a way the fence caused.
   const fs = new DistroFs({
-    agent: cannedAgent({ exitCode: 1, stdout: Buffer.alloc(0), stderr: fsLine("io", "Read-only file system") }),
+    agent: asAgent(cannedAgent({ exitCode: 1, stdout: Buffer.alloc(0), stderr: fsLine("io", "Read-only file system") })),
     distro: DISTRO,
   });
-  await assert.rejects(() => fs.stat("/doc/gone"), (error) => error.code === "FS_IO_ERROR");
+  await assert.rejects(() => fs.stat("/doc/gone"), (error) => /** @type {{code?: string}} */ (error).code === "FS_IO_ERROR");
 }]);
 
 checks.push(["a write refused on ordinary permissions keeps its I/O classification", async () => {
   const fs = new DistroFs({
-    agent: cannedAgent({ exitCode: 1, stdout: Buffer.alloc(0), stderr: fsLine("perm", "Permission denied") }),
+    agent: asAgent(cannedAgent({ exitCode: 1, stdout: Buffer.alloc(0), stderr: fsLine("perm", "Permission denied") })),
     distro: DISTRO,
   });
-  await assert.rejects(() => fs.writeFileAtomic("/doc/file.txt", "content"), (error) => error.code === "FS_IO_ERROR");
+  await assert.rejects(() => fs.writeFileAtomic("/doc/file.txt", "content"), (error) => /** @type {{code?: string}} */ (error).code === "FS_IO_ERROR");
 }]);
 
 for (const [name, fn] of checks) await check(name, fn);

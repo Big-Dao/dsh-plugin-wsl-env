@@ -47,16 +47,25 @@ own `.d.ts` — nothing is invented twice. `types/dsh-services.d.ts` pulls in th
 so `ctx.fs`, `ctx.shell`, `ctx.sandboxPolicy` and friends are typed; it declares
 nothing itself and ships nowhere.
 
-The gate's scope is deliberate: `lib/**` only, for now. The tests and the
-probes are the next increment (`test/**/*.mjs` is one `include` entry away);
-the shipped artifact is checked first because it is where protocol drift with
-the pinned peers hurts.
+The gate's scope is the whole repository: `lib/**`, `test/**` and the probe
+scripts are all type-checked. The shipped artifact was checked first because it
+is where protocol drift with the pinned peers hurts; the tests and probes came
+next, and the errors they surfaced were real — a test that pinned a raw number
+into an argv, a couple of hand-written JSDoc contracts wider than the code
+(`wslErrorCode`, `gitSpawnRewrite`) and narrower than their seams, and one
+accepted-but-never-enforced byte-window cap in `lib/workspace-files-wsl.js`,
+found because a fake hands the confinement seam an `"full"` enforcement the
+core itself never reports.
 
-Two patterns keep the check honest:
+Three patterns keep the check honest:
 
 - A subclass's own config keys are declared as a `@typedef` mirroring its
   `static Config` schema and read through one explicit cast — the schema and
   the typedef can then only drift apart visibly.
+- A test double is typed as the slice of the seam it scripts (a duck
+  `@typedef`) and reaches the seam's declared type through one documented cast
+  at the injection point — the cast states which contract the double stands in
+  for, instead of silencing the mismatch with `any`.
 - `@ts-expect-error` is allowed exactly when the suppressed error names a real
   upstream seam gap, carries the reason inline, and the gap is written up in
   `docs/UPSTREAM-*.md`. It is a published finding with a tracking doc, not a

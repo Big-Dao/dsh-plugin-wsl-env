@@ -29,21 +29,43 @@ import yaml from "js-yaml";
 import { applyEntryPatches, entryListSchema } from "@deepseek-ai/cordis-plugin-include";
 
 let passed = 0;
+/** @type {Array<[string, () => void | Promise<void>]>} */
 const checks = [];
+/**
+ * Defers one check; the loop at the bottom runs each through `runCheck`.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const check = (name, fn) => checks.push([name, fn]);
+/**
+ * Runs one check now, printing its verdict; a throw fails the process exit code.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const runCheck = async (name, fn) => {
   try {
     await fn();
     passed += 1;
     console.log(`PASS  ${name}`);
   } catch (error) {
-    console.log(`FAIL  ${name}\n      ${error.message}`);
+    console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
     process.exitCode = 1;
   }
 };
 
+/**
+ * Views a scripted static import map as the loader's module-loader seam. The
+ * loader only calls `import()` on this path; the real `ModuleLoader` carries
+ * Node's internal cache and hook surface.
+ * @param {Loader} loader - the mounted loader service.
+ * @param {(specifier: string) => Promise<unknown>} importModule - the map.
+ */
+const stubLoaderInternal = (loader, importModule) => {
+  loader.internal = /** @type {NonNullable<Loader["internal"]>} */ (/** @type {unknown} */ ({ version: "v2", import: importModule }));
+};
+
 const HERE = dirname(fileURLToPath(import.meta.url));
-const PATCH = yaml.load(readFileSync(join(HERE, "..", "cordis.patch.yml"), "utf8"), { schema: entryListSchema });
+const PATCH = /** @type {NonNullable<Parameters<typeof applyEntryPatches>[1]>} */ (yaml.load(readFileSync(join(HERE, "..", "cordis.patch.yml"), "utf8"), { schema: entryListSchema }));
 
 // The upstream rows the patch layer targets, as the app's own bundle layers
 // insert them before this plugin's layer applies. Names are the shipped
@@ -56,6 +78,7 @@ const UPSTREAM = [
   { id: "fs-sandbox", name: "@deepseek-ai/dsh-fs-sandbox", config: { cwd: "" } },
 ];
 
+/** @type {string[]} */
 const warnings = [];
 const composed = applyEntryPatches(structuredClone(UPSTREAM), structuredClone(PATCH), (message, ...args) => {
   warnings.push(message.replace(/%C/g, () => JSON.stringify(args.shift())));
@@ -128,14 +151,11 @@ check("the takeover rows actually START through the Loader, not just compose", a
     context.baseUrl = pathToFileURL(root).href + "/";
     await context.plugin(Loader);
     context.loader.builtins.include = Include;
-    context.loader.internal = {
-      version: "v2",
-      async import(specifier) {
-        if (specifier === "workspace-files-wsl-under-test") return WorkspaceFilesWsl;
-        if (specifier === "fs-routing-under-test") return WslRoutingFileSystem;
-        throw new Error(`unexpected Loader import: ${specifier}`);
-      },
-    };
+    stubLoaderInternal(context.loader, async (specifier) => {
+      if (specifier === "workspace-files-wsl-under-test") return WorkspaceFilesWsl;
+      if (specifier === "fs-routing-under-test") return WslRoutingFileSystem;
+      throw new Error(`unexpected Loader import: ${specifier}`);
+    });
     await context.loader.create({ name: "cordis:include", config: { path: pathToFileURL(configPath).href } });
     await context.loader.await();
     assert.equal(context.fs instanceof WslRoutingFileSystem, true, "the routed root filesystem mounted");

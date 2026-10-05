@@ -23,14 +23,26 @@ import {
 } from "../lib/agent-protocol.js";
 import { relabelFrame } from "../lib/agent.js";
 
+/**
+ * The parsed protocol messages `parseAgentLine` returns — its own `@returns`
+ * stops at `object`, so the union is restated here (as `lib/agent.js` does).
+ * @typedef {{type: "result", id: string, exitCode: number, stdout: Buffer, stderr: Buffer, truncated: {stdout: boolean, stderr: boolean}}} ResultMessage
+ * @typedef {{type: "agentError", id: string, reason: string, message: string}} AgentErrorMessage
+ */
+
 let passed = 0;
+/**
+ * Runs one check now, printing its verdict; a throw fails the process exit code.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const check = (name, fn) => {
   try {
     fn();
     passed += 1;
     console.log(`PASS  ${name}`);
   } catch (error) {
-    console.log(`FAIL  ${name}\n      ${error.message}`);
+    console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
     process.exitCode = 1;
   }
 };
@@ -81,15 +93,15 @@ check("the HELLO handshake parses to name, version, and the script digest", () =
 });
 
 check("a non-numeric exit code is protocol garbage, reported as -1", () => {
-  const message = parseAgentLine(`RES|r1|not-a-code|${encodeB64("")}|${encodeB64("")}`);
+  const message = /** @type {ResultMessage} */ (parseAgentLine(`RES|r1|not-a-code|${encodeB64("")}|${encodeB64("")}`));
   assert.equal(message.exitCode, -1, "-1 is a value no wait() can produce");
-  assert.equal(parseAgentLine(`RES|r1|0|${encodeB64("")}|${encodeB64("")}`).exitCode, 0, "a real zero survives");
+  assert.equal((/** @type {ResultMessage} */ (parseAgentLine(`RES|r1|0|${encodeB64("")}|${encodeB64("")}`))).exitCode, 0, "a real zero survives");
 });
 
 check("a RES line yields the exit code and decoded output buffers", () => {
   const stdout = Buffer.from([0, 9, 104, 105]);
   const stderr = Buffer.from("boom\n");
-  const message = parseAgentLine(`RES|r1|0|${encodeB64(stdout)}|${encodeB64(stderr)}`);
+  const message = /** @type {ResultMessage} */ (parseAgentLine(`RES|r1|0|${encodeB64(stdout)}|${encodeB64(stderr)}`));
   assert.equal(message.type, "result");
   assert.equal(message.id, "r1");
   assert.equal(message.exitCode, 0);
@@ -98,14 +110,14 @@ check("a RES line yields the exit code and decoded output buffers", () => {
 });
 
 check("a RES line's capture-cap flags say which streams were cut", () => {
-  const cut = parseAgentLine(`RES|r1|0|${encodeB64(Buffer.alloc(0))}|${encodeB64(Buffer.alloc(0))}|1|0`);
+  const cut = /** @type {ResultMessage} */ (parseAgentLine(`RES|r1|0|${encodeB64(Buffer.alloc(0))}|${encodeB64(Buffer.alloc(0))}|1|0`));
   assert.deepEqual(cut.truncated, { stdout: true, stderr: false });
-  const whole = parseAgentLine(`RES|r1|0|${encodeB64(Buffer.alloc(0))}|${encodeB64(Buffer.alloc(0))}|0|0`);
+  const whole = /** @type {ResultMessage} */ (parseAgentLine(`RES|r1|0|${encodeB64(Buffer.alloc(0))}|${encodeB64(Buffer.alloc(0))}|0|0`));
   assert.deepEqual(whole.truncated, { stdout: false, stderr: false });
 });
 
 check("an ERR line yields its reason and decoded message", () => {
-  const message = parseAgentLine(`ERR|r3|cwd|${encodeB64("/gone")}`);
+  const message = /** @type {AgentErrorMessage} */ (parseAgentLine(`ERR|r3|cwd|${encodeB64("/gone")}`));
   assert.equal(message.type, "agentError");
   assert.equal(message.id, "r3");
   assert.equal(message.reason, "cwd");

@@ -33,6 +33,7 @@ const WORKSPACE = "\\\\wsl.localhost\\ubuntu\\home\\andy\\Projects\\dsh\\plugins
 const sandboxPolicyStub = {
   name: "sandbox-policy",
   inject: [],
+  /** @param {Context} ctx - the plugin's context. */
   apply(ctx) {
     ctx.provide("sandboxPolicy", {
       defaultMode: "workspace-write",
@@ -42,6 +43,18 @@ const sandboxPolicyStub = {
   },
 };
 
+/**
+ * Views a scripted static import map as the loader's module-loader seam. The
+ * loader only calls `import()` on this path; the real `ModuleLoader` carries
+ * Node's internal cache and hook surface.
+ * @param {Loader} loader - the mounted loader service.
+ * @param {(specifier: string) => Promise<unknown>} importModule - the map.
+ */
+const stubLoaderInternal = (loader, importModule) => {
+  loader.internal = /** @type {NonNullable<Loader["internal"]>} */ (/** @type {unknown} */ ({ version: "v2", import: importModule }));
+};
+
+/** @type {Context} */
 let context;
 async function boot() {
   const root = await mkdtemp(join(tmpdir(), "dsh-wsl-env-boot-"));
@@ -52,14 +65,11 @@ async function boot() {
   await context.plugin(sandboxPolicyStub);
   await context.plugin(Loader);
   context.loader.builtins.include = Include;
-  context.loader.internal = {
-    version: "v2",
-    async import(specifier) {
-      if (specifier === ROW) return WslFileSystem;
-      if (specifier === "sandbox-policy") return sandboxPolicyStub;
-      throw new Error(`unexpected Loader import: ${specifier}`);
-    },
-  };
+  stubLoaderInternal(context.loader, async (specifier) => {
+    if (specifier === ROW) return WslFileSystem;
+    if (specifier === "sandbox-policy") return sandboxPolicyStub;
+    throw new Error(`unexpected Loader import: ${specifier}`);
+  });
   await context.loader.create({ name: "cordis:include", config: { path: pathToFileURL(configPath).href } });
   await context.loader.await();
 }
@@ -83,7 +93,7 @@ async function distroInstalled() {
   }
 }
 
-it("serves a real distro read end to end when wsl.exe is available", async (t) => {
+it("serves a real distro read end to end when wsl.exe is available", { timeout: 60_000 }, async (t) => {
   if (!await distroInstalled()) return;
   await boot();
   t.after(async () => {
@@ -94,16 +104,17 @@ it("serves a real distro read end to end when wsl.exe is available", async (t) =
   const target = await context.fs.resolve("/etc/hostname");
   assert.match(target.displayPath, /^\/etc\/hostname$/u);
   const info = await context.fs.stat(target);
+  assert.ok(info, "the distro hostname file is observed");
   assert.equal(info.type, "file");
   const text = await context.fs.readText(target);
   assert.ok(text.length > 0, "the distro hostname file is non-empty");
-}, 60_000);
+});
 
 it("answers honestly when the workspace leaves the pinned distro", async () => {
   if (!await distroInstalled()) return;
   await boot();
   await assert.rejects(
     () => context.fs.resolve("\\\\wsl.localhost\\debian\\etc\\hostname"),
-    (error) => error.code === "FS_OUTSIDE_DISTRO",
+    (error) => /** @type {{code?: string}} */ (error).code === "FS_OUTSIDE_DISTRO",
   );
 });

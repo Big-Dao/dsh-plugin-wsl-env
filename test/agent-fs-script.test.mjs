@@ -23,6 +23,11 @@ const SCRIPT = fileURLToPath(new URL("../agent/wsl-agent.sh", import.meta.url));
 const POSIX = process.platform !== "win32";
 
 let passed = 0;
+/**
+ * Runs one check now, printing its verdict; a throw fails the process exit code.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const check = async (name, fn) => {
   if (!POSIX) return;
   try {
@@ -30,12 +35,22 @@ const check = async (name, fn) => {
     passed += 1;
     console.log(`PASS  ${name}`);
   } catch (error) {
-    console.log(`FAIL  ${name}\n      ${error.message}`);
+    console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
     process.exitCode = 1;
   }
 };
 
+/** @type {Array<[string, () => void | Promise<void>]>} */
 const checks = [];
+
+/**
+ * The parsed protocol messages `parseAgentLine` returns — its own `@returns`
+ * stops at `object`, so the union is restated here (as `lib/agent.js` does).
+ * @typedef {{type: "hello", name: string, version: number, digest: string}} HelloMessage
+ * @typedef {{type: "result", id: string, exitCode: number, stdout: Buffer, stderr: Buffer, truncated: {stdout: boolean, stderr: boolean}}} ResultMessage
+ * @typedef {{type: "agentError", id: string, reason: string, message: string}} AgentErrorMessage
+ * @typedef {HelloMessage | ResultMessage | AgentErrorMessage | {type: "pong"} | {type: "ack", id: string} | {type: "unknown", line: string}} AgentMessage
+ */
 
 /** One live agent process over a temp directory, driven frame by frame. */
 class Harness {
@@ -43,7 +58,9 @@ class Harness {
     this.dir = mkdtempSync(join(tmpdir(), "wsl-agent-fs-"));
     this.child = spawn("sh", [SCRIPT], { stdio: ["pipe", "pipe", "pipe"] });
     this.lines = createInterface({ input: this.child.stdout });
+    /** @type {string[]} */
     this.queue = [];
+    /** @type {Array<(line: string) => void>} */
     this.waiters = [];
     this.n = 0;
     this.lines.on("line", (line) => {
@@ -60,7 +77,7 @@ class Harness {
   /** @returns {Promise<string>} the HELLO line, with its version asserted. */
   async hello() {
     const line = await this.nextLine();
-    const message = parseAgentLine(line);
+    const message = /** @type {HelloMessage} */ (parseAgentLine(line));
     assert.equal(message.type, "hello");
     assert.equal(message.name, AGENT_NAME);
     assert.equal(message.version, PROTOCOL_VERSION);
@@ -71,23 +88,38 @@ class Harness {
     return line;
   }
 
+  /**
+   * Writes one FS frame and hands back its request id.
+   * @param {string} op - the FS op name.
+   * @param {string[]} args - the op's wire arguments.
+   * @returns {string} the request id the RES will carry.
+   */
   fs(op, args) {
     const id = `t${this.n++}`;
     for (const line of encodeFsFrame({ id, op, args, timeoutMs: 30000 })) this.child.stdin.write(`${line}\n`);
     return id;
   }
 
-  /** Send one FS op and resolve with its RES result. */
+  /**
+   * Send one FS op and resolve with its RES result.
+   * @param {string} op - the FS op name.
+   * @param {string[]} args - the op's wire arguments.
+   * @returns {Promise<ResultMessage>} the RES message for this request.
+   */
   async call(op, args) {
     const id = this.fs(op, args);
     for (;;) {
-      const message = parseAgentLine(await this.nextLine());
+      const message = /** @type {AgentMessage} */ (parseAgentLine(await this.nextLine()));
       if (message.type !== "result" || message.id !== id) continue;
       return message;
     }
   }
 
-  /** First stderr line parsed as the fs failure protocol. */
+  /**
+   * First stderr line parsed as the fs failure protocol.
+   * @param {ResultMessage} result - the failed RES.
+   * @returns {{reason: string, message: string}} the parsed failure.
+   */
   static fsFailure(result) {
     const first = result.stderr.toString("utf8").split("\n")[0];
     const [, reason, message] = first.split("|");
@@ -101,6 +133,10 @@ class Harness {
   }
 }
 
+/**
+ * @param {string} value - the text to encode.
+ * @returns {string} its base64.
+ */
 const b64 = (value) => encodeB64(value);
 /** A distro-independent assertion: agent times arrive as `seconds.frac`. */
 const TIME_SHAPE = /^\d+(\.\d+)?$/;
@@ -252,7 +288,7 @@ checks.push(["EXEC and PING still work beside the FS frames", async () => {
     let sawPong = false;
     agent.child.stdin.write("PING\n");
     for (;;) {
-      const message = parseAgentLine(await agent.nextLine());
+      const message = /** @type {AgentMessage} */ (parseAgentLine(await agent.nextLine()));
       if (message.type === "result" && message.id === id) {
         assert.equal(message.stdout.toString("utf8").trim(), "exec-ok");
         sawExec = true;
@@ -292,7 +328,7 @@ checks.push(["an argv word that does not decode refuses the request, and nothing
     agent.child.stdin.write(`EXEC|${id}|${encodeB64("/")}|0|2|0\n`);
     agent.child.stdin.write(`${encodeB64("echo")}\n`);
     agent.child.stdin.write("not!!base64!!\n");
-    const message = parseAgentLine(await agent.nextLine());
+    const message = /** @type {AgentErrorMessage} */ (parseAgentLine(await agent.nextLine()));
     assert.equal(message.type, "agentError", "the refusal is an ERR frame");
     assert.equal(message.id, id);
     assert.equal(message.reason, "protocol", "a decode failure is a contract breach, not a command");
@@ -306,7 +342,7 @@ checks.push(["a SETENV key that is not a POSIX identifier is refused; a good key
   try {
     await agent.hello();
     agent.child.stdin.write("SETENV|1bad|QQo=\n");
-    const refusal = parseAgentLine(await agent.nextLine());
+    const refusal = /** @type {AgentErrorMessage} */ (parseAgentLine(await agent.nextLine()));
     assert.equal(refusal.type, "agentError");
     assert.equal(refusal.id, "", "the refusal is request-less");
     assert.equal(refusal.reason, "protocol");
@@ -317,7 +353,7 @@ checks.push(["a SETENV key that is not a POSIX identifier is refused; a good key
     }
     let ackSeen = false;
     for (;;) {
-      const message = parseAgentLine(await agent.nextLine());
+      const message = /** @type {AgentMessage} */ (parseAgentLine(await agent.nextLine()));
       if (message.type === "ack" && message.id === id) ackSeen = true;
       if (message.type === "result" && message.id === id) {
         assert.equal(ackSeen, true);
@@ -367,7 +403,7 @@ checks.push(["a timed-out EXEC takes the command's descendants with it", async (
       agent.child.stdin.write(`${line}\n`);
     }
     for (;;) {
-      const message = parseAgentLine(await agent.nextLine());
+      const message = /** @type {AgentMessage} */ (parseAgentLine(await agent.nextLine()));
       if (message.type === "result" && message.id === id) break;
     }
     const elapsed = Date.now() - startedAt;

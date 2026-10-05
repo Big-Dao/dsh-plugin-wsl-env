@@ -15,15 +15,26 @@ import assert from "node:assert/strict";
 import { isSearchProgram, searchSpawnRewrite } from "../lib/search-route.js";
 
 let passed = 0;
+/** @type {Array<[string, () => void | Promise<void>]>} */
 const checks = [];
+/**
+ * Defers one check; the loop at the bottom runs each through `runCheck`.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const check = (name, fn) => checks.push([name, fn]);
+/**
+ * Runs one check, printing its verdict; a throw fails the process exit code.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
 const runCheck = async (name, fn) => {
   try {
     await fn();
     passed += 1;
     console.log(`PASS  ${name}`);
   } catch (error) {
-    console.log(`FAIL  ${name}\n      ${error.message}`);
+    console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
     process.exitCode = 1;
   }
 };
@@ -45,11 +56,11 @@ check("isSearchProgram judges the program by its own name", () => {
 });
 
 check("a distro workspace's search is rewritten into the distro's rg", () => {
-  const rewrite = searchSpawnRewrite({
+  const rewrite = /** @type {NonNullable<ReturnType<typeof searchSpawnRewrite>>} */ (searchSpawnRewrite({
     argv: [PACKAGED_RG, "-n", "--json", "SANDBOX_UNAVAILABLE"],
     cwd: WORKSPACE,
     wslPath: "C:\\Windows\\System32\\wsl.exe",
-  });
+  }));
   assert.notEqual(rewrite, undefined);
   assert.equal(rewrite.distro, "ubuntu");
   assert.equal(rewrite.linuxCwd, "/home/andy/proj");
@@ -76,31 +87,31 @@ check("a search with no explicit path gains `-- .` — the stdin-heuristic guard
   // readable-stdin heuristic then searches stdin (instantly empty) instead of
   // the directory. The tool spells an explicit path with a bare `--`, so its
   // absence is the signal to append `-- .` — the `--cd` directory.
-  const rewrite = searchSpawnRewrite({
+  const rewrite = /** @type {NonNullable<ReturnType<typeof searchSpawnRewrite>>} */ (searchSpawnRewrite({
     argv: [PACKAGED_RG, "--json", "--regexp=hole"],
     cwd: WORKSPACE,
     wslPath: "wsl.exe",
-  });
+  }));
   assert.deepEqual(rewrite.wslArgv.slice(-2), ["--", "."]);
   assert.equal(rewrite.wslArgv.filter((part) => part === "--").length, 1, "the separator is appended exactly once");
 });
 
 check("a search that already names a path is forwarded verbatim", () => {
-  const rewrite = searchSpawnRewrite({
+  const rewrite = /** @type {NonNullable<ReturnType<typeof searchSpawnRewrite>>} */ (searchSpawnRewrite({
     argv: [PACKAGED_RG, "--json", "--regexp=hole", "--", "lib"],
     cwd: WORKSPACE,
     wslPath: "wsl.exe",
-  });
+  }));
   assert.deepEqual(rewrite.wslArgv.slice(-2), ["--", "lib"]);
   assert.equal(rewrite.wslArgv.filter((part) => part === "--").length, 1, "no second separator is added");
 });
 
 check("the legacy wsl$ spelling and the distro root both route", () => {
-  const legacy = searchSpawnRewrite({ argv: ["rg", "x"], cwd: "\\\\wsl$\\debian\\srv", wslPath: "wsl.exe" });
+  const legacy = /** @type {NonNullable<ReturnType<typeof searchSpawnRewrite>>} */ (searchSpawnRewrite({ argv: ["rg", "x"], cwd: "\\\\wsl$\\debian\\srv", wslPath: "wsl.exe" }));
   assert.equal(legacy.distro, "debian");
   assert.equal(legacy.linuxCwd, "/srv");
 
-  const root = searchSpawnRewrite({ argv: ["rg", "x"], cwd: "\\\\wsl.localhost\\ubuntu", wslPath: "wsl.exe" });
+  const root = /** @type {NonNullable<ReturnType<typeof searchSpawnRewrite>>} */ (searchSpawnRewrite({ argv: ["rg", "x"], cwd: "\\\\wsl.localhost\\ubuntu", wslPath: "wsl.exe" }));
   assert.equal(root.linuxCwd, "/", "a bare distro root searches from /");
 });
 
@@ -108,7 +119,7 @@ check("a spawn the decision does not name passes through untouched", () => {
   const drive = searchSpawnRewrite({ argv: ["rg", "x"], cwd: "C:\\Users\\andy\\proj", wslPath: "wsl.exe" });
   assert.equal(drive, undefined, "a host directory keeps the host binary, which is native there");
 
-  const absent = searchSpawnRewrite({ argv: ["rg", "x"], cwd: undefined, wslPath: "wsl.exe" });
+  const absent = searchSpawnRewrite({ argv: ["rg", "x"], cwd: /** @type {*} */ (undefined), wslPath: "wsl.exe" });
   assert.equal(absent, undefined, "no directory means no distro evidence");
 
   const relative = searchSpawnRewrite({ argv: ["rg", "x"], cwd: "proj", wslPath: "wsl.exe" });
@@ -120,13 +131,13 @@ check("a spawn the decision does not name passes through untouched", () => {
   const notRg = searchSpawnRewrite({ argv: ["node", "script.js"], cwd: WORKSPACE, wslPath: "wsl.exe" });
   assert.equal(notRg, undefined, "any other program is the shipped spawn's business");
 
-  const noArgv = searchSpawnRewrite({ argv: undefined, cwd: WORKSPACE, wslPath: "wsl.exe" });
+  const noArgv = searchSpawnRewrite({ argv: /** @type {*} */ (undefined), cwd: WORKSPACE, wslPath: "wsl.exe" });
   assert.equal(noArgv, undefined);
 });
 
 check("the forwarded arguments survive byte for byte, and only the program changes", () => {
   const args = ["--json", "--max-count", "5", "-e", "a|b", "--", "dir with space"];
-  const rewrite = searchSpawnRewrite({ argv: ["rg", ...args], cwd: WORKSPACE, wslPath: "wsl.exe" });
+  const rewrite = /** @type {NonNullable<ReturnType<typeof searchSpawnRewrite>>} */ (searchSpawnRewrite({ argv: ["rg", ...args], cwd: WORKSPACE, wslPath: "wsl.exe" }));
   assert.deepEqual(rewrite.wslArgv.slice(7), args);
   assert.equal(rewrite.wslArgv[6], "rg");
 });

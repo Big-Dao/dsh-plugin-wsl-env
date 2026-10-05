@@ -253,16 +253,5 @@ export declare class WorkspaceFilesWsl extends WorkspaceFiles {
      * @param signal - caller cancellation.
      */
     readBytes(workspaceFileScope: WorkspaceFileScope, path: string, options: WorkspaceByteReadOptions, signal: AbortSignal): Promise<WorkspaceFileBytes>;
-    /**
-     * Read one byte range by offset and length; distro UNC roots read inside
-     * the distro.
-     *
-     * @param workspaceFileScope - the Session's file scope.
-     * @param path - the file to read.
-     * @param offset - byte offset (0-based).
-     * @param length - byte count.
-     * @param signal - caller cancellation.
-     */
-    readByteRange(workspaceFileScope: WorkspaceFileScope, path: string, offset: number | undefined, length: number | undefined, signal: AbortSignal): Promise<WorkspaceFileBytes>;
 }
 export default WorkspaceFilesWsl;

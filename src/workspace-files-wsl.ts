@@ -501,38 +501,6 @@ export class WorkspaceFilesWsl extends WorkspaceFiles {
       signal,
     });
   }
-
-  /**
-   * Read one byte range by offset and length; distro UNC roots read inside
-   * the distro.
-   *
-   * @param workspaceFileScope - the Session's file scope.
-   * @param path - the file to read.
-   * @param offset - byte offset (0-based).
-   * @param length - byte count.
-   * @param signal - caller cancellation.
-   */
-  async readByteRange(workspaceFileScope: WorkspaceFileScope, path: string, offset: number | undefined, length: number | undefined, signal: AbortSignal): Promise<WorkspaceFileBytes> {
-    // The base class has no readByteRange at all — this variant adds the byte
-    // window — so the Windows-root fallback has nothing to fall back TO and
-    // would TypeError if a host session ever reached it. Whether to implement
-    // the host path or refuse it is an open design decision, left visible.
-    // @ts-expect-error — no such base method; see above.
-    if (!isDistroWorkspace(workspaceFileScope.workspaceRoot)) return super.readByteRange(workspaceFileScope, path, offset, length, signal);
-    const { distro, linuxRoot } = this.coords(workspaceFileScope.workspaceRoot);
-    return distroReadBytes({
-      runner: this.runnerFor(distro),
-      distro,
-      linuxRoot,
-      path,
-      offset,
-      length,
-      maxBytes: length,
-      maxFileBytes: Number.MAX_SAFE_INTEGER,
-      distroWorkspaceRoot: workspaceFileScope.workspaceRoot,
-      signal,
-    });
-  }
 }
 
 export default WorkspaceFilesWsl;

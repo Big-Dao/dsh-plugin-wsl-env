@@ -372,7 +372,7 @@ check("the read route's refusal ladder: not-found, not-regular-file, not-text, h
   }
 });
 
-check("stat, read, readBytes and readByteRange route distro scopes through the runner", async () => {
+check("stat, read and readBytes route distro scopes through the runner", async () => {
   const ctx = new Context();
   ctx.inject = /** @type {typeof ctx.inject} */ (/** @type {unknown} */ (() => {}));
   const service = new WorkspaceFilesWsl(ctx, serviceConfig());
@@ -380,8 +380,7 @@ check("stat, read, readBytes and readByteRange route distro scopes through the r
   const responses = [
     { exitCode: 0, stdout: `regular file\t512\tfc03\t917517\t1760000000\t1759000000\n`, stderr: "" }, // stat
     { exitCode: 0, stdout: Buffer.from("alpha\nbeta\n"), stderr: `${record}\n` }, // read
-    { exitCode: 0, stdout: Buffer.from("window"), stderr: `${record}\n` }, // readBytes
-    { exitCode: 0, stdout: Buffer.from("range"), stderr: `${record}\n` }, // readByteRange
+    { exitCode: 0, stdout: Buffer.from("window"), stderr: `${record}\n` }, // readBytes (ranged)
   ];
   service.runnerFor = () => asRunner({
     exec: async () => responses.shift(),
@@ -393,8 +392,6 @@ check("stat, read, readBytes and readByteRange route distro scopes through the r
   assert.equal(page.eof, true);
   const bytes = await service.readBytes(scope, "a.txt", { range: { offset: 0, length: 6 } }, SIGNAL);
   assert.ok(bytes);
-  const range = await service.readByteRange(scope, "a.txt", 0, 5, SIGNAL);
-  assert.ok(range);
 });
 
 check("the default runnerFor hands back the distro's shared agent", () => {

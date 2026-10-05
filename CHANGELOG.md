@@ -269,6 +269,19 @@ trip, and both `undefined` cases (the checks fail against the previous
 artifact). The `@ts-expect-error` count drops to three: the two remaining
 design decisions and the upstream spawn seam.
 
+The last in-code seam note closes by deletion rather than repair. The GUI file
+service's `readByteRange` — a method older than the migration, which the type
+gate flagged with an expect-error because its host-workspace branch called a
+base method that does not exist — turned out to be unreachable: the remote
+layer registers exactly the methods a decorated class declares (typert writes
+its markers per instance, from the class that carries the decorators), the
+base service has no such method, and nothing in the plugin or in the harness
+calls it. Ranged reads already go through the wire op they always did —
+`readBytes` with `options.range`, which the distro branch serves and the host
+branch delegates. The method and its one test line are gone (the range case
+stays covered through `readBytes`), and one more expect-error goes with it:
+two remain, the exit-4 kind and the upstream spawn seam.
+
 ## [0.7.5] - 2026-10-05
 
 One theme: a failed environment probe retries instead of being trusted

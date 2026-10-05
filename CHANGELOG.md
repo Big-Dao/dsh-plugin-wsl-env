@@ -12,6 +12,20 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A failed shell probe no longer pins `bash` for the executor's
+  lifetime.** `defaultShell` reported the literal `"bash"` when both probes
+  failed - a cold distro, a flaky first `wsl.exe` call - and the executor
+  cached that placeholder permanently: every later command ran bash on a
+  zsh distro, and the shell tool introduced itself as bash. The probes now
+  answer `undefined`; the executor caches only a real resolution and falls
+  back to bash per call, so the next command retries. `shell-env` follows:
+  an unresolved shell simply omits the `DSH_WSL_SHELL` fact instead of
+  presenting a guess as the distro's login shell. Alongside, `toWorldPath`
+  no longer mints UNC identities under the hardcoded `"Ubuntu"` fallback -
+  the pinned distro is a required option now, and every caller passes it.
+
 ## [0.7.4] - 2026-10-05
 
 One theme: the 0.2.0 review's engineering debt closes out - the five

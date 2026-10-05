@@ -132,6 +132,36 @@ checks.push(["lstat refuses an empty path; edit refuses a directory", async () =
   });
 }]);
 
+checks.push(["the per-target lock serializes concurrent mutations FIFO and a failure does not poison the tail", async () => {
+  await substrate(async (sub, root) => {
+    const p = join(root, "contended.txt");
+    const target = await targetOf(sub, p);
+    const order = [];
+    let releaseFirst;
+    const first = sub.writeText(target, "one\n", undefined, undefined).then(() => order.push("first"));
+    // Walk past the first holder before the second runs.
+    await new Promise((r) => setImmediate(r));
+    const second = sub.writeText(target, "two\n", undefined, undefined).then(() => order.push("second"));
+    releaseFirst = true;
+    await Promise.all([first, second]);
+    assert.deepEqual(order, ["first", "second"], "the contended target serializes in queue order");
+    assert.equal(readFileSync(p, "utf8"), "two\n", "the second write lands last, byte-true");
+
+    // A rejecting holder must not poison the next in line: the tail swallows.
+    const gate = Promise.withResolvers();
+    const failing = sub.writeText(target, "x\n", undefined, undefined).then(
+      () => order.push("failing-resolved"),
+      () => order.push("failing-rejected"),
+    );
+    await new Promise((r) => setImmediate(r));
+    const after = sub.writeText(target, "three\n", undefined, undefined).then(() => order.push("after"));
+    gate.resolve();
+    await Promise.all([failing, after]);
+    assert.ok(order.includes("after"), "the lock outlives a rejecting holder");
+    assert.equal(readFileSync(p, "utf8"), "three\n");
+  });
+}]);
+
 checks.push(["editText on a file that never existed reads as not-found, not stale", async () => {
   await substrate(async (sub, root) => {
     const target = await targetOf(sub, join(root, "never.txt"));

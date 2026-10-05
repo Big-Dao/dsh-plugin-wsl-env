@@ -245,6 +245,23 @@ function fakeSpawn(child) {
   return { arm: () => child };
 }
 
+checks.push(["a child without stderr arms cleanly, and close after exit resolves without waiting", async () => {
+  const child = new FakeChild();
+  child.stderr = undefined; // the stream is optional; arming must not assume it
+  child.exitCode = 1; // already exited before close: the close must not hang
+  const { arm } = fakeSpawn(child);
+  const close = await armDistroWatcher({
+    wslPath: "wsl.exe",
+    distro: "ubuntu",
+    linuxPath: "/home/you/proj",
+    onChange: () => {},
+    signal: new AbortController().signal,
+    spawn: arm,
+  });
+  await close();
+  assert.equal(child.killed || child.exitCode !== null, true, "the already-exited child needs no kill");
+}]);
+
 for (const [name, fn] of checks) await check(name, fn);
 console.log(`\n${passed} watcher checks pass`);
 

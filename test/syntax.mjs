@@ -3,8 +3,10 @@
  * schemastery surface the modules call — the static members and the members
  * chained onto a factory's instance — against the surface the pinned peer has.
  *
- * The unit tests cannot cover `lib/index.js`, `lib/picker.js`, `lib/auto-preset.js`
- * or `lib/shell-env.js`: they import DSH peers that a bare checkout does not have,
+ * The unit tests cover `lib/index.js`'s guard chain directly since the DSH
+ * peers landed in devDependencies (test/provider.test.mjs). Still syntax-only
+ * here: `lib/picker.js`, `lib/auto-preset.js` and `lib/shell-env.js`, which
+ * also import DSH peers,
  * so importing them throws `ERR_MODULE_NOT_FOUND` before any assertion runs. That
  * leaves a real gap — the five rounds of misdiagnosis recorded in the archived record's §15.4
  * (docs/archive/engineering-record.zh.md)

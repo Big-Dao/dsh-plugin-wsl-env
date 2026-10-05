@@ -312,6 +312,9 @@ docs/               this file, the configuration and limitation references, the
 
 - [`CHANGELOG.md`](../CHANGELOG.md) records what changed in each release. It also
   names the documentation a reader would have acted on that is no longer true.
+- [`REQUIREMENTS.zh.md`](REQUIREMENTS.zh.md) is the requirements register: every
+  documented behaviour commitment numbered, with where it is specified and what
+  verifies it, plus the open items (Chinese, maintainer-facing, not packaged).
 - [`archive/engineering-record.zh.md`](archive/engineering-record.zh.md) is the
   full engineering record, in Chinese: measured contracts, debugging rounds, and
   the conclusions as they stood then.

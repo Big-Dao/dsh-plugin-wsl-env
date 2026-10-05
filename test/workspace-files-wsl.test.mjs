@@ -8,7 +8,9 @@
  */
 import assert from "node:assert/strict";
 import { RemoteError } from "@deepseek-ai/dsh-typert-protocol";
+import { Context } from "@deepseek-ai/cordis";
 import {
+  WorkspaceFilesWsl,
   distroList,
   distroRead,
   distroReadBytes,
@@ -227,6 +229,123 @@ check("parseStatRecordFromStderr picks the tab-separated record line", () => {
   const record = parseStatRecordFromStderr("noise\nregular file\t24\tfc03\t1\t1760000000\t1759000000\n");
   assert.equal(record.type, "file");
   assert.equal(parseStatRecordFromStderr("no record here"), undefined);
+});
+
+// --- the class: the coordination the standalone functions cannot show ------
+
+check("the class routes a distro scope through the runner and a drive scope to super", async () => {
+  const ctx = new Context();
+  ctx.inject = () => {}; // the feed's wiring needs services no unit test mounts
+  const service = new WorkspaceFilesWsl(ctx, WorkspaceFilesWsl.Config({}));
+  const runnerCalls = [];
+  service.runnerFor = (distro) => ({
+    exec: async ({ argv }) => {
+      runnerCalls.push(distro);
+      return { exitCode: 0, stdout: "src/\nREADME.md\n", stderr: Buffer.alloc(0) };
+    },
+  });
+  const distro = await service.list({ workspaceRoot: "\\\\wsl.localhost\\ubuntu\\home\\x" }, "", undefined);
+  assert.equal(distro.path, "");
+  assert.deepEqual(distro.entries.map((e) => e.name), ["src", "README.md"]);
+  assert.deepEqual(runnerCalls, ["ubuntu"], "the distro scope rides the agent");
+
+  // A drive scope defers to the shipped service. The base is not mounted here,
+  // so its remote dispatch rejects — the assertion is that the ROUTING chose
+  // super, visible in the runner never being called.
+  await assert.rejects(
+    () => service.list({ workspaceRoot: "C:\\proj" }, "", undefined),
+    () => true,
+  );
+  assert.deepEqual(runnerCalls, ["ubuntu"], "the drive scope never reached the agent");
+});
+
+check("read validates its page before reaching the runner", async () => {
+  const ctx = new Context();
+  ctx.inject = () => {};
+  const service = new WorkspaceFilesWsl(ctx, WorkspaceFilesWsl.Config({}));
+  service.runnerFor = () => {
+    throw new Error("must not be reached");
+  };
+  const scope = { workspaceRoot: "\\\\wsl.localhost\\ubuntu\\home\\x" };
+  await assert.rejects(
+    () => service.read(scope, "a.ts", { offset: 0, limit: 10 }, undefined),
+    (error) => error instanceof RemoteError && /offset/.test(error.message),
+    "offset 0 is not a line number",
+  );
+  await assert.rejects(
+    () => service.read(scope, "a.ts", { offset: 1, limit: 999999 }, undefined),
+    (error) => error instanceof RemoteError && /limit/.test(error.message),
+    "a limit past the cap refuses before any work",
+  );
+});
+
+check("the read route's refusal ladder: not-found, not-regular-file, not-text, hard failure", async () => {
+  const record = "directory\t4096\tfc03\t1\t1760000000\t1759000000";
+  const responses = {
+    missing: [{ exitCode: 2, stdout: "", stderr: "" }],
+    wrongKind: [{ exitCode: 0, stdout: "", stderr: `${record}\n` }],
+    binary: [{ exitCode: 0, stdout: Buffer.from([0xff, 0xfe, 0x00]), stderr: "regular file\t3\tfc03\t1\t1760000000\t1759000000\n" }],
+    wedged: [{ exitCode: 7, stdout: "", stderr: "stat exploded" }],
+  };
+  for (const [name, script] of Object.entries(responses)) {
+    const runner = fakeAgent(script);
+    await assert.rejects(
+      () => distroRead({
+        runner, distro: "ubuntu", linuxRoot: ROOT, path: "x",
+        offset: 1, limit: 10, maxBytes: 65536,
+        distroWorkspaceRoot: "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj",
+      }),
+      (error) => {
+        if (name === "missing") return error.code === "workspace-file/not-found";
+        if (name === "wrongKind") return error.code === "workspace-file/not-regular-file";
+        if (name === "binary") return error.code === "workspace-file/not-text";
+        return !(error instanceof RemoteError) || error.code === undefined;
+      },
+      `${name} reads as its own refusal`,
+    );
+  }
+});
+
+check("stat, read, readBytes and readByteRange route distro scopes through the runner", async () => {
+  const ctx = new Context();
+  ctx.inject = () => {};
+  const service = new WorkspaceFilesWsl(ctx, WorkspaceFilesWsl.Config({}));
+  const record = "regular file\t24\tfc03\t1\t1760000000\t1759000000";
+  const responses = [
+    { exitCode: 0, stdout: `regular file\t512\tfc03\t917517\t1760000000\t1759000000\n`, stderr: "" }, // stat
+    { exitCode: 0, stdout: Buffer.from("alpha\nbeta\n"), stderr: `${record}\n` }, // read
+    { exitCode: 0, stdout: Buffer.from("window"), stderr: `${record}\n` }, // readBytes
+    { exitCode: 0, stdout: Buffer.from("range"), stderr: `${record}\n` }, // readByteRange
+  ];
+  service.runnerFor = () => ({
+    exec: async () => responses.shift(),
+  });
+  const scope = { workspaceRoot: "\\\\wsl.localhost\\ubuntu\\home\\x" };
+  const stat = await service.stat(scope, "a.txt", undefined);
+  assert.equal(stat.absolutePath, "\\\\wsl.localhost\\ubuntu\\home\\x\\a.txt");
+  const page = await service.read(scope, "a.txt", { offset: 1, limit: 10 }, undefined);
+  assert.equal(page.eof, true);
+  const bytes = await service.readBytes(scope, "a.txt", { range: { offset: 0, length: 6 } }, undefined);
+  assert.ok(bytes);
+  const range = await service.readByteRange(scope, "a.txt", 0, 5, undefined);
+  assert.ok(range);
+});
+
+check("the default runnerFor hands back the distro's shared agent", () => {
+  const ctx = new Context();
+  ctx.inject = () => {};
+  const service = new WorkspaceFilesWsl(ctx, WorkspaceFilesWsl.Config({}));
+  const runner = service.runnerFor("ubuntu");
+  assert.equal(runner, service.runnerFor("ubuntu"), "the shared singleton, keyed by distro");
+  assert.notEqual(runner, service.runnerFor("debian"));
+});
+
+check("coords reads the distro and root from any depth of the same share", () => {
+  const ctx = new Context();
+  ctx.inject = () => {};
+  const service = new WorkspaceFilesWsl(ctx, WorkspaceFilesWsl.Config({}));
+  assert.deepEqual(service.coords("\\\\wsl.localhost\\ubuntu\\home\\x"), { distro: "ubuntu", linuxRoot: "/home/x" });
+  assert.deepEqual(service.coords("\\\\wsl.localhost\\ubuntu"), { distro: "ubuntu", linuxRoot: "/" });
 });
 
 for (const [name, fn] of checks) await runCheck(name, fn);

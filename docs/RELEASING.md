@@ -32,6 +32,15 @@ npm run test:coverage
 
 The release workflow runs both of these before it publishes.
 
+The coverage thresholds are 85 lines / 84 branches / 70 functions. The
+branch threshold is one point under the others deliberately: the
+integration layer (`lib/index.js`) is now measured, and its uncovered
+tail is the distro-resolution branches (`defaultDistro`'s no-distro
+throw, `linuxHomePath`'s refusals, the watcher's real spawn internals)
+that need a live `wsl.exe` — covered by the real-machine probes, not by
+CI. Do not raise the branch number without either covering that tail on
+the Windows CI legs or moving the coverage job to `windows-latest`.
+
 Run the probes as well when behaviour changed, and keep their output for the pull
 request or the release notes:
 

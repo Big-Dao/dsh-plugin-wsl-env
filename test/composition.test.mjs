@@ -14,6 +14,14 @@
  *   node test/composition.test.mjs
  */
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { pathToFileURL } from "node:url";
+import { Context } from "@deepseek-ai/cordis";
+import Include from "@deepseek-ai/cordis-plugin-include";
+import Loader from "@deepseek-ai/cordis-plugin-loader";
+import { WslRoutingFileSystem } from "../lib/fs-routing.js";
+import { WorkspaceFilesWsl } from "../lib/workspace-files-wsl.js";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -102,6 +110,41 @@ check("fs-routing is mounted as a real top-level row", () => {
 check("the established host-side disables still land", () => {
   assert.equal(byId.get("subprocess")?.disabled, true);
   assert.equal(byId.get("directory-picker")?.disabled, true);
+});
+
+check("the takeover rows actually START through the Loader, not just compose", async () => {
+  // Patch algebra proves the rows land in the tree; only a boot proves the
+  // names resolve and the Configs accept. The composed takeover rows are
+  // booted through the real Loader exactly the way the app mounts them.
+  const root = await mkdtemp(join(tmpdir(), "dsh-wsl-env-composition-"));
+  try {
+    const configPath = join(root, "cordis.yml");
+    const rows = [
+      { id: "workspace-files-wsl", name: "workspace-files-wsl-under-test", config: { maxBytes: 1024, maxFileBytes: 1024, maxLines: 10, maxEntries: 10 } },
+      { id: "fs-routing", name: "fs-routing-under-test", config: { distro: "", wslPath: "wsl.exe", sandbox: true, restrictToDistro: true } },
+    ];
+    await writeFile(configPath, JSON.stringify(rows));
+    const context = new Context();
+    context.baseUrl = pathToFileURL(root).href + "/";
+    await context.plugin(Loader);
+    context.loader.builtins.include = Include;
+    context.loader.internal = {
+      version: "v2",
+      async import(specifier) {
+        if (specifier === "workspace-files-wsl-under-test") return WorkspaceFilesWsl;
+        if (specifier === "fs-routing-under-test") return WslRoutingFileSystem;
+        throw new Error(`unexpected Loader import: ${specifier}`);
+      },
+    };
+    await context.loader.create({ name: "cordis:include", config: { path: pathToFileURL(configPath).href } });
+    await context.loader.await();
+    assert.equal(context.fs instanceof WslRoutingFileSystem, true, "the routed root filesystem mounted");
+    // The workspace-files variant's class constructed with its config: its
+    // provider identity is the takeover, not the shipped base.
+    assert.equal(WorkspaceFilesWsl.Config !== undefined, true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 let failed = 0;

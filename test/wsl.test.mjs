@@ -12,7 +12,7 @@
  *   node test/wsl.test.mjs
  */
 import assert from "node:assert/strict";
-import { runCapture, DEFAULT_WSL_DEADLINE_MS } from "../lib/wsl.js";
+import { runCapture, DEFAULT_WSL_DEADLINE_MS, parseDistroList, parseHomePath } from "../lib/wsl.js";
 
 /** A Node child that outlives any deadline the checks use. */
 const slow = (ms) => [process.execPath, "-e", `setTimeout(() => {}, ${ms})`];
@@ -68,6 +68,18 @@ checks.push(["an abort is cancellation, not a deadline report", async () => {
 checks.push(["the default deadline is finite — nothing waits forever by accident", () => {
   assert.ok(DEFAULT_WSL_DEADLINE_MS > 0 && DEFAULT_WSL_DEADLINE_MS <= 120_000, `got ${DEFAULT_WSL_DEADLINE_MS}`);
 }]);
+
+check("parseDistroList reads CRLF, blank lines, and keeps WSL's own order", () => {
+  assert.deepEqual(parseDistroList("ubuntu\r\n\r\nDebian-22\r\n"), ["ubuntu", "Debian-22"], "CRLF and blanks are transport noise");
+  assert.deepEqual(parseDistroList(""), []);
+  assert.deepEqual(parseDistroList("  spaced  \n"), ["spaced"]);
+});
+
+check("parseHomePath accepts a Linux home and refuses empty or Windows answers", () => {
+  assert.equal(parseHomePath("ubuntu", "/home/andy"), "/home/andy");
+  assert.throws(() => parseHomePath("ubuntu", ""), /no usable \$HOME/);
+  assert.throws(() => parseHomePath("ubuntu", "C:\\Users\\x"), /no usable \$HOME/, "a Windows answer is not a home");
+});
 
 for (const [name, fn] of checks) await check(name, fn);
 console.log(`\n${passed} wsl checks pass`);

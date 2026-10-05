@@ -59,7 +59,50 @@ jobs:
           node-version: "24"
       - run: npm ci
       # The threshold flags need Node >= 22.8, so this runs on one version only.
-      # It covers the pure modules. `lib/index.js`, `lib/picker.js`,
-      # `lib/auto-preset.js`, `lib/shell-env.js` and the spawning half of
-      # `lib/wsl.js` import DSH peers and are exercised by the probes instead.
+      # It covers the pure modules. The integration layer (`lib/index.js`) is
+      # covered by test/provider.test.mjs; `lib/picker.js`, `lib/auto-preset.js`
+      # and `lib/shell-env.js` still belong to the probes.
       - run: npm run test:coverage
+
+  # The real-machine probes need Windows + WSL2 + the harness app, which no
+  # hosted runner has. This job exists for a SELF-HOSTED Windows runner (the
+  # development machine): dispatch it from the Actions tab there. On a hosted
+  # runner every probe reports skipped and the job stays green, so the branch
+  # protection on `main` can require this job without stranding PRs.
+  probes:
+    name: real-machine probes (self-hosted Windows)
+    runs-on: windows-latest
+    if: github.event_name == 'workflow_dispatch'
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - run: npm ci
+      # sandbox.sh needs bubblewrap in the default distro but no harness; the
+      # rest need the app. A missing prerequisite reports skipped instead of
+      # failing: the job's value is on the machines that have the topology.
+      - name: Run the probes this machine can run
+        run: |
+          set -u
+          APP="$LOCALAPPDATA/Programs/DeepSeek Harness"
+          run_or_skip() {
+            local name="$1" prereq="$2" script="$3"
+            if [ "$prereq" = "none" ] || [ -x "$APP/DeepSeek Harness.exe" ]; then
+              echo "::group::probe:$name"
+              bash "test/probe/$script" || { echo "::endgroup::"; exit 1; }
+              echo "::endgroup::"
+            else
+              echo "skip probe:$name (no harness app at $APP — configure it or dispatch on the dev machine)"
+            fi
+          }
+          command -v wsl.exe >/dev/null 2>&1 || { echo "skip all (no WSL on this runner)"; exit 0; }
+          run_or_skip sandbox none sandbox.sh
+          run_or_skip mode harness mode.sh
+          run_or_skip terminal harness terminal.sh
+          run_or_skip picker harness picker.sh
+          run_or_skip missing-wsl harness missing-wsl.sh

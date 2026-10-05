@@ -29,6 +29,12 @@ crosses the 9p share. What to know about the one substrate there is:
   syscall before the rename: a concurrent writer wins and the stale write
   refuses with `FS_STALE_VERSION`. The residual stat-then-rename pair is the
   same sliver a Linux-host session's own rename has.
+- **A write is durable against process death, not machine death.** The
+  publication fsyncs the staged file before its atomic rename, but the
+  containing directory is not fsynced afterwards: a kernel panic or power loss
+  immediately after a successful write can lose the rename, and the file
+  reverts to its pre-write content. This is stronger than the peer backend,
+  which fsyncs nothing, and short of a crash-consistent store.
 - **A Linux filename containing a backslash cannot be addressed.** The UNC
   display form (`\\wsl.localhost\<distro>\...`) is the file's identity
   everywhere - the session header, the GUI, the caches - and the backslash is
@@ -71,6 +77,13 @@ crosses the 9p share. What to know about the one substrate there is:
 - **`bubblewrap` must be installed**, or both providers fail immediately. The
   usability probe re-runs after a failure, so installing bubblewrap while the app
   runs is believed on the next command; only a success is cached.
+- **The port poller keeps the resident agent permanently warm.** The
+  `DSH_WSL_PORTS` snapshot refreshes through the shared resident agent every
+  `portsRefreshMs` (10 s by default, well inside the agent's idle timeout), so
+  while the app runs the agent never idles out: one `wsl.exe` and one
+  in-distro agent process stay resident per pinned distro even with no command
+  in flight. Raising `portsRefreshMs` past the agent's idle timeout restores
+  idle shutdown, at the cost of staler port facts.
 - **A confined command's `/tmp` is not the write tool's `/tmp`.** `workspace-write`
   mounts a fresh tmpfs at `/tmp` for the command — that is what makes it ephemeral —
   while the file tools' fence grants the distro's *real* `/tmp`. Both are writable, so

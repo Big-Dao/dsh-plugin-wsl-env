@@ -32,7 +32,7 @@ while tasklist.exe 2>/dev/null | grep -qi "DeepSeek Harness.exe"; do
 done
 echo "harness closed at $(date), starting the suite" >&2
 
-declare -a SUITE=(terminal.sh mode.sh missing-wsl.sh sandbox.sh sandbox-shell.sh sandbox-off.sh picker.sh)
+declare -a SUITE=(terminal.sh mode.sh missing-wsl.sh sandbox.sh sandbox-shell.sh sandbox-off.sh picker.sh agent.sh watch.sh substrate.sh exec.sh)
 if [ "${1:-}" = "--include-fs" ]; then
   SUITE=("run.sh" "${SUITE[@]}")
 fi

@@ -17,5 +17,5 @@
     "sourceMap": false
   },
   "include": ["lib/**/*.js", "types/*.d.ts"],
-  "exclude": ["lib/agent-protocol.js"]
+  "exclude": ["lib/agent-protocol.js", "lib/paths.js"]
 }

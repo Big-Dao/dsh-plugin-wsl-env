@@ -115,6 +115,19 @@ Rules that keep this honest:
   AgentMessage`) instead of restating them, which is how `lib/agent.js` and
   the script-driven tests read them.
 
+### Migrating one module
+
+1. Write `src/<name>.ts` from `lib/<name>.js`: move every `@param`/`@returns`
+   type into the signature, keep all prose, and keep every exported NAME —
+   types included, since consumers import them
+   (`import("./paths.js").DistroPath`).
+2. Add `lib/<name>.js` to the `exclude` lists in `tsconfig.json` (the
+   generated JavaScript is checked as its TypeScript source) and
+   `tsconfig.dts.json` (pass 1 owns the declaration now). The build script and
+   `lint:build` derive everything else from `src/`.
+3. `pnpm run build`, then `pnpm test`; the generated JavaScript keeps the same
+   exports and the same runtime behaviour, so the whole suite is the check.
+
 ## The development loop
 
 1. Clone the repository inside the distro. Most contributors develop there.

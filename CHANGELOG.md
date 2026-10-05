@@ -75,6 +75,15 @@ artifacts, runs the real build, byte-compares and restores the tree.
 `lint:style` gained the invariant that keeps the surface from rotting: a
 JavaScript export without its `types` sibling fails the gate.
 
+`lib/paths.js` follows as the second migrated module — the path algebra every
+other module imports, plus `DistroPath`/`WorldPathOptions`, which consumers
+reference through `import("./paths.js").DistroPath`; the TypeScript source
+keeps those names, so nothing downstream changes except that they now come
+from a checked source. CONTRIBUTING records the per-module checklist this
+settled into: write `src/<name>.ts`, add the generated JavaScript to the two
+`exclude` lists, build, and let the suite verify the artifact is
+behaviourally identical.
+
 ## [0.7.5] - 2026-10-05
 
 One theme: a failed environment probe retries instead of being trusted

@@ -19,27 +19,53 @@
  *
  * @module dsh-plugin-wsl/paths
  */
+
 /** The WSL UNC share prefix Node can read. `\\wsl$\<distro>\...` is the legacy spelling. */
 const UNC_RE = /^\\\\wsl(?:\.localhost|\$)\\([^\\]+)(?:\\([\s\S]*))?$/i;
 const DRIVE_RE = /^([A-Za-z]):[\\/]([\s\S]*)$/;
+
+/** A distro identity and the Linux path inside it, as {@link uncToPosix} returns. */
+export interface DistroPath {
+  /** The distro name the UNC named. */
+  distro: string;
+  /** An absolute POSIX path inside that distro. */
+  linuxPath: string;
+}
+
+/**
+ * What the two world-path translators may consult: the pinned distro and the
+ * fallback directory for relative input.
+ */
+export interface WorldPathOptions {
+  /**
+   * The pinned distro, which maps a POSIX-absolute input onto its UNC identity
+   * in {@link toWorldPath}.
+   */
+  distro?: string;
+  /** The directory relative input resolves against. */
+  cwd?: string;
+}
+
 /**
  * Normalize Windows separators without touching a POSIX path.
  *
  * @param value - the path to normalize.
  * @returns the same path with `/` written as `\`.
  */
-function toWindowsSlashes(value) {
-    return String(value).replace(/\//g, "\\");
+function toWindowsSlashes(value: string): string {
+  return String(value).replace(/\//g, "\\");
 }
+
 /**
  * Whether a string is the WSL UNC share rather than an ordinary Windows path.
  *
  * @param value - candidate path.
  * @returns true for `\\wsl.localhost\...` and `\\wsl$\...`.
  */
-export function isWslUnc(value) {
-    return UNC_RE.test(String(value));
+export function isWslUnc(value: string): boolean {
+  return UNC_RE.test(String(value));
 }
+
 /**
  * Whether a string is POSIX-absolute. On Windows `path.isAbsolute('/home/x')`
  * is also true, so the WSL mapper must test this before falling back to the
@@ -48,9 +74,10 @@ export function isWslUnc(value) {
  * @param value - candidate path.
  * @returns true when the path starts with a single forward slash.
  */
-export function isPosixAbsolute(value) {
-    return /^\/(?!\/)/.test(String(value));
+export function isPosixAbsolute(value: string): boolean {
+  return /^\/(?!\/)/.test(String(value));
 }
+
 /**
  * Whether a path names a location only relative to a base. The fs provider
  * consults its default workdir exactly for this input; every absolute form —
@@ -60,21 +87,22 @@ export function isPosixAbsolute(value) {
  * @param value - candidate path.
  * @returns true when the path names no absolute location.
  */
-export function isRelativeWorldPath(value) {
-    const text = String(value ?? "");
-    if (text.length === 0)
-        return false;
-    return !isWslUnc(text) && !isPosixAbsolute(text) && !DRIVE_RE.test(text) && !text.startsWith("\\");
+export function isRelativeWorldPath(value: string): boolean {
+  const text = String(value ?? "");
+  if (text.length === 0) return false;
+  return !isWslUnc(text) && !isPosixAbsolute(text) && !DRIVE_RE.test(text) && !text.startsWith("\\");
 }
+
 /**
  * Drop trailing separators, keeping a bare root (`C:\`, `\\wsl.localhost\x\`) meaningful.
  *
  * @param value - the path to trim.
  * @returns the path without its trailing separators.
  */
-function trimTrailingSeparators(value) {
-    return value.replace(/[\\/]+$/, "") || value;
+function trimTrailingSeparators(value: string): string {
+  return value.replace(/[\\/]+$/, "") || value;
 }
+
 /**
  * A UNC, drive, or (with a distro) Linux path as a comparable Windows key.
  * Windows semantics are case-insensitive and separator-tolerant, so the key is
@@ -85,34 +113,34 @@ function trimTrailingSeparators(value) {
  * @param distro - the distro whose share a Linux path maps onto, if any.
  * @returns the key, or undefined when the path is not in that vocabulary.
  */
-function toWindowsKey(value, distro) {
-    const text = String(value ?? "");
-    if (text.length === 0)
-        return undefined;
-    if (DRIVE_RE.test(text) || isWslUnc(text)) {
-        const key = trimTrailingSeparators(toWindowsSlashes(text)).toLowerCase();
-        // A drive root trims to `c:`; without its separator back the prefix test
-        // would accept a sibling like `C:\ish` as a child of `C:\`.
-        return /^[a-z]:$/.test(key) ? `${key}\\` : key;
-    }
-    if (distro !== undefined && distro !== "" && isPosixAbsolute(text)) {
-        return trimTrailingSeparators(toWindowsSlashes(posixToUnc(distro, text))).toLowerCase();
-    }
-    return undefined;
+function toWindowsKey(value: string, distro?: string): string | undefined {
+  const text = String(value ?? "");
+  if (text.length === 0) return undefined;
+  if (DRIVE_RE.test(text) || isWslUnc(text)) {
+    const key = trimTrailingSeparators(toWindowsSlashes(text)).toLowerCase();
+    // A drive root trims to `c:`; without its separator back the prefix test
+    // would accept a sibling like `C:\ish` as a child of `C:\`.
+    return /^[a-z]:$/.test(key) ? `${key}\\` : key;
+  }
+  if (distro !== undefined && distro !== "" && isPosixAbsolute(text)) {
+    return trimTrailingSeparators(toWindowsSlashes(posixToUnc(distro, text))).toLowerCase();
+  }
+  return undefined;
 }
+
 /**
  * A POSIX-absolute path as a comparable key, without its trailing separators.
  *
  * @param value - the path to key.
  * @returns the key, or undefined when the path is not POSIX-absolute.
  */
-function toPosixKey(value) {
-    const text = String(value ?? "");
-    if (!isPosixAbsolute(text))
-        return undefined;
-    const trimmed = text.replace(/\/+$/, "");
-    return trimmed.length === 0 ? "/" : trimmed;
+function toPosixKey(value: string): string | undefined {
+  const text = String(value ?? "");
+  if (!isPosixAbsolute(text)) return undefined;
+  const trimmed = text.replace(/\/+$/, "");
+  return trimmed.length === 0 ? "/" : trimmed;
 }
+
 /**
  * Whether a world path is a granted root or lies beneath it, compared in the
  * coordinate system the two spellings share.
@@ -129,22 +157,23 @@ function toPosixKey(value) {
  * @param options - the distro that maps a Linux root onto its UNC share.
  * @returns true when target is root itself or a descendant of it.
  */
-export function isWorldPathUnder(target, root, options = {}) {
-    const winTarget = toWindowsKey(target, options.distro);
-    const winRoot = toWindowsKey(root, options.distro);
-    if (winTarget !== undefined && winRoot !== undefined) {
-        // A drive root keeps its separator in the key, so the child boundary is
-        // "root already ends with one" rather than "append another".
-        const prefix = winRoot.endsWith("\\") ? winRoot : `${winRoot}\\`;
-        return winTarget === winRoot || winTarget.startsWith(prefix);
-    }
-    const posixTarget = toPosixKey(target);
-    const posixRoot = toPosixKey(root);
-    if (posixTarget !== undefined && posixRoot !== undefined) {
-        return posixRoot === "/" || posixTarget === posixRoot || posixTarget.startsWith(`${posixRoot}/`);
-    }
-    return false;
+export function isWorldPathUnder(target: string, root: string, options: WorldPathOptions = {}): boolean {
+  const winTarget = toWindowsKey(target, options.distro);
+  const winRoot = toWindowsKey(root, options.distro);
+  if (winTarget !== undefined && winRoot !== undefined) {
+    // A drive root keeps its separator in the key, so the child boundary is
+    // "root already ends with one" rather than "append another".
+    const prefix = winRoot.endsWith("\\") ? winRoot : `${winRoot}\\`;
+    return winTarget === winRoot || winTarget.startsWith(prefix);
+  }
+  const posixTarget = toPosixKey(target);
+  const posixRoot = toPosixKey(root);
+  if (posixTarget !== undefined && posixRoot !== undefined) {
+    return posixRoot === "/" || posixTarget === posixRoot || posixTarget.startsWith(`${posixRoot}/`);
+  }
+  return false;
 }
+
 /**
  * Map a Linux path inside a distro onto the UNC path the host can read.
  *
@@ -152,23 +181,24 @@ export function isWorldPathUnder(target, root, options = {}) {
  * @param linuxPath - absolute Linux path, e.g. `/home/andy/proj`.
  * @returns the equivalent `\\wsl.localhost\<distro>\...` path.
  */
-export function posixToUnc(distro, linuxPath) {
-    const rest = String(linuxPath).replace(/^\/+/, "").replace(/\//g, "\\");
-    return `\\\\wsl.localhost\\${distro}\\${rest}`.replace(/\\+$/, "\\");
+export function posixToUnc(distro: string, linuxPath: string): string {
+  const rest = String(linuxPath).replace(/^\/+/, "").replace(/\//g, "\\");
+  return `\\\\wsl.localhost\\${distro}\\${rest}`.replace(/\\+$/, "\\");
 }
+
 /**
  * Map a WSL UNC path back onto the distro and Linux path it names.
  *
  * @param uncPath - a `\\wsl.localhost\<distro>\...` path; absent is not a UNC path.
  * @returns the distro and Linux path, or undefined for any other path.
  */
-export function uncToPosix(uncPath) {
-    const match = UNC_RE.exec(String(uncPath));
-    if (!match?.[1])
-        return undefined;
-    const rest = (match[2] ?? "").replace(/\\/g, "/");
-    return { distro: match[1], linuxPath: rest.length > 0 ? `/${rest}` : "/" };
+export function uncToPosix(uncPath?: string): DistroPath | undefined {
+  const match = UNC_RE.exec(String(uncPath));
+  if (!match?.[1]) return undefined;
+  const rest = (match[2] ?? "").replace(/\\/g, "/");
+  return { distro: match[1], linuxPath: rest.length > 0 ? `/${rest}` : "/" };
 }
+
 /**
  * Whether a UNC path belongs to the named distro. Used to confine the WSL
  * filesystem backend to one distro instead of silently serving every mounted
@@ -178,10 +208,11 @@ export function uncToPosix(uncPath) {
  * @param distro - the distro this session is pinned to.
  * @returns true when the path is the same distro (case-insensitive).
  */
-export function isUnderDistro(uncPath, distro) {
-    const parsed = uncToPosix(uncPath);
-    return parsed !== undefined && parsed.distro.toLowerCase() === String(distro).toLowerCase();
+export function isUnderDistro(uncPath: string, distro: string): boolean {
+  const parsed = uncToPosix(uncPath);
+  return parsed !== undefined && parsed.distro.toLowerCase() === String(distro).toLowerCase();
 }
+
 /**
  * A WSL UNC that names a distro OTHER than the pinned one — the shape both
  * shell seams refuse: the shell executor will not run commands in it (running
@@ -193,21 +224,22 @@ export function isUnderDistro(uncPath, distro) {
  * @param distro - the pinned distro name.
  * @returns true when the value is a WSL UNC under a different distro.
  */
-export function isAnotherDistrosUnc(value, distro) {
-    return isWslUnc(value) && !isUnderDistro(value, distro);
+export function isAnotherDistrosUnc(value: string, distro: string): boolean {
+  return isWslUnc(value) && !isUnderDistro(value, distro);
 }
+
 /**
  * Translate a Windows drive path into its WSL interop mount.
  *
  * @param winPath - e.g. `C:\Users\andyz\Documents`.
  * @returns e.g. `/mnt/c/Users/andyz/Documents`, or undefined for a non-drive path.
  */
-export function windowsToLinuxMount(winPath) {
-    const match = DRIVE_RE.exec(String(winPath));
-    if (!match?.[1])
-        return undefined;
-    return `/mnt/${match[1].toLowerCase()}/${match[2].replace(/\\/g, "/")}`;
+export function windowsToLinuxMount(winPath: string): string | undefined {
+  const match = DRIVE_RE.exec(String(winPath));
+  if (!match?.[1]) return undefined;
+  return `/mnt/${match[1].toLowerCase()}/${match[2].replace(/\\/g, "/")}`;
 }
+
 /**
  * Resolve a caller-supplied workdir into a path `wsl.exe --cd` accepts.
  *
@@ -219,23 +251,20 @@ export function windowsToLinuxMount(winPath) {
  * @param options - the pinned distro and the fallback directory for relative input.
  * @returns an absolute Linux path, or the input unchanged when it cannot be mapped.
  */
-export function toLinuxPath(value, options) {
-    const text = String(value ?? "");
-    if (text.length === 0)
-        return text;
-    const parsed = uncToPosix(text);
-    if (parsed !== undefined)
-        return parsed.linuxPath;
-    if (isPosixAbsolute(text))
-        return text;
-    const mounted = windowsToLinuxMount(text);
-    if (mounted !== undefined)
-        return mounted;
-    // Relative input is resolved against the configured default workdir.
-    const base = options?.cwd ?? "/";
-    const baseLinux = toLinuxPath(base, { distro: options?.distro });
-    return `${baseLinux.replace(/\/+$/, "")}/${text.replace(/^\.\//, "")}`;
+export function toLinuxPath(value: string, options?: WorldPathOptions): string {
+  const text = String(value ?? "");
+  if (text.length === 0) return text;
+  const parsed = uncToPosix(text);
+  if (parsed !== undefined) return parsed.linuxPath;
+  if (isPosixAbsolute(text)) return text;
+  const mounted = windowsToLinuxMount(text);
+  if (mounted !== undefined) return mounted;
+  // Relative input is resolved against the configured default workdir.
+  const base = options?.cwd ?? "/";
+  const baseLinux = toLinuxPath(base, { distro: options?.distro });
+  return `${baseLinux.replace(/\/+$/, "")}/${text.replace(/^\.\//, "")}`;
 }
+
 /**
  * Resolve a caller-supplied path into the UNC coordinate system the host's fs
  * calls use. Linux paths from the model, UNC paths from the harness, and
@@ -246,30 +275,26 @@ export function toLinuxPath(value, options) {
  *   its UNC identity) and the fallback directory for relative input.
  * @returns an absolute host path (UNC for anything inside the distro).
  */
-export function toWorldPath(value, options) {
-    const text = String(value ?? "");
-    if (text.length === 0)
-        return text;
-    if (isWslUnc(text))
-        return toWindowsSlashes(text);
-    // No distro fallback: an identity minted under a guessed distro name would
-    // address a filesystem that does not exist.
-    if (isPosixAbsolute(text)) {
-        if (!options?.distro)
-            return text;
-        return posixToUnc(options.distro, text);
-    }
-    if (DRIVE_RE.test(text))
-        return toWindowsSlashes(text);
-    // Any other UNC share is already a world path in its own right — the host
-    // can open it directly, and joining it onto a base would name a file that
-    // exists nowhere.
-    if (text.startsWith("\\"))
-        return toWindowsSlashes(text);
-    const base = options?.cwd ?? process.cwd();
-    const baseWorld = toWorldPath(base, { distro: options?.distro });
-    return `${baseWorld.replace(/[\\/]+$/, "")}\\${toWindowsSlashes(text).replace(/^\.\\/, "")}`;
+export function toWorldPath(value: string, options?: WorldPathOptions): string {
+  const text = String(value ?? "");
+  if (text.length === 0) return text;
+  if (isWslUnc(text)) return toWindowsSlashes(text);
+  // No distro fallback: an identity minted under a guessed distro name would
+  // address a filesystem that does not exist.
+  if (isPosixAbsolute(text)) {
+    if (!options?.distro) return text;
+    return posixToUnc(options.distro, text);
+  }
+  if (DRIVE_RE.test(text)) return toWindowsSlashes(text);
+  // Any other UNC share is already a world path in its own right — the host
+  // can open it directly, and joining it onto a base would name a file that
+  // exists nowhere.
+  if (text.startsWith("\\")) return toWindowsSlashes(text);
+  const base = options?.cwd ?? process.cwd();
+  const baseWorld = toWorldPath(base, { distro: options?.distro });
+  return `${baseWorld.replace(/[\\/]+$/, "")}\\${toWindowsSlashes(text).replace(/^\.\\/, "")}`;
 }
+
 /**
  * Render a world path back into the form the model and the UI should see: a
  * Linux path inside the distro, and the ordinary Windows path everywhere else.
@@ -280,14 +305,15 @@ export function toWorldPath(value, options) {
  * @param distro - the distro whose paths should be shown as Linux paths.
  * @returns the display path.
  */
-export function toDisplayPath(worldPath, distro) {
-    const parsed = uncToPosix(worldPath);
-    if (parsed !== undefined && parsed.distro.toLowerCase() === String(distro).toLowerCase())
-        return parsed.linuxPath;
-    return String(worldPath);
+export function toDisplayPath(worldPath: string, distro: string): string {
+  const parsed = uncToPosix(worldPath);
+  if (parsed !== undefined && parsed.distro.toLowerCase() === String(distro).toLowerCase()) return parsed.linuxPath;
+  return String(worldPath);
 }
+
 /** The provider root of the WSL UNC share — the level that holds one entry per distro. */
 export const UNC_PROVIDER_ROOT = "\\\\wsl.localhost";
+
 /**
  * The UNC root of one distro, which is the mount point of that distro's `/`.
  * This is a complete UNC path (`\\server\share`), which is what the directory
@@ -297,9 +323,10 @@ export const UNC_PROVIDER_ROOT = "\\\\wsl.localhost";
  * @param distro - distro name.
  * @returns e.g. `\\wsl.localhost\ubuntu`.
  */
-export function distroRoot(distro) {
-    return `${UNC_PROVIDER_ROOT}\\${distro}`;
+export function distroRoot(distro: string): string {
+  return `${UNC_PROVIDER_ROOT}\\${distro}`;
 }
+
 /**
  * Whether a path names the WSL share's root rather than a distro inside it.
  * Both share spellings and a trailing separator are accepted.
@@ -307,7 +334,7 @@ export function distroRoot(distro) {
  * @param value - candidate path.
  * @returns true for `\\wsl.localhost` and `\\wsl$` in any casing.
  */
-export function isProviderRoot(value) {
-    const trimmed = String(value).replace(/[\\/]+$/, "").toLowerCase();
-    return trimmed === UNC_PROVIDER_ROOT.toLowerCase() || trimmed === "\\\\wsl$";
+export function isProviderRoot(value: string): boolean {
+  const trimmed = String(value).replace(/[\\/]+$/, "").toLowerCase();
+  return trimmed === UNC_PROVIDER_ROOT.toLowerCase() || trimmed === "\\\\wsl$";
 }

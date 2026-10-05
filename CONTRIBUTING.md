@@ -76,26 +76,44 @@ Three patterns keep the check honest:
 The plugin must be loadable from a bare checkout: the harness has no
 transpilation layer, the Windows runtime mirror is a copy of the tree, and the
 tests exercise `lib/*.js` — the published artifact — rather than the sources.
-The TypeScript migration therefore moves sources into `src/` while the build
-lands back in `lib/`, and the built artifacts stay COMMITTED:
+The TypeScript migration therefore keeps sources in `src/`, built JavaScript
+and declarations in `lib/`, and the artifacts COMMITTED. `pnpm run build`
+(`scripts/build.mjs`) runs two passes:
 
-- `src/*.ts` is the source of truth for a migrated module; `pnpm run build`
-  (`tsc -p tsconfig.build.json`) emits `lib/<name>.js` plus `lib/<name>.d.ts`
-  next to the hand-written modules, and under the same export paths as before.
+- **`src/*.ts` → `lib/`** (`tsconfig.build.json`): TypeScript sources, emitted
+  as JavaScript plus their declarations, beside the hand-written modules and
+  under the same export paths as before.
+- **`lib/*.js` → `lib/`** (`tsconfig.dts.json`): declaration-only emit for the
+  hand-written, JSDoc-typed modules — this is what gives every public entry a
+  `.d.ts`. It must run against a CLEAN tree: a stale `.d.ts` sits exactly where
+  TypeScript resolves `./x.js` and is taken as an input, and re-emitting
+  through it silently degrades the result (`index.d.ts` lost a precise type to
+  `any` this way during the migration). The script therefore deletes the
+  declarations the first pass does not own before running the second — they
+  are all build products, and a failed pass leaves them missing rather than
+  stale, which `lint:build` reports loudly.
+
+Rules that keep this honest:
+
 - Never edit a generated file under `lib/` — its module doc names the source
   to edit and `lint:build` fails the moment the two drift. Generated artifacts
-  keep tsc's canonical formatting (four-space, compacted); review `src/`.
-- `lint:build` (`test/build-freshness.mjs`) builds `src/**` into a scratch
-  directory with the same config and byte-compares against the working tree,
-  so `pnpm test` cannot pass on a stale artifact. It is part of the gate chain
-  after `test:syntax`.
+  keep tsc's canonical formatting (four-space, compacted); review `src/` for
+  TypeScript-sourced modules.
+- `lint:build` (`test/build-freshness.mjs`) snapshots every generated file,
+  runs the real build, byte-compares and RESTORES the snapshot — a check, not
+  a rebuild; the remedy for drift is `pnpm run build` plus a commit. It is
+  part of the gate chain after `test:syntax`.
 - Generated files are excluded from the `checkJs` gate in `tsconfig.json`:
-  their TypeScript sources are type-checked by the build config (strictly
-  stronger), with `noEmitOnError` so a broken build never overwrites `lib/`.
-- The declarations are the protocol types' single home now: consumers import
-  them (`@typedef {import("./agent-protocol.js").AgentMessage} AgentMessage`)
-  instead of restating the union, which is how `lib/agent.js` and the
-  script-driven tests read them.
+  their sources — the TypeScript, or the declarations themselves — are
+  type-checked instead, with `noEmitOnError` so a broken build never
+  overwrites `lib/`.
+- Every JavaScript export carries its `types` condition (enforced by
+  `lint:style`), so downstream resolves these declarations; there is no
+  second, hand-written type surface.
+- The protocol message union and friends are the single home now: consumers
+  import them (`@typedef {import("./agent-protocol.js").AgentMessage}
+  AgentMessage`) instead of restating them, which is how `lib/agent.js` and
+  the script-driven tests read them.
 
 ## The development loop
 

@@ -53,13 +53,27 @@ module whose source is TypeScript. `pnpm run build` (`tsconfig.build.json`)
 emits `lib/agent-protocol.js` plus `lib/agent-protocol.d.ts` under the same
 export paths, and the artifacts stay committed so a bare checkout remains
 loadable and the tarball needs no build step; the new `lint:build` gate
-(`test/build-freshness.mjs`) builds into a scratch directory and
-byte-compares, so `pnpm test` fails the moment a committed artifact drifts
-from its source. Generated files are excluded from the `checkJs` gate — their
-TypeScript sources are type-checked with `noEmitOnError` instead, which is
-strictly stronger. The protocol message union now has one home: `lib/agent.js`
-and the script-driven tests import `AgentMessage` and friends from the
-protocol module's declarations instead of restating them.
+(`test/build-freshness.mjs`) makes `pnpm test` fail the moment a committed
+artifact drifts from its source. Generated files are excluded from the
+`checkJs` gate — their TypeScript sources are type-checked with
+`noEmitOnError` instead, which is strictly stronger. The protocol message
+union now has one home: `lib/agent.js` and the script-driven tests import
+`AgentMessage` and friends from the protocol module's declarations instead of
+restating them.
+
+And the declarations land for every module. A second, declaration-only pass
+(`tsconfig.dts.json`, driven by `scripts/build.mjs`) emits `.d.ts` for the
+hand-written, JSDoc-typed JavaScript, and every export subpath now carries its
+`types` condition — downstream finally sees this plugin's types, verified end
+to end (a consumer's wrong call is rejected with the precise signature). The
+declaration pass must run against a clean tree: a stale `.d.ts` is resolved as
+an input exactly where `./x.js` would be, and re-emitting through it silently
+degrades the result — a precise type in `index.d.ts` collapsed to `any` that
+way during the migration — so the build deletes the declarations its first
+pass does not own before re-emitting, and `lint:build` snapshots the
+artifacts, runs the real build, byte-compares and restores the tree.
+`lint:style` gained the invariant that keeps the surface from rotting: a
+JavaScript export without its `types` sibling fails the gate.
 
 ## [0.7.5] - 2026-10-05
 

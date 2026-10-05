@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+    "strict": true,
+    "skipLibCheck": true,
+    "rootDir": "lib",
+    "outDir": "lib",
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "noEmitOnError": true,
+    "sourceMap": false
+  },
+  "include": ["lib/**/*.js", "types/*.d.ts"],
+  "exclude": ["lib/agent-protocol.js"]
+}

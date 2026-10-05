@@ -137,10 +137,36 @@ check(
   `${pkg.files.length} entries`,
 );
 
+/**
+ * Every file target one `exports` entry names: a bare string entry, or the
+ * condition values of an object entry (`types`, `default`, ...).
+ * @param {string | Record<string, string>} target - one `exports` value.
+ * @returns {string[]} its file targets.
+ */
+function exportTargets(target) {
+  return typeof target === "string" ? [target] : Object.values(target);
+}
+
 const missingTargets = Object.entries(pkg.exports)
-  .filter(([, target]) => typeof target === "string" && !tracked.includes(target.replace(/^\.\//, "")))
-  .map(([subpath, target]) => `${subpath} -> ${target}`);
+  .flatMap(([subpath, target]) =>
+    exportTargets(/** @type {string | Record<string, string>} */ (target))
+      .filter((file) => !tracked.includes(file.replace(/^\.\//, "")))
+      .map((file) => `${subpath} -> ${file}`));
 check("every \"exports\" target exists", missingTargets, `${Object.keys(pkg.exports).length} subpaths`);
+
+// A JavaScript export without its `types` condition is a surface downstream
+// cannot see; each `.js` target names its declaration as the sibling file the
+// build emits, so the two can only drift visibly.
+const missingTypes = Object.entries(pkg.exports)
+  .map(([subpath, target]) => {
+    const conditions = typeof target === "string" ? { default: target } : /** @type {Record<string, string>} */ (target);
+    const main = conditions.default;
+    if (typeof main !== "string" || !main.endsWith(".js")) return undefined;
+    const expected = main.replace(/\.js$/, ".d.ts");
+    return conditions.types === expected ? undefined : `${subpath}: ${main} needs "types": "${expected}"`;
+  })
+  .filter((line) => typeof line === "string");
+check("every JavaScript export carries its declaration", missingTypes);
 
 const rootFiles = tracked.filter((file) => !file.includes("/"));
 const readmeCandidates = rootFiles.filter((file) => /^readme(\..*)?$/i.test(file));

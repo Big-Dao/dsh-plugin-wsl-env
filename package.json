@@ -11,32 +11,72 @@
     "windows"
   ],
   "type": "module",
+  "types": "./lib/shell.d.ts",
   "main": "lib/shell.js",
   "exports": {
-    ".": "./lib/shell.js",
-    "./agent": "./lib/agent.js",
-    "./auto-preset": "./lib/auto-preset.js",
+    ".": {
+      "types": "./lib/shell.d.ts",
+      "default": "./lib/shell.js"
+    },
+    "./agent": {
+      "types": "./lib/agent.d.ts",
+      "default": "./lib/agent.js"
+    },
+    "./auto-preset": {
+      "types": "./lib/auto-preset.d.ts",
+      "default": "./lib/auto-preset.js"
+    },
     "./auto-preset/locale/en.json": "./locale/auto-preset/en.json",
     "./auto-preset/locale/zh.json": "./locale/auto-preset/zh.json",
-    "./file-reference-wsl": "./lib/file-reference-wsl.js",
-    "./fs": "./lib/fs.js",
-    "./fs-routing": "./lib/fs-routing.js",
+    "./file-reference-wsl": {
+      "types": "./lib/file-reference-wsl.d.ts",
+      "default": "./lib/file-reference-wsl.js"
+    },
+    "./fs": {
+      "types": "./lib/fs.d.ts",
+      "default": "./lib/fs.js"
+    },
+    "./fs-routing": {
+      "types": "./lib/fs-routing.d.ts",
+      "default": "./lib/fs-routing.js"
+    },
     "./locale/en.json": "./locale/en.json",
     "./locale/zh.json": "./locale/zh.json",
     "./package.json": "./package.json",
-    "./paths": "./lib/paths.js",
-    "./picker": "./lib/picker.js",
+    "./paths": {
+      "types": "./lib/paths.d.ts",
+      "default": "./lib/paths.js"
+    },
+    "./picker": {
+      "types": "./lib/picker.d.ts",
+      "default": "./lib/picker.js"
+    },
     "./picker/locale/en.json": "./locale/picker/en.json",
     "./picker/locale/zh.json": "./locale/picker/zh.json",
-    "./shell": "./lib/shell.js",
-    "./shell-env": "./lib/shell-env.js",
+    "./shell": {
+      "types": "./lib/shell.d.ts",
+      "default": "./lib/shell.js"
+    },
+    "./shell-env": {
+      "types": "./lib/shell-env.d.ts",
+      "default": "./lib/shell-env.js"
+    },
     "./shell-env/locale/en.json": "./locale/shell-env/en.json",
     "./shell-env/locale/zh.json": "./locale/shell-env/zh.json",
-    "./subprocess": "./lib/subprocess.js",
+    "./subprocess": {
+      "types": "./lib/subprocess.d.ts",
+      "default": "./lib/subprocess.js"
+    },
     "./subprocess/locale/en.json": "./locale/subprocess/en.json",
     "./subprocess/locale/zh.json": "./locale/subprocess/zh.json",
-    "./workspace-files-wsl": "./lib/workspace-files-wsl.js",
-    "./wsl": "./lib/wsl.js"
+    "./workspace-files-wsl": {
+      "types": "./lib/workspace-files-wsl.d.ts",
+      "default": "./lib/workspace-files-wsl.js"
+    },
+    "./wsl": {
+      "types": "./lib/wsl.d.ts",
+      "default": "./lib/wsl.js"
+    }
   },
   "dsh": {
     "bundle": {
@@ -69,7 +109,7 @@
   "scripts": {
     "test": "pnpm run lint:style && pnpm run test:syntax && pnpm run lint:build && pnpm run lint:types && pnpm run test:unit",
     "lint:types": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node scripts/build.mjs",
     "lint:build": "node test/build-freshness.mjs",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=85 --test-coverage-branches=84 --test-coverage-functions=70 test/agent-exec.test.mjs test/agent-fs-script.test.mjs test/agent-protocol.test.mjs test/agent.test.mjs test/fs-substrate.test.mjs test/fs.boot.test.mjs test/workspace-files-wsl.test.mjs test/composition.test.mjs test/provider.test.mjs test/file-reference-wsl.test.mjs test/fsio-agent.test.mjs test/fsio-text.test.mjs test/git-route.test.mjs test/listing.test.mjs test/paths.test.mjs test/ports.test.mjs test/preset-choice.test.mjs test/probe-cache.test.mjs test/sandbox.test.mjs test/search-exec.test.mjs test/search-route.test.mjs test/fs.boot.test.mjs test/shell.test.mjs test/terminal-activity.test.mjs test/terminal.test.mjs test/watcher.test.mjs test/wsl.test.mjs test/fs-decisions.test.mjs",
     "test:syntax": "node test/syntax.mjs",

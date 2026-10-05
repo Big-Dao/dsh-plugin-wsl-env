@@ -1,78 +1,84 @@
 /**
- * Build-artifact freshness check: every module under `src/` must be built
- * (`pnpm run build`) and the result committed under `lib/`.
+ * Build-artifact freshness check: the committed artifacts under `lib/` must
+ * match what the canonical build (`scripts/build.mjs`) produces.
  *
  * The repository keeps its built artifacts checked in on purpose: a bare
  * checkout is loadable (the Windows runtime mirror is a copy, the harness has
  * no build step), and the tests exercise `lib/*.js` — the published artifact —
  * rather than the sources. That property only holds while the artifacts stay
- * in sync, so this check builds `src/**` into a scratch directory with the
- * same config the real build uses and byte-compares the result against `lib/`.
- * It compares against the WORKING TREE, not the index, so the check is green
- * the moment the artifact is rebuilt — committing is a separate step.
+ * in sync, so this check snapshots every generated file, runs the real build,
+ * byte-compares, and RESTORES the snapshot — a check, not a rebuild; the
+ * remedy for drift is `pnpm run build` plus a commit.
  *
- * Generated files are excluded from the `checkJs` gate (`tsconfig.json`):
- * they are type-checked as their TypeScript sources, which is strictly
- * stronger; this check keeps them honest as artifacts.
+ * Delegating to the real build is deliberate: the declaration pass has to run
+ * against a clean tree (a stale `.d.ts` is resolved as an input and degrades
+ * the re-emit — see `scripts/build.mjs`), so a second implementation that
+ * built elsewhere would be checking a different artifact than the one the
+ * repository actually regenerates with.
  *
  *   node test/build-freshness.mjs
  */
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
-const TSC = join(ROOT, "node_modules", "typescript", "bin", "tsc");
+const BUILD = join(ROOT, "scripts", "build.mjs");
 
 /**
- * Every file under `dir`, as paths relative to it.
- * @param {string} dir - the directory to walk.
- * @returns {string[]} its files, as paths relative to `dir`.
+ * The generated artifacts the build owns: every declaration under `lib/`,
+ * plus the JavaScript emitted from a `src/*.ts` counterpart.
+ * @returns {string[]} absolute paths.
  */
-function walk(dir) {
-  const out = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...walk(path).map((child) => join(entry.name, child)));
-    else out.push(entry.name);
-  }
-  return out;
+function generatedPaths() {
+  const fromSrc = new Set(
+    readdirSync(join(ROOT, "src"))
+      .filter((name) => name.endsWith(".ts"))
+      .map((name) => name.slice(0, -3)),
+  );
+  return readdirSync(join(ROOT, "lib"))
+    .filter((name) => name.endsWith(".d.ts") || (name.endsWith(".js") && fromSrc.has(name.slice(0, -3))))
+    .map((name) => join(ROOT, "lib", name));
 }
 
-const scratch = mkdtempSync(join(tmpdir(), "dsh-wsl-build-"));
-/** @type {string[]} */
-let emitted;
+/** @type {Map<string, Buffer>} */
+const snapshot = new Map();
+for (const path of generatedPaths()) snapshot.set(path, readFileSync(path));
+
 try {
-  execFileSync(process.execPath, [TSC, "-p", join(ROOT, "tsconfig.build.json"), "--outDir", scratch], { cwd: ROOT, stdio: "pipe" });
-  emitted = walk(scratch);
+  execFileSync(process.execPath, [BUILD], { cwd: ROOT, stdio: "pipe" });
 } catch (error) {
   const detail = String(/** @type {{stdout?: unknown}} */ (error).stdout ?? (/** @type {Error} */ (error)).message).trim();
   console.error(`FAIL  the build itself fails:\n${detail}`);
-  rmSync(scratch, { recursive: true, force: true });
   process.exit(1);
 }
 
 const drifted = [];
-for (const file of emitted) {
-  const built = join(scratch, file);
-  const committed = join(ROOT, "lib", file);
-  let same;
+for (const [path, before] of snapshot) {
+  let now;
   try {
-    same = statSync(committed).isFile() && readFileSync(committed).equals(readFileSync(built));
+    now = readFileSync(path);
   } catch {
-    same = false;
+    now = undefined;
   }
-  if (!same) drifted.push(relative(ROOT, committed));
+  if (now === undefined || !now.equals(before)) drifted.push(`${relative(ROOT, path)} is stale`);
 }
-rmSync(scratch, { recursive: true, force: true });
+for (const path of generatedPaths()) {
+  if (!snapshot.has(path)) drifted.push(`${relative(ROOT, path)} is not committed`);
+}
+
+// Restore: a check leaves the working tree as it found it.
+for (const [path, content] of snapshot) writeFileSync(path, content);
+for (const path of generatedPaths()) {
+  if (!snapshot.has(path)) rmSync(path);
+}
 
 if (drifted.length > 0) {
-  console.error(`FAIL  ${drifted.length} built artifact(s) are stale or missing:`);
-  for (const path of drifted) console.error(`      ${path}`);
+  console.error(`FAIL  ${drifted.length} generated artifact(s) drifted from the build:`);
+  for (const line of drifted) console.error(`      ${line}`);
   console.error("      run `pnpm run build` and commit the result");
   process.exit(1);
 }
-console.log(`PASS  ${emitted.length} build artifact(s) match src/ (${emitted.map((file) => `lib/${file}`).join(", ")})`);
+console.log(`PASS  ${snapshot.size} generated artifact(s) match the build`);

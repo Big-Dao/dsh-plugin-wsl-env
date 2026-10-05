@@ -12,6 +12,12 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-10-05
+
+One theme: a failed environment probe retries instead of being trusted
+forever - the shell placeholder that used to pin bash onto every later
+command, and the hardcoded distro name that minted UNC identities.
+
 ### Fixed
 
 - **A failed shell probe no longer pins `bash` for the executor's

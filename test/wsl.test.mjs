@@ -47,6 +47,10 @@ checks.push(["a capture resolves with the child's stdout", async () => {
   assert.equal(stdout, "done");
 }]);
 
+checks.push(["an empty argv is refused before anything spawns", () => {
+  assert.throws(() => runCapture([]), /needs a program to run/);
+}]);
+
 checks.push(["a hung call dies at the deadline, named as a wedged service", async () => {
   const startedAt = Date.now();
   await assert.rejects(

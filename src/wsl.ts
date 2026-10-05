@@ -60,6 +60,7 @@ export const DEFAULT_WSL_DEADLINE_MS = 60_000;
  */
 export function runCapture(argv: string[], signal?: AbortSignal, deadlineMs = DEFAULT_WSL_DEADLINE_MS): Promise<string> {
   const [file, ...args] = argv;
+  if (file === undefined) throw new Error("wsl: runCapture needs a program to run");
   return new Promise((resolve, reject) => {
     execFile(
       file,

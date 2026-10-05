@@ -85,6 +85,9 @@ export function versionOf({ dev, ino, size, mtimeNs, ctimeNs }: { dev: string, i
  */
 export function parseStatRecord(stdout: Buffer): { type: string, mode: number, size: number, dev: string, ino: string, version: string } {
   const [type, mode, size, dev, ino, mtime, ctime] = stdout.toString("utf8").split("\t");
+  if (type === undefined || mode === undefined || size === undefined || dev === undefined || ino === undefined || mtime === undefined || ctime === undefined) {
+    throw new FsCodedError(`malformed stat record: ${JSON.stringify(stdout.toString("utf8"))}`, "FS_IO_ERROR");
+  }
   return {
     type,
     mode: Number.parseInt(mode, 8) & 0o7777,
@@ -197,7 +200,8 @@ export class DistroFs {
       if (op === "write" && DENIAL_SIGNATURES.some((signature) => message.toLowerCase().includes(signature))) {
         return new FsCodedError(`cannot write "${displayPath}": ${message}`, "FS_SANDBOX_DENIED");
       }
-      return new FsCodedError(message, REASON_CODES[reason] ?? "FS_IO_ERROR");
+      // `first` starts with "dsh-fs|", so the split always yields the reason slot.
+      return new FsCodedError(message, REASON_CODES[reason as string] ?? "FS_IO_ERROR");
     }
     return new FsCodedError(`cannot ${op} "${displayPath}": ${text.trim() || "distro I/O failure"}`, "FS_IO_ERROR");
   }
@@ -278,8 +282,10 @@ export class DistroFs {
     for (const record of records) {
       throwIfAborted(signal, "list");
       const fields = record.split("\t");
-      const wireType = fields[0];
-      const [, , dev, ino, mtime, ctime] = fields;
+      const [wireType, sizeField, dev, ino, mtime, ctime] = fields;
+      if (wireType === undefined || sizeField === undefined || dev === undefined || ino === undefined || mtime === undefined || ctime === undefined) {
+        throw new FsCodedError(`malformed listing record: ${JSON.stringify(record)}`, "FS_IO_ERROR");
+      }
       const path = fields.slice(6).join("\t");
       // `find` joins each child onto the parent path. A root listing's parent
       // is bare "/", where `slice(length + 1)` sheared the first character off
@@ -302,8 +308,8 @@ export class DistroFs {
           childCanonical = await this.canonicalPath(childCanonical, signal);
         }
       } else {
-        version = versionOf({ dev, ino, size: fields[1], mtimeNs: nanoseconds(mtime), ctimeNs: nanoseconds(ctime) });
-        if (type === "f") size = Number(fields[1]);
+        version = versionOf({ dev, ino, size: sizeField, mtimeNs: nanoseconds(mtime), ctimeNs: nanoseconds(ctime) });
+        if (type === "f") size = Number(sizeField);
       }
       entries.push({
         name,

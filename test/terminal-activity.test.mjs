@@ -49,8 +49,10 @@ check("the probe targets the distro shell with the id as an argument, never inte
   assert.deepEqual(probe.argv.slice(0, 2), ["sh", "-c"]);
   assert.equal(probe.argv[3], "sh", "the script's own $0");
   assert.equal(probe.argv[4], id, "the id rides as $1");
-  assert.equal(probe.argv[2].includes(id), false, "the id is not interpolated into the script text");
-  assert.equal(probe.argv[2].includes("[["), false, "POSIX sh only — no bashisms");
+  const script = probe.argv[2];
+  assert.ok(script !== undefined, "the script rides as one argv element");
+  assert.equal(script.includes(id), false, "the id is not interpolated into the script text");
+  assert.equal(script.includes("[["), false, "POSIX sh only — no bashisms");
 });
 
 check("parseTerminalActivity reads exactly the two reported states", () => {

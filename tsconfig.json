@@ -4,6 +4,8 @@
     "checkJs": true,
     "noEmit": true,
     "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
     "target": "ES2023",
     "lib": ["ES2023"],
     "module": "nodenext",

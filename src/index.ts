@@ -774,7 +774,7 @@ export class WslShellExecutor
               enforcement: profile.enforcement,
               denialSignatures: profile.denialSignatures,
               runnerFailureRules: profile.runnerFailureRules,
-              runnerProgram: profile.argv[0],
+              runnerProgram: profile.argv[0] ?? "",
               workdir: resolved.workdir,
               windowsDrive: profile.windowsDrive,
             });
@@ -869,7 +869,7 @@ export class WslShellExecutor
           enforcement: profile.enforcement,
           denialSignatures: profile.denialSignatures,
           runnerFailureRules: profile.runnerFailureRules,
-          runnerProgram: profile.argv[0],
+          runnerProgram: profile.argv[0] ?? "",
           workdir: resolved.workdir,
           windowsDrive: profile.windowsDrive,
         });

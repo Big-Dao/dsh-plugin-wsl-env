@@ -238,7 +238,7 @@ export type AgentMessage =
 export function parseAgentLine(line: string): AgentMessage {
   if (line.startsWith("HELLO|")) {
     const [, name, version, digest] = line.split("|");
-    return { type: "hello", name, version: Number(version), digest: digest ?? "" };
+    return { type: "hello", name: name ?? "", version: Number(version), digest: digest ?? "" };
   }
   if (line === "PONG") return { type: "pong" };
   if (line.startsWith("ACK|")) return { type: "ack", id: line.slice(4) };
@@ -249,7 +249,7 @@ export function parseAgentLine(line: string): AgentMessage {
     const code = Number(exitCode);
     return {
       type: "result",
-      id,
+      id: id ?? "",
       exitCode: Number.isSafeInteger(code) ? code : -1,
       stdout: decodeB64(stdout ?? ""),
       stderr: decodeB64(stderr ?? ""),

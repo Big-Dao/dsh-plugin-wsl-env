@@ -238,14 +238,17 @@ function chainedMembers(code) {
   /** @type {string[][]} */
   const found = [];
   const opener = /(?<![\w$."'])z\.([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/g;
-  let open;
-  while ((open = opener.exec(code)) !== null) {
+  for (;;) {
+    const open = opener.exec(code);
+    if (open === null) break;
     let at = endOfGroup(code, opener.lastIndex - 1);
     const chain = [];
     for (;;) {
       const next = /^\s*\.\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/.exec(code.slice(at, at + 200));
       if (next === null) break;
-      chain.push(next[1]);
+      const member = next[1];
+      if (member === undefined) break;
+      chain.push(member);
       at = endOfGroup(code, at + next[0].length - 1);
     }
     if (chain.length > 0) found.push(chain);
@@ -272,6 +275,7 @@ const members = new Map();
 for (const name of modules) {
   for (const match of codeOf(name).matchAll(/\bz\.([A-Za-z_$][A-Za-z0-9_$]*)/gu)) {
     const member = match[1];
+    if (member === undefined) continue;
     const callers = members.get(member) ?? [];
     if (!callers.includes(name)) callers.push(name);
     members.set(member, callers);

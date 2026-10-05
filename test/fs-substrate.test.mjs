@@ -186,12 +186,10 @@ checks.push(["the per-target lock serializes concurrent mutations FIFO and a fai
     const target = await targetOf(sub, p);
     /** @type {string[]} */
     const order = [];
-    let releaseFirst;
     const first = sub.writeText(target, "one\n", undefined, undefined).then(() => order.push("first"));
     // Walk past the first holder before the second runs.
     await new Promise((r) => setImmediate(r));
     const second = sub.writeText(target, "two\n", undefined, undefined).then(() => order.push("second"));
-    releaseFirst = true;
     await Promise.all([first, second]);
     assert.deepEqual(order, ["first", "second"], "the contended target serializes in queue order");
     assert.equal(readFileSync(p, "utf8"), "two\n", "the second write lands last, byte-true");
@@ -323,10 +321,12 @@ checks.push(["listDir rows carry Linux display paths and canonical identities", 
     symlinkSync("a.txt", join(dir, "link"));
     const rows = await sub.listDir(await targetOf(sub, dir));
     assert.deepEqual(rows.map((row) => row.name), ["a.txt", "link"]);
-    assert.equal(rows[0].target.displayPath, join(dir, "a.txt"), "display stays in Linux coordinates");
-    assert.ok(rows[0].target.targetKey.startsWith("\\\\wsl.localhost\\ubuntu\\"));
-    assert.equal(rows[0].size, 2);
-    assert.equal(rows[1].type, "file", "the link row reports its target");
+    const [aRow, linkRow] = rows;
+    assert.ok(aRow !== undefined && linkRow !== undefined, "the listing kept both rows");
+    assert.equal(aRow.target.displayPath, join(dir, "a.txt"), "display stays in Linux coordinates");
+    assert.ok(aRow.target.targetKey.startsWith("\\\\wsl.localhost\\ubuntu\\"));
+    assert.equal(aRow.size, 2);
+    assert.equal(linkRow.type, "file", "the link row reports its target");
   });
 }]);
 

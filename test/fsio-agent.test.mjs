@@ -16,6 +16,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { FsTargetKey } from "@deepseek-ai/dsh-fs";
 import { encodeExecFrame, encodeFsFrame, parseAgentLine } from "../lib/agent-protocol.js";
 import { DistroFs, nanoseconds, parseStatRecord, versionOf } from "../lib/fsio-agent.js";
 import { applyLiteralEdit, restoreLineEndings } from "../lib/fsio-text.js";
@@ -174,6 +175,8 @@ checks.push(["parseStatRecord decodes the agent's TAB record into a probe-shaped
   // path re-applies them, which is what LIMITATIONS promises.
   assert.equal(parseStatRecord(Buffer.from("f\t4755\t1\t139\t7\t1.0\t1.0", "utf8")).mode, 0o4755);
   assert.equal(parseStatRecord(Buffer.from("f\t1777\t1\t139\t8\t1.0\t1.0", "utf8")).mode, 0o1777);
+  // A truncated record is a coded failure, not a row of garbage values.
+  assert.throws(() => parseStatRecord(Buffer.from("f\t644\t24\t139", "utf8")), /malformed stat record/);
 }]);
 
 checks.push(["resolveTarget keeps the UNC identity and follows a symlinked path", async () => {
@@ -217,13 +220,17 @@ checks.push(["listChildren sorts by name and gives a symlink child its target's 
     const entries = await fs.listChildren(target);
     assert.deepEqual(entries.map((entry) => entry.name), ["a.txt", "b.txt", "broken", "z-link"]);
     const byName = Object.fromEntries(entries.map((entry) => [entry.name, entry]));
-    assert.equal(byName["a.txt"].type, "file");
-    assert.equal(byName["a.txt"].size, 2);
-    assert.equal(byName["z-link"].type, "file", "the follow-stat belongs to the target");
-    assert.ok(byName["z-link"].target.targetKey.endsWith("a.txt"), "identity follows the symlink");
-    assert.equal(byName.broken.type, "other", "a dangling symlink lists as other, like the peer");
-    assert.equal(byName.broken.version, undefined, "a dangling symlink has no version, like the peer");
-    assert.equal(byName.broken.size, undefined);
+    const aTxt = byName["a.txt"];
+    const zLink = byName["z-link"];
+    const broken = byName.broken;
+    assert.ok(aTxt !== undefined && zLink !== undefined && broken !== undefined, "the listing kept all four named entries");
+    assert.equal(aTxt.type, "file");
+    assert.equal(aTxt.size, 2);
+    assert.equal(zLink.type, "file", "the follow-stat belongs to the target");
+    assert.ok(zLink.target.targetKey.endsWith("a.txt"), "identity follows the symlink");
+    assert.equal(broken.type, "other", "a dangling symlink lists as other, like the peer");
+    assert.equal(broken.version, undefined, "a dangling symlink has no version, like the peer");
+    assert.equal(broken.size, undefined);
   });
 }]);
 
@@ -548,7 +555,9 @@ checks.push(["readTextForDiff serves a small text file and nulls a big, missing,
 
 checks.push(["the EXEC frame is untouched by the adapter's arrival", () => {
   const lines = encodeExecFrame({ id: "r1", cwd: "/", argv: ["true"], timeoutMs: 0 });
-  assert.equal(lines[0].split("|")[0], "EXEC");
+  const head = lines[0];
+  assert.ok(head !== undefined, "the frame carries a headline");
+  assert.equal(head.split("|")[0], "EXEC");
 }]);
 
 /** An agent returning one canned FS result, whatever op it is asked. */
@@ -565,6 +574,27 @@ function cannedAgent(result) {
  * @returns {Buffer} the `dsh-fs|reason|base64` protocol line.
  */
 const fsLine = (reason, message) => Buffer.from(`dsh-fs|${reason}|${Buffer.from(message, "utf8").toString("base64")}\n`, "utf8");
+
+checks.push(["a malformed listing record is a coded failure, not a garbage row", async () => {
+  // The directory's own stat answers first; the LIST round trip then returns a
+  // record truncated mid-protocol.
+  const responses = [
+    { exitCode: 0, stdout: Buffer.from("d\t40755\t4096\t139\t6\t1790988738.912215200\t1790988738.912215200", "utf8"), stderr: Buffer.alloc(0) },
+    { exitCode: 0, stdout: Buffer.from("f\t2", "utf8"), stderr: Buffer.alloc(0) },
+  ];
+  const fs = new DistroFs({
+    agent: asAgent({
+      fs: async () => {
+        const response = responses.shift();
+        if (response === undefined) throw new Error("the fake agent ran out of scripted responses");
+        return response;
+      },
+    }),
+    distro: DISTRO,
+  });
+  const target = { displayPath: "/doc", targetKey: FsTargetKey("\\\\wsl.localhost\\ubuntu\\doc") };
+  await assert.rejects(() => fs.listChildren(target), (error) => /** @type {{code?: string}} */ (error).code === "FS_IO_ERROR");
+}]);
 
 checks.push(["a kernel read-only denial on a WRITE is the sandbox refusal, not an I/O error", async () => {
   // The head-teacher claim of the confined substrate: a write the mount table

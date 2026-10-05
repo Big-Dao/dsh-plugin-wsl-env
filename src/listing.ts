@@ -112,12 +112,18 @@ export function breadcrumbs(target: string, providerRoot: string): ListingRow[] 
  * @returns true when an eviction happened (the level has more candidates).
  */
 export function boundedInsert<T extends { name: string }>(window: T[], candidate: T, keep: number): boolean {
-  if (window.length === keep && candidate.name.localeCompare(window[window.length - 1].name) >= 0) return true;
+  const last = window.at(-1);
+  if (window.length === keep && last !== undefined && candidate.name.localeCompare(last.name) >= 0) return true;
   let lo = 0;
   let hi = window.length;
   while (lo < hi) {
     const mid = (lo + hi) >>> 1;
-    if (candidate.name.localeCompare(window[mid].name) < 0) hi = mid;
+    const midRow = window[mid];
+    // mid < hi <= window.length, so the row is always defined; the check is
+    // for the checker, and it ends the search instead of throwing if that
+    // invariant were ever broken.
+    if (midRow === undefined) break;
+    if (candidate.name.localeCompare(midRow.name) < 0) hi = mid;
     else lo = mid + 1;
   }
   window.splice(lo, 0, candidate);

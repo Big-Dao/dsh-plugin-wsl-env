@@ -122,9 +122,9 @@ class Harness {
    * @returns {{reason: string, message: string}} the parsed failure.
    */
   static fsFailure(result) {
-    const first = result.stderr.toString("utf8").split("\n")[0];
+    const first = result.stderr.toString("utf8").split("\n")[0] ?? "";
     const [, reason, message] = first.split("|");
-    return { reason, message: Buffer.from(message, "base64").toString("utf8") };
+    return { reason: reason ?? "", message: Buffer.from(message ?? "", "base64").toString("utf8") };
   }
 
   async close() {
@@ -134,11 +134,6 @@ class Harness {
   }
 }
 
-/**
- * @param {string} value - the text to encode.
- * @returns {string} its base64.
- */
-const b64 = (value) => encodeB64(value);
 /** A distro-independent assertion: agent times arrive as `seconds.frac`. */
 const TIME_SHAPE = /^\d+(\.\d+)?$/;
 
@@ -176,6 +171,7 @@ checks.push(["write replace publishes content through a staging dir that is clea
     const stat = await agent.call("stat", [target]);
     const [type, mode, size] = stat.stdout.toString("utf8").split("\t");
     assert.equal(type, "f");
+    assert.ok(mode !== undefined && size !== undefined, "the stat record is complete");
     assert.equal(parseInt(mode, 8) & 0o777, 0o644, "the mode field is octal text");
     assert.equal(Number(size), "alpha\n".length);
   } finally {
@@ -248,11 +244,16 @@ checks.push(["list reports children with follow types, and keeps dangling symlin
     });
     const byName = Object.fromEntries(records.map((record) => [record.name, record]));
     assert.deepEqual(Object.keys(byName).sort(), ["a.txt", "broken", "link"]);
-    assert.equal(byName["a.txt"].type, "f");
-    assert.equal(byName.link.type, "l", "the raw record reports the entry's own type; the adapter resolves the target");
-    assert.equal(byName.broken.type, "l", "a dangling symlink is still listed");
-    assert.match(byName["a.txt"].mtime, TIME_SHAPE);
-    assert.match(byName["a.txt"].ctime, TIME_SHAPE);
+    const aTxt = byName["a.txt"];
+    const link = byName.link;
+    const broken = byName.broken;
+    assert.ok(aTxt !== undefined && link !== undefined && broken !== undefined, "the listing kept all three named entries");
+    assert.equal(aTxt.type, "f");
+    assert.equal(link.type, "l", "the raw record reports the entry's own type; the adapter resolves the target");
+    assert.equal(broken.type, "l", "a dangling symlink is still listed");
+    assert.ok(typeof aTxt.mtime === "string" && typeof aTxt.ctime === "string", "the record carries its timestamps");
+    assert.match(aTxt.mtime, TIME_SHAPE);
+    assert.match(aTxt.ctime, TIME_SHAPE);
   } finally {
     await agent.close();
   }
@@ -373,7 +374,7 @@ checks.push(["an unknown fs op names the breach, not a missing file", async () =
     await agent.hello();
     const result = await agent.call("bogus", []);
     assert.notEqual(result.exitCode, 0);
-    const first = result.stderr.toString("utf8").split("\n")[0];
+    const first = result.stderr.toString("utf8").split("\n")[0] ?? "";
     assert.ok(first.startsWith("dsh-fs|protocol|"), `the reason names the contract breach: ${first}`);
   } finally {
     await agent.close();

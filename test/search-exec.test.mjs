@@ -76,6 +76,7 @@ function fakeAgent(script) {
     exec(options) {
       calls.push(options);
       const [outcome] = script.splice(0, 1);
+      if (outcome === undefined) throw new Error("the fake agent ran out of scripted outcomes");
       if (outcome instanceof Error) return Promise.reject(outcome);
       if (outcome instanceof Function) return outcome(options);
       return Promise.resolve(outcome);
@@ -93,10 +94,12 @@ check("a successful agent exec fills collected and reports the exit code", async
   assert.equal(stdout.lossy, false);
   assert.equal(/** @type {SearchReader} */ (handle.collected.stderr).readFrom(0).text, "");
   assert.equal(agent.calls.length, 1);
-  assert.equal(agent.calls[0].cwd, CWD);
-  assert.deepEqual(agent.calls[0].argv, ARGV);
-  assert.equal(agent.calls[0].maxOutputBytes, 4096);
-  assert.ok(agent.calls[0].signal instanceof AbortSignal, "the exec rides the handle's kill channel");
+  const call = agent.calls[0];
+  assert.ok(call !== undefined, "the search called the agent once");
+  assert.equal(call.cwd, CWD);
+  assert.deepEqual(call.argv, ARGV);
+  assert.equal(call.maxOutputBytes, 4096);
+  assert.ok(call.signal instanceof AbortSignal, "the exec rides the handle's kill channel");
 });
 
 check("readFrom consumes incrementally and clamps past the end", async () => {

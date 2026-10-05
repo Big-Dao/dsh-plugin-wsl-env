@@ -99,26 +99,32 @@ check("traversalArgv keeps the path an argv element, never script text", () => {
   assert.equal(argv[4], "/home/andy/proj");
   assert.equal(argv[5], dir);
   assert.equal(argv[6], "5000");
-  assert.ok(!argv[2].includes(dir), "the script must not embed the path");
-  assert.ok(argv[2].includes("find \"$real\" -mindepth 1 -maxdepth 1 -printf '%y\\t%f\\n'"));
-  assert.ok(argv[2].includes("head -n \"$max\""));
+  const script = argv[2];
+  assert.ok(script !== undefined, "the script rides as one argv element");
+  assert.ok(!script.includes(dir), "the script must not embed the path");
+  assert.ok(script.includes("find \"$real\" -mindepth 1 -maxdepth 1 -printf '%y\\t%f\\n'"));
+  assert.ok(script.includes("head -n \"$max\""));
 });
 
 check("parseTraversalListing keeps Dirent fidelity: symlinks and specials skipped", () => {
   const entries = parseTraversalListing("d\tsrc\nf\tREADME.md\nl\tlink\nd\ta b's dir\ns\tsock\n");
   assert.deepEqual(entries.map((entry) => entry.name), ["src", "README.md", "a b's dir"]);
-  assert.equal(entries[0].isDirectory(), true);
-  assert.equal(entries[0].isFile(), false);
-  assert.equal(entries[1].isDirectory(), false);
-  assert.equal(entries[1].isFile(), true);
+  const [srcEntry, readmeEntry] = entries;
+  assert.ok(srcEntry !== undefined && readmeEntry !== undefined, "the parse kept the three kept entries in order");
+  assert.equal(srcEntry.isDirectory(), true);
+  assert.equal(srcEntry.isFile(), false);
+  assert.equal(readmeEntry.isDirectory(), false);
+  assert.equal(readmeEntry.isFile(), true);
 });
 
 check("resolveDirectoryArgv walks the segments as argv elements", () => {
   const argv = resolveDirectoryArgv("/home/andy/proj", ["src", "lib"]);
   assert.equal(argv[4], "/home/andy/proj");
   assert.deepEqual(argv.slice(5), ["src", "lib"]);
-  assert.ok(argv[2].includes('[ -L "$cur" ]'), "a symlink component is refused");
-  assert.ok(argv[2].includes('[ -d "$cur" ]'), "a non-directory component is refused");
+  const script = argv[2];
+  assert.ok(script !== undefined, "the script rides as one argv element");
+  assert.ok(script.includes('[ -L "$cur" ]'), "a symlink component is refused");
+  assert.ok(script.includes('[ -d "$cur" ]'), "a non-directory component is refused");
 });
 
 check("a non-distro search root is answered by the default traversal wholesale", () => {
@@ -132,9 +138,11 @@ check("readWorkspaceRoot lists the root through the agent and maps the entries",
   const traversal = wslFileReferenceTraversal({ root: ROOT, runnerFor: () => runner, defaultTraversal: DEFAULT });
   const entries = await traversal.readWorkspaceRoot(ROOT, LIVE);
   assert.deepEqual(entries.map((entry) => entry.name), ["src", "README.md"]);
-  assert.equal(runner.calls[0].cwd, "/");
-  assert.equal(runner.calls[0].argv[4], "/home/andy/proj");
-  assert.equal(runner.calls[0].argv[5], "/home/andy/proj");
+  const call = runner.calls[0];
+  assert.ok(call !== undefined, "the traversal called the agent once");
+  assert.equal(call.cwd, "/");
+  assert.equal(call.argv[4], "/home/andy/proj");
+  assert.equal(call.argv[5], "/home/andy/proj");
 });
 
 check("readDirectory routes a joined child UNC with the workspace root as the guard", async () => {
@@ -142,8 +150,10 @@ check("readDirectory routes a joined child UNC with the workspace root as the gu
   const traversal = wslFileReferenceTraversal({ root: ROOT, runnerFor: () => runner, defaultTraversal: DEFAULT });
   const entries = await traversal.readDirectory(`${ROOT}\\src`, LIVE);
   assert.deepEqual(entries.map((entry) => entry.name), ["main.rs"]);
-  assert.equal(runner.calls[0].argv[4], "/home/andy/proj", "containment is scoped to the workspace root");
-  assert.equal(runner.calls[0].argv[5], "/home/andy/proj/src");
+  const call = runner.calls[0];
+  assert.ok(call !== undefined, "the traversal called the agent once");
+  assert.equal(call.argv[4], "/home/andy/proj", "containment is scoped to the workspace root");
+  assert.equal(call.argv[5], "/home/andy/proj/src");
 });
 
 check("an unreadable directory is [], a failed root is a rejection, an abort is neither", async () => {
@@ -176,7 +186,9 @@ check("resolveDisplayDirectory walks segments once and answers in the UNC form",
   const runner = fakeRunner({ exitCode: 0, stdout: "/home/andy/proj/lib\n", stderr: "" });
   const traversal = wslFileReferenceTraversal({ root: ROOT, runnerFor: () => runner, defaultTraversal: DEFAULT });
   assert.equal(await traversal.resolveDisplayDirectory(ROOT, "src/../lib", LIVE), `${ROOT}\\lib`);
-  assert.deepEqual(runner.calls[0].argv.slice(5), ["lib"], "segments ride as argv; a/../lib normalized before the walk");
+  const call = runner.calls[0];
+  assert.ok(call !== undefined, "the walk called the agent once");
+  assert.deepEqual(call.argv.slice(5), ["lib"], "segments ride as argv; a/../lib normalized before the walk");
 });
 
 check("resolveDisplayDirectory short-circuits the root, escapes, and refusals", async () => {

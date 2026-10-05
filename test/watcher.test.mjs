@@ -75,8 +75,10 @@ checks.push(["an E line reports the vanished target and survives the follow-up e
   child.emit("exit", 1, null); // the loop's own exit right after E
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(errors.length, 1, "exactly one report — E, not E plus the exit");
-  assert.match(errors[0].message, /\/home\/you\/gone/);
-  assert.match(errors[0].message, /no longer exists/);
+  const report = errors[0];
+  assert.ok(report !== undefined, "the loop reported through onError");
+  assert.match(report.message, /\/home\/you\/gone/);
+  assert.match(report.message, /no longer exists/);
   await close(); // still closable, and killing an already-dead loop is a no-op
   assert.equal(changes.length, 0);
 }]);
@@ -193,7 +195,9 @@ checks.push(["an abort after the watcher is active surfaces through onError", as
   controller.abort(new Error("teardown"));
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(errors.length, 1, "the already-active watcher reports the teardown");
-  assert.match(errors[0].message, /teardown/);
+  const report = errors[0];
+  assert.ok(report !== undefined, "the teardown reached onError");
+  assert.match(report.message, /teardown/);
   // After settle, the error is REPORTED, not acted on — stopping the loop is
   // still the caller's close.
   await close();

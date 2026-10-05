@@ -66,9 +66,6 @@ export function linuxJoin(linuxRoot: string, path: string): string {
   return joined.length === 0 ? "/" : joined;
 }
 
-/** The `stat` format string: kind, size, device, inode, mtimes — tab-joined. */
-const STAT_FORMAT = "%F\t%s\t%D\t%i\t%Y\t%Z";
-
 /**
  * The record invocation for one path: line 1 is the no-follow kind (the
  * upstream lstat gate), line 2 the follow-stat fields (the upstream final

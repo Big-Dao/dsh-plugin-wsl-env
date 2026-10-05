@@ -99,7 +99,7 @@ class FakeAgentProcess extends EventEmitter {
         return;
       }
       const header = line.split("|");
-      const id = header[1];
+      const id = header[1] ?? null;
       const nargs = Number(header[4]);
       // Mirror the real agent: the dequeue ACK precedes the answer.
       this.stdout.write(`ACK|${id}\n`);
@@ -358,8 +358,10 @@ checkReg("a confined agent's argvPrefix reaches the transport before the interpr
   });
   await agent.exec({ cwd: "/tmp", argv: ["true"], timeoutMs: 0 });
   assert.equal(seen.length, 1);
-  assert.deepEqual(seen[0].argvPrefix, ["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--"]);
-  assert.equal(seen[0].scriptPath, CONFIG.scriptPath);
+  const confined = seen[0];
+  assert.ok(confined !== undefined, "the confinement was asked once");
+  assert.deepEqual(confined.argvPrefix, ["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--"]);
+  assert.equal(confined.scriptPath, CONFIG.scriptPath);
 });
 
 checkReg("the confined factory builds a whole command: program, profile, separator", async () => {

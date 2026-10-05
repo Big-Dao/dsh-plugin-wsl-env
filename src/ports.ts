@@ -33,8 +33,9 @@ export function parseListeningPorts(text: string): number[] {
   for (const line of text.split("\n").slice(1)) {
     const columns = line.trim().split(/\s+/);
     // sl, local_address, rem_address, st, ... — st 0A is LISTEN.
-    if (columns.length < 4 || columns[3] !== "0A") continue;
-    const portHex = columns[1].split(":")[1];
+    const localAddress = columns[1];
+    if (columns.length < 4 || localAddress === undefined || columns[3] !== "0A") continue;
+    const portHex = localAddress.split(":")[1];
     if (portHex === undefined) continue;
     const port = Number.parseInt(portHex, 16);
     if (Number.isFinite(port) && port > 0) ports.add(port);

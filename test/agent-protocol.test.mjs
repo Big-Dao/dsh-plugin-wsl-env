@@ -68,18 +68,26 @@ check("the EXEC frame carries the per-stream capture budget the agent enforces",
   const capped = encodeExecFrame({ id: "r1", cwd: "/", argv: ["x"], timeoutMs: 0, maxOutputBytes: 64000 });
   assert.equal(capped[0], `EXEC|r1|${encodeB64("/")}|0|1|64000`);
   const fractional = encodeExecFrame({ id: "r2", cwd: "/", argv: ["x"], maxOutputBytes: 1024.9 });
-  assert.equal(fractional[0].split("|")[5], "1024", "a fractional cap floors to whole bytes");
+  const fractionalHead = fractional[0];
+  assert.ok(fractionalHead !== undefined, "the frame carries a headline");
+  assert.equal(fractionalHead.split("|")[5], "1024", "a fractional cap floors to whole bytes");
   const negative = encodeExecFrame({ id: "r3", cwd: "/", argv: ["x"], maxOutputBytes: -5 });
-  assert.equal(negative[0].split("|")[5], "0", "a nonsense cap is the unlimited 0");
+  const negativeHead = negative[0];
+  assert.ok(negativeHead !== undefined, "the frame carries a headline");
+  assert.equal(negativeHead.split("|")[5], "0", "a nonsense cap is the unlimited 0");
 });
 
 check("a sub-second timeout rounds up; zero and negative disable it", () => {
   const one = encodeExecFrame({ id: "a", cwd: "/", argv: ["x"], timeoutMs: 1 });
   const zero = encodeExecFrame({ id: "a", cwd: "/", argv: ["x"], timeoutMs: 0 });
   const negative = encodeExecFrame({ id: "a", cwd: "/", argv: ["x"], timeoutMs: -5 });
-  assert.equal(one[0].split("|")[3], "1");
-  assert.equal(zero[0].split("|")[3], "0");
-  assert.equal(negative[0].split("|")[3], "0");
+  const oneHead = one[0];
+  const zeroHead = zero[0];
+  const negativeHead = negative[0];
+  assert.ok(oneHead !== undefined && zeroHead !== undefined && negativeHead !== undefined, "the frames carry headlines");
+  assert.equal(oneHead.split("|")[3], "1");
+  assert.equal(zeroHead.split("|")[3], "0");
+  assert.equal(negativeHead.split("|")[3], "0");
 });
 
 check("SETENV and KILL frames carry their payloads base64-encoded where binary is possible", () => {
@@ -150,7 +158,9 @@ check("relabelFrame rewrites EXEC and KILL ids and leaves SETENV alone", () => {
   const frame = [encodeSetEnv("A", "1"), ...encodeExecFrame({ id: "r1", cwd: "/", argv: ["x"], timeoutMs: 0 })];
   const relabelled = relabelFrame(frame, "r9");
   assert.equal(relabelled[0], frame[0]);
-  assert.equal(relabelled[1].split("|")[1], "r9");
+  const execHead = relabelled[1];
+  assert.ok(execHead !== undefined, "the relabelled frame keeps the EXEC headline");
+  assert.equal(execHead.split("|")[1], "r9");
   assert.deepEqual(relabelled.slice(2), frame.slice(2));
   assert.equal(relabelFrame(["KILL|r1"], "r9")[0], "KILL|r9");
   assert.deepEqual(relabelFrame(["PONG"], "r9"), ["PONG"]);

@@ -365,11 +365,13 @@ check("the read and write delegations ride the substrate and map refusals", asyn
     ["editText", async () => ({ version: "v3" }), [target, { oldString: "a", newString: "b" }, undefined]],
   ];
   for (const [name, stub, args] of delegations) {
+    const method = fsMethods[name]?.bind(fs);
+    assert.ok(typeof method === "function", `${name} exists on the fs`);
     substrateMethods[name] = async () => {
       calls.push(name);
       return stub();
     };
-    await fsMethods[name](...args);
+    await method(...args);
   }
   assert.deepEqual(calls, ["stat", "lstat", "readText", "streamText", "readBytes", "readByteRange", "listDir", "writeText", "editText"]);
   // A refusal from the substrate surfaces in the peer dialect, on EVERY route:
@@ -388,10 +390,12 @@ check("the read and write delegations ride the substrate and map refusals", asyn
     ["editText", [target, { oldString: "a", newString: "b" }, undefined]],
   ];
   for (const [name, refusalArgs] of refusals) {
+    const method = fsMethods[name]?.bind(fs);
+    assert.ok(typeof method === "function", `${name} exists on the fs`);
     substrateMethods[name] = async () => {
       throw new FsCodedError(`cannot ${name} "/x": stale`, "FS_STALE_VERSION");
     };
-    await assert.rejects(() => fsMethods[name](...refusalArgs), (error) => /** @type {{ code?: string }} */ (error).code === "FS_STALE_VERSION", `${name} maps refusals`);
+    await assert.rejects(() => method(...refusalArgs), (error) => /** @type {{ code?: string }} */ (error).code === "FS_STALE_VERSION", `${name} maps refusals`);
   }
 });
 
@@ -537,8 +541,10 @@ check("a confined agent command runs the confined argv in the distro coordinate"
   }));
   const result = await execution.result();
   assert.equal(result.exitCode, 0);
-  assert.equal(agentCalls[0].cwd, "/home/andy/proj", "the UNC never reaches chdir — the agent carries the Linux path");
-  assert.equal(agentCalls[0].argv[0], "/usr/bin/bwrap", "the confined argv runs, not the raw shell line");
+  const frame = agentCalls[0];
+  assert.ok(frame !== undefined, "the agent saw the command's frame");
+  assert.equal(frame.cwd, "/home/andy/proj", "the UNC never reaches chdir — the agent carries the Linux path");
+  assert.equal(frame.argv[0], "/usr/bin/bwrap", "the confined argv runs, not the raw shell line");
   assert.deepEqual(factsOf(result), { mode: "workspace-write", denied: false, enforcement: "full", windowsDrive: "visible" });
 });
 
@@ -556,8 +562,10 @@ check("the agent frame carries the resolved maxOutputBytes, not the volatile wra
     timeoutMs: 5000,
     sandboxPolicy: { mode: "workspace-write", workspaceRoot: WORKSPACE },
   }));
-  assert.equal(typeof agentCalls[0].maxOutputBytes, "number", "the frame carries a number, not the wrapper");
-  assert.equal(agentCalls[0].maxOutputBytes, budget.get(), "and it is the configured budget, resolved");
+  const frame = agentCalls[0];
+  assert.ok(frame !== undefined, "the agent saw the command's frame");
+  assert.equal(typeof frame.maxOutputBytes, "number", "the frame carries a number, not the wrapper");
+  assert.equal(frame.maxOutputBytes, budget.get(), "and it is the configured budget, resolved");
 });
 
 check("a denial signature on a confined failure reports denied: true", async () => {
@@ -590,7 +598,9 @@ check("danger-full-access runs unconfined and says so in the sandbox fact", asyn
     sandboxPolicy: { mode: "danger-full-access", workspaceRoot: WORKSPACE },
   }));
   const result = await execution.result();
-  assert.equal(agentCalls[0].argv[0], "/bin/zsh", "no bwrap prefix on the escalated run");
+  const escalated = agentCalls[0];
+  assert.ok(escalated !== undefined, "the agent saw the command's frame");
+  assert.equal(escalated.argv[0], "/bin/zsh", "no bwrap prefix on the escalated run");
   assert.deepEqual(factsOf(result), { mode: "danger-full-access", denied: false });
 });
 
@@ -642,9 +652,11 @@ check("the one-shot path runs the plain wsl.exe argv and decorates the same fact
   }));
   const result = await execution.result();
   assert.equal(result.exitCode, 0);
-  assert.equal(specs[0].argv[0], "wsl.exe", "the one-shot path spawns wsl.exe");
-  assert.equal(specs[0].argv[5], "--exec");
-  assert.equal(specs[0].argv[6], "/usr/bin/bwrap", "confined here too");
+  const spawn = specs[0];
+  assert.ok(spawn !== undefined, "the one-shot path spawned once");
+  assert.equal(spawn.argv[0], "wsl.exe", "the one-shot path spawns wsl.exe");
+  assert.equal(spawn.argv[5], "--exec");
+  assert.equal(spawn.argv[6], "/usr/bin/bwrap", "confined here too");
   assert.deepEqual(factsOf(result), { mode: "workspace-write", denied: false, enforcement: "full", windowsDrive: "visible" });
 });
 
@@ -665,8 +677,10 @@ check("an agent that is out falls back to the one-shot path, which is the point 
   const execution = await executor.execute(spec({ command: "echo hi", workdir: WORKSPACE, timeoutMs: 5000 }));
   const result = await execution.result();
   assert.equal(result.exitCode, 0);
-  assert.equal(oneShots[0][0], "wsl.exe", "the fallback ran one-shot");
-  assert.equal(oneShots[0][6], "/bin/zsh", "unconfined on the fallback: the escalation was not granted silently");
+  const fallbackArgv = oneShots[0];
+  assert.ok(fallbackArgv !== undefined, "the fallback spawned once");
+  assert.equal(fallbackArgv[0], "wsl.exe", "the fallback ran one-shot");
+  assert.equal(fallbackArgv[6], "/bin/zsh", "unconfined on the fallback: the escalation was not granted silently");
   assert.equal(factsOf(result), undefined, "the plain fallback is unfenced and says so: no sandbox fact");
 });
 
@@ -703,7 +717,8 @@ check("a confined background process carries the sandbox facts of its policy", a
   // The handle's onStarted stamped one process; settle it with a denial-
   // matching stderr and read the stamp the background projection carries.
   assert.equal(executor.processFacts.size, 1, "the stamp lives until settlement");
-  const [proc] = executor.processFacts.keys();
+  const proc = [...executor.processFacts.keys()][0];
+  assert.ok(proc !== undefined, "onStarted stamped one process");
   proc.exitCode = 1;
   executor.onProcessDone(proc, "touch: Operation not permitted", false, undefined);
   assert.equal(executor.processFacts.size, 0, "settled facts are deleted, not accumulated");

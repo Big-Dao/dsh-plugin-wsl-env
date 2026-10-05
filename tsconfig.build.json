@@ -6,6 +6,8 @@
     "moduleResolution": "nodenext",
     "types": ["node"],
     "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
     "skipLibCheck": true,
     "rootDir": "src",
     "outDir": "lib",

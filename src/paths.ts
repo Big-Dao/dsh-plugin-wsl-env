@@ -236,8 +236,10 @@ export function isAnotherDistrosUnc(value: string, distro: string): boolean {
  */
 export function windowsToLinuxMount(winPath: string): string | undefined {
   const match = DRIVE_RE.exec(String(winPath));
-  if (!match?.[1]) return undefined;
-  return `/mnt/${match[1].toLowerCase()}/${match[2].replace(/\\/g, "/")}`;
+  const drive = match?.[1];
+  const rest = match?.[2];
+  if (drive === undefined || rest === undefined) return undefined;
+  return `/mnt/${drive.toLowerCase()}/${rest.replace(/\\/g, "/")}`;
 }
 
 /**

@@ -68,8 +68,10 @@ check("ancestryCrumbs names every ancestor without blanks", () => {
   );
   // win32.dirname stops at the share root, and reports it with a trailing
   // separator, so the raw chain never yields the canonical distro root.
-  assert.equal(isProviderRoot(crumbs[0].path), false);
-  assert.notEqual(crumbs[0].path, DISTRO_ROOT);
+  const head = crumbs[0];
+  assert.ok(head !== undefined, "the chain has a head");
+  assert.equal(isProviderRoot(head.path), false);
+  assert.notEqual(head.path, DISTRO_ROOT);
 });
 
 check("breadcrumbs heads a distro chain with the WSL row", () => {
@@ -78,8 +80,10 @@ check("breadcrumbs heads a distro chain with the WSL row", () => {
     crumbs.map((c) => c.name),
     ["WSL", "ubuntu", "home", "andy"],
   );
-  assert.equal(crumbs[0].path, UNC_PROVIDER_ROOT);
-  assert.equal(crumbs[1].path, DISTRO_ROOT);
+  const [wslRow, distroRow] = crumbs;
+  assert.ok(wslRow !== undefined && distroRow !== undefined, "the chain has the WSL and distro rows");
+  assert.equal(wslRow.path, UNC_PROVIDER_ROOT);
+  assert.equal(distroRow.path, DISTRO_ROOT);
 });
 
 check("breadcrumbs leaves an ordinary Windows chain alone", () => {
@@ -88,7 +92,9 @@ check("breadcrumbs leaves an ordinary Windows chain alone", () => {
     crumbs.map((c) => c.name),
     ["C:\\", "Users", "andyz"],
   );
-  assert.equal(crumbs[0].path, "C:\\");
+  const head = crumbs[0];
+  assert.ok(head !== undefined, "the chain has a head");
+  assert.equal(head.path, "C:\\");
 });
 
 check("boundedInsert keeps the window name-sorted", () => {
@@ -140,9 +146,11 @@ check("parseLsListing keeps enterable rows and carries the UNC parent into paths
     rows.map((row) => row.name),
     ["docs", ".proj", "Z"],
   );
-  assert.equal(rows[1].hidden, true);
-  assert.equal(rows[0].hidden, false);
-  assert.equal(rows[0].path, "\\\\wsl.localhost\\ubuntu\\home\\andy\\docs");
+  const [docsRow, projRow] = rows;
+  assert.ok(docsRow !== undefined && projRow !== undefined, "the parse kept the three rows in order");
+  assert.equal(projRow.hidden, true);
+  assert.equal(docsRow.hidden, false);
+  assert.equal(docsRow.path, "\\\\wsl.localhost\\ubuntu\\home\\andy\\docs");
   assert.equal(truncated, false);
 });
 

@@ -803,7 +803,8 @@ const REPLAYABLE_FS_OPS = new Set(["stat", "lstat", "list", "realpath", "read"])
 function isReplayableFrame(lines: string[]): boolean {
   const header = lines[0] ?? "";
   if (!header.startsWith("FS|")) return false;
-  return REPLAYABLE_FS_OPS.has(header.split("|")[2]);
+  const op = header.split("|")[2];
+  return op !== undefined && REPLAYABLE_FS_OPS.has(op);
 }
 
 /**

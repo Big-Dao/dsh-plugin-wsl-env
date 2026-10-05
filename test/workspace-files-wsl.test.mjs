@@ -164,7 +164,9 @@ check("distroList routes through the runner and maps refusals", async () => {
   const listing = await distroList({ runner, distro: "ubuntu", linuxRoot: ROOT, path: ".", maxEntries: 100 });
   assert.deepEqual(listing.entries.map((entry) => entry.name), ["src", "README.md"]);
   assert.equal(listing.path, "", "the workspace root lists as an empty relative path");
-  assert.equal(runner.calls[0].cwd, "/");
+  const call = runner.calls[0];
+  assert.ok(call !== undefined, "the listing called the agent once");
+  assert.equal(call.cwd, "/");
   await assert.rejects(
     () => distroList({ runner, distro: "ubuntu", linuxRoot: ROOT, path: "..", maxEntries: 100 }),
     (error) => error instanceof RemoteError && error.code === "workspace-file/outside-workspace",

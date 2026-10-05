@@ -10,22 +10,31 @@
  *
  * @module dsh-plugin-wsl/agent-errors
  */
-export declare class AgentUnavailableError extends Error {
-    /**
-     * @param message - why the agent is out, for the log.
-     */
-    constructor(message: string);
+export class AgentUnavailableError extends Error {
+  /**
+   * @param message - why the agent is out, for the log.
+   */
+  constructor(message: string) {
+    super(message);
+    this.name = "AgentUnavailableError";
+  }
 }
+
 /**
  * The request's workdir could not be entered inside the distro. Carries the
  * Linux path so a caller can synthesize the same diagnostic the one-shot
  * `wsl.exe` path produces from the relay's `chdir(...) failed` text.
  */
-export declare class CwdError extends Error {
-    /** The path that could not be entered, in the distro's own spelling. */
-    linuxPath: string;
-    /**
-     * @param linuxPath - the path that could not be entered.
-     */
-    constructor(linuxPath: string);
+export class CwdError extends Error {
+  /** The path that could not be entered, in the distro's own spelling. */
+  declare linuxPath: string;
+
+  /**
+   * @param linuxPath - the path that could not be entered.
+   */
+  constructor(linuxPath: string) {
+    super(`could not enter working directory "${linuxPath}"`);
+    this.name = "CwdError";
+    this.linuxPath = linuxPath;
+  }
 }

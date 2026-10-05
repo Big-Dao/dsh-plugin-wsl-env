@@ -18,23 +18,51 @@
  * run `pnpm run build` — the artifact under `lib/` is generated, and `pnpm test`
  * fails when it drifts.
  */
+
 /** One probe cache's surface. */
 export interface ProbeCache {
-    /**
-     * Run one probe under the policy.
-     *
-     * @param key - the probe's cache key.
-     * @param probe - the probe to run on a miss. A throw is a failed probe, never
-     *   a propagated error.
-     * @returns the verdict; a success is remembered, a failure is not.
-     */
-    run(key: string, probe: () => Promise<boolean> | boolean): Promise<boolean>;
-    /** Remembered successes, for tests and diagnostics. */
-    readonly size: number;
+  /**
+   * Run one probe under the policy.
+   *
+   * @param key - the probe's cache key.
+   * @param probe - the probe to run on a miss. A throw is a failed probe, never
+   *   a propagated error.
+   * @returns the verdict; a success is remembered, a failure is not.
+   */
+  run(key: string, probe: () => Promise<boolean> | boolean): Promise<boolean>;
+  /** Remembered successes, for tests and diagnostics. */
+  readonly size: number;
 }
+
 /**
  * Build one probe cache.
  *
  * @returns the policy object `lib/sandbox-core.js` holds per provider.
  */
-export declare function createProbeCache(): ProbeCache;
+export function createProbeCache(): ProbeCache {
+  const verdicts = new Map<string, true | Promise<boolean>>();
+  return {
+    async run(key, probe) {
+      const cached = verdicts.get(key);
+      if (cached !== undefined) return cached;
+
+      const pending = (async () => {
+        try {
+          return await probe();
+        } catch {
+          return false;
+        }
+      })();
+      verdicts.set(key, pending);
+
+      const verdict = await pending;
+      if (verdict) verdicts.set(key, true);
+      else verdicts.delete(key);
+      return verdict;
+    },
+    /** Remembered successes, for tests and diagnostics. */
+    get size() {
+      return verdicts.size;
+    },
+  };
+}

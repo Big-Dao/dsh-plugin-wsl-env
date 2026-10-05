@@ -84,6 +84,14 @@ settled into: write `src/<name>.ts`, add the generated JavaScript to the two
 `exclude` lists, build, and let the suite verify the artifact is
 behaviourally identical.
 
+Three leaf modules then follow in one pass — `agent-errors` (the two error
+classes the executor switches on), `probe-cache` (the verdict policy that
+remembers successes and re-probes failures) and `listing` (the picker's pure
+helpers, `boundedInsert`'s generic included). Each was verified export-for-
+export against its predecessor, and the whitespace-normalized code diff is
+tsc's statement reflow and nothing else; every source keeps its module doc
+plus a note naming the generated artifact.
+
 ## [0.7.5] - 2026-10-05
 
 One theme: a failed environment probe retries instead of being trusted

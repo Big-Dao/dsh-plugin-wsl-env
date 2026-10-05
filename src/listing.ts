@@ -10,15 +10,20 @@
  *
  * @module dsh-plugin-wsl/listing
  */
+
+import { win32 } from "node:path";
+import { isWslUnc, uncToPosix } from "./paths.js";
+
 /** One picker row: a display name, its jump target, and the dot-entry flag. */
 export interface ListingRow {
-    /** The row's display name. */
-    name: string;
-    /** The row's jump target, Windows spelling. */
-    path: string;
-    /** Whether the entry is a dot-entry. */
-    hidden: boolean;
+  /** The row's display name. */
+  name: string;
+  /** The row's jump target, Windows spelling. */
+  path: string;
+  /** Whether the entry is a dot-entry. */
+  hidden: boolean;
 }
+
 /**
  * Whether a path names one fixed filesystem location regardless of process
  * state. On Windows only drive-qualified (`C:\…`) or complete UNC
@@ -29,7 +34,10 @@ export interface ListingRow {
  * @param path - candidate path.
  * @returns whether the path is fully qualified.
  */
-export declare function fullyQualified(path: string): boolean;
+export function fullyQualified(path: string): boolean {
+  return win32.isAbsolute(path) && /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/]+[\\/]+[^\\/]+)/.test(path);
+}
+
 /**
  * Ancestor chain from the filesystem root to `target` inclusive — the
  * breadcrumb rows of a listing, every one a jump target. On a UNC path the walk
@@ -48,7 +56,19 @@ export declare function fullyQualified(path: string): boolean;
  * @param target - an absolute Windows path.
  * @returns the ancestry, outermost first.
  */
-export declare function ancestryCrumbs(target: string): ListingRow[];
+export function ancestryCrumbs(target: string): ListingRow[] {
+  const crumbs: ListingRow[] = [];
+  let current = target;
+  for (;;) {
+    const parent = win32.dirname(current);
+    // `basename` of a volume root is empty (`C:\`), so the root crumb falls
+    // back to its own path rather than rendering blank.
+    crumbs.unshift({ name: win32.basename(current) || current, path: current, hidden: false });
+    if (parent === current) return crumbs;
+    current = parent;
+  }
+}
+
 /**
  * Breadcrumb rows for a level, with the WSL share head prepended for anything
  * inside a distro.
@@ -64,7 +84,21 @@ export declare function ancestryCrumbs(target: string): ListingRow[];
  * @param providerRoot - the share root acting as the WSL row's jump target.
  * @returns breadcrumb rows, outermost first.
  */
-export declare function breadcrumbs(target: string, providerRoot: string): ListingRow[];
+export function breadcrumbs(target: string, providerRoot: string): ListingRow[] {
+  const crumbs = ancestryCrumbs(target);
+  const head = crumbs[0];
+  if (head === undefined) return [{ name: "WSL", path: providerRoot, hidden: false }];
+  const parsed = isWslUnc(head.path) ? uncToPosix(head.path) : undefined;
+  if (parsed !== undefined && parsed.linuxPath === "/") {
+    // `win32.dirname` reports the share root with a trailing separator
+    // (`\\wsl.localhost\ubuntu\`); rewrite the row to the canonical distro root
+    // so crumb paths match what distroRoot() and the picker produce elsewhere.
+    crumbs[0] = { name: parsed.distro, path: `${providerRoot}\\${parsed.distro}`, hidden: false };
+    crumbs.unshift({ name: "WSL", path: providerRoot, hidden: false });
+  }
+  return crumbs;
+}
+
 /**
  * Insert a streamed candidate into the name-sorted bounded window, evicting the
  * name-largest candidate when the window exceeds `keep`. Keeps memory O(keep)
@@ -77,9 +111,21 @@ export declare function breadcrumbs(target: string, providerRoot: string): Listi
  * @param keep - the window bound.
  * @returns true when an eviction happened (the level has more candidates).
  */
-export declare function boundedInsert<T extends {
-    name: string;
-}>(window: T[], candidate: T, keep: number): boolean;
+export function boundedInsert<T extends { name: string }>(window: T[], candidate: T, keep: number): boolean {
+  if (window.length === keep && candidate.name.localeCompare(window[window.length - 1].name) >= 0) return true;
+  let lo = 0;
+  let hi = window.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (candidate.name.localeCompare(window[mid].name) < 0) hi = mid;
+    else lo = mid + 1;
+  }
+  window.splice(lo, 0, candidate);
+  if (window.length <= keep) return false;
+  window.pop();
+  return true;
+}
+
 /**
  * The distro-side argv one picker level is listed with.
  *
@@ -92,7 +138,10 @@ export declare function boundedInsert<T extends {
  * @param linuxDir - the absolute Linux directory to list.
  * @returns the argv for the agent or a `wsl.exe --exec` launch.
  */
-export declare function lsListingArgv(linuxDir: string): string[];
+export function lsListingArgv(linuxDir: string): string[] {
+  return ["ls", "-1ALp", "--", linuxDir];
+}
+
 /**
  * Parse one `ls -1ALp` listing into the picker's rows.
  *
@@ -108,7 +157,18 @@ export declare function lsListingArgv(linuxDir: string): string[];
  * @param maxEntries - the row bound; a level with more is flagged truncated.
  * @returns the first `maxEntries` rows and whether the level had more.
  */
-export declare function parseLsListing(stdout: string | Buffer, parent: string, maxEntries: number): {
-    rows: ListingRow[];
-    truncated: boolean;
-};
+export function parseLsListing(stdout: string | Buffer, parent: string, maxEntries: number): { rows: ListingRow[], truncated: boolean } {
+  const rows: ListingRow[] = [];
+  let truncated = false;
+  for (const line of String(stdout).split("\n")) {
+    if (!line.endsWith("/")) continue;
+    const name = line.slice(0, -1);
+    if (name.length === 0) continue;
+    if (rows.length === maxEntries) {
+      truncated = true;
+      break;
+    }
+    rows.push({ name, path: win32.join(parent, name), hidden: name.startsWith(".") });
+  }
+  return { rows, truncated };
+}

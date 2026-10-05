@@ -122,6 +122,16 @@ knowing: `Buffer.alloc(0)` infers `Buffer<ArrayBuffer>` while an incoming
 `Buffer` is `Buffer<ArrayBufferLike>`, so the accumulators are annotated
 `Buffer`. Eighteen of the thirty-six modules are TypeScript now.
 
+Seven small modules follow — `watcher` (the in-distro mtime watch loop and its
+protocol, `ChildProcess` and options typed), `sandbox-core`/`sandbox` (the
+bwrap probe-and-confine pair; `WslConfined`/`WslSandboxCoreInstance` are
+exported interfaces and the two class fields are `declare` so the emitted
+JavaScript stays byte-identical), `terminal-activity`, `search-exec`, and the
+two entry re-exports `shell`/`fs` (whose artifacts are byte-identical). At
+twenty-five of thirty-six, the remaining modules are the large ones: `agent`,
+`fs-substrate`, `fsio-agent`, `picker`, `subprocess`, `auto-preset`,
+`workspace-files-*`, `file-reference-wsl`, `fs-routing`, and finally `index`.
+
 ## [0.7.5] - 2026-10-05
 
 One theme: a failed environment probe retries instead of being trusted

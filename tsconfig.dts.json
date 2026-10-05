@@ -17,5 +17,5 @@
     "sourceMap": false
   },
   "include": ["lib/**/*.js", "types/*.d.ts"],
-  "exclude": ["lib/agent-protocol.js", "lib/paths.js", "lib/agent-errors.js", "lib/probe-cache.js", "lib/listing.js", "lib/fsio-text.js", "lib/fs-decisions.js", "lib/git-route.js", "lib/search-route.js", "lib/terminal-route.js", "lib/preset-choice.js", "lib/ports.js", "lib/bwrap.js", "lib/agent-confined.js", "lib/agent-shared.js", "lib/wsl.js", "lib/agent-exec.js", "lib/shell-env.js"]
+  "exclude": ["lib/agent-protocol.js", "lib/paths.js", "lib/agent-errors.js", "lib/probe-cache.js", "lib/listing.js", "lib/fsio-text.js", "lib/fs-decisions.js", "lib/git-route.js", "lib/search-route.js", "lib/terminal-route.js", "lib/preset-choice.js", "lib/ports.js", "lib/bwrap.js", "lib/agent-confined.js", "lib/agent-shared.js", "lib/wsl.js", "lib/agent-exec.js", "lib/shell-env.js", "lib/terminal-activity.js", "lib/search-exec.js", "lib/watcher.js", "lib/sandbox-core.js", "lib/sandbox.js", "lib/shell.js", "lib/fs.js"]
 }

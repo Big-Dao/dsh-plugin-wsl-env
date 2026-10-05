@@ -36,15 +36,19 @@
  *
  * @module dsh-plugin-wsl/sandbox
  */
+
 import { SandboxUnavailableError } from "@deepseek-ai/dsh-sandbox";
 import { createSandboxCore } from "./sandbox-core.js";
+
 // The profile and the argv prefix are also what `lib/agent-confined.js` builds
 // for its residents, so both live in the peer-free `lib/bwrap.js` and are
 // re-exported here, where the sandbox's callers have always found them.
 export { bwrapProfileArgs } from "./bwrap.js";
+
 /**
  * The confinement over WSL: the probe-then-confine class bound to the peer's
  * failure type. See the core module for the probe policy and the profile.
  */
 export const WslSandbox = createSandboxCore({ SandboxUnavailableError });
+
 export default WslSandbox;

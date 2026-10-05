@@ -680,7 +680,7 @@ export type ShellExecution = Awaited<ReturnType<LocalBashExecutor["execute"]>>;
 export type ConfinedProfile = Awaited<ReturnType<InstanceType<new (config?: {
     wslPath?: string;
     maskWindowsDrive?: boolean;
-} | undefined) => WslSandboxCoreInstance>["confine"]>>;
+} | undefined) => import("./sandbox-core.js").WslSandboxCoreInstance>["confine"]>>;
 /**
  * The resolved spec this executor stamps with its home-marker fields: an empty
  * `workdir` plus the relative tail that {@link WslShellExecutor.withDefaultWorkdir}

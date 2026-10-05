@@ -35,9 +35,12 @@
  *
  * @module dsh-plugin-wsl/terminal-activity
  */
+
 import type { SubprocessTerminalHandle } from "@deepseek-ai/dsh-subprocess";
+
 /** The env name that marks one terminal's process tree inside the distro. */
-export declare const TERMINAL_ID_ENV = "DSH_TERMINAL_ID";
+export const TERMINAL_ID_ENV = "DSH_TERMINAL_ID";
+
 /**
  * The seam's activity observation — structurally the upstream
  * `SubprocessTerminalActivity` (`subprocess-local/src/terminal.ts`): `state`
@@ -46,9 +49,10 @@ export declare const TERMINAL_ID_ENV = "DSH_TERMINAL_ID";
  * loop keys its idle accumulation on.
  */
 export interface SubprocessTerminalActivity {
-    state: "idle" | "busy" | "unknown";
-    revision: number;
+  state: "idle" | "busy" | "unknown";
+  revision: number;
 }
+
 /**
  * The probe: count the `/proc` processes carrying the terminal marker.
  *
@@ -67,10 +71,22 @@ export interface SubprocessTerminalActivity {
  * @param terminalId - the `DSH_TERMINAL_ID` value one terminal was launched with.
  * @returns the agent `exec` target: the probe script with the id as `$1`.
  */
-export declare function terminalActivityProbe(terminalId: string): {
-    cwd: string;
-    argv: string[];
-};
+export function terminalActivityProbe(terminalId: string): { cwd: string, argv: string[] } {
+  const script = [
+    "id=$1",
+    "count=0",
+    'for d in /proc/[0-9]*; do',
+    '  [ -r "$d/environ" ] || continue',
+    '  if tr "\\000" "\\n" < "$d/environ" 2>/dev/null | grep -qx "DSH_TERMINAL_ID=$id"; then',
+    "    count=$((count+1))",
+    '    [ "$count" -gt 1 ] && { echo busy; exit 0; }',
+    "  fi",
+    "done",
+    "echo idle",
+  ].join("\n");
+  return { cwd: "/", argv: ["sh", "-c", script, "sh", terminalId] };
+}
+
 /**
  * Parse the probe's stdout into an activity state.
  *
@@ -78,7 +94,12 @@ export declare function terminalActivityProbe(terminalId: string): {
  * @returns `"busy"` or `"idle"` as the probe reported, or undefined when the
  *   output is anything else (the caller answers `unknown`).
  */
-export declare function parseTerminalActivity(stdout: string | Buffer): "busy" | "idle" | undefined;
+export function parseTerminalActivity(stdout: string | Buffer): "busy" | "idle" | undefined {
+  const text = String(stdout).trim();
+  if (text === "busy" || text === "idle") return text;
+  return undefined;
+}
+
 /**
  * Wrap a terminal handle so its activity is observed inside the distro.
  *
@@ -95,4 +116,12 @@ export declare function parseTerminalActivity(stdout: string | Buffer): "busy" |
  *   `() => Promise<SubprocessTerminalActivity>` shape.
  * @returns the transparent proxy handle.
  */
-export declare function wrapTerminalHandle(handle: SubprocessTerminalHandle, inspectActivity: () => Promise<SubprocessTerminalActivity>): SubprocessTerminalHandle;
+export function wrapTerminalHandle(handle: SubprocessTerminalHandle, inspectActivity: () => Promise<SubprocessTerminalActivity>): SubprocessTerminalHandle {
+  return new Proxy(handle, {
+    get(target, prop) {
+      if (prop === "inspectActivity") return inspectActivity;
+      const value = Reflect.get(target, prop);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}

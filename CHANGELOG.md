@@ -146,6 +146,15 @@ imports `fs-routing` had carried since a refactor (`windowsToLinuxMount`,
 `linuxJoin` doc block above the class — a leftover of that same refactor — is
 gone too. Twenty-eight of the thirty-six modules are TypeScript.
 
+`fs-substrate` and `auto-preset` follow — the agent-backed filesystem face
+(`ResolvedTarget` exported as an interface, its six instance fields declared
+with `declare` so the emitted JavaScript stays byte-identical) and the
+preset-adoption plugin (whose harness service slices stay spelled
+structurally, and whose `ensureSession` patch carries the `this: unknown`
+parameter the JSDoc already documented). Thirty of the thirty-six modules
+are TypeScript; the remaining six are `agent`, `fsio-agent`, `picker`,
+`subprocess`, `workspace-files-wsl` and `index`.
+
 ## [0.7.5] - 2026-10-05
 
 One theme: a failed environment probe retries instead of being trusted

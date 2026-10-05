@@ -19,6 +19,9 @@
  * and run `pnpm run build` — the artifact under `lib/` is generated, and
  * `pnpm test` fails when it drifts.
  */
+
+import { isWslUnc } from "./paths.js";
+
 /**
  * The adoption decision.
  *
@@ -26,8 +29,8 @@
  *   the registry default.
  * @returns true when the WSL preset should be selected for this session.
  */
-export declare function shouldAdoptWslPreset({ cwd, current, fallback }?: {
-    cwd?: string;
-    current?: string;
-    fallback?: string;
-}): boolean;
+export function shouldAdoptWslPreset({ cwd, current, fallback }: { cwd?: string, current?: string, fallback?: string } = {}): boolean {
+  if (cwd === undefined || !isWslUnc(cwd)) return false;
+  if (current === void 0) return true;
+  return current === fallback;
+}

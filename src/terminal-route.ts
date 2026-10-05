@@ -17,7 +17,9 @@
  *
  * @module dsh-plugin-wsl/terminal-route
  */
+
 import { isPosixAbsolute, uncToPosix, windowsToLinuxMount } from "./paths.js";
+
 /**
  * The route decision for one terminal launch.
  *
@@ -25,15 +27,11 @@ import { isPosixAbsolute, uncToPosix, windowsToLinuxMount } from "./paths.js";
  * @returns `"distro"` when the launch belongs inside the pinned distro,
  *   `"host"` when it belongs to a Windows-folder session.
  */
-export function terminalRoute(cwd) {
-    const text = String(cwd ?? "").trim();
-    if (text.length === 0)
-        return "distro";
-    if (uncToPosix(text) !== undefined)
-        return "distro";
-    if (isPosixAbsolute(text))
-        return "distro";
-    if (windowsToLinuxMount(text) !== undefined)
-        return "host";
-    return "distro";
+export function terminalRoute(cwd: string | undefined): "distro" | "host" {
+  const text = String(cwd ?? "").trim();
+  if (text.length === 0) return "distro";
+  if (uncToPosix(text) !== undefined) return "distro";
+  if (isPosixAbsolute(text)) return "distro";
+  if (windowsToLinuxMount(text) !== undefined) return "host";
+  return "distro";
 }

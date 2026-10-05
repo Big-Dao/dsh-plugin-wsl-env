@@ -82,7 +82,13 @@ and declarations in `lib/`, and the artifacts COMMITTED. `pnpm run build`
 
 - **`src/*.ts` → `lib/`** (`tsconfig.build.json`): TypeScript sources, emitted
   as JavaScript plus their declarations, beside the hand-written modules and
-  under the same export paths as before.
+  under the same export paths as before. A source may import a module that is
+  not migrated yet; `rootDirs` merges `src/` and `lib/` for resolution, so
+  `./x.js` resolves through the neighbouring `lib/x.d.ts` (even transitively)
+  while the emitted specifier stays `./x.js`. That merge also pulls declaration
+  files in as program INPUTS, which can collide with pass 1's own output paths
+  (TS5055), so pass 1 writes its declarations into a scratch directory and the
+  build script copies them into `lib/` — outputs and inputs stay disjoint.
 - **`lib/*.js` → `lib/`** (`tsconfig.dts.json`): declaration-only emit for the
   hand-written, JSDoc-typed modules — this is what gives every public entry a
   `.d.ts`. It must run against a CLEAN tree: a stale `.d.ts` sits exactly where

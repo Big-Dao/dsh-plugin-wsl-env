@@ -23,6 +23,18 @@
  *
  * @module dsh-plugin-wsl/bwrap
  */
+
+/** Profile options shared by the two confinement sites. */
+export interface BwrapProfileOptions {
+  /** Shadow `/mnt` with an empty tmpfs. */
+  maskWindowsDrive?: boolean;
+  /**
+   * Workspace-write binds the real `/tmp` read-write instead of mounting an
+   * ephemeral tmpfs over it.
+   */
+  realTmp?: boolean;
+}
+
 /**
  * Build the bwrap profile arguments for one file-effect policy, exactly as
  * upstream's `bwrapProfileArgs` does.
@@ -58,22 +70,22 @@
  * @param options - profile options.
  * @returns profile arguments, before the `--` separator and the command argv.
  */
-export function bwrapProfileArgs(policy, options = {}) {
-    const args = ["--ro-bind", "/", "/", "--dev", "/dev", "--unshare-pid", "--proc", "/proc", "--die-with-parent"];
-    if (policy.mode === "workspace-write") {
-        if (options.realTmp) {
-            args.push("--bind", "/tmp", "/tmp");
-        }
-        else {
-            args.push("--tmpfs", "/tmp");
-        }
-        args.push("--bind", policy.workspaceRoot, policy.workspaceRoot);
+export function bwrapProfileArgs(policy: { mode: string, workspaceRoot: string }, options: BwrapProfileOptions = {}): string[] {
+  const args = ["--ro-bind", "/", "/", "--dev", "/dev", "--unshare-pid", "--proc", "/proc", "--die-with-parent"];
+  if (policy.mode === "workspace-write") {
+    if (options.realTmp) {
+      args.push("--bind", "/tmp", "/tmp");
+    } else {
+      args.push("--tmpfs", "/tmp");
     }
-    if (options.maskWindowsDrive) {
-        args.push("--tmpfs", "/mnt");
-    }
-    return args;
+    args.push("--bind", policy.workspaceRoot, policy.workspaceRoot);
+  }
+  if (options.maskWindowsDrive) {
+    args.push("--tmpfs", "/mnt");
+  }
+  return args;
 }
+
 /**
  * The argv prefix that runs one command (or one resident) inside the profile.
  *
@@ -86,6 +98,6 @@ export function bwrapProfileArgs(policy, options = {}) {
  * @param options - profile options, passed through to {@link bwrapProfileArgs}.
  * @returns argv to insert before the command, as the transport receives it.
  */
-export function bwrapArgvPrefix(policy, options = {}) {
-    return ["bwrap", ...bwrapProfileArgs(policy, options), "--"];
+export function bwrapArgvPrefix(policy: { mode: string, workspaceRoot: string }, options: BwrapProfileOptions = {}): string[] {
+  return ["bwrap", ...bwrapProfileArgs(policy, options), "--"];
 }

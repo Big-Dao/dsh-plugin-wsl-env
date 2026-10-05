@@ -101,6 +101,17 @@ a real type predicate), and `git-route`/`search-route` (the two spawn
 rewrites; their generated artifacts are byte-identical modulo whitespace).
 Nine of the thirty-six modules now have TypeScript sources.
 
+Six more follow — `terminal-route`, `preset-choice`, `ports`, `bwrap`,
+`agent-confined` and `agent-shared` — and they cross a structural line: a
+source may now import a module that is not migrated yet. `rootDirs` merges
+`src/` and `lib/` for resolution, so `./agent.js` resolves through the
+generated `lib/agent.d.ts` while the emitted specifier stays `./agent.js`;
+because that merge also pulls declarations in as program inputs, pass 1 now
+emits into a scratch directory the build script copies from, keeping inputs
+and outputs disjoint (TS5055 otherwise). `agent-shared`'s generated artifact
+is byte-identical even after whitespace normalization; the rest differ only
+by tsc's statement reflow. Fifteen of the thirty-six modules are TypeScript.
+
 ## [0.7.5] - 2026-10-05
 
 One theme: a failed environment probe retries instead of being trusted

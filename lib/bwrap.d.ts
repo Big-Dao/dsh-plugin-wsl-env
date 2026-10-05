@@ -17,16 +17,22 @@
  * This module imports nothing, so a bare checkout can assert the argv both sites
  * actually produce.
  *
+ * This is a TypeScript source built to `lib/bwrap.js`; edit THIS file and run
+ * `pnpm run build` — the artifact under `lib/` is generated, and `pnpm test`
+ * fails when it drifts.
+ *
  * @module dsh-plugin-wsl/bwrap
  */
-/**
- * Profile options shared by the two confinement sites.
- *
- * @typedef {object} BwrapProfileOptions
- * @property {boolean} [maskWindowsDrive] - shadow `/mnt` with an empty tmpfs.
- * @property {boolean} [realTmp] - workspace-write binds the real `/tmp` read-write
- *   instead of mounting an ephemeral tmpfs over it.
- */
+/** Profile options shared by the two confinement sites. */
+export interface BwrapProfileOptions {
+    /** Shadow `/mnt` with an empty tmpfs. */
+    maskWindowsDrive?: boolean;
+    /**
+     * Workspace-write binds the real `/tmp` read-write instead of mounting an
+     * ephemeral tmpfs over it.
+     */
+    realTmp?: boolean;
+}
 /**
  * Build the bwrap profile arguments for one file-effect policy, exactly as
  * upstream's `bwrapProfileArgs` does.
@@ -58,20 +64,14 @@
  * resident. Read-only mode mounts no `/tmp` at all, so the option is inert
  * there.
  *
- * @param {{mode: string, workspaceRoot: string}} policy - the policy to express as bwrap mounts.
- * @param {object} options - profile options.
- * @param {boolean} [options.maskWindowsDrive] - shadow `/mnt` with an empty tmpfs.
- * @param {boolean} [options.realTmp] - workspace-write binds the real `/tmp` read-write
- *   instead of mounting an ephemeral tmpfs over it.
- * @returns {string[]} profile arguments, before the `--` separator and the command argv.
+ * @param policy - the policy to express as bwrap mounts.
+ * @param options - profile options.
+ * @returns profile arguments, before the `--` separator and the command argv.
  */
-export function bwrapProfileArgs(policy: {
+export declare function bwrapProfileArgs(policy: {
     mode: string;
     workspaceRoot: string;
-}, options?: {
-    maskWindowsDrive?: boolean | undefined;
-    realTmp?: boolean | undefined;
-}): string[];
+}, options?: BwrapProfileOptions): string[];
 /**
  * The argv prefix that runs one command (or one resident) inside the profile.
  *
@@ -80,25 +80,11 @@ export function bwrapProfileArgs(policy: {
  * options. `workspaceRoot` must already be spelled as a Linux path inside the
  * distro; the callers own that translation.
  *
- * @param {{mode: string, workspaceRoot: string}} policy - the resolved policy: `mode`, plus the Linux `workspaceRoot`.
- * @param {BwrapProfileOptions} options - profile options, passed through to {@link bwrapProfileArgs}.
- * @returns {string[]} argv to insert before the command, as the transport receives it.
+ * @param policy - the resolved policy: `mode`, plus the Linux `workspaceRoot`.
+ * @param options - profile options, passed through to {@link bwrapProfileArgs}.
+ * @returns argv to insert before the command, as the transport receives it.
  */
-export function bwrapArgvPrefix(policy: {
+export declare function bwrapArgvPrefix(policy: {
     mode: string;
     workspaceRoot: string;
 }, options?: BwrapProfileOptions): string[];
-/**
- * Profile options shared by the two confinement sites.
- */
-export type BwrapProfileOptions = {
-    /**
-     * - shadow `/mnt` with an empty tmpfs.
-     */
-    maskWindowsDrive?: boolean | undefined;
-    /**
-     * - workspace-write binds the real `/tmp` read-write
-     * instead of mounting an ephemeral tmpfs over it.
-     */
-    realTmp?: boolean | undefined;
-};

@@ -21,7 +21,8 @@
  * paths), and the artifacts stay committed — see CONTRIBUTING, "The build".
  */
 import { execFileSync } from "node:child_process";
-import { readdirSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -33,8 +34,13 @@ const TSC = join(ROOT, "node_modules", "typescript", "bin", "tsc");
  * Run one build config, inheriting stdio so compiler errors are visible.
  * @param {string} config - the build config to run.
  */
-function build(config) {
-  execFileSync(process.execPath, [TSC, "-p", join(ROOT, config)], { cwd: ROOT, stdio: "inherit" });
+/**
+ * Run one build config, inheriting stdio so compiler errors are visible.
+ * @param {string} config - the build config to run.
+ * @param {string[]} [extraArgs] - extra compiler arguments (an output-dir override, say).
+ */
+function build(config, extraArgs = []) {
+  execFileSync(process.execPath, [TSC, "-p", join(ROOT, config), ...extraArgs], { cwd: ROOT, stdio: "inherit" });
 }
 
 /**
@@ -50,7 +56,22 @@ function firstPassDeclarations() {
   );
 }
 
-build("tsconfig.build.json");
+// Pass 1 emits the TypeScript sources' declarations into a scratch directory
+// and the JavaScript straight into lib/. The split exists because a source may
+// import a module that is not migrated yet: `rootDirs` (tsconfig.build.json)
+// resolves `./x.js` through lib/x.d.ts, which pulls the declaration graph in
+// as INPUTS — and those paths can equal the declarations pass 1 would write,
+// which TypeScript refuses (TS5055: output would overwrite input). Emitting
+// into scratch and copying back keeps outputs and inputs disjoint.
+const declarations = mkdtempSync(join(tmpdir(), "dsh-wsl-dts-"));
+try {
+  build("tsconfig.build.json", ["--declarationDir", declarations]);
+  for (const name of readdirSync(declarations)) {
+    copyFileSync(join(declarations, name), join(ROOT, "lib", name));
+  }
+} finally {
+  rmSync(declarations, { recursive: true, force: true });
+}
 
 const owned = firstPassDeclarations();
 for (const name of readdirSync(join(ROOT, "lib"))) {

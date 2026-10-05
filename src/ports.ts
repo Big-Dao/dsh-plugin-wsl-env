@@ -19,20 +19,38 @@
  *
  * @module dsh-plugin-wsl/ports
  */
+
 import type { AgentExecRunner } from "./agent-exec.js";
+
 /**
  * Parse one `/proc/net/tcp{,6}` body into listening ports.
  *
  * @param text - the file's content.
  * @returns deduplicated listening ports, ascending.
  */
-export declare function parseListeningPorts(text: string): number[];
+export function parseListeningPorts(text: string): number[] {
+  const ports = new Set<number>();
+  for (const line of text.split("\n").slice(1)) {
+    const columns = line.trim().split(/\s+/);
+    // sl, local_address, rem_address, st, ... — st 0A is LISTEN.
+    if (columns.length < 4 || columns[3] !== "0A") continue;
+    const portHex = columns[1].split(":")[1];
+    if (portHex === undefined) continue;
+    const port = Number.parseInt(portHex, 16);
+    if (Number.isFinite(port) && port > 0) ports.add(port);
+  }
+  return [...ports].sort((a, b) => a - b);
+}
+
 /**
  * The shell script that prints both proc files' contents.
  *
  * @returns the `sh -c` body.
  */
-export declare function procNetScript(): string;
+export function procNetScript(): string {
+  return "cat /proc/net/tcp /proc/net/tcp6 2>/dev/null";
+}
+
 /**
  * Snapshot the distro's listening ports through the agent.
  *
@@ -41,4 +59,12 @@ export declare function procNetScript(): string;
  * @returns listening ports, ascending; [] on any failure — a snapshot is a
  *   convenience, never an error the session should see.
  */
-export declare function listeningPorts(runner: AgentExecRunner, timeoutMs?: number): Promise<number[]>;
+export async function listeningPorts(runner: AgentExecRunner, timeoutMs = 10000): Promise<number[]> {
+  try {
+    const result = await runner.exec({ cwd: "/", argv: ["sh", "-c", procNetScript(), "ports"], timeoutMs });
+    if (result.exitCode !== 0) return [];
+    return parseListeningPorts(result.stdout.toString("utf8"));
+  } catch {
+    return [];
+  }
+}

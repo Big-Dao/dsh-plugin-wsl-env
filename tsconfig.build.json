@@ -8,6 +8,7 @@
     "strict": true,
     "skipLibCheck": true,
     "rootDir": "src",
+    "rootDirs": ["./src", "./lib"],
     "outDir": "lib",
     "declaration": true,
     "noEmitOnError": true,

@@ -155,6 +155,13 @@ parameter the JSDoc already documented). Thirty of the thirty-six modules
 are TypeScript; the remaining six are `agent`, `fsio-agent`, `picker`,
 `subprocess`, `workspace-files-wsl` and `index`.
 
+`picker` follows — the biggest single module migrated so far after the
+protocol file itself (494 lines). Its config, the cached distro listing and
+the per-distro home map are `declare`d so the emitted JavaScript stays
+byte-identical, and the browse capability object stays an inline class field,
+which is how the original script wrote it. Thirty-one of the thirty-six
+modules are TypeScript.
+
 ## [0.7.5] - 2026-10-05
 
 One theme: a failed environment probe retries instead of being trusted

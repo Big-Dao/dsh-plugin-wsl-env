@@ -220,6 +220,22 @@ types, with `src/` checked by the build program (`noEmitOnError`); and
 `src/<name>.ts`, every source has both artifacts), so "`lib/` is entirely
 generated" is a checked property rather than a convention.
 
+The real-machine probes then re-ran green on the migrated tree — 12 of 12, the
+one verification face CI cannot cover (its self-hosted leg is skipped):
+filesystem mutation through the throwaway wslfs profile, terminal, mode,
+missing-wsl, bwrap, the shell confinement wiring, sandbox-off, picker, agent
+protocol, watch, substrate and exec. The run surfaced two defects in the probe
+harness itself. `ELECTRON_RUN_AS_NODE` — the flag that boots the harness CLI in
+node mode — never crossed the WSL interop boundary: interop hands a Windows
+process only the variables `WSLENV` lists, so the inline assignment was dropped
+and the app booted as its GUI self, leaving the probe waiting on a process that
+would never run; `test/probe/env.sh` lists the flag now, composed with any
+`WSLENV` the caller had. And the kill-cleanup check counted every `sleep` in
+the distro, which the resident agent's lease watchdog — introduced after the
+probes last ran — makes non-zero by construction, alongside in-flight timeout
+watchers; the check counts its own command line now, so a kill that really
+leaked still fails it.
+
 ## [0.7.5] - 2026-10-05
 
 One theme: a failed environment probe retries instead of being trusted

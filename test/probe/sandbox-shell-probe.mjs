@@ -174,17 +174,20 @@ async function run(ctx, config) {
     // A command that outlives its deadline must not leave a process behind in the
     // distro. The escalated path is the conservative case: a confined command also
     // dies with its `bwrap` parent, so this one relies on the subprocess service's
-    // kill actually reaching the distro.
-    const killed = await execDefaulted("sleep 120", config.home, "danger-full-access", 1500);
+    // kill actually reaching the distro. The count is scoped to this probe's own
+    // command line on purpose — the distro legitimately holds other `sleep`s (the
+    // resident agent's lease watchdog among them), and a global `pgrep -x sleep`
+    // measures those instead of the kill under test.
+    const killed = await execDefaulted("sleep 137", config.home, "danger-full-access", 1500);
     check("a command past its deadline is reported as timed out", killed.timedOut === true || killed.exitCode !== 0, `timedOut=${String(killed.timedOut)} exit=${killed.exitCode}`);
     let survivors = "?";
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      const counted = await execDefaulted("pgrep -x sleep | wc -l", config.home, "danger-full-access");
+      const counted = await execDefaulted("pgrep -f '^sleep 137$' | wc -l", config.home, "danger-full-access");
       survivors = counted.stdout.text.trim();
       if (survivors === "0") break;
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
-    check("a killed command leaves no process behind in the distro", survivors === "0", `pgrep -x sleep = ${survivors}`);
+    check("a killed command leaves no process behind in the distro", survivors === "0", `pgrep -f '^sleep 137$' = ${survivors}`);
 
     // Clean up through the unconfined path: the sandbox cannot remove what it
     // never wrote.

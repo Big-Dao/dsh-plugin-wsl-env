@@ -62,6 +62,14 @@ export DSH_WSL_ENV_HOME="${DSH_WSL_ENV_HOME:-$HOME}"
 export DSH_WSL_ENV_WORKSPACE_LINUX="$LINUX"
 export DSH_WSL_ENV_WORKSPACE_UNC="$UNC"
 
+# WSL's interop boundary hands a Linux process's environment to a Windows
+# process only for the names WSLENV lists — a plain `VAR=x app.exe` assignment
+# is dropped on the floor. The probes boot the harness CLI in node mode with
+# exactly that kind of assignment (`ELECTRON_RUN_AS_NODE=1`), so the flag has
+# to be listed here, composed with any WSLENV the caller already had; without
+# it the app boots as its GUI self and the probe never runs.
+export WSLENV="${WSLENV:+$WSLENV:}ELECTRON_RUN_AS_NODE"
+
 # Generate one overlay from its checked-in template, substituting this machine's
 # values. The templates carry @NAME@ placeholders precisely so that no user name or
 # distro name has to live in the repository.

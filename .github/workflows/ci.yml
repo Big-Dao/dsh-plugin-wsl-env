@@ -39,8 +39,12 @@ jobs:
         # path logic is exercised on both platform families. The Windows legs also
         # prove that the LF guarantee in .gitattributes holds on the platform whose
         # default is CRLF, which is what the shipped shell scripts depend on.
+        #
+        # Node 20 is absent on purpose: the harness host itself requires
+        # ^22.19.0 || >=24.0.0, and pnpm 11 needs Node >= 22.13 — legs testing the
+        # plugin on Node 20 would exercise a configuration no deployment reaches.
         os: [ubuntu-latest, windows-latest]
-        node: ["20", "22", "24"]
+        node: ["22", "24"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

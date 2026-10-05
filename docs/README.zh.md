@@ -143,7 +143,7 @@ pnpm run probe:mode           # 哪些 POSIX 权限事实能穿过共享层（�
 pnpm run probe:sandbox-off    # 验证 sandbox: false 确实解除两侧约束（仅 Windows + WSL）
 ```
 
-首次运行前先 `pnpm install` 一次，复原钉版的开发依赖：0.7.x 的测试会 import 钉版的 `@deepseek-ai/*` 包（组合与启动测试跑的是 loader 的真实 patch 算法），运行时包本身仍然保持零依赖。pnpm 由 `packageManager` 字段解析，任何开了 corepack 的 Node 都能直接用。CI 在 Linux 和 Windows 上用 Node 20、22、24 运行 `pnpm test`，并在 Node 24 上运行 `pnpm run test:coverage`。
+首次运行前先 `pnpm install` 一次，复原钉版的开发依赖：0.7.x 的测试会 import 钉版的 `@deepseek-ai/*` 包（组合与启动测试跑的是 loader 的真实 patch 算法），运行时包本身仍然保持零依赖。pnpm 由 `packageManager` 字段解析，任何开了 corepack 的 Node 都能直接用。CI 在 Linux 和 Windows 上用 Node 22、24 运行 `pnpm test`，并在 Node 24 上运行 `pnpm run test:coverage`；`engines` 与 harness 宿主自身的下限（`^22.19.0 || >=24.0.0`）保持一致。
 
 [docs/ARCHITECTURE.md](ARCHITECTURE.md) 有文件布局、挂载方式和沙箱设计；[CONTRIBUTING.md](../CONTRIBUTING.md) 有开发循环、完整质量门清单和已验证内容。
 

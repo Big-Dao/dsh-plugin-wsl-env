@@ -18,8 +18,10 @@ One theme: the toolchain moves from npm to pnpm. `pnpm-lock.yaml` replaces
 matching the harness repository), and the three dependencies with install
 scripts (`@deepseek-ai/dsh-subprocess-local`, `koffi`, `node-pty`) are
 allow-listed in `pnpm-workspace.yaml` — pnpm 11 blocks dependency build
-scripts by default. Alongside: the per-target lock test drops its unused
-`withResolvers` gate, which hung the Node 20 leg on every push.
+scripts by default. With it: `engines` and the CI matrix align with the harness
+host's own floor (`^22.19.0 || >=24.0.0`), so the Node 20 legs are gone, and
+the per-target lock test drops its unused `withResolvers` gate, a Node 22+ API
+that hung those legs on every push.
 
 ## [0.7.5] - 2026-10-05
 

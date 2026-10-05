@@ -152,7 +152,7 @@ pnpm run probe:mode           # which POSIX-mode facts survive the share (Window
 pnpm run probe:sandbox-off    # prove sandbox: false unconfines both providers (Windows + WSL only)
 ```
 
-One `pnpm install` reproduces the pinned development dependencies before the first run: the 0.7.x tests import pinned `@deepseek-ai/*` packages (the composition and boot tests exercise the loader's real patch algorithm), while the runtime package itself still ships zero dependencies. pnpm is resolved through the `packageManager` field, so any corepack-enabled Node works. CI runs `pnpm test` on Node 20, 22 and 24, on Linux and Windows, and `pnpm run test:coverage` on Node 24.
+One `pnpm install` reproduces the pinned development dependencies before the first run: the 0.7.x tests import pinned `@deepseek-ai/*` packages (the composition and boot tests exercise the loader's real patch algorithm), while the runtime package itself still ships zero dependencies. pnpm is resolved through the `packageManager` field, so any corepack-enabled Node works. CI runs `pnpm test` on Node 22 and 24, on Linux and Windows, and `pnpm run test:coverage` on Node 24; `engines` matches the harness host's own floor (`^22.19.0 || >=24.0.0`).
 
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has the file layout, the mounting, and the sandbox design. [CONTRIBUTING.md](CONTRIBUTING.md) has the development loop, the full gate list, and what has been verified.
 

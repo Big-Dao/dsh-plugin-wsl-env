@@ -10,7 +10,7 @@ the conventions this repository uses.
 | Windows 10 or 11 | the plugin targets Windows only |
 | WSL2 with at least one distro | `wsl.exe -l -v` lists the installed distros |
 | `bubblewrap` in the distro | `sudo apt install bubblewrap`. The sandbox fails closed without it. |
-| Node 20, 22, or 24 | the versions CI runs. `engines` requires `>=20`. |
+| Node 22.19+, or 24 | the versions CI runs. `engines` requires `^22.19.0 \|\| >=24.0.0`, the harness host's own floor. |
 
 ## Toolchain
 
@@ -89,7 +89,7 @@ Every script above is wired in `package.json`. `pnpm test` runs `lint:style`,
 `test:syntax` and `test:unit` in that order. `prepublishOnly` runs `pnpm test` again
 at publish time, so a broken gate stops a release before the upload.
 
-CI runs `pnpm test` on Node 20, 22 and 24, on both `ubuntu-latest` and
+CI runs `pnpm test` on Node 22 and 24, on both `ubuntu-latest` and
 `windows-latest`, and `pnpm run test:coverage` on Node 24. The Windows runners are
 there because the plugin targets Windows; the coverage thresholds need Node 22.8 or
 newer, which is why that job runs on one version.

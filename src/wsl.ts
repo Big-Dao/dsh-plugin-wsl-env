@@ -12,10 +12,26 @@
  *
  * @module dsh-plugin-wsl/wsl
  */
+
 import { execFile } from "node:child_process";
 import { posixToUnc } from "./paths.js";
+
+/**
+ * What every `wsl.exe` call may tune: the executable path and cancellation.
+ */
+export interface WslCallOptions {
+  /**
+   * Executable name or absolute path; defaults to `wsl.exe`, resolved through
+   * PATH.
+   */
+  wslPath?: string;
+  /** Optional cancellation. */
+  signal?: AbortSignal;
+}
+
 /** Default executable name; resolution is left to PATH. */
 export const DEFAULT_WSL_PATH = "wsl.exe";
+
 /**
  * The deadline every `wsl.exe` call runs under, when the caller names none.
  *
@@ -27,6 +43,7 @@ export const DEFAULT_WSL_PATH = "wsl.exe";
  * genuinely wants to wait forever.
  */
 export const DEFAULT_WSL_DEADLINE_MS = 60_000;
+
 /**
  * Run one host command and capture UTF-8 output.
  *
@@ -41,44 +58,57 @@ export const DEFAULT_WSL_DEADLINE_MS = 60_000;
  * @returns captured stdout.
  * @throws the execFile error, with a hint attached when the cause is the sandbox.
  */
-export function runCapture(argv, signal, deadlineMs = DEFAULT_WSL_DEADLINE_MS) {
-    const [file, ...args] = argv;
-    return new Promise((resolve, reject) => {
-        execFile(file, args, { env: { ...process.env, WSL_UTF8: "1" }, windowsHide: true, signal, encoding: "utf8", timeout: deadlineMs }, (error, stdout, stderr) => {
-            if (error) {
-                // A denied WSL call is the likeliest failure here and its own message
-                // is unhelpful, so name the cause when it is recognisable.
-                const detail = `${stdout ?? ""}${stderr ?? ""}`.replace(/\u0000/g, "").trim();
-                const denied = /E_ACCESSDENIED/i.test(detail) || error.code === "EACCES";
-                const missing = error.code === "ENOENT";
-                // The deadline kill arrives as a SIGTERM with no WSL diagnostic, so
-                // it must be named for what it is — not left looking like WSL's own
-                // failure. An abort is cancellation, not a deadline.
-                const stuck = error.killed === true && error.name !== "AbortError";
-                error.message = `${file} failed: ${detail || error.message}${denied
-                    ? " (WSL is unreachable from a sandboxed process: DSH's Windows ACL sandbox runs commands under a restricted low-integrity token. Compose the non-sandboxing providers.)"
-                    : ""}${missing
-                    ? ` (the executable "${file}" could not be started: check \`wslPath\` in this row, and that WSL is installed)`
-                    : ""}${stuck
-                    ? ` (no completion within ${deadlineMs}ms — the WSL service may be wedged; retry once, then \`wsl.exe --shutdown\` and reopen)`
-                    : ""}`;
-                reject(error);
-                return;
-            }
-            resolve(String(stdout ?? "").replace(/\u0000/g, ""));
-        });
-    });
+export function runCapture(argv: string[], signal?: AbortSignal, deadlineMs = DEFAULT_WSL_DEADLINE_MS): Promise<string> {
+  const [file, ...args] = argv;
+  return new Promise((resolve, reject) => {
+    execFile(
+      file,
+      args,
+      { env: { ...process.env, WSL_UTF8: "1" }, windowsHide: true, signal, encoding: "utf8", timeout: deadlineMs },
+      (error, stdout, stderr) => {
+        if (error) {
+          // A denied WSL call is the likeliest failure here and its own message
+          // is unhelpful, so name the cause when it is recognisable.
+          const detail = `${stdout ?? ""}${stderr ?? ""}`.replace(/\u0000/g, "").trim();
+          const denied = /E_ACCESSDENIED/i.test(detail) || error.code === "EACCES";
+          const missing = error.code === "ENOENT";
+          // The deadline kill arrives as a SIGTERM with no WSL diagnostic, so
+          // it must be named for what it is — not left looking like WSL's own
+          // failure. An abort is cancellation, not a deadline.
+          const stuck = error.killed === true && error.name !== "AbortError";
+          error.message = `${file} failed: ${detail || error.message}${
+            denied
+              ? " (WSL is unreachable from a sandboxed process: DSH's Windows ACL sandbox runs commands under a restricted low-integrity token. Compose the non-sandboxing providers.)"
+              : ""
+          }${
+            missing
+              ? ` (the executable "${file}" could not be started: check \`wslPath\` in this row, and that WSL is installed)`
+              : ""
+          }${
+            stuck
+              ? ` (no completion within ${deadlineMs}ms — the WSL service may be wedged; retry once, then \`wsl.exe --shutdown\` and reopen)`
+              : ""
+          }`;
+          reject(error);
+          return;
+        }
+        resolve(String(stdout ?? "").replace(/\u0000/g, ""));
+      },
+    );
+  });
 }
+
 /**
  * List installed distros with `wsl.exe -l -q`.
  *
  * @param options - the `wsl.exe` path and optional cancellation.
  * @returns distro names in WSL's own order, default distro first.
  */
-export async function listDistros(options = {}) {
-    const stdout = await runCapture([options.wslPath ?? DEFAULT_WSL_PATH, "-l", "-q"], options.signal);
-    return parseDistroList(stdout);
+export async function listDistros(options: WslCallOptions = {}): Promise<string[]> {
+  const stdout = await runCapture([options.wslPath ?? DEFAULT_WSL_PATH, "-l", "-q"], options.signal);
+  return parseDistroList(stdout);
 }
+
 /**
  * Parse `wsl.exe -l -q` output into distro names. A pure seam so the CRLF and
  * blank-line shapes of the real output are unit-testable on hosts without
@@ -87,12 +117,13 @@ export async function listDistros(options = {}) {
  * @param stdout - the raw `wsl.exe -l -q` stdout.
  * @returns distro names, default distro first.
  */
-export function parseDistroList(stdout) {
-    return String(stdout)
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0);
+export function parseDistroList(stdout: string): string[] {
+  return String(stdout)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
 }
+
 /**
  * Resolve the distro to use when none is configured: WSL's own default.
  *
@@ -100,12 +131,12 @@ export function parseDistroList(stdout) {
  * @returns the first entry of {@link listDistros}.
  * @throws when no distro is installed.
  */
-export async function defaultDistro(options = {}) {
-    const [first] = await listDistros(options);
-    if (first === undefined)
-        throw new Error("dsh-plugin-wsl: no WSL distro is installed (`wsl.exe -l -q` returned nothing)");
-    return first;
+export async function defaultDistro(options: WslCallOptions = {}): Promise<string> {
+  const [first] = await listDistros(options);
+  if (first === undefined) throw new Error("dsh-plugin-wsl: no WSL distro is installed (`wsl.exe -l -q` returned nothing)");
+  return first;
 }
+
 /**
  * The Linux home directory of a distro's default user, as a Linux path. `$HOME`
  * is set by `wsl.exe` itself from the distro's default user, so this needs no
@@ -116,10 +147,14 @@ export async function defaultDistro(options = {}) {
  * @returns e.g. `/home/andy`.
  * @throws when the distro cannot be queried or reports no home.
  */
-export async function linuxHomePath(distro, options = {}) {
-    const stdout = await runCapture([options.wslPath ?? DEFAULT_WSL_PATH, "-d", distro, "--exec", "sh", "-c", 'printf %s "$HOME"'], options.signal);
-    return parseHomePath(distro, stdout);
+export async function linuxHomePath(distro: string, options: WslCallOptions = {}): Promise<string> {
+  const stdout = await runCapture(
+    [options.wslPath ?? DEFAULT_WSL_PATH, "-d", distro, "--exec", "sh", "-c", 'printf %s "$HOME"'],
+    options.signal,
+  );
+  return parseHomePath(distro, stdout);
 }
+
 /**
  * Validate the distro's reported $HOME. A pure seam: the failure shapes
  * (empty output, a Windows path, mojibake) are unit-testable without
@@ -129,13 +164,14 @@ export async function linuxHomePath(distro, options = {}) {
  * @param stdout - the raw `printf %s "$HOME"` output.
  * @returns the Linux home path.
  */
-export function parseHomePath(distro, stdout) {
-    const home = String(stdout).trim();
-    if (home.length === 0 || !home.startsWith("/")) {
-        throw new Error(`dsh-plugin-wsl: distro "${distro}" reported no usable $HOME (got "${home}")`);
-    }
-    return home;
+export function parseHomePath(distro: string, stdout: string): string {
+  const home = String(stdout).trim();
+  if (home.length === 0 || !home.startsWith("/")) {
+    throw new Error(`dsh-plugin-wsl: distro "${distro}" reported no usable $HOME (got "${home}")`);
+  }
+  return home;
 }
+
 /**
  * The same home in the world coordinate system, which is what a host-side
  * consumer needs.
@@ -145,9 +181,10 @@ export function parseHomePath(distro, stdout) {
  * @returns e.g. `\\wsl.localhost\ubuntu\home\andy`.
  * @throws when the distro cannot be queried or reports no home.
  */
-export async function linuxHome(distro, options = {}) {
-    return posixToUnc(distro, await linuxHomePath(distro, options));
+export async function linuxHome(distro: string, options: WslCallOptions = {}): Promise<string> {
+  return posixToUnc(distro, await linuxHomePath(distro, options));
 }
+
 /**
  * Shells known to accept the combined POSIX `-lc` login-plus-command form.
  *
@@ -157,6 +194,7 @@ export async function linuxHome(distro, options = {}) {
  * — it just does not get login-shell semantics.
  */
 const POSIX_LOGIN_SHELLS = new Set(["sh", "bash", "dash", "zsh", "ksh", "ksh93", "mksh", "ash", "busybox"]);
+
 /**
  * The argv flags that make `shell` run `command`, with login semantics when the
  * shell supports them.
@@ -165,12 +203,12 @@ const POSIX_LOGIN_SHELLS = new Set(["sh", "bash", "dash", "zsh", "ksh", "ksh93",
  * @param login - whether login-shell semantics were requested.
  * @returns the flags to place before the command string.
  */
-export function shellArgs(shellPath, login) {
-    const name = String(shellPath).slice(String(shellPath).lastIndexOf("/") + 1).toLowerCase();
-    if (!POSIX_LOGIN_SHELLS.has(name))
-        return ["-c"];
-    return login ? ["-lc"] : ["-c"];
+export function shellArgs(shellPath: string, login: boolean): string[] {
+  const name = String(shellPath).slice(String(shellPath).lastIndexOf("/") + 1).toLowerCase();
+  if (!POSIX_LOGIN_SHELLS.has(name)) return ["-c"];
+  return login ? ["-lc"] : ["-c"];
 }
+
 /**
  * The working directory `wsl.exe` could not enter, when its relay said so.
  *
@@ -188,11 +226,12 @@ export function shellArgs(shellPath, login) {
  * @param stderr - its captured stderr; absent reads as empty.
  * @returns the directory that could not be entered, or undefined.
  */
-export function workdirFailure(stdout, stderr) {
-    const text = `${stdout ?? ""}\n${stderr ?? ""}`.replace(/\0/g, "");
-    const match = /<3>WSL[^\n]*CreateProcessCommon[^\n]*chdir\(([^)]*)\) failed/.exec(text);
-    return match?.[1];
+export function workdirFailure(stdout?: string, stderr?: string): string | undefined {
+  const text = `${stdout ?? ""}\n${stderr ?? ""}`.replace(/\0/g, "");
+  const match = /<3>WSL[^\n]*CreateProcessCommon[^\n]*chdir\(([^)]*)\) failed/.exec(text);
+  return match?.[1];
 }
+
 /**
  * Shells whose `-l` flag means a login shell.
  *
@@ -202,6 +241,7 @@ export function workdirFailure(stdout, stderr) {
  * nushell/xonsh use long flags, so they deliberately get nothing.
  */
 const LOGIN_FLAG_SHELLS = new Set([...POSIX_LOGIN_SHELLS, "fish"]);
+
 /**
  * The flags that make an interactive shell a login shell.
  *
@@ -213,10 +253,30 @@ const LOGIN_FLAG_SHELLS = new Set([...POSIX_LOGIN_SHELLS, "fish"]);
  * @param login - whether login-shell semantics were requested.
  * @returns `["-l"]`, or an empty array for a shell whose login flag differs.
  */
-export function interactiveShellArgs(shellPath, login) {
-    const name = String(shellPath).slice(String(shellPath).lastIndexOf("/") + 1).toLowerCase();
-    return login && LOGIN_FLAG_SHELLS.has(name) ? ["-l"] : [];
+export function interactiveShellArgs(shellPath: string, login: boolean): string[] {
+  const name = String(shellPath).slice(String(shellPath).lastIndexOf("/") + 1).toLowerCase();
+  return login && LOGIN_FLAG_SHELLS.has(name) ? ["-l"] : [];
 }
+
+/**
+ * What {@link wslTerminalArgv} reads: the `wsl.exe` path, distro, optional
+ * shell, its args, working directory and login mode.
+ */
+export interface WslTerminalOptions {
+  /** Executable name or absolute path. */
+  wslPath?: string;
+  /** Distro name; omitted from the argv when empty. */
+  distro?: string;
+  /** Absolute path to a pinned shell inside the distro. */
+  shellPath?: string;
+  /** The shell's own arguments. */
+  args?: string[];
+  /** The working directory inside the distro. */
+  linuxCwd?: string;
+  /** Whether login-shell semantics were requested. */
+  login?: boolean;
+}
+
 /**
  * The `wsl.exe` argv that opens one interactive shell inside a distro.
  *
@@ -238,14 +298,16 @@ export function interactiveShellArgs(shellPath, login) {
  * @param options - the launch description.
  * @returns the argv to spawn on the host.
  */
-export function wslTerminalArgv(options) {
-    const { wslPath = DEFAULT_WSL_PATH, distro = "", shellPath, args = [], linuxCwd, login = true } = options;
-    const directory = typeof linuxCwd === "string" && linuxCwd.length > 0 ? ["--cd", linuxCwd] : [];
-    const shell = typeof shellPath === "string" && shellPath.length > 0
-        ? ["--exec", shellPath, ...interactiveShellArgs(shellPath, login), ...args]
-        : [];
-    return [wslPath, ...(distro.length > 0 ? ["-d", distro] : []), ...directory, ...shell];
+export function wslTerminalArgv(options: WslTerminalOptions): string[] {
+  const { wslPath = DEFAULT_WSL_PATH, distro = "", shellPath, args = [], linuxCwd, login = true } = options;
+  const directory = typeof linuxCwd === "string" && linuxCwd.length > 0 ? ["--cd", linuxCwd] : [];
+  const shell =
+    typeof shellPath === "string" && shellPath.length > 0
+      ? ["--exec", shellPath, ...interactiveShellArgs(shellPath, login), ...args]
+      : [];
+  return [wslPath, ...(distro.length > 0 ? ["-d", distro] : []), ...directory, ...shell];
 }
+
 /**
  * Managed facts of the `DSH_*` namespace that carry a Windows path. WSL's
  * `WSLENV` `/p` flag translates them on the way into the distro, so a command
@@ -253,6 +315,7 @@ export function wslTerminalArgv(options) {
  * absent: it is already a POSIX path, and translating it would corrupt it.
  */
 const PATH_TRANSLATED_ENV = new Set(["DSH_HOME", "DSH_PROFILE_DIR"]);
+
 /**
  * Render WSLENV's value from the env names a call wants the distro to import.
  *
@@ -262,9 +325,10 @@ const PATH_TRANSLATED_ENV = new Set(["DSH_HOME", "DSH_PROFILE_DIR"]);
  * @param names - env names to reveal to the distro.
  * @returns the `:`-joined WSLENV value.
  */
-export function wslEnvValue(names) {
-    return names.map((name) => (PATH_TRANSLATED_ENV.has(name) ? `${name}/p` : name)).join(":");
+export function wslEnvValue(names: string[]): string {
+  return names.map((name) => (PATH_TRANSLATED_ENV.has(name) ? `${name}/p` : name)).join(":");
 }
+
 /**
  * The `WSL_E_*` code inside `wsl.exe`'s own output, when it reported one.
  *
@@ -279,10 +343,21 @@ export function wslEnvValue(names) {
  * @param stderr - its captured stderr; absent reads as empty.
  * @returns the code, for example `WSL_E_DISTRO_NOT_FOUND`, or undefined.
  */
-export function wslErrorCode(stdout, stderr) {
-    const text = `${stdout ?? ""}\n${stderr ?? ""}`.replace(/\0/g, "");
-    return /WSL_E_[A-Z0-9_]+/.exec(text)?.[0];
+export function wslErrorCode(stdout?: string, stderr?: string): string | undefined {
+  const text = `${stdout ?? ""}\n${stderr ?? ""}`.replace(/\0/g, "");
+  return /WSL_E_[A-Z0-9_]+/.exec(text)?.[0];
 }
+
+/**
+ * What {@link defaultShell} may tune: the `wsl.exe` path and cancellation.
+ */
+export interface WslShellProbeOptions {
+  /** Executable name or absolute path. */
+  wslPath?: string;
+  /** Optional cancellation. */
+  signal?: AbortSignal;
+}
+
 /**
  * Resolve the shell a distro's user actually gets, rather than assuming bash.
  *
@@ -296,31 +371,52 @@ export function wslErrorCode(stdout, stderr) {
  * @returns an absolute path to the shell inside the distro, or undefined when
  *   both probes failed.
  */
-export async function defaultShell(distro, options = {}) {
-    const wslPath = options.wslPath ?? DEFAULT_WSL_PATH;
-    /**
-     * Ask the distro one `sh -c` question; only absolute paths count as answers.
-     *
-     * @param script - the shell snippet to run.
-     * @returns the trimmed answer, or undefined.
-     */
-    const ask = async (script) => {
-        try {
-            const value = (await runCapture([wslPath, "-d", distro, "--exec", "sh", "-c", script], options.signal)).trim();
-            return value.startsWith("/") ? value : undefined;
-        }
-        catch {
-            return undefined;
-        }
-    };
-    // No "bash" placeholder: a failed probe (a cold distro, a flaky first
-    // `wsl.exe` call) used to be pinned as the literal shell for the
-    // executor's lifetime. `undefined` tells the caller both answers failed;
-    // it may retry later or fall back itself.
-    return ((await ask('getent passwd "$(id -u)" | cut -d: -f7')) ??
-        (await ask('printf %s "$SHELL"')) ??
-        undefined);
+export async function defaultShell(distro: string, options: WslShellProbeOptions = {}): Promise<string | undefined> {
+  const wslPath = options.wslPath ?? DEFAULT_WSL_PATH;
+  /**
+   * Ask the distro one `sh -c` question; only absolute paths count as answers.
+   *
+   * @param script - the shell snippet to run.
+   * @returns the trimmed answer, or undefined.
+   */
+  const ask = async (script: string): Promise<string | undefined> => {
+    try {
+      const value = (await runCapture([wslPath, "-d", distro, "--exec", "sh", "-c", script], options.signal)).trim();
+      return value.startsWith("/") ? value : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  // No "bash" placeholder: a failed probe (a cold distro, a flaky first
+  // `wsl.exe` call) used to be pinned as the literal shell for the
+  // executor's lifetime. `undefined` tells the caller both answers failed;
+  // it may retry later or fall back itself.
+  return (
+    (await ask('getent passwd "$(id -u)" | cut -d: -f7')) ??
+    (await ask('printf %s "$SHELL"')) ??
+    undefined
+  );
 }
+
+/**
+ * What {@link runInDistro} reads: the `wsl.exe` path, an explicit shell, and
+ * optional cancellation and login mode.
+ */
+export interface WslRunOptions {
+  /** Executable name or absolute path. */
+  wslPath?: string;
+  /**
+   * An absolute path to the shell; resolved from the distro when omitted.
+   */
+  shell?: string;
+  /** Optional cancellation. */
+  signal?: AbortSignal;
+  /**
+   * Whether login-shell semantics were requested; defaults to true.
+   */
+  loginShell?: boolean;
+}
+
 /**
  * Run one command inside a distro and return raw stdout. Used by callers that
  * want Linux semantics instead of the UNC share's.
@@ -332,10 +428,13 @@ export async function defaultShell(distro, options = {}) {
  * @returns captured stdout.
  * @throws when neither the caller nor the distro names a usable shell.
  */
-export async function runInDistro(distro, command, options = {}) {
-    const shell = options.shell ?? (await defaultShell(distro, options));
-    if (shell === undefined) {
-        throw new Error(`dsh-plugin-wsl: distro "${distro}" named no usable shell (passwd probe and $SHELL both failed)`);
-    }
-    return runCapture([options.wslPath ?? DEFAULT_WSL_PATH, "-d", distro, "--exec", shell, ...shellArgs(shell, options.loginShell !== false), command], options.signal);
+export async function runInDistro(distro: string, command: string, options: WslRunOptions = {}): Promise<string> {
+  const shell = options.shell ?? (await defaultShell(distro, options));
+  if (shell === undefined) {
+    throw new Error(`dsh-plugin-wsl: distro "${distro}" named no usable shell (passwd probe and $SHELL both failed)`);
+  }
+  return runCapture(
+    [options.wslPath ?? DEFAULT_WSL_PATH, "-d", distro, "--exec", shell, ...shellArgs(shell, options.loginShell !== false), command],
+    options.signal,
+  );
 }

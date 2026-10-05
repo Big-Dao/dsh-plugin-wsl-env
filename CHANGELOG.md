@@ -112,6 +112,16 @@ and outputs disjoint (TS5055 otherwise). `agent-shared`'s generated artifact
 is byte-identical even after whitespace normalization; the rest differ only
 by tsc's statement reflow. Fifteen of the thirty-six modules are TypeScript.
 
+The mid-size tier follows: `wsl` (the `wsl.exe` interop primitives — its four
+option shapes are exported interfaces now), `agent-exec` (the agent-backed
+execution handle, whose request/result/runner/handle typedefs the tests and
+`search-exec` already imported by name) and `shell-env` (the `DSH_*` fact
+contributor, typing the harness registry it contributes through structurally,
+as its JSDoc always did). `agent-exec` surfaced one Node typing fact worth
+knowing: `Buffer.alloc(0)` infers `Buffer<ArrayBuffer>` while an incoming
+`Buffer` is `Buffer<ArrayBufferLike>`, so the accumulators are annotated
+`Buffer`. Eighteen of the thirty-six modules are TypeScript now.
+
 ## [0.7.5] - 2026-10-05
 
 One theme: a failed environment probe retries instead of being trusted

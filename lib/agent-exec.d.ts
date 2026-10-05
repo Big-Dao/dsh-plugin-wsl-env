@@ -1,96 +1,68 @@
 /**
- * Run one command through the agent and present it as an execution handle.
+ * An agent-backed implementation of the shell execution handle.
  *
- * @param {object} request - the execution request.
- * @param {AgentExecRunner} request.agent - the {@link WslAgent}-like runner: `exec`
- *   accepting `{cwd, argv, timeoutMs, signal}` and resolving
- *   `{exitCode, stdout, stderr}`; throws `AgentUnavailableError` when out.
- * @param {string} request.cwd - Linux workdir.
- * @param {string[]} request.argv - the distro-side argv, bwrap-wrapped when confined.
- * @param {number} [request.timeoutMs] - whole-command budget; the agent TERMs
- *   at the ceiling second and KILLs after its grace.
- * @param {number} [request.maxOutputBytes] - per-stream capture ceiling the
- *   agent enforces; the handle reports a cut stream as `truncated: true`.
- * @param {AbortSignal} [request.signal] - the caller's cancellation.
- * @param {(proc: object) => void} [request.onStarted] - provider-facts hook,
- *   called synchronously before the handle can settle.
- * @returns {AgentExecutionHandle} the execution handle (`status`, `exitCode`, `signal`,
- *   `observed`, `done`, `readOutput`, `kill`, `result`).
+ * `LocalBashExecutor.executeArgv` builds its handle around a subprocess spawn:
+ * live output readers with byte offsets, spill files beyond the collect
+ * budget, a deadline that kills the Windows process tree. This module builds
+ * the SAME handle shape around one agent `exec` — the shape `dsh-tool-bash`
+ * consumes, so the tool layer cannot tell which path ran. The deliberate
+ * deviations, documented here rather than hidden:
+ *
+ * - **No spill files; the capture cap is the agent's.** The EXEC frame
+ *   carries the caller's per-stream budget and the AGENT cuts stdout and
+ *   stderr at it, so a chatty command costs bounded distro memory AND bounded
+ *   host memory; the RES line's flags say which streams were cut and the
+ *   handle reports them as `truncated: true`. What the budget spares is the
+ *   upstream spill machinery: the capture is still whole-in-memory, just
+ *   whole-at-a-bounded-size.
+ * - **Killed commands report `SIGTERM`**, not a raw exit status: the
+ *   in-distro timeout and `kill()` both mean "we stopped it", and upstream
+ *   reports its own kills the same way.
+ *
+ * Pure shaping over an injected runner, so the handle semantics are
+ * unit-testable without a distro.
+ *
+ * This is a TypeScript source built to `lib/agent-exec.js`; edit THIS file and
+ * run `pnpm run build` — the artifact under `lib/` is generated, and `pnpm test`
+ * fails when it drifts.
+ *
+ * @module dsh-plugin-wsl/agent-exec
  */
-export function agentExecutionHandle({ agent, cwd, argv, timeoutMs, maxOutputBytes, signal, onStarted }: {
-    agent: AgentExecRunner;
+/** The request one agent `exec` carries. */
+export interface AgentExecRequest {
+    /** Linux workdir. */
     cwd: string;
+    /** The distro-side argv. */
     argv: string[];
-    timeoutMs?: number | undefined;
-    maxOutputBytes?: number | undefined;
-    signal?: AbortSignal | undefined;
-    onStarted?: ((proc: object) => void) | undefined;
-}): AgentExecutionHandle;
-/**
- * The request one agent `exec` carries.
- */
-export type AgentExecRequest = {
-    /**
-     * - Linux workdir.
-     */
-    cwd: string;
-    /**
-     * - the distro-side argv.
-     */
-    argv: string[];
-    /**
-     * - whole-command budget.
-     */
-    timeoutMs?: number | undefined;
-    /**
-     * - extra environment for this request only.
-     */
-    env?: Record<string, string> | undefined;
-    /**
-     * - per-stream capture ceiling.
-     */
-    maxOutputBytes?: number | undefined;
-    /**
-     * - the caller's cancellation.
-     */
-    signal?: AbortSignal | undefined;
-};
-/**
- * What an agent `exec` resolves with.
- */
-export type AgentExecResult = {
-    /**
-     * - the command's exit code.
-     */
+    /** Whole-command budget. */
+    timeoutMs?: number;
+    /** Extra environment for this request only. */
+    env?: Record<string, string>;
+    /** Per-stream capture ceiling. */
+    maxOutputBytes?: number;
+    /** The caller's cancellation. */
+    signal?: AbortSignal;
+}
+/** What an agent `exec` resolves with. */
+export interface AgentExecResult {
+    /** The command's exit code. */
     exitCode: number;
-    /**
-     * - the captured stdout.
-     */
+    /** The captured stdout. */
     stdout: Buffer;
-    /**
-     * - the captured stderr.
-     */
+    /** The captured stderr. */
     stderr: Buffer;
-    /**
-     * - the agent's per-stream capture-cap flags.
-     */
+    /** The agent's per-stream capture-cap flags. */
     truncated?: {
         stdout: boolean;
         stderr: boolean;
-    } | undefined;
-};
-/**
- * The {@link WslAgent}-like runner this module drives.
- */
-export type AgentExecRunner = {
-    /**
-     * - run one command.
-     */
+    };
+}
+/** The {@link WslAgent}-like runner this module drives. */
+export interface AgentExecRunner {
+    /** Run one command. */
     exec: (request: AgentExecRequest) => Promise<AgentExecResult>;
-};
-/**
- * How the exec promise settled: the result, or the failure to propagate.
- */
+}
+/** How the exec promise settled: the result, or the failure to propagate. */
 export type SettledExec = {
     ok: true;
     result: AgentExecResult;
@@ -100,57 +72,38 @@ export type SettledExec = {
     result?: undefined;
     error: unknown;
 };
-/**
- * The memory-reader slice of one output stream.
- */
-export type OutputReader = {
+/** The memory-reader slice of one output stream. */
+export interface OutputReader {
+    /** Read the stream from a byte offset. */
     readFrom: (fromByte: number) => {
         text: string;
         lossy: boolean;
         nextOffset: number;
     };
-};
-/**
- * One settled foreground command, the shape `dsh-tool-bash` consumes.
- */
-export type AgentExecutionHandle = {
-    /**
-     * - the lifecycle state.
-     */
-    status: ("running" | "completed" | "killed");
-    /**
-     * - the exit code; null until settled or when killed.
-     */
+}
+/** One settled foreground command, the shape `dsh-tool-bash` consumes. */
+export interface AgentExecutionHandle {
+    /** The lifecycle state. */
+    status: "running" | "completed" | "killed";
+    /** The exit code; null until settled or when killed. */
     exitCode: number | null;
-    /**
-     * - the terminating signal; null on a clean exit.
-     */
+    /** The terminating signal; null on a clean exit. */
     signal: string | null;
-    /**
-     * - the live output readers.
-     */
+    /** The live output readers. */
     observed: {
         stdout: OutputReader;
         stderr: OutputReader;
     };
-    /**
-     * - settles when the command settles.
-     */
+    /** Settles when the command settles. */
     done: Promise<void>;
-    /**
-     * - the incremental delta reader.
-     */
+    /** The incremental delta reader. */
     readOutput: () => {
         delta: string;
         lossy: boolean;
     };
-    /**
-     * - stop the command; true on the first call only.
-     */
+    /** Stop the command; true on the first call only. */
     kill: () => boolean;
-    /**
-     * - the canonical bash result.
-     */
+    /** The canonical bash result. */
     result: () => Promise<{
         exitCode: number | null;
         signal: string | null;
@@ -168,4 +121,39 @@ export type AgentExecutionHandle = {
             truncated: boolean;
         };
     }>;
-};
+}
+/**
+ * Run one command through the agent and present it as an execution handle.
+ *
+ * @param request - the execution request.
+ * @returns the execution handle (`status`, `exitCode`, `signal`, `observed`,
+ *   `done`, `readOutput`, `kill`, `result`).
+ */
+export declare function agentExecutionHandle({ agent, cwd, argv, timeoutMs, maxOutputBytes, signal, onStarted }: {
+    /**
+     * The {@link WslAgent}-like runner: `exec` accepting
+     * `{cwd, argv, timeoutMs, signal}` and resolving `{exitCode, stdout, stderr}`;
+     * throws `AgentUnavailableError` when out.
+     */
+    agent: AgentExecRunner;
+    /** Linux workdir. */
+    cwd: string;
+    /** The distro-side argv, bwrap-wrapped when confined. */
+    argv: string[];
+    /**
+     * Whole-command budget; the agent TERMs at the ceiling second and KILLs
+     * after its grace.
+     */
+    timeoutMs?: number;
+    /**
+     * Per-stream capture ceiling the agent enforces; the handle reports a cut
+     * stream as `truncated: true`.
+     */
+    maxOutputBytes?: number;
+    /** The caller's cancellation. */
+    signal?: AbortSignal;
+    /**
+     * Provider-facts hook, called synchronously before the handle can settle.
+     */
+    onStarted?: (proc: object) => void;
+}): AgentExecutionHandle;

@@ -132,6 +132,20 @@ twenty-five of thirty-six, the remaining modules are the large ones: `agent`,
 `fs-substrate`, `fsio-agent`, `picker`, `subprocess`, `auto-preset`,
 `workspace-files-*`, `file-reference-wsl`, `fs-routing`, and finally `index`.
 
+The route layer follows — `workspace-files-route` (the pure build/parse pairs
+for the distro-routed file service), `file-reference-wsl` (the `@`-completion
+traversal strategy, with `TraversalDirent`/`FileReferenceTraversal` as
+exported interfaces) and `fs-routing` (the root-plane coordinate router).
+`fs-routing` is where the compiler re-met the documented upstream seam:
+`WslFileSystem.processPathFromHostPath` is async against the `FileSystem`
+interface's synchronous contract, so the router's lazy backend is typed as the
+concrete class rather than casting the mismatch away — the seam keeps its one
+visible `@ts-expect-error` in `index.js`. The port also dropped two dead
+imports `fs-routing` had carried since a refactor (`windowsToLinuxMount`,
+`linuxJoin`), which the emitted artifact no longer contains. The orphaned
+`linuxJoin` doc block above the class — a leftover of that same refactor — is
+gone too. Twenty-eight of the thirty-six modules are TypeScript.
+
 ## [0.7.5] - 2026-10-05
 
 One theme: a failed environment probe retries instead of being trusted

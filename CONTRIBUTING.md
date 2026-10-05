@@ -47,21 +47,23 @@ own `.d.ts` — nothing is invented twice. `types/dsh-services.d.ts` pulls in th
 so `ctx.fs`, `ctx.shell`, `ctx.sandboxPolicy` and friends are typed; it declares
 nothing itself and ships nowhere.
 
-The gate's scope is the whole repository: `lib/**`, `test/**` and the probe
-scripts are all type-checked. The shipped artifact was checked first because it
-is where protocol drift with the pinned peers hurts; the tests and probes came
-next, and the errors they surfaced were real — a test that pinned a raw number
-into an argv, a couple of hand-written JSDoc contracts wider than the code
-(`wslErrorCode`, `gitSpawnRewrite`) and narrower than their seams, and one
-accepted-but-never-enforced byte-window cap in `lib/workspace-files-wsl.js`,
-found because a fake hands the confinement seam an `"full"` enforcement the
-core itself never reports.
+The gate's scope is what is NOT generated: `test/**` (the probe scripts
+included) and the ambient service types the build shares. The sources under
+`src/` are checked by the build program itself (`strict`, `noEmitOnError`),
+which is strictly stronger than checking their emitted JavaScript. The shipped
+artifact was checked first because it is where protocol drift with the pinned
+peers hurts; the tests and probes came next, and the errors they surfaced were
+real — a test that pinned a raw number into an argv, a couple of hand-written
+JSDoc contracts wider than the code (`wslErrorCode`, `gitSpawnRewrite`) and
+narrower than their seams, and one accepted-but-never-enforced byte-window cap
+in the distro-routed file service, found because a fake hands the confinement
+seam an `"full"` enforcement the core itself never reports.
 
 Three patterns keep the check honest:
 
-- A subclass's own config keys are declared as a `@typedef` mirroring its
+- A subclass's own config keys are declared as a type mirroring its
   `static Config` schema and read through one explicit cast — the schema and
-  the typedef can then only drift apart visibly.
+  the type can then only drift apart visibly.
 - A test double is typed as the slice of the seam it scripts (a duck
   `@typedef`) and reaches the seam's declared type through one documented cast
   at the injection point — the cast states which contract the double stands in
@@ -76,43 +78,29 @@ Three patterns keep the check honest:
 The plugin must be loadable from a bare checkout: the harness has no
 transpilation layer, the Windows runtime mirror is a copy of the tree, and the
 tests exercise `lib/*.js` — the published artifact — rather than the sources.
-The TypeScript migration therefore keeps sources in `src/`, built JavaScript
-and declarations in `lib/`, and the artifacts COMMITTED. `pnpm run build`
-(`scripts/build.mjs`) runs two passes:
-
-- **`src/*.ts` → `lib/`** (`tsconfig.build.json`): TypeScript sources, emitted
-  as JavaScript plus their declarations, beside the hand-written modules and
-  under the same export paths as before. A source may import a module that is
-  not migrated yet; `rootDirs` merges `src/` and `lib/` for resolution, so
-  `./x.js` resolves through the neighbouring `lib/x.d.ts` (even transitively)
-  while the emitted specifier stays `./x.js`. That merge also pulls declaration
-  files in as program INPUTS, which can collide with pass 1's own output paths
-  (TS5055), so pass 1 writes its declarations into a scratch directory and the
-  build script copies them into `lib/` — outputs and inputs stay disjoint.
-- **`lib/*.js` → `lib/`** (`tsconfig.dts.json`): declaration-only emit for the
-  hand-written, JSDoc-typed modules — this is what gives every public entry a
-  `.d.ts`. It must run against a CLEAN tree: a stale `.d.ts` sits exactly where
-  TypeScript resolves `./x.js` and is taken as an input, and re-emitting
-  through it silently degrades the result (`index.d.ts` lost a precise type to
-  `any` this way during the migration). The script therefore deletes the
-  declarations the first pass does not own before running the second — they
-  are all build products, and a failed pass leaves them missing rather than
-  stale, which `lint:build` reports loudly.
+Sources live in `src/`, built JavaScript and declarations in `lib/`, and the
+artifacts stay COMMITTED. `pnpm run build` (`scripts/build.mjs`) runs one pass —
+`tsc -p tsconfig.build.json` — emitting every `src/*.ts` as JavaScript plus its
+declaration under the same export paths as the hand-written modules it
+replaced. Imports name the artifact (`./x.js`); `nodenext` resolves that
+through the TypeScript source. The build then prunes declarations no source
+owns (a rename leftover), so `lib/` is exactly the artifacts of `src/`.
 
 Rules that keep this honest:
 
 - Never edit a generated file under `lib/` — its module doc names the source
   to edit and `lint:build` fails the moment the two drift. Generated artifacts
   keep tsc's canonical formatting (four-space, compacted); review `src/` for
-  TypeScript-sourced modules.
-- `lint:build` (`test/build-freshness.mjs`) snapshots every generated file,
-  runs the real build, byte-compares and RESTORES the snapshot — a check, not
-  a rebuild; the remedy for drift is `pnpm run build` plus a commit. It is
-  part of the gate chain after `test:syntax`.
-- Generated files are excluded from the `checkJs` gate in `tsconfig.json`:
-  their sources — the TypeScript, or the declarations themselves — are
-  type-checked instead, with `noEmitOnError` so a broken build never
-  overwrites `lib/`.
+  every module.
+- `lint:build` (`test/build-freshness.mjs`) enforces that the corpus is closed
+  — every `lib/*.js` has its `src/<name>.ts`, every source has both artifacts —
+  then snapshots every generated file, runs the real build, byte-compares and
+  RESTORES the snapshot: a check, not a rebuild; the remedy for drift is
+  `pnpm run build` plus a commit. It is part of the gate chain after
+  `test:syntax`.
+- Generated files are not in the `checkJs` gate at all (`tsconfig.json` covers
+  `test/**` and the ambient types); their sources are type-checked by the build
+  program with `noEmitOnError`, so a broken build never overwrites `lib/`.
 - Every JavaScript export carries its `types` condition (enforced by
   `lint:style`), so downstream resolves these declarations; there is no
   second, hand-written type surface.
@@ -121,18 +109,16 @@ Rules that keep this honest:
   AgentMessage`) instead of restating them, which is how `lib/agent.js` and
   the script-driven tests read them.
 
-### Migrating one module
+### Adding a module
 
-1. Write `src/<name>.ts` from `lib/<name>.js`: move every `@param`/`@returns`
-   type into the signature, keep all prose, and keep every exported NAME —
-   types included, since consumers import them
-   (`import("./paths.js").DistroPath`).
-2. Add `lib/<name>.js` to the `exclude` lists in `tsconfig.json` (the
-   generated JavaScript is checked as its TypeScript source) and
-   `tsconfig.dts.json` (pass 1 owns the declaration now). The build script and
-   `lint:build` derive everything else from `src/`.
-3. `pnpm run build`, then `pnpm test`; the generated JavaScript keeps the same
-   exports and the same runtime behaviour, so the whole suite is the check.
+1. Write `src/<name>.ts`; imports name the artifact (`./x.js`), which
+   `nodenext` resolves through the TypeScript source. Move every type into the
+   signature, keep the prose, and keep every exported NAME — types included,
+   since consumers import them (`import("./paths.js").DistroPath`). Close the
+   module doc with the note that names the generated artifact.
+2. `pnpm run build`, then `pnpm test`. There is no exclude list to maintain and
+   no registration step: the build and `lint:build` derive everything from
+   `src/`, and `lib/` is generated output — never edit it by hand.
 
 ## The development loop
 

@@ -8,11 +8,13 @@
     "strict": true,
     "skipLibCheck": true,
     "rootDir": "src",
-    "rootDirs": ["./src", "./lib"],
     "outDir": "lib",
     "declaration": true,
     "noEmitOnError": true,
     "sourceMap": false
   },
-  "include": ["src/**/*.ts"]
+  // `types/dsh-services.d.ts` pulls in the peer packages' `declare module
+  // '@deepseek-ai/cordis'` augmentations, so `ctx.sandboxPolicy` and friends
+  // are typed in the build program too.
+  "include": ["src/**/*.ts", "types/*.d.ts"]
 }

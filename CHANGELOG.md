@@ -193,6 +193,33 @@ the `readByteRange` expect-error left exactly where it was: that one is an
 open design decision, not a migration artifact. Thirty-five of the thirty-six
 modules are TypeScript; `index` is the last one.
 
+`index` closes the migration — the integration layer's two providers, 1400
+lines, with both documented upstream seams intact: the private `spawnSpec` a
+`wsl.exe` spawn needs, and the `processPathFromHostPath` contract violation,
+keep their `@ts-expect-error` carrying the reason. The generated artifact is
+proven structurally identical to the hand-written module: an AST comparison
+that treats the erased type wrappers (`as`, `@type` casts, parentheses) as
+transparent reports only the imports the source no longer needs — a never-used
+`fileURLToPath`, the dead `isUnderDistro`, and the type-only `WslAgent` (which
+tsc elides; the module still loads through its other edges) — plus tsc's
+reflow and one internal rename in `decorateResult`, whose result row now
+derives from the handle type instead of a second type parameter. `resolve()`
+returns the precise `WslExecSpec` where the JSDoc declared the wider
+`ShellExecSpec`. Thirty-six of thirty-six modules are TypeScript.
+
+The transitional scaffolding then retires, nothing left for it to do:
+`rootDirs` and the scratch declaration emission existed for a mixed tree
+(`src/` sources importing un-migrated `lib/*.js` neighbours), and the
+declaration-only second pass (`tsconfig.dts.json`) existed to give the
+hand-written JavaScript its `.d.ts`. `pnpm run build` is one `tsc` pass
+emitting JavaScript and declarations straight into `lib/`, pruning
+declarations no source owns; the `checkJs` gate drops its 36-entry exclude
+list and states what is NOT generated — `test/**` and the ambient service
+types, with `src/` checked by the build program (`noEmitOnError`); and
+`lint:build` enforces the closed corpus (every `lib/*.js` has its
+`src/<name>.ts`, every source has both artifacts), so "`lib/` is entirely
+generated" is a checked property rather than a convention.
+
 ## [0.7.5] - 2026-10-05
 
 One theme: a failed environment probe retries instead of being trusted

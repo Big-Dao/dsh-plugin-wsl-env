@@ -1,4 +1,161 @@
 /**
+ * dsh-plugin-wsl — run a DeepSeek Harness session against a WSL distro.
+ *
+ * DeepSeek Harness is a Cordis application whose capabilities are exposed as
+ * service seams: `ctx.fs` (filesystem), `ctx.shell` (command execution),
+ * `ctx.sandbox` (confinement), `ctx.directoryPicker`, `ctx.workspaceRegistry`.
+ * The model-facing tools (`dsh-tool-fs`, `dsh-tool-fs-search`, `dsh-tool-bash`)
+ * consume those seams and never talk to a filesystem or a shell directly. A WSL
+ * integration is therefore a seam provider, not a new tool.
+ *
+ * This package provides two of them:
+ *
+ *   - {@link WslShellExecutor} registers `ctx.shell` and runs every command
+ *     inside the distro as `wsl.exe -d <distro> --cd <linux dir> --exec <shell> -lc <cmd>`,
+ *     where `<shell>` is the distro user's login shell (not a hardcoded bash).
+ *   - {@link WslFileSystem} registers `ctx.fs` and maps Linux paths onto the
+ *     distro's UNC share so the host's own fs stack (including the packaged
+ *     ripgrep used by `dsh-tool-fs-search`) reads and writes real distro files.
+ *
+ * ## The one constraint that shapes everything
+ *
+ * On Windows, DSH confines commands with `dsh-sandbox-windows-acl`: a
+ * restricted, low-integrity token plus a capability-SID write allowlist. That
+ * token cannot reach WSL at all — `wsl.exe` fails with `Wsl/E_ACCESSDENIED` and
+ * the UNC share `\\wsl.localhost\<distro>` reports access denied. Both work
+ * normally outside the sandbox.
+ *
+ * The confinement is applied by the *sandboxing* executor (`pwsh-sandbox`),
+ * which wraps the argv through `ctx.sandbox.confine`. This plugin therefore
+ * subclasses the NON-sandboxing `LocalBashExecutor`, and inherits
+ * `sandboxMode === undefined` from the seam — which is the honest capability
+ * fact: the tool layer reads it and advertises that these commands are not
+ * confined. WSL access is inherently outside the harness's file sandbox; do not
+ * paper over that by reporting a mode this provider does not enforce.
+ *
+ * This is a TypeScript source built to `lib/index.js`; edit THIS file and run
+ * `pnpm run build` — the artifact under `lib/` is generated, and `pnpm test`
+ * fails when it drifts.
+ *
+ * @module dsh-plugin-wsl
+ */
+import z from "@deepseek-ai/schemastery";
+import { LocalBashExecutor } from "@deepseek-ai/dsh-bash-local";
+import { LocalFileSystem } from "@deepseek-ai/dsh-fs-local";
+import { FsError } from "@deepseek-ai/dsh-fs";
+import { WslSandbox } from "./sandbox.js";
+import type { WslAgent } from "./agent.js";
+import { AgentSubstrate } from "./fs-substrate.js";
+import type { Context } from "@deepseek-ai/cordis";
+import type { FsDirEntry, FsEditOutcome, FsEditRequest, FsInfo, FsPathInfo, FsTarget, FsVersion, FsWriteIntent, FsWriteOutcome } from "@deepseek-ai/dsh-fs";
+import type { SandboxExecutionPolicy, SandboxMode } from "@deepseek-ai/dsh-sandbox";
+import type { SubprocessSpawnSpec } from "@deepseek-ai/dsh-subprocess";
+/**
+ * Upstream shell vocabulary, derived through `@deepseek-ai/dsh-bash-local` —
+ * this package does not depend on `@deepseek-ai/dsh-shell` directly, so the
+ * execution types ride in through the executor's own signatures.
+ */
+export type ShellExecSpec = Parameters<LocalBashExecutor["execute"]>[0];
+export type ShellExecRequest = Parameters<LocalBashExecutor["resolve"]>[0];
+export type ShellExecution = Awaited<ReturnType<LocalBashExecutor["execute"]>>;
+/**
+ * One confined command's distro-side profile, as the confinement returns it:
+ * the wrapped argv, the enforcement completeness, the denial dialect, the
+ * runner-failure rules and the Windows-drive masking fact.
+ */
+export type ConfinedProfile = Awaited<ReturnType<InstanceType<typeof WslSandbox>["confine"]>>;
+/**
+ * The resolved spec this executor stamps with its home-marker fields: an empty
+ * `workdir` plus the relative tail that {@link WslShellExecutor.withDefaultWorkdir}
+ * joins against the distro home. The extra keys are this provider's own; the
+ * seam's `ShellExecSpec` does not know them.
+ */
+export type WslExecSpec = ShellExecSpec & {
+    relativeWorkdir?: string;
+};
+/**
+ * The WSL shell executor's validated config — the keys of
+ * {@link WslShellExecutor.Config}, which the upstream `LocalBashExecutor`
+ * config type does not know. The seven volatile fields arrive as live
+ * wrappers, so they are spelled as their `.get()` shape (the reading
+ * {@link configuredCwd} and `hostCwd` perform).
+ */
+export interface WslShellExecutorConfig {
+    /** The pinned distro; empty means WSL's default. */
+    distro: string;
+    /** The `wsl.exe` path. */
+    wslPath: string;
+    /** The distro shell; empty resolves the login shell. */
+    shell: string;
+    /** Whether `<shell> -lc` semantics apply. */
+    loginShell: boolean;
+    /** Whether commands confine inside the distro. */
+    sandbox: boolean;
+    /** Whether confined profiles mask `/mnt`. */
+    maskWindowsDrive: boolean;
+    /** The volatile default workdir. */
+    cwd: {
+        get(): string | undefined;
+    };
+    /** The volatile Windows spawn directory. */
+    hostCwd: {
+        get(): string | undefined;
+    };
+    /** Extra env names forwarded through WSLENV. */
+    forwardEnv: string[];
+    /** The volatile default timeout. */
+    timeoutMs: {
+        get(): number;
+    };
+    /** The volatile timeout cap. */
+    maxTimeoutMs: {
+        get(): number;
+    };
+    /** The volatile per-stream output cap. */
+    maxOutputBytes: {
+        get(): number;
+    };
+    /** The volatile spill-file cap. */
+    maxSpillBytes: {
+        get(): number;
+    };
+    /** The volatile kill-escalation grace. */
+    graceMs: {
+        get(): number;
+    };
+    /** Whether execution prefers the resident agent. */
+    agent: boolean;
+}
+/**
+ * The upstream executor's spawn-spec builder, re-opened for this subclass —
+ * see docs/UPSTREAM-SPAWN-SEAM.md. Type-level bridge only; the runtime class
+ * is untouched.
+ */
+export type SpawnSeamExecutor = Omit<LocalBashExecutor, "spawnSpec"> & {
+    spawnSpec: (spec: ShellExecSpec, argv: string[], stdoutMaxBytes: number, signal?: AbortSignal) => SubprocessSpawnSpec;
+};
+/** The per-process confinement facts retained until settlement. */
+interface ProcessFacts {
+    /** The mode the process ran under. */
+    mode: SandboxMode | undefined;
+    /** The seam's enforcement completeness. */
+    enforcement: "full" | "partial";
+    /** The case-insensitive stderr substrings a denial produces. */
+    denialSignatures: string[];
+    /** Structured runner-failure evidence rules. */
+    runnerFailureRules: Array<{
+        fatalSignatures: string[];
+        allowedExitCodes?: number[];
+        informationalLines?: string[];
+    }>;
+    /** The confinement runner program (`argv[0]`), for spawn-failure attribution. */
+    runnerProgram: string;
+    /** The Linux workdir the process was given. */
+    workdir: string;
+    /** Whether the profile masks the Windows drive. */
+    windowsDrive: "masked" | "visible";
+}
+/**
  * Bash executor that runs every command inside a WSL distro.
  *
  * Extends the unconfined `LocalBashExecutor`, so command defaulting, deadline
@@ -7,7 +164,8 @@
  * `wsl.exe`) and the process working directory (wsl.exe must be started from a
  * Windows directory, while the Linux directory rides on `--cd`).
  */
-export class WslShellExecutor extends LocalBashExecutor {
+export declare class WslShellExecutor extends LocalBashExecutor {
+    static inject: string[];
     static Config: z<Schemastery.ObjectS<NoInfer<{
         /** Distro name; empty means WSL's own default distro. */
         distro: z<string, string, "defined">;
@@ -137,64 +295,67 @@ export class WslShellExecutor extends LocalBashExecutor {
          */
         agent: z<boolean, boolean, "defined">;
     }>>, "plain">;
-    /**
-     * Decorate a handle's foreground projection in place, memoized once. The
-     * handle keeps its identity — never wrapped in a second object — because the
-     * per-process facts and `onProcessDone` key on the exact instance.
-     *
-     * @template R - the settled result row the handle's `result()` resolves with.
-     * @template {{ result(): Promise<R> }} H - the concrete handle type, preserved
-     *   so the decorated handle keeps its identity in the callers' types.
-     * @param {H} ex - the execution handle to decorate.
-     * @param {(result: R) => R} map - maps the settled result.
-     * @param {(error: unknown) => R} mapError - maps a rejection, when the caller has one.
-     * @returns {H} the same handle.
-     */
-    static decorateResult<R, H extends {
-        result(): Promise<R>;
-    }>(ex: H, map: (result: R) => R, mapError: (error: unknown) => R): H;
-    /**
-     * @param {Context} ctx - the composition context.
-     * @param {WslShellExecutorConfig} config - the validated plugin config.
-     */
-    constructor(ctx: Context, config: WslShellExecutorConfig);
     /** Cached default distro, resolved once from `wsl.exe -l -q`. */
     resolvedDistro: string;
     /** Cached distro-user login shell, resolved once. */
     resolvedShell: string;
-    /** @type {string | undefined} Cached distro-user home, the workdir when `cwd` is empty. */
+    /** Cached distro-user home, the workdir when `cwd` is empty. */
     resolvedHome: string | undefined;
     /** The default mode — the capability fact the tool layer reads. */
     mode: SandboxMode | undefined;
     /** The distro-side confinement, or nothing when the operator opted out. */
-    sandbox: import("./sandbox-core.js").WslSandboxCoreInstance | undefined;
+    sandbox: InstanceType<typeof WslSandbox> | undefined;
     /**
      * Per-process confinement facts retained until settlement. Overlapping calls
      * can carry different policies, so a shared latest-wrap value would classify
      * a process against the wrong facts. Unconfined processes have no entry.
      */
-    processFacts: Map<any, any>;
+    processFacts: Map<ShellExecution, ProcessFacts>;
+    /**
+     * @param ctx - the composition context.
+     * @param config - the validated plugin config.
+     */
+    constructor(ctx: Context, config: WslShellExecutorConfig);
+    /**
+     * The mode this executor confines with, or `undefined` when it does not
+     * confine at all. `dsh-tool-bash` reads exactly this to decide whether to
+     * advertise the escalation field, so it must disappear together with the
+     * enforcement — never claim a boundary that is not applied.
+     *
+     * @returns the deployment default mode, or `undefined` when unconfined.
+     */
+    get sandboxMode(): SandboxMode | undefined;
     /**
      * The distro every command runs in, resolving WSL's default on first use.
-     * @returns {Promise<string>} the distro name.
+     *
+     * @returns the distro name.
      */
     distro(): Promise<string>;
     /**
      * The shell every command runs in: the configured one, else the login shell of
      * the distro user, resolved once and cached.
+     *
      * @returns an absolute path to the shell inside the distro.
      */
     shellName(): Promise<string>;
+    /**
+     * The shell every command runs in, resolving the distro login shell on
+     * first use.
+     *
+     * @returns an absolute path to the shell inside the distro.
+     */
     shell(): Promise<string>;
     /**
      * Windows directory the `wsl.exe` process is started from.
-     * @returns {string} the host directory to spawn in.
+     *
+     * @returns the host directory to spawn in.
      */
     hostCwd(): string;
     /**
      * The shared resident agent serving this executor's distro.
-     * @param {string} distro - the resolved distro name.
-     * @returns {WslAgent} the shared agent.
+     *
+     * @param distro - the resolved distro name.
+     * @returns the shared agent.
      */
     executionAgent(distro: string): WslAgent;
     /**
@@ -203,9 +364,9 @@ export class WslShellExecutor extends LocalBashExecutor {
      * distro-side sandbox wraps, which is why it is built separately from the
      * `wsl.exe` invocation around it.
      *
-     * @param {ShellExecSpec} spec - the resolved spec from {@link LocalBashExecutor.resolve}.
-     * @param {string} shell - the resolved distro shell.
-     * @returns {string[]} the distro-side argv.
+     * @param spec - the resolved spec from {@link LocalBashExecutor.resolve}.
+     * @param shell - the resolved distro shell.
+     * @returns the distro-side argv.
      */
     distroArgv(spec: ShellExecSpec, shell: string): string[];
     /**
@@ -215,11 +376,11 @@ export class WslShellExecutor extends LocalBashExecutor {
      *
      * `--exec` is load-bearing — see the comment inside.
      *
-     * @param {ShellExecSpec} spec - the resolved spec from {@link LocalBashExecutor.resolve}.
-     * @param {string} distro - the resolved distro name.
-     * @param {string} shell - the resolved distro shell.
-     * @param {string[]} [inner] - the already-confined distro argv, when confinement applies.
-     * @returns {string[]} the argv to spawn.
+     * @param spec - the resolved spec from {@link LocalBashExecutor.resolve}.
+     * @param distro - the resolved distro name.
+     * @param shell - the resolved distro shell.
+     * @param inner - the already-confined distro argv, when confinement applies.
+     * @returns the argv to spawn.
      */
     argv(spec: ShellExecSpec, distro: string, shell: string, inner?: string[]): string[];
     /**
@@ -230,13 +391,33 @@ export class WslShellExecutor extends LocalBashExecutor {
      * {@link SpawnSeamExecutor} bridge (`inheritedSpawnSpec`) instead of `super`
      * — see docs/UPSTREAM-SPAWN-SEAM.md.
      *
-     * @param {ShellExecSpec} spec - resolved execution settings.
-     * @param {string[]} argv - the argv from {@link WslShellExecutor.argv}.
-     * @param {number} stdoutMaxBytes - per-call stdout cap.
-     * @param {AbortSignal} [signal] - the spawn cancellation signal.
-     * @returns {SubprocessSpawnSpec} the subprocess spawn spec.
+     * @param spec - resolved execution settings.
+     * @param argv - the argv from {@link WslShellExecutor.argv}.
+     * @param stdoutMaxBytes - per-call stdout cap.
+     * @param signal - the spawn cancellation signal.
+     * @returns the subprocess spawn spec.
      */
     spawnSpec(spec: ShellExecSpec, argv: string[], stdoutMaxBytes: number, signal?: AbortSignal): SubprocessSpawnSpec;
+    /**
+     * Resolve a request into a spec, replacing the parent's `process.cwd()`
+     * fallback with this provider's distro-home marker and stamping the per-call
+     * sandbox policy.
+     *
+     * The seam requires this step to be synchronous — the tool layer calls
+     * `ctx.shell.execute(ctx.shell.resolve(…))` with no `await` between them — so
+     * neither the home nor a confinement decision can be made here. Two request
+     * shapes default to the home when no `cwd` is configured: one that names no
+     * `workdir` at all, and one that names it only RELATIVELY — the parent
+     * resolves the first against `process.cwd()` (a Windows directory) and has
+     * nothing of its own to join the second onto. Both are stamped as the empty
+     * marker, with a relative tail carried verbatim in `relativeWorkdir`;
+     * {@link withDefaultWorkdir} resolves the pair against the home. The policy
+     * travels on the spec to {@link execute}, which awaits the wrap.
+     *
+     * @param request - the caller's request.
+     * @returns the fully-resolved spec.
+     */
+    resolve(request: ShellExecRequest): WslExecSpec;
     /**
      * The spec to execute, with the home marker resolved against the distro
      * user's home: `workdir: ""` becomes the home itself, and a relative tail
@@ -244,19 +425,35 @@ export class WslShellExecutor extends LocalBashExecutor {
      * `sh -c 'printf %s "$HOME"'` per provider instance, cached, and it happens
      * only for a request that defaulted — an absolute workdir never reaches here.
      *
-     * @param {WslExecSpec} spec - the resolved spec.
-     * @returns {Promise<WslExecSpec>} the spec to execute.
+     * @param spec - the resolved spec.
+     * @returns the spec to execute.
      */
     withDefaultWorkdir(spec: WslExecSpec): Promise<WslExecSpec>;
+    /**
+     * Decorate a handle's foreground projection in place, memoized once. The
+     * handle keeps its identity — never wrapped in a second object — because the
+     * per-process facts and `onProcessDone` key on the exact instance.
+     *
+     * @template H - the concrete handle type, preserved so the decorated handle
+     *   keeps its identity in the callers' types; the settled result row the maps
+     *   are spelled in is derived from its `result()`.
+     * @param ex - the execution handle to decorate.
+     * @param map - maps the settled result.
+     * @param mapError - maps a rejection, when the caller has one.
+     * @returns the same handle.
+     */
+    static decorateResult<H extends {
+        result(): Promise<unknown>;
+    }>(ex: H, map: (result: Awaited<ReturnType<H["result"]>>) => Awaited<ReturnType<H["result"]>>, mapError: (error: unknown) => Awaited<ReturnType<H["result"]>>): H;
     /**
      * Stamp the per-process sandbox facts before `done` settles, so a background
      * process reports the same mode, denial and enforcement a foreground run
      * would. Signal deaths are not denials.
      *
-     * @param {ShellExecution} proc - the settled process handle.
-     * @param {string} stderr - the process's retained stderr tail used by subclasses for settlement classification.
-     * @param {boolean} providerRejected - whether the subprocess promise rejected without a direct outcome.
-     * @param {unknown} [providerError] - the provider rejection reason, which may itself be undefined.
+     * @param proc - the settled process handle.
+     * @param stderr - the process's retained stderr tail used by subclasses for settlement classification.
+     * @param providerRejected - whether the subprocess promise rejected without a direct outcome.
+     * @param providerError - the provider rejection reason, which may itself be undefined.
      */
     onProcessDone(proc: ShellExecution, stderr: string, providerRejected: boolean, providerError?: unknown): void;
     /**
@@ -269,8 +466,8 @@ export class WslShellExecutor extends LocalBashExecutor {
      * cause. The message names the remedy and says plainly that a wider permission
      * cannot help — a sandbox flag does not create a distro.
      *
-     * @param {{ exitCode?: number | null, stdout?: { text?: string }, stderr?: { text?: string }} | undefined} result - the settled shell result.
-     * @param {string} distro - the distro the command asked for.
+     * @param result - the settled shell result.
+     * @param distro - the distro the command asked for.
      * @throws {Error} carrying the `WSL_E_*` code and the remedy.
      */
     throwIfDistroUnavailable(result: {
@@ -290,8 +487,8 @@ export class WslShellExecutor extends LocalBashExecutor {
      * or a build act on the wrong tree while every signal says it worked, so it becomes
      * an error naming the directory that could not be entered.
      *
-     * @param {{ exitCode?: number | null, stdout?: { text?: string }, stderr?: { text?: string }} | undefined} result - the settled shell result.
-     * @param {string} workdir - the Linux directory the request asked for.
+     * @param result - the settled shell result.
+     * @param workdir - the Linux directory the request asked for.
      * @throws {Error} naming the directory and the fallback that happened.
      */
     throwIfWorkdirMissing(result: {
@@ -304,14 +501,29 @@ export class WslShellExecutor extends LocalBashExecutor {
         };
     } | undefined, workdir: string): void;
     /**
+     * Execute one resolved spec inside the distro, confined by the per-call policy
+     * when there is one.
+     *
+     * Confinement wraps the DISTRO-side argv (`<shell> -lc <command>`) in `bwrap`
+     * and hands the result to `wsl.exe --exec`, so the sandbox is built inside the
+     * distro while the process that spawns it stays the ordinary Windows one. The
+     * `danger-full-access` escalation — and an operator's `sandbox: false` — skip
+     * the wrap entirely and run the command as before.
+     *
+     * @param spec - resolved execution settings.
+     * @returns the live shell process handle.
+     */
+    execute(spec: ShellExecSpec): Promise<ShellExecution>;
+    /**
      * Refuse a workdir that names another WSL distro — the shell-side twin of
      * the filesystem's `FS_OUTSIDE_DISTRO` fence. Left unguarded, `toLinuxPath`
      * strips the UNC's distro name and the command runs inside THIS distro
      * against whatever tree happens to share the path, silently, while the fs
      * side refuses the same workspace outright. The wording mirrors the fs
      * refusal (minus `restrictToDistro`, which is an fs-only key).
-     * @param {string} workdir - the resolved workdir (UNC, Linux path, or Windows path).
-     * @param {string} distro - the pinned distro name.
+     *
+     * @param workdir - the resolved workdir (UNC, Linux path, or Windows path).
+     * @param distro - the pinned distro name.
      * @throws {Error} naming both distros and both ways out.
      */
     throwIfWorkdirInAnotherDistro(workdir: string, distro: string): void;
@@ -319,20 +531,22 @@ export class WslShellExecutor extends LocalBashExecutor {
      * The agent-backed execution path: one long-lived in-distro process, the
      * confinement argv unchanged, the handle shape unchanged. Any
      * {@link AgentUnavailableError} propagates for the caller's fallback.
-     * @param {WslExecSpec} resolved - the resolved spec from {@link WslShellExecutor.execute}.
-     * @param {string} distro - the resolved distro name.
-     * @param {string} shell - the resolved distro shell.
-     * @returns {Promise<ShellExecution>} the decorated execution result.
+     *
+     * @param resolved - the resolved spec from {@link WslShellExecutor.execute}.
+     * @param distro - the resolved distro name.
+     * @param shell - the resolved distro shell.
+     * @returns the decorated execution result.
      */
     executeViaAgent(resolved: WslExecSpec, distro: string, shell: string): Promise<ShellExecution>;
     /**
      * The pre-agent execution path, verbatim: one `wsl.exe` per command through
      * the inherited `executeArgv` machinery. Kept as the permanent fallback for
      * an out-of-service agent and as the `agent: false` behaviour.
-     * @param {WslExecSpec} resolved - the resolved spec.
-     * @param {string} distro - the resolved distro name.
-     * @param {string} shell - the resolved distro shell.
-     * @returns {Promise<ShellExecution>} the decorated execution result.
+     *
+     * @param resolved - the resolved spec.
+     * @param distro - the resolved distro name.
+     * @param shell - the resolved distro shell.
+     * @returns the decorated execution result.
      */
     executeOneShot(resolved: WslExecSpec, distro: string, shell: string): Promise<ShellExecution>;
 }
@@ -368,23 +582,35 @@ export class WslShellExecutor extends LocalBashExecutor {
  * {@link WslFileSystem.Config}, which the upstream `LocalFileSystem` config
  * type does not know. This provider has no volatile fields: every key is read
  * as its plain value.
- * @typedef {object} WslFileSystemConfig
- * @property {string} distro - the pinned distro; empty resolves WSL's default.
- * @property {string} cwd - the base directory for relative input.
- * @property {string} wslPath - the `wsl.exe` path, for default-distro resolution.
- * @property {number} [diffBasisMaxBytes] - the overwrite-diff byte bound per
- *   side; schema-defaulted when mounted through cordis, and defaulted again by
- *   the substrate when absent.
- * @property {boolean} sandbox - whether mutations are fenced by the policy.
- * @property {boolean} maskWindowsDrive - whether confined profiles mask `/mnt`.
- * @property {boolean} restrictToDistro - whether paths leaving the distro are refused.
- * @property {number} watchMaxDepth - the in-distro watch scan depth bound.
- * @property {string} [substrate] - which I/O substrate serves the file tools;
- *   schema-defaulted when mounted through cordis, absent on direct
- *   construction (the router), which the constructor's refusal treats as
- *   `"agent"`.
  */
-export class WslFileSystem extends LocalFileSystem {
+export interface WslFileSystemConfig {
+    /** The pinned distro; empty resolves WSL's default. */
+    distro: string;
+    /** The base directory for relative input. */
+    cwd: string;
+    /** The `wsl.exe` path, for default-distro resolution. */
+    wslPath: string;
+    /**
+     * The overwrite-diff byte bound per side; schema-defaulted when mounted
+     * through cordis, and defaulted again by the substrate when absent.
+     */
+    diffBasisMaxBytes?: number;
+    /** Whether mutations are fenced by the policy. */
+    sandbox: boolean;
+    /** Whether confined profiles mask `/mnt`. */
+    maskWindowsDrive: boolean;
+    /** Whether paths leaving the distro are refused. */
+    restrictToDistro: boolean;
+    /** The in-distro watch scan depth bound. */
+    watchMaxDepth: number;
+    /**
+     * Which I/O substrate serves the file tools; schema-defaulted when mounted
+     * through cordis, absent on direct construction (the router), which the
+     * constructor's refusal treats as `"agent"`.
+     */
+    substrate?: string;
+}
+export declare class WslFileSystem extends LocalFileSystem {
     static inject: string[];
     static Config: z<Schemastery.ObjectS<NoInfer<{
         /** Distro name; empty resolves WSL's default on first use. */
@@ -509,33 +735,45 @@ export class WslFileSystem extends LocalFileSystem {
          */
         substrate: z<"agent" | "share", "agent" | "share", "defined">;
     }>>, "plain">;
-    /**
-     * @param {Context} ctx - the composition context.
-     * @param {WslFileSystemConfig} config - the validated plugin config.
-     */
-    constructor(ctx: Context, config: WslFileSystemConfig);
+    /** Cached default distro, resolved once from `wsl.exe -l -q`. */
     resolvedDistro: string;
-    /** @type {string | undefined} Cached distro-user home, the base for relative input when `cwd` is empty. */
+    /** Cached distro-user home, the base for relative input when `cwd` is empty. */
     resolvedHome: string | undefined;
     /** The deployment default mode — the capability fact the tool layer reads. */
     defaultMode: SandboxMode;
-    /** @type {AgentSubstrate | undefined} The lazy agent-backed substrate, built on first use (see `agentSubstrate`). */
+    /** The lazy agent-backed substrate, built on first use (see `agentSubstrate`). */
     agentSubstrateInstance: AgentSubstrate | undefined;
     /** The distro-side bwrap usability probe, shared with the confined agents. */
-    sandbox: import("./sandbox-core.js").WslSandboxCoreInstance;
-    /** @type {WslAgent | undefined} The resident agent serving publication (see `publicationAgent`). */
+    sandbox: InstanceType<typeof WslSandbox>;
+    /** The resident agent serving publication (see `publicationAgent`). */
     agentInstance: WslAgent | undefined;
+    /**
+     * @param ctx - the composition context.
+     * @param config - the validated plugin config.
+     */
+    constructor(ctx: Context, config: WslFileSystemConfig);
+    /**
+     * The mode this backend fences mutations with, or `undefined` when the
+     * operator turned the fence off. This is the capability fact `dsh-tool-fs`
+     * reads to advertise the escalation fields honestly, so it must disappear
+     * together with the enforcement — never claim a boundary that is not applied.
+     *
+     * @returns the deployment default mode, or `undefined` when unfenced.
+     */
+    get sandboxMode(): SandboxMode | undefined;
     /**
      * The resident agent serving this filesystem's in-distro side work, created
      * on first use and kept for the provider's lifetime (its own idle timer
      * retires the process; a later call starts a fresh one).
-     * @returns {Promise<WslAgent>} the agent for the pinned distro.
+     *
+     * @returns the agent for the pinned distro.
      */
     publicationAgent(): Promise<WslAgent>;
     /**
      * The agent-backed substrate, built on first use over the same resident
      * agent every other distro side work shares.
-     * @returns {Promise<AgentSubstrate>} the substrate.
+     *
+     * @returns the substrate.
      */
     agentSubstrate(): Promise<AgentSubstrate>;
     /**
@@ -546,9 +784,10 @@ export class WslFileSystem extends LocalFileSystem {
      * sandbox addresses the plain resident, which is what those mean. A distro
      * without a usable bwrap refuses confined mutations instead of downgrading
      * them — the same closed failure the command path has.
-     * @param {{mode: string, workspaceRoot: string}|undefined} policy - the
-     *   resolved file-effect policy, or undefined when the caller pre-checked.
-     * @returns {Promise<WslAgent>} the agent to publish through.
+     *
+     * @param policy - the resolved file-effect policy, or undefined when the
+     *   caller pre-checked.
+     * @returns the agent to publish through.
      */
     mutationAgent(policy: {
         mode: string;
@@ -559,29 +798,45 @@ export class WslFileSystem extends LocalFileSystem {
      * the same refusal dialect on both substrates. An agent that is out becomes
      * an I/O error naming the cause — the share backend's "distro is gone" case
      * is the same availability, but the message says which substrate failed.
-     * @param {unknown} error - what the substrate raised.
-     * @returns {FsError} the error to surface.
+     *
+     * @param error - what the substrate raised.
+     * @returns the error to surface.
      */
     peerError(error: unknown): FsError;
     /**
      * One resolved target's Linux path — the substrate's coordinate — falling
      * back to the display spelling when the identity is not a distro share path.
-     * @param {FsTarget} target - the resolved target.
-     * @returns {string} the absolute Linux path.
+     *
+     * @param target - the resolved target.
+     * @returns the absolute Linux path.
      */
     linuxOf(target: FsTarget): string;
     /**
      * The pinned distro, resolving WSL's default on first use.
-     * @returns {Promise<string>} the distro name.
+     *
+     * @returns the distro name.
      */
     distro(): Promise<string>;
     /**
      * Translate one caller path into the world path, enforcing the distro fence.
-     * @param {string} path - a Linux, UNC or Windows path.
-     * @param {string} [cwd] - the caller's override of the configured default workdir.
-     * @returns {Promise<string>} the host path to operate on.
+     *
+     * @param path - a Linux, UNC or Windows path.
+     * @param cwd - the caller's override of the configured default workdir.
+     * @returns the host path to operate on.
      */
     worldPath(path: string, cwd?: string): Promise<string>;
+    /**
+     * Resolve a path to a target whose `targetKey` is the UNC identity the host
+     * I/O stack uses and whose `displayPath` is the Linux path the model sees.
+     *
+     * @param path - a Linux, UNC or Windows path.
+     * @param opts - optional `cwd` override and `signal`.
+     * @returns the resolved `FsTarget`.
+     */
+    resolve(path: string, opts?: {
+        cwd?: string;
+        signal?: AbortSignal;
+    }): Promise<FsTarget>;
     /**
      * Enforce the per-call file-effect policy against one target and return the
      * EXACT target the mutation must use, so the checked identity is the mutated
@@ -595,13 +850,79 @@ export class WslFileSystem extends LocalFileSystem {
      * is the structured `FS_SANDBOX_DENIED` the tool layer maps to its
      * model-facing `[sandbox: …]` marker and escalation hint.
      *
-     * @param {FsTarget} target - the resolved target to mutate.
-     * @param {SandboxExecutionPolicy} [sandboxPolicy] - the per-call mode and workspace root; omit for the
+     * @param target - the resolved target to mutate.
+     * @param sandboxPolicy - the per-call mode and workspace root; omit for the
      *   deployment policy.
-     * @returns {Promise<FsTarget>} the target the mutation must use.
+     * @returns the target the mutation must use.
      * @throws {FsError} with `FS_SANDBOX_DENIED` when the policy refuses it.
      */
     checkedTarget(target: FsTarget, sandboxPolicy?: SandboxExecutionPolicy): Promise<FsTarget>;
+    /**
+     * One target's metadata, answered from the distro.
+     *
+     * @param target - the resolved target.
+     * @param signal - optional cancellation.
+     * @returns the metadata, or undefined when absent.
+     */
+    stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>;
+    /**
+     * No-follow stat one path. The agent substrate answers from the distro,
+     * where a symlink is a first-class entry.
+     *
+     * @param path - a Linux, UNC or Windows path.
+     * @param opts - optional `cwd` override.
+     * @param signal - optional cancellation.
+     * @returns the path info, or undefined when absent.
+     */
+    lstat(path: string, opts?: {
+        cwd?: string;
+    }, signal?: AbortSignal): Promise<FsPathInfo | undefined>;
+    /**
+     * Read one whole regular UTF-8 file from the distro.
+     *
+     * @param target - the resolved target.
+     * @param signal - optional cancellation.
+     * @returns the file text.
+     */
+    readText(target: FsTarget, signal?: AbortSignal): Promise<string>;
+    /**
+     * Stream one whole regular UTF-8 file from the distro.
+     *
+     * @param target - the resolved target.
+     * @param signal - optional cancellation.
+     * @returns the text chunks.
+     */
+    streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>;
+    /**
+     * Read one whole regular file as raw bytes, bounded.
+     *
+     * @param target - the resolved target.
+     * @param signal - optional cancellation.
+     * @param maxBytes - inclusive byte cap on the content.
+     * @returns the bytes.
+     */
+    readBytes(target: FsTarget, signal: AbortSignal | undefined, maxBytes: number): Promise<Uint8Array>;
+    /**
+     * Read one byte window of a regular file.
+     *
+     * @param target - the resolved target.
+     * @param range - the window.
+     * @param signal - optional cancellation.
+     * @returns the window's bytes.
+     */
+    readByteRange(target: FsTarget, range: {
+        offset: number;
+        length: number;
+    }, signal?: AbortSignal): Promise<Uint8Array>;
+    /**
+     * List one directory level. The substrate's rows already carry Linux display
+     * paths and canonical identities — nothing to rewrite.
+     *
+     * @param target - the resolved directory.
+     * @param signal - optional cancellation.
+     * @returns the directory rows.
+     */
+    listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>;
     /**
      * Map an absolute host path into this execution world. POSIX input is a Linux
      * path inside the distro; anything else keeps the host backend's behaviour.
@@ -618,10 +939,28 @@ export class WslFileSystem extends LocalFileSystem {
      * so it is the owner's design decision; until that lands this method must
      * not be consumed through the upstream sync contract.
      *
-     * @param {string} hostPath - an absolute path.
-     * @returns {Promise<string | undefined>} the process path for the same file, or undefined when unmappable.
+     * @param hostPath - an absolute path.
+     * @returns the process path for the same file, or undefined when unmappable.
      */
     processPathFromHostPath(hostPath: string): Promise<string | undefined>;
+    /**
+     * Watch from inside the distro, where the kernel can actually report change:
+     * a long-lived `wsl.exe` poll loop (`lib/watcher.js`) fires the seam's
+     * invalidation callback. The seam asks for coarse invalidation, not events,
+     * so a poll is honest — and creations and deletions are both seen, because
+     * they bump the parent directory's mtime. Replaces the previous flat
+     * refusal (`FS_IO_ERROR`), which was the correct answer over 9p only.
+     *
+     * A target that disappears mid-watch ends the loop with a report through
+     * `changed` — never the armed-but-never-fires silence a missing directory
+     * would otherwise produce. The scan's depth is `watchMaxDepth`.
+     *
+     * @param target - the resolved file or directory to observe.
+     * @param changed - the invalidation callback.
+     * @param signal - cancels initialization; the caller closes an armed watcher.
+     * @returns resolves once active, with the async close function.
+     */
+    watch(target: FsTarget, changed: (error?: Error) => void, signal: AbortSignal): Promise<() => Promise<void>>;
     /**
      * Fence the write by the per-call policy, then publish through the
      * substrate. The fence's fresh target is the one checked and written, so a
@@ -629,220 +968,29 @@ export class WslFileSystem extends LocalFileSystem {
      * rides the write op, where the agent re-verifies it one syscall before the
      * rename and the confined resident enforces it in the kernel.
      *
-     * @param {FsTarget} target - the resolved target.
-     * @param {string} content - the full new file content.
-     * @param {FsWriteIntent} [expected] - the write intent.
-     * @param {AbortSignal} [signal] - optional cancellation.
-     * @param {SandboxExecutionPolicy} [sandboxPolicy] - the per-call mode and workspace root; omit for the
+     * @param target - the resolved target.
+     * @param content - the full new file content.
+     * @param expected - the write intent.
+     * @param signal - optional cancellation.
+     * @param sandboxPolicy - the per-call mode and workspace root; omit for the
      *   deployment policy.
-     * @returns {Promise<FsWriteOutcome>} the write outcome.
+     * @returns the write outcome.
      */
     writeText(target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<FsWriteOutcome>;
     /**
      * Fence the edit by the same policy, keeping the guard's observable
      * behaviour.
      *
-     * @param {FsTarget} target - the resolved target.
-     * @param {FsEditRequest} edit - the literal search/replace request.
-     * @param {{ version: FsVersion }} [expected] - the version guard.
-     * @param {AbortSignal} [signal] - optional cancellation.
-     * @param {SandboxExecutionPolicy} [sandboxPolicy] - the per-call mode and workspace root; omit for the
+     * @param target - the resolved target.
+     * @param edit - the literal search/replace request.
+     * @param expected - the version guard.
+     * @param signal - optional cancellation.
+     * @param sandboxPolicy - the per-call mode and workspace root; omit for the
      *   deployment policy.
-     * @returns {Promise<FsEditOutcome>} the edit outcome.
+     * @returns the edit outcome.
      */
     editText(target: FsTarget, edit: FsEditRequest, expected?: {
         version: FsVersion;
     }, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<FsEditOutcome>;
 }
-/**
- * Upstream shell vocabulary, derived through `@deepseek-ai/dsh-bash-local` —
- * this package does not depend on `@deepseek-ai/dsh-shell` directly, so the
- * execution types ride in through the executor's own signatures.
- */
-export type ShellExecSpec = Parameters<LocalBashExecutor["execute"]>[0];
-/**
- * Upstream shell vocabulary, derived through `@deepseek-ai/dsh-bash-local` —
- * this package does not depend on `@deepseek-ai/dsh-shell` directly, so the
- * execution types ride in through the executor's own signatures.
- */
-export type ShellExecRequest = Parameters<LocalBashExecutor["resolve"]>[0];
-/**
- * Upstream shell vocabulary, derived through `@deepseek-ai/dsh-bash-local` —
- * this package does not depend on `@deepseek-ai/dsh-shell` directly, so the
- * execution types ride in through the executor's own signatures.
- */
-export type ShellExecution = Awaited<ReturnType<LocalBashExecutor["execute"]>>;
-/**
- * One confined command's distro-side profile, as the confinement returns it:
- * the wrapped argv, the enforcement completeness, the denial dialect, the
- * runner-failure rules and the Windows-drive masking fact.
- */
-export type ConfinedProfile = Awaited<ReturnType<InstanceType<new (config?: {
-    wslPath?: string;
-    maskWindowsDrive?: boolean;
-} | undefined) => import("./sandbox-core.js").WslSandboxCoreInstance>["confine"]>>;
-/**
- * The resolved spec this executor stamps with its home-marker fields: an empty
- * `workdir` plus the relative tail that {@link WslShellExecutor.withDefaultWorkdir}
- * joins against the distro home. The extra keys are this provider's own; the
- * seam's `ShellExecSpec` does not know them.
- */
-export type WslExecSpec = ShellExecSpec & {
-    relativeWorkdir?: string;
-};
-/**
- * The WSL shell executor's validated config — the keys of
- * {@link WslShellExecutor.Config}, which the upstream `LocalBashExecutor`
- * config type does not know. The seven volatile fields arrive as live
- * wrappers, so they are spelled as their `.get()` shape (the reading
- * {@link configuredCwd} and `hostCwd` perform).
- */
-export type WslShellExecutorConfig = {
-    /**
-     * - the pinned distro; empty means WSL's default.
-     */
-    distro: string;
-    /**
-     * - the `wsl.exe` path.
-     */
-    wslPath: string;
-    /**
-     * - the distro shell; empty resolves the login shell.
-     */
-    shell: string;
-    /**
-     * - whether `<shell> -lc` semantics apply.
-     */
-    loginShell: boolean;
-    /**
-     * - whether commands confine inside the distro.
-     */
-    sandbox: boolean;
-    /**
-     * - whether confined profiles mask `/mnt`.
-     */
-    maskWindowsDrive: boolean;
-    /**
-     * - the volatile default workdir.
-     */
-    cwd: {
-        get(): string | undefined;
-    };
-    /**
-     * - the volatile Windows spawn directory.
-     */
-    hostCwd: {
-        get(): string | undefined;
-    };
-    /**
-     * - extra env names forwarded through WSLENV.
-     */
-    forwardEnv: string[];
-    /**
-     * - the volatile default timeout.
-     */
-    timeoutMs: {
-        get(): number;
-    };
-    /**
-     * - the volatile timeout cap.
-     */
-    maxTimeoutMs: {
-        get(): number;
-    };
-    /**
-     * - the volatile per-stream output cap.
-     */
-    maxOutputBytes: {
-        get(): number;
-    };
-    /**
-     * - the volatile spill-file cap.
-     */
-    maxSpillBytes: {
-        get(): number;
-    };
-    /**
-     * - the volatile kill-escalation grace.
-     */
-    graceMs: {
-        get(): number;
-    };
-    /**
-     * - whether execution prefers the resident agent.
-     */
-    agent: boolean;
-};
-/**
- * The upstream executor's spawn-spec builder, re-opened for this subclass —
- * see docs/UPSTREAM-SPAWN-SEAM.md. Type-level bridge only; the runtime class
- * is untouched.
- */
-export type SpawnSeamExecutor = Omit<import("@deepseek-ai/dsh-bash-local").LocalBashExecutor, "spawnSpec"> & {
-    spawnSpec: (spec: ShellExecSpec, argv: string[], stdoutMaxBytes: number, signal?: AbortSignal) => SubprocessSpawnSpec;
-};
-/**
- * The WSL filesystem provider's validated config — the keys of
- * {@link WslFileSystem.Config}, which the upstream `LocalFileSystem` config
- * type does not know. This provider has no volatile fields: every key is read
- * as its plain value.
- */
-export type WslFileSystemConfig = {
-    /**
-     * - the pinned distro; empty resolves WSL's default.
-     */
-    distro: string;
-    /**
-     * - the base directory for relative input.
-     */
-    cwd: string;
-    /**
-     * - the `wsl.exe` path, for default-distro resolution.
-     */
-    wslPath: string;
-    /**
-     * - the overwrite-diff byte bound per
-     * side; schema-defaulted when mounted through cordis, and defaulted again by
-     * the substrate when absent.
-     */
-    diffBasisMaxBytes?: number | undefined;
-    /**
-     * - whether mutations are fenced by the policy.
-     */
-    sandbox: boolean;
-    /**
-     * - whether confined profiles mask `/mnt`.
-     */
-    maskWindowsDrive: boolean;
-    /**
-     * - whether paths leaving the distro are refused.
-     */
-    restrictToDistro: boolean;
-    /**
-     * - the in-distro watch scan depth bound.
-     */
-    watchMaxDepth: number;
-    /**
-     * - which I/O substrate serves the file tools;
-     * schema-defaulted when mounted through cordis, absent on direct
-     * construction (the router), which the constructor's refusal treats as
-     * `"agent"`.
-     */
-    substrate?: string | undefined;
-};
-import { LocalBashExecutor } from "@deepseek-ai/dsh-bash-local";
-import type { SandboxMode } from "@deepseek-ai/dsh-sandbox";
-import { WslAgent } from "./agent.js";
-import type { SubprocessSpawnSpec } from "@deepseek-ai/dsh-subprocess";
-import z from "@deepseek-ai/schemastery";
-import type { Context } from "@deepseek-ai/cordis";
-import { LocalFileSystem } from "@deepseek-ai/dsh-fs-local";
-import { AgentSubstrate } from "./fs-substrate.js";
-import { FsError } from "@deepseek-ai/dsh-fs";
-import type { FsTarget } from "@deepseek-ai/dsh-fs";
-import type { SandboxExecutionPolicy } from "@deepseek-ai/dsh-sandbox";
-import type { FsWriteIntent } from "@deepseek-ai/dsh-fs";
-import type { FsWriteOutcome } from "@deepseek-ai/dsh-fs";
-import type { FsEditRequest } from "@deepseek-ai/dsh-fs";
-import type { FsVersion } from "@deepseek-ai/dsh-fs";
-import type { FsEditOutcome } from "@deepseek-ai/dsh-fs";
+export {};

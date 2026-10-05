@@ -114,6 +114,9 @@ check("the real agentSubstrate wiring builds over the shared agent and keeps sta
   const substrate = await fs.agentSubstrate();
   assert.ok(substrate, "the substrate constructs lazily over the shared agent (no spawn until used)");
   assert.equal(await fs.agentSubstrate(), substrate, "the wiring is memoized: one substrate per provider");
+  // The confined routing through the REAL wiring, with only the bwrap probe
+  // substituted (its probe needs a live wsl.exe).
+  fs.sandbox = { usable: async () => true };
   const same = await fs.mutationAgent({ mode: "workspace-write", workspaceRoot: WORKSPACE });
   assert.ok(same.argvPrefix.length > 0, "mutations route to the confined resident through the same wiring");
 });

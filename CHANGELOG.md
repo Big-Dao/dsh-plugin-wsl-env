@@ -162,6 +162,15 @@ byte-identical, and the browse capability object stays an inline class field,
 which is how the original script wrote it. Thirty-one of the thirty-six
 modules are TypeScript.
 
+`subprocess` follows — the composition-level provider behind the GUI's
+terminal window, and the last module that overrides a shipped peer class for
+the terminal/search routing. Its `spawnTerminal`/`spawn` overrides are checked
+against the peer's declared signatures (they pass without a new assertion),
+and the two JSDoc casts the script carried (`env`, the stdout collect budget)
+are absorbed into the types. Thirty-two of the thirty-six modules are
+TypeScript; the last four are `agent`, `fsio-agent`, `workspace-files-wsl`
+and `index`.
+
 ## [0.7.5] - 2026-10-05
 
 One theme: a failed environment probe retries instead of being trusted

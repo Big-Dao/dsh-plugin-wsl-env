@@ -21,7 +21,9 @@
 #   PING                          -> PONG
 #   SHUTDOWN                      -> exits 0
 #   KILL|<id>                     -> SIGTERM the in-flight request with that id
-#   SETENV|<key>|<b64 value>      -> export the variable for later requests
+#   SETENV|<key>|<b64 value>      -> export the variable for later requests;
+#                                    <key> must be a POSIX identifier, else
+#                                    ERR|protocol
 #   EXEC|<id>|<b64 cwd>|<timeout seconds|0>|<n args>|<output cap bytes|0>
 #       followed by <n args> lines of base64, one argv word each
 #       -> ACK|<id> the moment the request is dequeued for execution — the host
@@ -122,6 +124,16 @@ CURRENT_STAGING=
 b64dec() {
   # `base64 -d` with GNU and BusyBox spellings; a decode failure yields empty.
   printf '%s' "$1" | base64 -d 2>/dev/null || printf '%s' "$1" | base64 --decode 2>/dev/null || :
+}
+
+# Strict decode for payloads whose emptiness would LIE: an argv word that
+# fails to decode must refuse the request, not run the command with a silent
+# empty word where the host sent text (an empty payload is legitimate and
+# decodes fine — only malformed base64 lands here). Sets DEC on success.
+b64dec_strict() {
+  DEC=$(printf '%s' "$1" | base64 -d 2>/dev/null) && return 0
+  DEC=$(printf '%s' "$1" | base64 --decode 2>/dev/null) && return 0
+  return 1
 }
 
 b64enc_file() {
@@ -307,6 +319,15 @@ fs_list() {
   # records (records split on NUL, names taken after the 6th TAB).
   local d err
   d=$(b64dec "$1")
+  # The LIST TARGET follows symlinks, like every read path: `find` does not
+  # traverse its starting point, so a symlink-to-directory used to list EMPTY
+  # with exit 0 - a silent wrong answer where the peer's readdir answers with
+  # the target's children. Resolve first, then enumerate; the entries keep
+  # their own (lstat) types.
+  d=$(realpath -L -- "$d" 2>"$ERR_FILE") || {
+    err=$(cat "$ERR_FILE")
+    fs_fail "$(fs_classify "$err")" "$err"
+  }
   find "$d" -mindepth 1 -maxdepth 1 -printf '%y\t%s\t%D\t%i\t%T@\t%C@\t%p\0' 2>"$ERR_FILE" || {
     err=$(cat "$ERR_FILE")
     fs_fail "$(fs_classify "$err")" "$err"
@@ -537,7 +558,9 @@ fs_dispatch() {
     realpath) fs_realpath "$1" ;;
     read)     fs_read "$1" "$2" "$3" ;;
     write)    fs_write "$1" "$2" "$3" "$4" "$5" ;;
-    *)        fs_fail notfound "unknown fs op" ;;
+    # A host/agent contract breach is an I/O-class failure, not a file that
+    # was not found: the mapped reason reads FS_IO_ERROR host-side.
+    *)        fs_fail protocol "unknown fs op" ;;
   esac
 }
 
@@ -561,6 +584,15 @@ while IFS= read -r line; do
       rest=${line#SETENV|}
       key=${rest%%|*}
       b64=${rest#*|}
+      # The key exports into EVERY later request's environment, so it must be
+      # a POSIX identifier: anything else would be a silent no-op for the
+      # command (or a name collision with a shell special). Refused loudly.
+      case $key in
+        ""|[0-9]*|*[!A-Za-z0-9_]*)
+          printf 'ERR||protocol|%s\n' "$(printf '%s' "SETENV key is not a POSIX identifier" | base64 | tr -d '\n')"
+          continue
+          ;;
+      esac
       # Command substitution strips trailing newlines from the decoded value;
       # acceptable for environment values, documented in the protocol.
       decoded=$(b64dec "$b64")
@@ -581,15 +613,29 @@ while IFS= read -r line; do
         printf 'ERR|%s|cwd|%s\n' "$req_id" "$(printf '%s' "$cwd" | base64 | tr -d '\n')"
         continue
       fi
-      # Build the argv from the following base64 lines.
+      # Build the argv from the following base64 lines. Two refusal paths
+      # before anything runs: a payload that does not decode (it would
+      # silently become an EMPTY argv word — a different command than the
+      # host sent), and a frame that ends before its declared argument count
+      # (a truncated frame must never execute; EOF also means the host is
+      # gone, and the exit trap cleans up).
       # shellcheck disable=SC2086
       set --
       n=0
+      bad_decode=0
       while [ "$n" -lt "$nargs" ]; do
-        IFS= read -r arg_b64 || break
+        IFS= read -r arg_b64 || exit 0
         n=$((n + 1))
-        set -- "$@" "$(b64dec "$arg_b64")"
+        if ! b64dec_strict "$arg_b64"; then
+          bad_decode=1
+          continue
+        fi
+        set -- "$@" "$DEC"
       done
+      if [ "$bad_decode" -ne 0 ]; then
+        printf 'ERR|%s|protocol|%s\n' "$req_id" "$(printf '%s' "an argv payload failed to decode" | base64 | tr -d '\n')"
+        continue
+      fi
       # Dispatched: tell the host now, so its watchdog measures execution and
       # not the queue wait this request just went through.
       printf 'ACK|%s\n' "$req_id"
@@ -605,10 +651,12 @@ while IFS= read -r line; do
       nargs=${rest#*|}
       # Arguments stay base64 (write's content must never become a shell
       # variable of raw bytes); handlers decode what they treat as a path.
+      # A frame that ends before its declared argument count must never run
+      # its op on a partial argument list — and EOF means the host is gone.
       set --
       n=0
       while [ "$n" -lt "$nargs" ]; do
-        IFS= read -r arg_b64 || break
+        IFS= read -r arg_b64 || exit 0
         n=$((n + 1))
         set -- "$@" "$arg_b64"
       done

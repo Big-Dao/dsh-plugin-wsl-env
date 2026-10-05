@@ -12,6 +12,25 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The review's remaining engineering items close out.** A `SETENV` key
+  that is not a POSIX identifier is refused with a protocol error instead
+  of exporting silently into every later request; an EXEC frame whose argv
+  payload fails to decode refuses the request instead of running the
+  command with a silent empty word where the host sent text, and a frame
+  that ends before its declared argument count exits instead of running
+  the op on a partial list; a non-numeric exit code reads as the sentinel
+  `-1` (a value no `wait` can produce) instead of `NaN`; an unknown FS op
+  maps to `FS_IO_ERROR` - naming the contract breach - instead of posing
+  as `FS_NOT_FOUND`; `editText` on a file that never existed reads as
+  `FS_NOT_FOUND` (the read path's dialect) while an edit that *lost* its
+  file after a read stays `FS_STALE_VERSION`; a symlinked directory as a
+  list target answers with the target's children (`find` used to skip its
+  starting point and answer empty, exit 0); and the Linux-filename
+  backslash identity limit is documented in LIMITATIONS instead of
+  waiting as an undocumented wrong answer.
+
 ## [0.7.3] - 2026-10-05
 
 One theme: the resident agent stops taking its world on faith - the

@@ -132,6 +132,31 @@ checks.push(["lstat refuses an empty path; edit refuses a directory", async () =
   });
 }]);
 
+checks.push(["editText on a file that never existed reads as not-found, not stale", async () => {
+  await substrate(async (sub, root) => {
+    const target = await targetOf(sub, join(root, "never.txt"));
+    await assert.rejects(
+      sub.editText(target, { oldString: "x", newString: "y" }, undefined),
+      (error) => codeOf(error) === "FS_NOT_FOUND",
+      "an edit with no read behind it names a file that never answered the stat",
+    );
+  });
+}]);
+
+checks.push(["editText losing its file after a read is stale, not missing", async () => {
+  await substrate(async (sub, root) => {
+    const p = join(root, "doomed.txt");
+    const target = await targetOf(sub, p);
+    const created = await sub.writeText(target, "one\n", undefined);
+    rmSync(p);
+    await assert.rejects(
+      sub.editText(target, { oldString: "one", newString: "two" }, { version: created.version }),
+      (error) => codeOf(error) === "FS_STALE_VERSION",
+      "the read-backed guard is stale: the file existed and is gone",
+    );
+  });
+}]);
+
 checks.push(["writeText creates and updates with the peer's outcome shape", async () => {
   await substrate(async (sub, root) => {
     const target = await targetOf(sub, join(root, "a.txt"));
@@ -194,7 +219,7 @@ checks.push(["editText round-trips CRLF and refuses staleness and ambiguity", as
     const gone = await targetOf(sub, join(root, "nope.txt"));
     await assert.rejects(
       sub.editText(gone, { oldString: "a", newString: "b" }, undefined),
-      (error) => codeOf(error) === "FS_STALE_VERSION",
+      (error) => codeOf(error) === "FS_NOT_FOUND",
     );
   });
 }]);

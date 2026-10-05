@@ -80,6 +80,12 @@ check("the HELLO handshake parses to name, version, and the script digest", () =
   assert.deepEqual(parseAgentLine(`HELLO|${AGENT_NAME}|${PROTOCOL_VERSION}|${digest}`), { type: "hello", name: AGENT_NAME, version: PROTOCOL_VERSION, digest });
 });
 
+check("a non-numeric exit code is protocol garbage, reported as -1", () => {
+  const message = parseAgentLine(`RES|r1|not-a-code|${encodeB64("")}|${encodeB64("")}`);
+  assert.equal(message.exitCode, -1, "-1 is a value no wait() can produce");
+  assert.equal(parseAgentLine(`RES|r1|0|${encodeB64("")}|${encodeB64("")}`).exitCode, 0, "a real zero survives");
+});
+
 check("a RES line yields the exit code and decoded output buffers", () => {
   const stdout = Buffer.from([0, 9, 104, 105]);
   const stderr = Buffer.from("boom\n");

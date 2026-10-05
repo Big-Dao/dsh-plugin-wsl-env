@@ -17,7 +17,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AGENT_NAME, PROTOCOL_VERSION, encodeExecFrame, encodeFsFrame, parseAgentLine } from "../lib/agent-protocol.js";
+import { AGENT_NAME, PROTOCOL_VERSION, encodeB64, encodeExecFrame, encodeFsFrame, parseAgentLine } from "../lib/agent-protocol.js";
 
 const SCRIPT = fileURLToPath(new URL("../agent/wsl-agent.sh", import.meta.url));
 const POSIX = process.platform !== "win32";
@@ -260,6 +260,84 @@ checks.push(["EXEC and PING still work beside the FS frames", async () => {
       if (message.type === "pong") sawPong = true;
       if (sawExec && sawPong) break;
     }
+  } finally {
+    await agent.close();
+  }
+}]);
+
+checks.push(["a symlinked directory as the list target answers with the target's children", async () => {
+  const agent = new Harness();
+  try {
+    await agent.hello();
+    const real = join(agent.dir, "real");
+    mkdirSync(real, { recursive: true });
+    writeFileSync(join(real, "inside.txt"), "x\n", { flag: "wx" });
+    symlinkSync(real, join(agent.dir, "link"));
+    const result = await agent.call("list", [join(agent.dir, "link")]);
+    assert.equal(result.exitCode, 0, result.stderr.toString("utf8"));
+    const names = result.stdout.toString("utf8").split("\0").filter((record) => record.length > 0)
+      .map((record) => record.split("\t").slice(6).join("\t"))
+      .map((path) => path.slice(real.length + 1));
+    assert.deepEqual(names, ["inside.txt"], "the link resolves; readdir parity, not an empty answer");
+  } finally {
+    await agent.close();
+  }
+}]);
+
+checks.push(["an argv word that does not decode refuses the request, and nothing runs", async () => {
+  const agent = new Harness();
+  try {
+    await agent.hello();
+    const id = `x${agent.n++}`;
+    agent.child.stdin.write(`EXEC|${id}|${encodeB64("/")}|0|2|0\n`);
+    agent.child.stdin.write(`${encodeB64("echo")}\n`);
+    agent.child.stdin.write("not!!base64!!\n");
+    const message = parseAgentLine(await agent.nextLine());
+    assert.equal(message.type, "agentError", "the refusal is an ERR frame");
+    assert.equal(message.id, id);
+    assert.equal(message.reason, "protocol", "a decode failure is a contract breach, not a command");
+  } finally {
+    await agent.close();
+  }
+}]);
+
+checks.push(["a SETENV key that is not a POSIX identifier is refused; a good key exports", async () => {
+  const agent = new Harness();
+  try {
+    await agent.hello();
+    agent.child.stdin.write("SETENV|1bad|QQo=\n");
+    const refusal = parseAgentLine(await agent.nextLine());
+    assert.equal(refusal.type, "agentError");
+    assert.equal(refusal.id, "", "the refusal is request-less");
+    assert.equal(refusal.reason, "protocol");
+    agent.child.stdin.write(`SETENV|GOOD_KEY|${encodeB64("ok")}\n`);
+    const id = `x${agent.n++}`;
+    for (const line of encodeExecFrame({ id, cwd: "/", argv: ["sh", "-c", "printf %s $GOOD_KEY"], timeoutMs: 30000 })) {
+      agent.child.stdin.write(`${line}\n`);
+    }
+    let ackSeen = false;
+    for (;;) {
+      const message = parseAgentLine(await agent.nextLine());
+      if (message.type === "ack" && message.id === id) ackSeen = true;
+      if (message.type === "result" && message.id === id) {
+        assert.equal(ackSeen, true);
+        assert.equal(message.stdout.toString("utf8"), "ok", "the validated key exported for the request");
+        break;
+      }
+    }
+  } finally {
+    await agent.close();
+  }
+}]);
+
+checks.push(["an unknown fs op names the breach, not a missing file", async () => {
+  const agent = new Harness();
+  try {
+    await agent.hello();
+    const result = await agent.call("bogus", []);
+    assert.notEqual(result.exitCode, 0);
+    const first = result.stderr.toString("utf8").split("\n")[0];
+    assert.ok(first.startsWith("dsh-fs|protocol|"), `the reason names the contract breach: ${first}`);
   } finally {
     await agent.close();
   }

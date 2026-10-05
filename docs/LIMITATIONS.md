@@ -29,6 +29,13 @@ crosses the 9p share. What to know about the one substrate there is:
   syscall before the rename: a concurrent writer wins and the stale write
   refuses with `FS_STALE_VERSION`. The residual stat-then-rename pair is the
   same sliver a Linux-host session's own rename has.
+- **A Linux filename containing a backslash cannot be addressed.** The UNC
+  display form (`\\wsl.localhost\<distro>\...`) is the file's identity
+  everywhere - the session header, the GUI, the caches - and the backslash is
+  the UNC's separator, so `a\b.ts` in the distro round-trips to `a/b.ts`: the
+  tools would silently address a different path. This is the coordinate
+  system's own limit (the peer's UNC provider has it too), not a defect of
+  the substrate; a rename away from backslash names is the workaround.
 - **Stage two routes mutations through a confined resident.** A write or edit
   under a confined policy runs on its own long-lived agent, spawned inside the
   bwrap profile that binds exactly what the mode grants — so the kernel, not

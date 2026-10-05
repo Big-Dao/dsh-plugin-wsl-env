@@ -250,6 +250,25 @@ chatty command cost unbounded distro memory. `src/index.ts` now reads
 fails against the previous artifact). The one-shot path was always correct —
 it reads the same field through the upstream executor's own `.get()`.
 
+The second pending seam closes the same way — with an implementation instead
+of a note. `WslFileSystem.processPathFromHostPath` was `async` against the
+peer interface's synchronous contract, so the consumers that read it without
+awaiting (spill-policy's attachment mapping, the session controller's and the
+UI's path verification) received a Promise — always truthy, never the
+`undefined` they test for — and mapped nothing. It is synchronous now, built
+from what is already known: the distro once `distro()` has resolved it (the
+pinned config, or the default `wsl.exe` answered by an earlier operation) and
+the configured `cwd`, or the resolved home for a relative path. A call that
+would have to ask `wsl.exe` — a cold default distro, a relative path before
+the home is known — answers `undefined`, the same "no mapping" the ssh
+provider gives, so the consumers take their documented refusal path instead of
+receiving a bogus value. The value keeps the world spelling the backend keys
+on, so their map → resolve → processPath round trip closes exactly as it does
+for the host backend. `test/provider.test.mjs` pins the sync value, the round
+trip, and both `undefined` cases (the checks fail against the previous
+artifact). The `@ts-expect-error` count drops to three: the two remaining
+design decisions and the upstream spawn seam.
+
 ## [0.7.5] - 2026-10-05
 
 One theme: a failed environment probe retries instead of being trusted

@@ -96,12 +96,11 @@ export class WslRoutingFileSystem extends LocalFileSystem {
   static Config = LocalFileSystem.Config;
 
   /**
-   * The lazy distro backend, built on first routed use. Typed as the concrete
-   * class: the peer `FileSystem` interface would need a cast here, because the
-   * distro class's `processPathFromHostPath` is async against the interface's
-   * synchronous contract — the upstream seam gap `lib/index.js` keeps visible
-   * with its own expect-error, and `docs/root-fs-routing.md` records the
-   * routing consequences.
+   * The lazy distro backend, built on first routed use, typed as the concrete
+   * class: these routing calls are that class's own surface, and the
+   * `processPathFromHostPath` seam it once could not satisfy (async against the
+   * peer interface's synchronous contract) is closed — the backend maps
+   * synchronously now, from what it already knows.
    */
   #distro: WslFileSystem | undefined;
   /** The distro knobs, verbatim from the row config. */

@@ -924,25 +924,32 @@ export declare class WslFileSystem extends LocalFileSystem {
      */
     listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>;
     /**
-     * Map an absolute host path into this execution world. POSIX input is a Linux
-     * path inside the distro; anything else keeps the host backend's behaviour.
+     * Map an absolute host path into this execution world, SYNCHRONOUSLY — the
+     * upstream contract (`FileSystem.processPathFromHostPath`) and what its
+     * consumers rely on: `packages/spill/spill-policy` passes this method as a
+     * plain callback over image attachments, and `packages/api/session-controller`
+     * plus the UI's open/reveal path compare the return value against `undefined`
+     * without awaiting. The mapping is therefore built from facts that are already
+     * known — the distro, once `distro()` has resolved it (the pinned config, or
+     * the default `wsl.exe` answered earlier: the first filesystem operation
+     * resolves it), and the configured `cwd`, or the resolved home for a relative
+     * path. A call that would have to ask `wsl.exe` — a cold default distro, or a
+     * relative path before the home is known — answers `undefined`, which every
+     * consumer reads as "no mapping", the same answer the ssh provider gives for
+     * a path it cannot map.
      *
-     * CONTRACT VIOLATION — read before consuming through the seam: the upstream
-     * contract (`FileSystem.processPathFromHostPath`) is SYNCHRONOUS, and its
-     * consumers call it without `await` (deepseek-harness `packages/spill/
-     * spill-policy` passes it as a plain callback over image attachments;
-     * `packages/api/session-controller` reads the return value and compares it
-     * against `undefined`). This override is `async`, so a caller trusting the
-     * upstream signature receives a PROMISE — always truthy, never `undefined` —
-     * and maps nothing. Restoring the sync contract is a real behaviour change
-     * (the distro resolution here can query `wsl.exe` when nothing is cached),
-     * so it is the owner's design decision; until that lands this method must
-     * not be consumed through the upstream sync contract.
+     * The VALUE is the world spelling the backend keys on (the UNC identity for a
+     * distro path), so the consumers' round trip — map, `resolve`, `processPath`,
+     * compare with the original host path — closes exactly as it does for the
+     * host backend. Real operations are unaffected: they take the async
+     * {@link WslFileSystem.worldPath} and its loud refusals.
      *
-     * @param hostPath - an absolute path.
-     * @returns the process path for the same file, or undefined when unmappable.
+     * @param hostPath - an absolute host path (a relative one maps only when the
+     *   configured `cwd` or a known home gives it a base).
+     * @returns the world path for the same file, or undefined when it cannot be
+     *   mapped with what is already known.
      */
-    processPathFromHostPath(hostPath: string): Promise<string | undefined>;
+    processPathFromHostPath(hostPath: string): string | undefined;
     /**
      * Watch from inside the distro, where the kernel can actually report change:
      * a long-lived `wsl.exe` poll loop (`lib/watcher.js`) fires the seam's

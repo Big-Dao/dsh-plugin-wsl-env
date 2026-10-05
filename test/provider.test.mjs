@@ -257,6 +257,32 @@ check("restrictToDistro: false lets the foreign UNC through", async () => {
   assert.equal(await fs.worldPath("\\\\wsl.localhost\\debian\\etc\\hostname"), "\\\\wsl.localhost\\debian\\etc\\hostname");
 });
 
+check("processPathFromHostPath maps synchronously and closes the consumers' round trip", async () => {
+  const { fs } = makeFs();
+  const hostPath = `${WORKSPACE}\\a.ts`;
+  // The upstream contract is synchronous, and its consumers (spill-policy's
+  // attachment mapping, the session controller's and the UI's path
+  // verification) compare the result against `undefined` WITHOUT awaiting: a
+  // Promise here maps nothing at all.
+  const mapped = fs.processPathFromHostPath(hostPath);
+  assert.equal(mapped, hostPath, "a value, not a Promise");
+  assert.ok(mapped !== undefined, "narrowing: the mapped value is a path here");
+  const target = await fs.resolve(mapped);
+  assert.equal(fs.processPath(target), hostPath, "map → resolve → processPath returns the host path back");
+});
+
+check("processPathFromHostPath answers undefined for what it cannot know synchronously", async () => {
+  const foreign = `${WORKSPACE.replace("ubuntu", "debian")}\\a.ts`;
+  assert.equal(makeFs().fs.processPathFromHostPath(foreign), undefined, "another distro's share is not this backend's to map (the async path refuses loudly)");
+  const cold = makeFs();
+  cold.fs.resolvedDistro = "";
+  assert.equal(cold.fs.processPathFromHostPath(`${WORKSPACE}\\a.ts`), undefined, "a cold default distro would need wsl.exe; the sync answer is no mapping");
+  const relative = makeFs();
+  assert.equal(relative.fs.processPathFromHostPath("src/a.ts"), undefined, "a relative path with no cwd and no known home has no base");
+  relative.fs.resolvedHome = "/home/andy";
+  assert.equal(relative.fs.processPathFromHostPath("src/a.ts"), "\\\\wsl.localhost\\ubuntu\\home\\andy\\src\\a.ts", "a known home gives it the base");
+});
+
 check("resolve routes the Linux spelling to the substrate and maps its refusals", async () => {
   const { fs, substrate } = makeFs();
   const target = await fs.resolve("/home/andy/proj");

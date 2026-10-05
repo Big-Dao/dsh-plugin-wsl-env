@@ -48,6 +48,19 @@ take. Test doubles are typed as the slice of the seam they script, reaching
 the seam's declared type through one documented cast at the injection point —
 no `any` and no new `@ts-expect-error` anywhere in the suite.
 
+And the migration's third step opens: `src/agent-protocol.ts` is the first
+module whose source is TypeScript. `pnpm run build` (`tsconfig.build.json`)
+emits `lib/agent-protocol.js` plus `lib/agent-protocol.d.ts` under the same
+export paths, and the artifacts stay committed so a bare checkout remains
+loadable and the tarball needs no build step; the new `lint:build` gate
+(`test/build-freshness.mjs`) builds into a scratch directory and
+byte-compares, so `pnpm test` fails the moment a committed artifact drifts
+from its source. Generated files are excluded from the `checkJs` gate — their
+TypeScript sources are type-checked with `noEmitOnError` instead, which is
+strictly stronger. The protocol message union now has one home: `lib/agent.js`
+and the script-driven tests import `AgentMessage` and friends from the
+protocol module's declarations instead of restating them.
+
 ## [0.7.5] - 2026-10-05
 
 One theme: a failed environment probe retries instead of being trusted

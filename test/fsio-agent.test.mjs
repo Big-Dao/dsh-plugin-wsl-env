@@ -47,11 +47,12 @@ const checks = [];
 /** @typedef {import("../lib/agent.js").WslAgent} WslAgent */
 
 /**
- * The parsed protocol messages `parseAgentLine` returns — its own `@returns`
- * stops at `object`, so the union is restated here (as `lib/agent.js` does).
- * @typedef {{type: "hello", name: string, version: number, digest: string}} HelloMessage
- * @typedef {{type: "result", id: string, exitCode: number, stdout: Buffer, stderr: Buffer, truncated: {stdout: boolean, stderr: boolean}}} ResultMessage
- * @typedef {HelloMessage | ResultMessage | {type: "pong"} | {type: "ack", id: string} | {type: "agentError", id: string, reason: string, message: string} | {type: "unknown", line: string}} AgentMessage
+ * The parsed protocol messages `parseAgentLine` returns — typed by the protocol
+ * module itself now (`src/agent-protocol.ts`, whose build emits the `.d.ts`
+ * these imports resolve).
+ * @typedef {import("../lib/agent-protocol.js").HelloMessage} HelloMessage
+ * @typedef {import("../lib/agent-protocol.js").ResultMessage} ResultMessage
+ * @typedef {import("../lib/agent-protocol.js").AgentMessage} AgentMessage
  */
 
 /**

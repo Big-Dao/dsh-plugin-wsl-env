@@ -24,10 +24,11 @@ import {
 import { relabelFrame } from "../lib/agent.js";
 
 /**
- * The parsed protocol messages `parseAgentLine` returns — its own `@returns`
- * stops at `object`, so the union is restated here (as `lib/agent.js` does).
- * @typedef {{type: "result", id: string, exitCode: number, stdout: Buffer, stderr: Buffer, truncated: {stdout: boolean, stderr: boolean}}} ResultMessage
- * @typedef {{type: "agentError", id: string, reason: string, message: string}} AgentErrorMessage
+ * The parsed protocol messages `parseAgentLine` returns — typed by the protocol
+ * module itself now (`src/agent-protocol.ts`, whose build emits the `.d.ts`
+ * these imports resolve).
+ * @typedef {import("../lib/agent-protocol.js").ResultMessage} ResultMessage
+ * @typedef {import("../lib/agent-protocol.js").AgentErrorMessage} AgentErrorMessage
  */
 
 let passed = 0;

@@ -71,6 +71,32 @@ Three patterns keep the check honest:
   `docs/UPSTREAM-*.md`. It is a published finding with a tracking doc, not a
   silencer.
 
+## The build
+
+The plugin must be loadable from a bare checkout: the harness has no
+transpilation layer, the Windows runtime mirror is a copy of the tree, and the
+tests exercise `lib/*.js` — the published artifact — rather than the sources.
+The TypeScript migration therefore moves sources into `src/` while the build
+lands back in `lib/`, and the built artifacts stay COMMITTED:
+
+- `src/*.ts` is the source of truth for a migrated module; `pnpm run build`
+  (`tsc -p tsconfig.build.json`) emits `lib/<name>.js` plus `lib/<name>.d.ts`
+  next to the hand-written modules, and under the same export paths as before.
+- Never edit a generated file under `lib/` — its module doc names the source
+  to edit and `lint:build` fails the moment the two drift. Generated artifacts
+  keep tsc's canonical formatting (four-space, compacted); review `src/`.
+- `lint:build` (`test/build-freshness.mjs`) builds `src/**` into a scratch
+  directory with the same config and byte-compares against the working tree,
+  so `pnpm test` cannot pass on a stale artifact. It is part of the gate chain
+  after `test:syntax`.
+- Generated files are excluded from the `checkJs` gate in `tsconfig.json`:
+  their TypeScript sources are type-checked by the build config (strictly
+  stronger), with `noEmitOnError` so a broken build never overwrites `lib/`.
+- The declarations are the protocol types' single home now: consumers import
+  them (`@typedef {import("./agent-protocol.js").AgentMessage} AgentMessage`)
+  instead of restating the union, which is how `lib/agent.js` and the
+  script-driven tests read them.
+
 ## The development loop
 
 1. Clone the repository inside the distro. Most contributors develop there.

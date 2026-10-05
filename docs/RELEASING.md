@@ -32,6 +32,11 @@ pnpm run test:coverage
 
 The release workflow runs both of these before it publishes.
 
+`pnpm test` includes the build-freshness gate: modules whose source lives in
+`src/*.ts` must be rebuilt (`pnpm run build`) and the result committed under
+`lib/`, so the tarball always ships exactly what the sources say without any
+build step at pack time.
+
 The coverage thresholds are 85 lines / 84 branches / 70 functions. The
 branch threshold is one point under the others deliberately: the
 integration layer (`lib/index.js`) is now measured, and its uncovered

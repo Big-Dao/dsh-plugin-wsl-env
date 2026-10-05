@@ -11,5 +11,9 @@
     "types": ["node"],
     "skipLibCheck": true
   },
-  "include": ["lib/**/*.js", "test/**/*.mjs", "types/*.d.ts"]
+  // lib/agent-protocol.js is GENERATED from src/agent-protocol.ts by
+  // `pnpm run build`; it is type-checked as its TypeScript source (and kept
+  // fresh by lint:build), so the checkJs pass over generated code is skipped.
+  "include": ["lib/**/*.js", "test/**/*.mjs", "types/*.d.ts"],
+  "exclude": ["lib/agent-protocol.js"]
 }

@@ -44,12 +44,13 @@ const check = async (name, fn) => {
 const checks = [];
 
 /**
- * The parsed protocol messages `parseAgentLine` returns — its own `@returns`
- * stops at `object`, so the union is restated here (as `lib/agent.js` does).
- * @typedef {{type: "hello", name: string, version: number, digest: string}} HelloMessage
- * @typedef {{type: "result", id: string, exitCode: number, stdout: Buffer, stderr: Buffer, truncated: {stdout: boolean, stderr: boolean}}} ResultMessage
- * @typedef {{type: "agentError", id: string, reason: string, message: string}} AgentErrorMessage
- * @typedef {HelloMessage | ResultMessage | AgentErrorMessage | {type: "pong"} | {type: "ack", id: string} | {type: "unknown", line: string}} AgentMessage
+ * The parsed protocol messages `parseAgentLine` returns — typed by the protocol
+ * module itself now (`src/agent-protocol.ts`, whose build emits the `.d.ts`
+ * these imports resolve).
+ * @typedef {import("../lib/agent-protocol.js").HelloMessage} HelloMessage
+ * @typedef {import("../lib/agent-protocol.js").ResultMessage} ResultMessage
+ * @typedef {import("../lib/agent-protocol.js").AgentErrorMessage} AgentErrorMessage
+ * @typedef {import("../lib/agent-protocol.js").AgentMessage} AgentMessage
  */
 
 /** One live agent process over a temp directory, driven frame by frame. */

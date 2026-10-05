@@ -14,22 +14,22 @@
  * @module dsh-plugin-wsl/agent-protocol
  */
 /** The protocol version this host side speaks; the agent must match. */
-export const PROTOCOL_VERSION = 4;
+export declare const PROTOCOL_VERSION = 4;
 /**
  * Upper bound on one `read` op's payload, set by the HOST looping over windowed
  * requests. Keeping each frame's decoded payload here means the agent's RES
  * line stays modest even for a large file; the host accumulates chunks.
  */
-export const FS_READ_CHUNK_BYTES = 1024 * 1024;
+export declare const FS_READ_CHUNK_BYTES: number;
 /** The agent identifies itself with this name in its HELLO line. */
-export const AGENT_NAME = "wsl-agent";
+export declare const AGENT_NAME = "wsl-agent";
 /**
  * Rough ceiling on one protocol line, chosen well above the executor's own
  * 64 KB output budget spill: stdout and stderr ride ONE line each, so a frame
  * is as large as the largest capture the caller asked for. Documented so a
  * future streaming design does not inherit it silently.
  */
-export const MAX_FRAME_BYTES = 256 * 1024 * 1024;
+export declare const MAX_FRAME_BYTES: number;
 /**
  * Encode a buffer as the protocol's single-line base64 (no line wraps, no
  * padding surprises — standard base64 including `=` padding).
@@ -37,9 +37,7 @@ export const MAX_FRAME_BYTES = 256 * 1024 * 1024;
  * @param value - the payload to encode.
  * @returns the wire form.
  */
-export function encodeB64(value) {
-    return Buffer.from(value).toString("base64");
-}
+export declare function encodeB64(value: string | Uint8Array): string;
 /**
  * Decode one protocol base64 field.
  *
@@ -47,10 +45,26 @@ export function encodeB64(value) {
  * @returns the decoded bytes; a malformed field decodes to empty rather than
  *   throwing, mirroring the agent's own lenient decode.
  */
-export function decodeB64(value) {
-    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(value))
-        return Buffer.alloc(0);
-    return Buffer.from(value, "base64");
+export declare function decodeB64(value: string): Buffer;
+/** One EXEC frame's inputs. */
+export interface ExecFrameRequest {
+    /** Caller-chosen request id (unique per agent). */
+    id: string;
+    /** Linux path to cd into before exec. */
+    cwd: string;
+    /** The argv to execute, already bwrap-wrapped. */
+    argv: string[];
+    /**
+     * In-distro timeout; sub-second remainders round up, and `<= 0` disables the
+     * timeout.
+     */
+    timeoutMs?: number;
+    /**
+     * Per-stream capture ceiling the AGENT enforces: stdout and stderr are each
+     * cut at this many bytes and the RES line reports what was cut. 0 (the
+     * default) keeps the historical unbounded capture.
+     */
+    maxOutputBytes?: number;
 }
 /**
  * Build the request lines for one EXEC frame: a header line naming the cwd,
@@ -61,15 +75,7 @@ export function decodeB64(value) {
  * @param request - the execution request.
  * @returns the lines to write to the agent's stdin, in order.
  */
-export function encodeExecFrame({ id, cwd, argv, timeoutMs = 0, maxOutputBytes = 0 }) {
-    const timeoutSeconds = timeoutMs > 0 ? Math.ceil(timeoutMs / 1000) : 0;
-    const cap = maxOutputBytes > 0 ? Math.floor(maxOutputBytes) : 0;
-    const lines = [
-        `EXEC|${id}|${encodeB64(cwd)}|${timeoutSeconds}|${argv.length}|${cap}`,
-        ...argv.map((word) => encodeB64(word)),
-    ];
-    return lines;
-}
+export declare function encodeExecFrame({ id, cwd, argv, timeoutMs, maxOutputBytes }: ExecFrameRequest): string[];
 /**
  * Build a SETENV request line. Note the agent's decode strips trailing
  * newlines from the value — the same leniency the shell itself applies.
@@ -78,17 +84,27 @@ export function encodeExecFrame({ id, cwd, argv, timeoutMs = 0, maxOutputBytes =
  * @param value - the variable value.
  * @returns the line to write.
  */
-export function encodeSetEnv(key, value) {
-    return `SETENV|${key}|${encodeB64(value)}`;
-}
+export declare function encodeSetEnv(key: string, value: string): string;
 /**
  * Build a KILL request line.
  *
  * @param id - the request id to interrupt.
  * @returns the line to write.
  */
-export function encodeKill(id) {
-    return `KILL|${id}`;
+export declare function encodeKill(id: string): string;
+/** One FS frame's inputs. */
+export interface FsFrameRequest {
+    /** Caller-chosen request id (unique per agent). */
+    id: string;
+    /** One of the op names `encodeFsFrame` documents. */
+    op: string;
+    /** Op arguments, base64-line encoded by the frame. */
+    args: string[];
+    /**
+     * In-distro timeout; sub-second remainders round up, and `<= 0` disables the
+     * timeout.
+     */
+    timeoutMs?: number;
 }
 /**
  * Build the request lines for one FS frame — the filesystem-substrate request
@@ -109,47 +125,68 @@ export function encodeKill(id) {
  * @param request - the filesystem request.
  * @returns the lines to write to the agent's stdin, in order.
  */
-export function encodeFsFrame({ id, op, args, timeoutMs = 0 }) {
-    const timeoutSeconds = timeoutMs > 0 ? Math.ceil(timeoutMs / 1000) : 0;
-    return [
-        `FS|${id}|${op}|${timeoutSeconds}|${args.length}`,
-        ...args.map((word) => encodeB64(word)),
-    ];
+export declare function encodeFsFrame({ id, op, args, timeoutMs }: FsFrameRequest): string[];
+/**
+ * `HELLO|name|version|digest` — `digest` is the sha256 of the script file the
+ * agent is executing (empty when it could not hash it); the host compares it
+ * against its own shipped copy.
+ */
+export interface HelloMessage {
+    type: "hello";
+    name: string;
+    version: number;
+    digest: string;
 }
+/** `PONG` — the liveness answer to `PING`. */
+export interface PongMessage {
+    type: "pong";
+}
+/**
+ * `ACK|id` — the agent dequeued the request for execution; the host arms its
+ * stuck-request watchdog here, so queue time never counts against a budget.
+ */
+export interface AckMessage {
+    type: "ack";
+    id: string;
+}
+/** `RES|id|exitCode|stdout|stderr` — one settled request, outputs as Buffers. */
+export interface ResultMessage {
+    type: "result";
+    id: string;
+    exitCode: number;
+    stdout: Buffer;
+    stderr: Buffer;
+    truncated: {
+        stdout: boolean;
+        stderr: boolean;
+    };
+}
+/**
+ * `ERR|id|reason|message` — a refused request; `id` is `""` when the agent
+ * reports a request-less problem (a protocol violation).
+ */
+export interface AgentErrorMessage {
+    type: "agentError";
+    id: string;
+    reason: string;
+    message: string;
+}
+/**
+ * Any other line — never thrown; the host decides whether an unrecognized line
+ * is fatal. (Anything during the handshake is; after it, garbage on stdout is
+ * logged and dropped, because a `RES` for a request the host already gave up
+ * on is expected noise.)
+ */
+export interface UnknownMessage {
+    type: "unknown";
+    line: string;
+}
+/** The line parser's verdict: the union of every message shape above. */
+export type AgentMessage = HelloMessage | PongMessage | AckMessage | ResultMessage | AgentErrorMessage | UnknownMessage;
 /**
  * Parse one line of the agent's stdout.
  *
  * @param line - a line without its terminator.
  * @returns the line's verdict; the message interfaces document each variant.
  */
-export function parseAgentLine(line) {
-    if (line.startsWith("HELLO|")) {
-        const [, name, version, digest] = line.split("|");
-        return { type: "hello", name, version: Number(version), digest: digest ?? "" };
-    }
-    if (line === "PONG")
-        return { type: "pong" };
-    if (line.startsWith("ACK|"))
-        return { type: "ack", id: line.slice(4) };
-    if (line.startsWith("RES|")) {
-        const [, id, exitCode, stdout, stderr, outTruncated, errTruncated] = line.split("|");
-        // A non-numeric code is protocol garbage, not a success: -1 is a value
-        // no `wait` can produce, so a caller can tell it from every real code.
-        const code = Number(exitCode);
-        return {
-            type: "result",
-            id,
-            exitCode: Number.isSafeInteger(code) ? code : -1,
-            stdout: decodeB64(stdout ?? ""),
-            stderr: decodeB64(stderr ?? ""),
-            // The capture-cap flags the agent appends when the EXEC frame carried a
-            // budget; frames without them (fakes, FS ops) are simply not truncated.
-            truncated: { stdout: outTruncated === "1", stderr: errTruncated === "1" },
-        };
-    }
-    if (line.startsWith("ERR|")) {
-        const [, id, reason, message] = line.split("|");
-        return { type: "agentError", id: id ?? "", reason: reason ?? "protocol", message: decodeB64(message ?? "").toString("utf8") };
-    }
-    return { type: "unknown", line };
-}
+export declare function parseAgentLine(line: string): AgentMessage;

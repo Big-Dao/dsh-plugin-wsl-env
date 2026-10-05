@@ -92,6 +92,15 @@ export against its predecessor, and the whitespace-normalized code diff is
 tsc's statement reflow and nothing else; every source keeps its module doc
 plus a note naming the generated artifact.
 
+The next four carry the decision layer: `fsio-text` (the byte-for-byte
+replication of the peer's text mechanics — `FsCodedError` gained a declared
+`code` field, and the stream decoder is typed through `node:util`, since
+Node's global `TextDecoder` is a value, not a type), `fs-decisions` (the
+refusal descriptors, with `Refusal` as an exported interface and `isCoded` as
+a real type predicate), and `git-route`/`search-route` (the two spawn
+rewrites; their generated artifacts are byte-identical modulo whitespace).
+Nine of the thirty-six modules now have TypeScript sources.
+
 ## [0.7.5] - 2026-10-05
 
 One theme: a failed environment probe retries instead of being trusted

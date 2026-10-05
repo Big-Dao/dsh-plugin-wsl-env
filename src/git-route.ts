@@ -44,13 +44,38 @@
  *
  * @module dsh-plugin-wsl/git-route
  */
+
+import { isWslUnc, uncToPosix, windowsToLinuxMount } from "./paths.js";
+
+/** The one program this rewrite passes through to the distro. */
+const GIT_PROGRAM = "git";
+
+/** Discovery flags print absolute paths — host git keeps that contract. */
+const DISCOVERY_FLAGS = ["--show-toplevel", "--absolute-git-dir", "--git-path"];
+
 /**
  * Whether a spawn's program is git.
  *
  * @param program - the spawn's `argv[0]`.
  * @returns true when the spawn is a git launch.
  */
-export declare function isGitProgram(program: unknown): boolean;
+export function isGitProgram(program: unknown): boolean {
+  if (typeof program !== "string" || program.length === 0) return false;
+  const base = program.slice(Math.max(program.lastIndexOf("/"), program.lastIndexOf("\\")) + 1);
+  return base.toLowerCase().replace(/\.exe$/u, "") === GIT_PROGRAM;
+}
+
+/**
+ * Whether a git argv carries the discovery flags whose absolute output the
+ * caller resolves against the UNC world.
+ *
+ * @param argv - the spawn's argv; `argv[0]` is the program.
+ * @returns true when the spawn must stay on host git.
+ */
+function namesDiscoveryPaths(argv: readonly unknown[]): boolean {
+  return argv.some((arg) => typeof arg === "string" && DISCOVERY_FLAGS.includes(arg));
+}
+
 /**
  * Translate one `GIT_*` value into the distro's coordinate system.
  *
@@ -61,7 +86,16 @@ export declare function isGitProgram(program: unknown): boolean;
  * @param value - the env value.
  * @returns the distro-side spelling of the value.
  */
-export declare function translateGitEnvValue(value: string | undefined): string | undefined;
+export function translateGitEnvValue(value: string | undefined): string | undefined {
+  if (typeof value !== "string") return value;
+  if (isWslUnc(value)) {
+    const parsed = uncToPosix(value);
+    return parsed === undefined ? value : parsed.linuxPath.length > 0 ? parsed.linuxPath : "/";
+  }
+  const mounted = windowsToLinuxMount(value);
+  return mounted === undefined ? value : mounted;
+}
+
 /**
  * Translate a git spawn's environment for the distro and name the keys that
  * must ride `WSLENV`.
@@ -70,10 +104,16 @@ export declare function translateGitEnvValue(value: string | undefined): string 
  * @returns the environment to forward (every key, path-shaped values
  *   translated) and the `WSLENV` names.
  */
-export declare function translateGitEnv(env: Record<string, string | undefined> | undefined): {
-    env: Record<string, string | undefined>;
-    wslenv: string[];
-};
+export function translateGitEnv(env: Record<string, string | undefined> | undefined): { env: Record<string, string | undefined>, wslenv: string[] } {
+  const translated: Record<string, string | undefined> = {};
+  const names: string[] = [];
+  for (const [name, value] of Object.entries(env ?? {})) {
+    translated[name] = name.startsWith("GIT_") ? translateGitEnvValue(value) : value;
+    names.push(name);
+  }
+  return { env: translated, wslenv: names };
+}
+
 /**
  * The distro-side rewrite of one git spawn, when it belongs in the distro.
  *
@@ -88,13 +128,17 @@ export declare function translateGitEnv(env: Record<string, string | undefined> 
  *   git launch (non-git programs, host directories, and the absolute-output
  *   discovery flags all keep the shipped spawn).
  */
-export declare function gitSpawnRewrite({ argv, cwd, wslPath }: {
-    argv?: readonly string[];
-    cwd?: string;
-    wslPath: string;
-}): {
-    distro: string;
-    linuxCwd: string;
-    gitArgv: string[];
-    wslArgv: string[];
-} | undefined;
+export function gitSpawnRewrite({ argv, cwd, wslPath }: { argv?: readonly string[], cwd?: string, wslPath: string }): { distro: string, linuxCwd: string, gitArgv: string[], wslArgv: string[] } | undefined {
+  if (!Array.isArray(argv) || !isGitProgram(argv[0])) return undefined;
+  if (namesDiscoveryPaths(argv)) return undefined;
+  const named = uncToPosix(cwd);
+  if (named === undefined) return undefined;
+  const linuxCwd = named.linuxPath.length > 0 ? named.linuxPath : "/";
+  const gitArgv = [GIT_PROGRAM, ...argv.slice(1)];
+  return {
+    distro: named.distro,
+    linuxCwd,
+    gitArgv,
+    wslArgv: [wslPath, "-d", named.distro, "--cd", linuxCwd, "--exec", ...gitArgv],
+  };
+}

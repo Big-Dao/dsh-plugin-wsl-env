@@ -39,6 +39,12 @@
  *
  * @module dsh-plugin-wsl/search-route
  */
+
+import { uncToPosix } from "./paths.js";
+
+/** The one program this rewrite passes through to the distro. */
+const SEARCH_PROGRAM = "rg";
+
 /**
  * Whether a spawn's program is the ripgrep binary.
  *
@@ -48,7 +54,12 @@
  * @param program - the spawn's `argv[0]`.
  * @returns true when the spawn is a ripgrep launch.
  */
-export declare function isSearchProgram(program: unknown): boolean;
+export function isSearchProgram(program: unknown): boolean {
+  if (typeof program !== "string" || program.length === 0) return false;
+  const base = program.slice(Math.max(program.lastIndexOf("/"), program.lastIndexOf("\\")) + 1);
+  return base.toLowerCase().replace(/\.exe$/u, "") === SEARCH_PROGRAM;
+}
+
 /**
  * The distro-side rewrite of one search spawn, when it belongs in the distro.
  *
@@ -63,13 +74,22 @@ export declare function isSearchProgram(program: unknown): boolean;
  * @returns the rewrite, or undefined when the spawn is not a distro search and
  *   must run exactly as the shipped implementation would run it.
  */
-export declare function searchSpawnRewrite({ argv, cwd, wslPath }: {
-    argv: readonly string[];
-    cwd: string;
-    wslPath: string;
-}): {
-    distro: string;
-    linuxCwd: string;
-    rgArgv: string[];
-    wslArgv: string[];
-} | undefined;
+export function searchSpawnRewrite({ argv, cwd, wslPath }: { argv: readonly string[], cwd: string, wslPath: string }): { distro: string, linuxCwd: string, rgArgv: string[], wslArgv: string[] } | undefined {
+  if (!Array.isArray(argv) || !isSearchProgram(argv[0])) return undefined;
+  const named = uncToPosix(cwd);
+  if (named === undefined) return undefined;
+  const linuxCwd = named.linuxPath.length > 0 ? named.linuxPath : "/";
+  // No bare `--` means the tool named no search path; without one, distro-side
+  // rg reads the relay fifo on stdin (rg's readable-stdin heuristic) instead of
+  // walking the directory. `.` is the working directory — the same directory
+  // the packaged binary walked when the host spawned it directly.
+  const forwarded = argv.slice(1);
+  const tool = forwarded.includes("--") ? forwarded : [...forwarded, "--", "."];
+  const rgArgv = [SEARCH_PROGRAM, ...tool];
+  return {
+    distro: named.distro,
+    linuxCwd,
+    rgArgv,
+    wslArgv: [wslPath, "-d", named.distro, "--cd", linuxCwd, "--exec", ...rgArgv],
+  };
+}

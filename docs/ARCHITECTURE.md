@@ -185,7 +185,7 @@ selector read that value.
 distro can still run a Windows program through WSL interop, for example
 `/mnt/c/.../*.exe`. Bubblewrap does not govern that process.
 
-`npm run probe:sandbox` demonstrates the boundary on your machine and records it as
+`pnpm run probe:sandbox` demonstrates the boundary on your machine and records it as
 `INFO`.
 
 ### Failure mode
@@ -250,7 +250,7 @@ distro checkout.
 
 The Windows copy at `default-workspace/dsh-plugin-wsl` is a runtime mirror.
 [`test/probe/sync-to-windows.sh`](../test/probe/sync-to-windows.sh) keeps it in
-step with the checkout, and `npm run sync:windows` runs that script.
+step with the checkout, and `pnpm run sync:windows` runs that script.
 
 ## Test layers
 
@@ -306,7 +306,7 @@ docs/               this file, the configuration and limitation references, the
 ```
 
 `package.json` publishes a subset of this tree: the `files` list is the contract, and
-`npm run lint:style` fails if an entry stops matching tracked content.
+`pnpm run lint:style` fails if an entry stops matching tracked content.
 
 ## Where the reasoning lives
 

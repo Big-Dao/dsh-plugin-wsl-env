@@ -12,6 +12,15 @@ reference below points at that record's numbering.
 
 ## [Unreleased]
 
+One theme: the toolchain moves from npm to pnpm. `pnpm-lock.yaml` replaces
+`package-lock.json`, CI installs through corepack with
+`pnpm install --frozen-lockfile` (the `packageManager` field pins pnpm 11.7.0,
+matching the harness repository), and the three dependencies with install
+scripts (`@deepseek-ai/dsh-subprocess-local`, `koffi`, `node-pty`) are
+allow-listed in `pnpm-workspace.yaml` — pnpm 11 blocks dependency build
+scripts by default. Alongside: the per-target lock test drops its unused
+`withResolvers` gate, which hung the Node 20 leg on every push.
+
 ## [0.7.5] - 2026-10-05
 
 One theme: a failed environment probe retries instead of being trusted

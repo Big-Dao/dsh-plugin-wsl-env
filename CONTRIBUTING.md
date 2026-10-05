@@ -14,22 +14,29 @@ the conventions this repository uses.
 
 ## Toolchain
 
-The package has no dependencies, so there is no install step. Run the scripts
-straight from a checkout.
+The runtime package ships an empty `dependencies` object on purpose: it is
+loaded into the DSH process and everything it needs arrives as a peer package.
+Running the plugin from a checkout has no install step.
 
-`npm` runs the scripts in this repository, and CI uses npm. Treat
-`npm run <script>` as the reference toolchain.
+Developing and running the gates do have dependencies. The 0.7.x tests import
+pinned `@deepseek-ai/*` packages — the composition and boot tests run the
+loader's real patch algorithm — so a fresh checkout needs one `pnpm install`
+before the gates pass.
 
-Do not add a runtime dependency. The package ships an empty `dependencies` object
-on purpose, because it is loaded into the DSH process and everything it needs
-arrives as a peer package.
+pnpm runs the scripts in this repository, pinned through the `packageManager`
+field (corepack resolves it). Treat `pnpm run <script>` as the reference
+toolchain.
 
-Style tooling is kept out for the same reason. There is no ESLint, no Prettier, and
-no `devDependencies` at all. The checks that would normally need them are built
-from Node builtins instead. `test/style.mjs` verifies the rules `.editorconfig`
-states, and it checks that every `files` entry still matches tracked content and
-every `exports` target still exists. The syntax pass inside `npm test` uses Node's
-own parser.
+Do not add a runtime dependency — see above. Style tooling is kept out for the
+same reason: there is no ESLint and no Prettier. The checks that would normally
+need them are built from Node builtins instead. `test/style.mjs` verifies the
+rules `.editorconfig` states, and it checks that every `files` entry still
+matches tracked content and every `exports` target still exists. The syntax pass
+inside `pnpm test` uses Node's own parser.
+
+Exactly three dependencies run install scripts (`@deepseek-ai/dsh-subprocess-local`,
+`koffi`, `node-pty` — the native pieces); they are allow-listed in
+`pnpm-workspace.yaml` and everything else builds nothing.
 
 ## The development loop
 
@@ -50,7 +57,7 @@ The Windows copy under `default-workspace/dsh-plugin-wsl` is a runtime mirror. S
 it before launching the app:
 
 ```bash
-npm run sync:windows
+pnpm run sync:windows
 ```
 
 The mirror destination sits outside a session workspace. An agent that runs the
@@ -62,28 +69,28 @@ terminal if you would rather not see the prompt.
 
 | Command | Covers | Needs a harness |
 |---|---|---|
-| `npm test` | style checks, syntax pass, and unit tests | no |
-| `npm run test:coverage` | unit tests with coverage | no |
-| `npm run lint:style` | style and lint rules | no |
-| `npm run probe` | filesystem behaviour against a real distro | yes |
-| `npm run probe:sandbox` | what bubblewrap confines and what it does not | no |
-| `npm run probe:sandbox-shell` | the confined executor through a real boot | yes |
-| `npm run probe:terminal` | the terminal provider | yes |
-| `npm run probe:substrate` | the agent filesystem substrate over a real `wsl.exe` transport | yes; inside the distro |
-| `npm run probe:watch` | the in-distro watcher over a real directory | yes; inside the distro |
-| `npm run probe:agent` | the resident-vs-one-shot fallback parity legs | yes; inside the distro |
-| `npm run probe:exec` | the agent-backed execution handle: timeout, kill, cwd failure | yes; inside the distro |
-| `npm run probe:missing-wsl` | how a `wslPath` that cannot start is reported | yes |
-| `npm run probe:picker` | the picker's root level, its refusals and its cap | yes |
-| `npm run probe:mode` | which POSIX-mode facts survive the share | no; Windows Node |
-| `npm run probe:sandbox-off` | the documented opt-out on both providers | yes |
+| `pnpm test` | style checks, syntax pass, and unit tests | no |
+| `pnpm run test:coverage` | unit tests with coverage | no |
+| `pnpm run lint:style` | style and lint rules | no |
+| `pnpm run probe` | filesystem behaviour against a real distro | yes |
+| `pnpm run probe:sandbox` | what bubblewrap confines and what it does not | no |
+| `pnpm run probe:sandbox-shell` | the confined executor through a real boot | yes |
+| `pnpm run probe:terminal` | the terminal provider | yes |
+| `pnpm run probe:substrate` | the agent filesystem substrate over a real `wsl.exe` transport | yes; inside the distro |
+| `pnpm run probe:watch` | the in-distro watcher over a real directory | yes; inside the distro |
+| `pnpm run probe:agent` | the resident-vs-one-shot fallback parity legs | yes; inside the distro |
+| `pnpm run probe:exec` | the agent-backed execution handle: timeout, kill, cwd failure | yes; inside the distro |
+| `pnpm run probe:missing-wsl` | how a `wslPath` that cannot start is reported | yes |
+| `pnpm run probe:picker` | the picker's root level, its refusals and its cap | yes |
+| `pnpm run probe:mode` | which POSIX-mode facts survive the share | no; Windows Node |
+| `pnpm run probe:sandbox-off` | the documented opt-out on both providers | yes |
 
-Every script above is wired in `package.json`. `npm test` runs `lint:style`,
-`test:syntax` and `test:unit` in that order. `prepublishOnly` runs `npm test` again
+Every script above is wired in `package.json`. `pnpm test` runs `lint:style`,
+`test:syntax` and `test:unit` in that order. `prepublishOnly` runs `pnpm test` again
 at publish time, so a broken gate stops a release before the upload.
 
-CI runs `npm test` on Node 20, 22 and 24, on both `ubuntu-latest` and
-`windows-latest`, and `npm run test:coverage` on Node 24. The Windows runners are
+CI runs `pnpm test` on Node 20, 22 and 24, on both `ubuntu-latest` and
+`windows-latest`, and `pnpm run test:coverage` on Node 24. The Windows runners are
 there because the plugin targets Windows; the coverage thresholds need Node 22.8 or
 newer, which is why that job runs on one version.
 
@@ -117,7 +124,7 @@ start, because a leftover file from an earlier run changes the result.
 
 ## What has been verified
 
-`npm test` covers the pure modules and runs a `--check` pass over every shipped
+`pnpm test` covers the pure modules and runs a `--check` pass over every shipped
 module. It cannot import the service modules, because those need DSH peer packages
 that a bare checkout does not have. Only booting the harness closes that gap, which
 is why the probes exist; the archived record's §15.4 documents the five rounds of

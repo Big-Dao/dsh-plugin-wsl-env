@@ -28,7 +28,7 @@ Step 3 should print a layer named `# == dsh-plugin-wsl-env`, and `- id: terminal
 
 Then open a folder under `\\wsl.localhost\<distro>\...` in the GUI. The picker lists every installed distro at its root level, and **New terminal** opens a shell in the distro.
 
-You also need **bubblewrap inside the distro**: run `npm run bootstrap -- <distro> --install` (drop `--install` for a read-only check), or paste `wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap`. Without it every command fails closed, see [Sandbox](#sandbox).
+You also need **bubblewrap inside the distro**: run `pnpm run bootstrap -- <distro> --install` (drop `--install` for a read-only check), or paste `wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap`. Without it every command fails closed, see [Sandbox](#sandbox).
 
 Uninstall: `dsh plugin --profile wsl remove dsh-plugin-wsl-env`. Upgrade: run the same `add` command again.
 
@@ -73,7 +73,7 @@ Override a row by id in `$DSH_HOME/profiles/<name>/cordis.patch.yml`. The keys w
 - **Paths and performance**: the model sees and operates on Linux paths
   (`/home/...`) on the distro's own ext4. `/mnt/c` reaches the Windows disk over
   9p — noticeably slow for many small files; keep heavy-IO projects on the
-  distro filesystem. `npm run bootstrap -- <distro>` also reports whether
+  distro filesystem. `pnpm run bootstrap -- <distro>` also reports whether
   ripgrep, git and inotifywait (the search, snapshot and watch backends) are in place.
 - **WSLENV passthrough**: WSL imports only the variables listed in `WSLENV`.
   This plugin admits the managed `DSH_*` namespace by prefix, translating the
@@ -114,7 +114,7 @@ Commands are confined by `bubblewrap` inside the distro, and file writes are che
 
 **`bubblewrap` is required, and it fails closed.** Without it every confined command reports `SANDBOX_UNAVAILABLE` instead of running unconfined. Set `sandbox: false` on either provider to opt out; the tool layer then tells the model these operations have no sandbox.
 
-**The reported enforcement is `partial`, not `full`.** A process inside the distro can still run a Windows program through WSL interop, for example `/mnt/c/.../*.exe`, and bubblewrap does not govern it. `npm run probe:sandbox` demonstrates the boundary on your machine.
+**The reported enforcement is `partial`, not `full`.** A process inside the distro can still run a Windows program through WSL interop, for example `/mnt/c/.../*.exe`, and bubblewrap does not govern it. `pnpm run probe:sandbox` demonstrates the boundary on your machine.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#sandbox) for the design, and [docs/LIMITATIONS.md](docs/LIMITATIONS.md) for everything the plugin does not do.
 
@@ -122,37 +122,37 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#sandbox) for the design, and [do
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| every command reports `SANDBOX_UNAVAILABLE` | `bubblewrap` is not installed in the distro | run `npm run bootstrap -- <distro> --install`, or set `sandbox: false` on both providers |
+| every command reports `SANDBOX_UNAVAILABLE` | `bubblewrap` is not installed in the distro | run `pnpm run bootstrap -- <distro> --install`, or set `sandbox: false` on both providers |
 | a command or write is refused outside the session folder | expected behaviour of `workspace-write` | accept the wider-permission offer, or open a session on the folder you need |
 | writes are refused even inside the workspace | the session is in `read-only` mode | switch the Permissions selector |
 | `dsh plugin add` warns that no layer was activated | the dependency was already installed, so `add` had nothing to record | run `dsh plugin --profile wsl remove dsh-plugin-wsl-env`, then add it again |
 | the terminal still opens `cmd.exe` | the `terminal-controller` row from the layer did not apply | check that `dsh --profile wsl --dump-config` shows `shell: { path: wsl.exe, name: WSL }` |
 | changes to `lib/` have no effect | ES module cache | restart the app |
 | `link:\\wsl.localhost\...` leaves a broken symlink | pnpm cannot link a UNC path | link a Windows path instead; developing inside the distro needs the runtime mirror, see [Development](#development) |
-| `glob` and `grep` are slow | a distro search without rg inside the distro falls back to rg's own "command not found"; a Windows-folder search is native and unaffected | run `npm run bootstrap -- <distro> --install` (installs ripgrep); distro searches always run the distro's rg — they never walk the 9p share |
+| `glob` and `grep` are slow | a distro search without rg inside the distro falls back to rg's own "command not found"; a Windows-folder search is native and unaffected | run `pnpm run bootstrap -- <distro> --install` (installs ripgrep); distro searches always run the distro's rg — they never walk the 9p share |
 | the terminal reports `unknown` activity | only while the resident agent is out — distro terminals are observed from inside the distro (a `DSH_TERMINAL_ID` marker scanned in `/proc`: a shell alone is `idle`, a shell running anything is `busy`) | check the distro is running; idle terminals are reclaimed automatically after the controller's unattended timeout (2 h by default), and `terminalIdleReclaim: false` restores the close-by-hand posture |
 | a result names an `FS_*` code | the code says what refused it, and what clears it | see the error-code table in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#error-codes) |
 
 ## Development
 
 ```bash
-npm test                     # style and packaging checks, syntax check, unit tests
-npm run test:coverage        # the unit tests with coverage thresholds (Node 22.8+)
-npm run probe:sandbox        # measure inside the distro what bubblewrap does and does not confine
-npm run probe                # filesystem probe against a real distro (Windows + WSL only)
-npm run probe:sandbox-shell  # boot a real harness and drive the confined executor
-npm run probe:terminal       # open a PTY through the terminal provider
-npm run probe:substrate      # drive the agent filesystem substrate over a real wsl.exe transport (from inside the distro)
-npm run probe:watch          # arm the in-distro watcher over a real directory (from inside the distro)
-npm run probe:agent          # the resident-vs-one-shot fallback parity legs (from inside the distro)
-npm run probe:exec           # the agent-backed execution handle: timeout, kill, cwd failure (from inside the distro)
-npm run probe:missing-wsl    # boot a profile whose wslPath cannot start (Windows + WSL only)
-npm run probe:picker         # list the picker's root level, refusals and its cap (Windows + WSL only)
-npm run probe:mode           # which POSIX-mode facts survive the share (Windows node only)
-npm run probe:sandbox-off    # prove sandbox: false unconfines both providers (Windows + WSL only)
+pnpm test                     # style and packaging checks, syntax check, unit tests
+pnpm run test:coverage        # the unit tests with coverage thresholds (Node 22.8+)
+pnpm run probe:sandbox        # measure inside the distro what bubblewrap does and does not confine
+pnpm run probe                # filesystem probe against a real distro (Windows + WSL only)
+pnpm run probe:sandbox-shell  # boot a real harness and drive the confined executor
+pnpm run probe:terminal       # open a PTY through the terminal provider
+pnpm run probe:substrate      # drive the agent filesystem substrate over a real wsl.exe transport (from inside the distro)
+pnpm run probe:watch          # arm the in-distro watcher over a real directory (from inside the distro)
+pnpm run probe:agent          # the resident-vs-one-shot fallback parity legs (from inside the distro)
+pnpm run probe:exec           # the agent-backed execution handle: timeout, kill, cwd failure (from inside the distro)
+pnpm run probe:missing-wsl    # boot a profile whose wslPath cannot start (Windows + WSL only)
+pnpm run probe:picker         # list the picker's root level, refusals and its cap (Windows + WSL only)
+pnpm run probe:mode           # which POSIX-mode facts survive the share (Windows node only)
+pnpm run probe:sandbox-off    # prove sandbox: false unconfines both providers (Windows + WSL only)
 ```
 
-There is nothing to install first: the package has no dependencies, and every module under test imports only Node builtins. CI runs `npm test` on Node 20, 22 and 24, on Linux and Windows, and `npm run test:coverage` on Node 24.
+One `pnpm install` reproduces the pinned development dependencies before the first run: the 0.7.x tests import pinned `@deepseek-ai/*` packages (the composition and boot tests exercise the loader's real patch algorithm), while the runtime package itself still ships zero dependencies. pnpm is resolved through the `packageManager` field, so any corepack-enabled Node works. CI runs `pnpm test` on Node 20, 22 and 24, on Linux and Windows, and `pnpm run test:coverage` on Node 24.
 
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has the file layout, the mounting, and the sandbox design. [CONTRIBUTING.md](CONTRIBUTING.md) has the development loop, the full gate list, and what has been verified.
 

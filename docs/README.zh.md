@@ -28,7 +28,7 @@ dsh --profile wsl                                  # 4. 启动
 
 然后在 GUI 里打开 `\\wsl.localhost\<子系统>\...` 下的文件夹。选择器会在根一级列出每个已安装的子系统，**New terminal** 会在子系统里打开 shell。
 
-还需要在子系统里安装 **bubblewrap**：运行 `npm run bootstrap -- <子系统> --install`（只读检测去掉 `--install`），或直接执行 `wsl.exe -d <子系统> -u root -- apt-get install -y bubblewrap`。没有它每条命令都会失败关闭，见[沙箱](#沙箱)。
+还需要在子系统里安装 **bubblewrap**：运行 `pnpm run bootstrap -- <子系统> --install`（只读检测去掉 `--install`），或直接执行 `wsl.exe -d <子系统> -u root -- apt-get install -y bubblewrap`。没有它每条命令都会失败关闭，见[沙箱](#沙箱)。
 
 卸载：`dsh plugin --profile wsl remove dsh-plugin-wsl-env`。升级：再执行一次同样的 `add` 命令。
 
@@ -68,7 +68,7 @@ dsh --profile wsl                                  # 4. 启动
 - **Git 凭据共享**：让子系统里的 git 使用 Windows 侧的 Git Credential Manager，避免每次输密码：
   `git config --global credential.helper "/mnt/c/Program\ Files/Git/mingw64/bin/git-credential-manager.exe"`
   （路径按 Windows 侧 Git 的安装位置调整；WSL2 的 localhost 转发是平台行为，子系统内监听的端口 Windows 直接可达。）
-- **路径与性能**：模型看到并操作的是子系统内的 Linux 路径（`/home/...`），写入子系统自身的 ext4；`/mnt/c` 通向 Windows 磁盘但走 9p，大批量小文件操作明显慢——重 IO 的项目请放在子系统文件系统内。`npm run bootstrap -- <子系统>` 会一并报告 ripgrep、git、inotifywait（搜索、快照与监视的后端）是否就位。
+- **路径与性能**：模型看到并操作的是子系统内的 Linux 路径（`/home/...`），写入子系统自身的 ext4；`/mnt/c` 通向 Windows 磁盘但走 9p，大批量小文件操作明显慢——重 IO 的项目请放在子系统文件系统内。`pnpm run bootstrap -- <子系统>` 会一并报告 ripgrep、git、inotifywait（搜索、快照与监视的后端）是否就位。
 - **WSLENV 透传**：WSL 只导入 `WSLENV` 中列出的变量。本插件按前缀放行托管的 `DSH_*` 命名空间，其中带 Windows 路径的两个（`DSH_HOME`、`DSH_PROFILE_DIR`）加 `/p` 让 WSL 翻译成 `/mnt/c/...`。`PATH` 故意不透传——否则 Windows 的 PATH 会覆盖子系统自身的 PATH。
 
 ## 架构
@@ -105,7 +105,7 @@ preset-wsl（wsl agent preset；其服务运行在 isolate realm 内）
 
 **bubblewrap 是必需项，缺失即失败关闭。** 没有它时，每条受限命令都报 `SANDBOX_UNAVAILABLE`，而不是不受约束地运行。要退出约束就在任一 provider 上设 `sandbox: false`，工具层会如实告诉模型这些操作没有沙箱。
 
-**上报的强制程度是 `partial` 而不是 `full`。** 子系统里的进程仍可经 WSL interop 执行 Windows 程序（例如 `/mnt/c/.../*.exe`），bubblewrap 管不到它。`npm run probe:sandbox` 会在你的机器上演示这条边界。
+**上报的强制程度是 `partial` 而不是 `full`。** 子系统里的进程仍可经 WSL interop 执行 Windows 程序（例如 `/mnt/c/.../*.exe`），bubblewrap 管不到它。`pnpm run probe:sandbox` 会在你的机器上演示这条边界。
 
 设计见 [docs/ARCHITECTURE.md](ARCHITECTURE.md#sandbox)，插件不做的事情见 [docs/LIMITATIONS.md](LIMITATIONS.md)。
 
@@ -113,37 +113,37 @@ preset-wsl（wsl agent preset；其服务运行在 isolate realm 内）
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| 每条命令都报 `SANDBOX_UNAVAILABLE` | 子系统里没有 `bubblewrap` | 执行 `npm run bootstrap -- <子系统> --install`，或在两个 provider 上都设 `sandbox: false` |
+| 每条命令都报 `SANDBOX_UNAVAILABLE` | 子系统里没有 `bubblewrap` | 执行 `pnpm run bootstrap -- <子系统> --install`，或在两个 provider 上都设 `sandbox: false` |
 | 命令或写入在会话目录之外被拒绝 | `workspace-write` 的预期行为 | 接受工具给出的放宽权限提示，或把会话直接开在需要的目录上 |
 | 连工作区内的写入也被拒绝 | 会处在 `read-only` 模式 | 切换权限选择器 |
 | `dsh plugin add` 提示"没有激活任何层" | 依赖之前已经装过，`add` 没有需要记录的内容 | 先执行 `dsh plugin --profile wsl remove dsh-plugin-wsl-env`，再装一次 |
 | 终端打开后仍然是 `cmd.exe` | 这一层里的 `terminal-controller` 行没有生效 | 用 `dsh --profile wsl --dump-config` 确认能看到 `shell: { path: wsl.exe, name: WSL }` |
 | 改了 `lib/` 但不生效 | ES module 缓存 | 重启应用 |
 | 用 `link:\\wsl.localhost\...` 安装后符号链接是坏的 | pnpm 无法链接 UNC 路径 | 改成链接 Windows 路径；在子系统内开发时用运行时镜像，见[开发](#开发) |
-| `glob`/`grep` 很慢 | 子系统内没有 rg 时，搜索只能报 rg 自己的 "command not found"；Windows 目录的搜索走宿主原生 rg，不受影响 | 运行 `npm run bootstrap -- <子系统> --install`（安装 ripgrep）；子系统工作区的搜索始终跑子系统内的 rg，绝不遍历 9p 共享 |
+| `glob`/`grep` 很慢 | 子系统内没有 rg 时，搜索只能报 rg 自己的 "command not found"；Windows 目录的搜索走宿主原生 rg，不受影响 | 运行 `pnpm run bootstrap -- <子系统> --install`（安装 ripgrep）；子系统工作区的搜索始终跑子系统内的 rg，绝不遍历 9p 共享 |
 | 终端活动显示 `unknown` | 仅在常驻代理不可用时出现——distro 终端从子系统内部观测（`/proc` 中扫描 `DSH_TERMINAL_ID` 标记：shell 独处为 `idle`，运行任何命令为 `busy`） | 确认子系统在运行；空闲终端会在控制器的无人值守超时（默认 2 小时）后自动回收，`terminalIdleReclaim: false` 恢复手动关闭 |
 | 结果里出现 `FS_*` 码 | 码本身说明了是谁拒绝的、以及怎样解除 | 见 [docs/ARCHITECTURE.md](ARCHITECTURE.md#error-codes) 的错误码表 |
 
 ## 开发
 
 ```bash
-npm test                     # 风格与打包检查、语法检查、单元测试
-npm run test:coverage        # 带覆盖率阈值的单元测试（需 Node 22.8+）
-npm run probe:sandbox        # 在子系统里实测 bubblewrap 能约束什么、不能约束什么
-npm run probe                # 文件系统探针，需要真实子系统（仅 Windows + WSL）
-npm run probe:sandbox-shell  # 启动真实 harness，驱动受限执行器
-npm run probe:terminal       # 通过终端 provider 打开一个 PTY
-npm run probe:substrate      # 用真实 wsl.exe 传输驱动 agent 文件基座（在子系统内运行）
-npm run probe:watch          # 在真实目录上装上 distro 内轮询 watcher（在子系统内运行）
-npm run probe:agent          # resident 与 one-shot 的回退不变量对比腿（在子系统内运行）
-npm run probe:exec           # agent 执行句柄：超时、杀停、cwd 失败（在子系统内运行）
-npm run probe:missing-wsl    # 启动一个 wslPath 无法启动的 profile（仅 Windows + WSL）
-npm run probe:picker         # 列出选择器的根级、拒绝路径与上限（仅 Windows + WSL）
-npm run probe:mode           # 哪些 POSIX 权限事实能穿过共享层（仅需 Windows node）
-npm run probe:sandbox-off    # 验证 sandbox: false 确实解除两侧约束（仅 Windows + WSL）
+pnpm test                     # 风格与打包检查、语法检查、单元测试
+pnpm run test:coverage        # 带覆盖率阈值的单元测试（需 Node 22.8+）
+pnpm run probe:sandbox        # 在子系统里实测 bubblewrap 能约束什么、不能约束什么
+pnpm run probe                # 文件系统探针，需要真实子系统（仅 Windows + WSL）
+pnpm run probe:sandbox-shell  # 启动真实 harness，驱动受限执行器
+pnpm run probe:terminal       # 通过终端 provider 打开一个 PTY
+pnpm run probe:substrate      # 用真实 wsl.exe 传输驱动 agent 文件基座（在子系统内运行）
+pnpm run probe:watch          # 在真实目录上装上 distro 内轮询 watcher（在子系统内运行）
+pnpm run probe:agent          # resident 与 one-shot 的回退不变量对比腿（在子系统内运行）
+pnpm run probe:exec           # agent 执行句柄：超时、杀停、cwd 失败（在子系统内运行）
+pnpm run probe:missing-wsl    # 启动一个 wslPath 无法启动的 profile（仅 Windows + WSL）
+pnpm run probe:picker         # 列出选择器的根级、拒绝路径与上限（仅 Windows + WSL）
+pnpm run probe:mode           # 哪些 POSIX 权限事实能穿过共享层（仅需 Windows node）
+pnpm run probe:sandbox-off    # 验证 sandbox: false 确实解除两侧约束（仅 Windows + WSL）
 ```
 
-这个包没有依赖，被测模块只 import Node 内置模块，所以不需要先安装任何东西。CI 在 Linux 和 Windows 上用 Node 20、22、24 运行 `npm test`，并在 Node 24 上运行 `npm run test:coverage`。
+首次运行前先 `pnpm install` 一次，复原钉版的开发依赖：0.7.x 的测试会 import 钉版的 `@deepseek-ai/*` 包（组合与启动测试跑的是 loader 的真实 patch 算法），运行时包本身仍然保持零依赖。pnpm 由 `packageManager` 字段解析，任何开了 corepack 的 Node 都能直接用。CI 在 Linux 和 Windows 上用 Node 20、22、24 运行 `pnpm test`，并在 Node 24 上运行 `pnpm run test:coverage`。
 
 [docs/ARCHITECTURE.md](ARCHITECTURE.md) 有文件布局、挂载方式和沙箱设计；[CONTRIBUTING.md](../CONTRIBUTING.md) 有开发循环、完整质量门清单和已验证内容。
 

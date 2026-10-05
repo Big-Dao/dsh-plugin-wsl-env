@@ -14,6 +14,11 @@ permissions:
   contents: write
   id-token: write
 
+# corepack resolves pnpm from the packageManager field; the flag silences its
+# interactive download confirmation, which has no TTY in CI.
+env:
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -38,11 +43,14 @@ jobs:
       - name: Tag matches the package version
         run: node scripts/check-release-tag.mjs "$GITHUB_REF_NAME"
       # The gates import pinned dev dependencies (the composition and boot tests
-      # run the loader's real patch algorithm); `npm ci` reproduces the locked tree.
+      # run the loader's real patch algorithm); `pnpm install --frozen-lockfile`
+      # reproduces the locked tree.
       - name: Install
-        run: npm ci
+        run: |
+          corepack enable pnpm
+          pnpm install --frozen-lockfile
       - name: Gates
-        run: npm test && npm run test:coverage
+        run: pnpm test && pnpm run test:coverage
       # Re-running a release after a partial failure must not end at a 409. Ask the
       # registry whether this version is already published, and skip the upload when
       # it is, so the job still gets to create the GitHub Release.

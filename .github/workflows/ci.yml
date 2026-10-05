@@ -15,10 +15,16 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# corepack resolves pnpm from the packageManager field and downloads it once per
+# runner; the flag silences its interactive download confirmation, which has no
+# TTY in CI.
+env:
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+
 # What cannot run here, and why: `test/probe/` needs Windows, WSL2 with a distro,
 # `bubblewrap` inside that distro, a harness profile and a linked checkout. A hosted
 # runner has none of that, so the probes stay a manual step on the development
-# machine (`npm run probe`, `probe:sandbox`, `probe:sandbox-shell`, `probe:terminal`,
+# machine (`pnpm run probe`, `probe:sandbox`, `probe:sandbox-shell`, `probe:terminal`,
 # and inside the distro `probe:substrate`, `probe:watch`, `probe:agent`, `probe:exec`).
 # See docs/RELEASING.md, and the archived record §16.6 for what that gap once cost.
 jobs:
@@ -43,10 +49,11 @@ jobs:
       # The 0.7.x tests import pinned dev dependencies: the composition and boot
       # tests run the loader's REAL patch algorithm (`@deepseek-ai/cordis-plugin-include`)
       # and `workspace-files-wsl` tests the service's pure builders against the
-      # typert protocol shapes. `npm ci` reproduces the locked tree; the runtime
-      # package itself still ships zero dependencies.
-      - run: npm ci
-      - run: npm test
+      # typert protocol shapes. `pnpm install --frozen-lockfile` reproduces the
+      # locked tree; the runtime package itself still ships zero dependencies.
+      - run: corepack enable pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
 
   coverage:
     name: coverage (node 24)
@@ -57,12 +64,13 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
-      - run: npm ci
+      - run: corepack enable pnpm
+      - run: pnpm install --frozen-lockfile
       # The threshold flags need Node >= 22.8, so this runs on one version only.
       # It covers the pure modules. The integration layer (`lib/index.js`) is
       # covered by test/provider.test.mjs; `lib/picker.js`, `lib/auto-preset.js`
       # and `lib/shell-env.js` still belong to the probes.
-      - run: npm run test:coverage
+      - run: pnpm run test:coverage
 
   # The real-machine probes need Windows + WSL2 + the harness app, which no
   # hosted runner has. This job exists for a SELF-HOSTED Windows runner (the
@@ -82,7 +90,8 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
-      - run: npm ci
+      - run: corepack enable pnpm
+      - run: pnpm install --frozen-lockfile
       # sandbox.sh needs bubblewrap in the default distro but no harness; the
       # rest need the app. A missing prerequisite reports skipped instead of
       # failing: the job's value is on the machines that have the topology.

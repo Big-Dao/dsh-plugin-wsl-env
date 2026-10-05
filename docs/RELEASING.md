@@ -26,8 +26,8 @@ move in a minor release.
 ## 3. Run the gates
 
 ```bash
-npm test
-npm run test:coverage
+pnpm test
+pnpm run test:coverage
 ```
 
 The release workflow runs both of these before it publishes.
@@ -45,25 +45,25 @@ Run the probes as well when behaviour changed, and keep their output for the pul
 request or the release notes:
 
 ```bash
-npm run probe
-npm run probe:sandbox
-npm run probe:sandbox-shell
-npm run probe:terminal
-npm run probe:picker
-npm run probe:missing-wsl
-npm run probe:mode
-npm run probe:substrate
-npm run probe:watch
-npm run probe:agent
-npm run probe:exec
+pnpm run probe
+pnpm run probe:sandbox
+pnpm run probe:sandbox-shell
+pnpm run probe:terminal
+pnpm run probe:picker
+pnpm run probe:missing-wsl
+pnpm run probe:mode
+pnpm run probe:substrate
+pnpm run probe:watch
+pnpm run probe:agent
+pnpm run probe:exec
 ```
 
-`npm run probe:sandbox` needs no harness; `npm run probe:mode` needs Windows Node
+`pnpm run probe:sandbox` needs no harness; `pnpm run probe:mode` needs Windows Node
 but no harness. `probe:substrate`, `probe:watch`, `probe:agent` and `probe:exec`
 run from inside the distro. The rest need Windows, WSL2, a mounted profile and a
 linked checkout.
 
-`npm publish` runs the `prepublishOnly` script, which is `npm test`. The local
+`npm publish` runs the `prepublishOnly` script, which is `pnpm test`. The local
 gates therefore run again during the release step.
 
 ## 4. Commit and tag
@@ -87,7 +87,7 @@ this order:
 
 1. Checks that the tag matches `version` in `package.json`, using
    `scripts/check-release-tag.mjs`.
-2. Runs the gates, `npm test` and `npm run test:coverage`.
+2. Runs the gates, `pnpm test` and `pnpm run test:coverage`.
 3. Publishes with `npm publish --provenance --access public`. That attaches a
    signed attestation tying the tarball to this workflow run and this commit.
 4. Creates the GitHub Release, with notes taken from the changelog section by
@@ -171,7 +171,7 @@ The Windows copy of the checkout is what the app loads. Sync it to the tagged
 state:
 
 ```bash
-npm run sync:windows
+pnpm run sync:windows
 ```
 
 Then confirm that the two trees match:
@@ -190,6 +190,6 @@ refused there and has to approve a wider permission for the one command.
 |---|---|
 | `npm publish` prints success at upload time | The version may still return 404 for a minute or two. Poll the registry, and do not conclude that the publish failed. |
 | A retry can fail with `409 Cannot publish over previously staged version` | The first publish did land. Verify it instead of publishing again. |
-| The npm readme is chosen from the candidate files at the package root, and the rule is not fully explained. With `README.md` and `README.zh.md` side by side, version 0.1.1 published as `readmeFilename: README.zh.md`, so its npm page rendered Chinese. The npm CLI's own selection code (`@npmcli/package-json/lib/normalize.js`, `glob('{README,README.*}')` with the pattern `/\.m?a?r?k?d?o?w?n$/i/`) does not match a `.md` name at all, and the tarball listed `README.md` first. | Do not rely on the rule. Keep exactly one readme candidate at the package root, which `npm run lint:style` checks. The Chinese README lives in `docs/` for this reason. |
+| The npm readme is chosen from the candidate files at the package root, and the rule is not fully explained. With `README.md` and `README.zh.md` side by side, version 0.1.1 published as `readmeFilename: README.zh.md`, so its npm page rendered Chinese. The npm CLI's own selection code (`@npmcli/package-json/lib/normalize.js`, `glob('{README,README.*}')` with the pattern `/\.m?a?r?k?d?o?w?n$/i/`) does not match a `.md` name at all, and the tarball listed `README.md` first. | Do not rely on the rule. Keep exactly one readme candidate at the package root, which `pnpm run lint:style` checks. The Chinese README lives in `docs/` for this reason. |
 | A local `~/.npmrc` may point at a mirror | Pass `--registry=https://registry.npmjs.org/` on every publish and every verification. |
 | The npm token is a credential | Pass it per command, never commit it, and revoke it after the release. |

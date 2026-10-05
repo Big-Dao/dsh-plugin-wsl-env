@@ -6,7 +6,7 @@
 # claims in README ("workspace-write means this, and not that") are measured
 # rather than assumed. Run it from INSIDE the distro:
 #
-#   test/probe/sandbox.sh          # or: npm run probe:sandbox
+#   test/probe/sandbox.sh          # or: pnpm run probe:sandbox
 #
 # Overridable:
 #   DSH_WSL_ENV_WORKSPACE   the writable root to grant (default: this checkout)

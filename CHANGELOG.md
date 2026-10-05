@@ -186,6 +186,13 @@ deleted in the same commit — the class is declared once now, and the private
 members it keeps are nominal against nothing else. Thirty-four of the
 thirty-six modules are TypeScript; `workspace-files-wsl` and `index` remain.
 
+`workspace-files-wsl` follows — the distro-routed GUI file service, with
+`WorkspaceFilesWslConfig`/`DistroListing` exported, the row-config read kept
+as its one documented double cast (the base class keeps `config` private), and
+the `readByteRange` expect-error left exactly where it was: that one is an
+open design decision, not a migration artifact. Thirty-five of the thirty-six
+modules are TypeScript; `index` is the last one.
+
 ## [0.7.5] - 2026-10-05
 
 One theme: a failed environment probe retries instead of being trusted

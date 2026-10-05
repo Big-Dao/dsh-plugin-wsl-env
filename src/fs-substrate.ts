@@ -51,25 +51,6 @@ export interface ResolvedTarget {
 }
 
 /**
- * The lib-side `WslAgent` declaration. `lib/fsio-agent.d.ts` is generated from
- * the still-un-migrated `fsio-agent.js`, and its `agent` parameter references
- * the lib-side declaration of the class; a class with private members is
- * nominal, so `src/agent.ts`'s declaration is not assignable to it even though
- * the runtime object is the very same class. This alias names the lib-side
- * type so the boundary needs one documented assertion instead of scattering
- * them — it disappears once `fsio-agent` migrates.
- */
-type LibWslAgent = ConstructorParameters<typeof DistroFs>[0]["agent"];
-
-/**
- * Cross the dual-declaration seam (see {@link LibWslAgent}).
- *
- * @param agent - the resident, as this module's declaration types it.
- * @returns the same object, as the un-migrated modules declare it.
- */
-const asLibAgent = (agent: WslAgent): LibWslAgent => agent as unknown as LibWslAgent;
-
-/**
  * The provider's stat/lstat row, type-spelled the way the tool layer reads it.
  *
  * @param info - the distro stat row.
@@ -122,7 +103,7 @@ export class AgentSubstrate {
     this.diffBasisMaxBytes = diffBasisMaxBytes;
     this.agent = agent;
     this.agentFor = agentFor;
-    this.fs = new DistroFs({ agent: asLibAgent(agent), distro });
+    this.fs = new DistroFs({ agent, distro });
     this.locks = new Map();
   }
 
@@ -301,7 +282,7 @@ export class AgentSubstrate {
         createIfAbsent: expected?.kind === "createIfAbsent" ? { displayPath: target.displayPath } : undefined,
         expectedVersion: expected?.kind === "replaceIfVersion" ? expected.version : undefined,
         signal,
-        agent: asLibAgent(mutationAgent),
+        agent: mutationAgent,
       });
       const after = await this.fs.stat(linuxPath, { signal });
       return {
@@ -351,7 +332,7 @@ export class AgentSubstrate {
       const original = await this.fs.readForEdit(target, signal);
       const edited = applyLiteralEdit(original.content, edit.oldString, edit.newString, edit.replaceAll, target.displayPath);
       const content = restoreLineEndings(edited.content, original.lineEndings);
-      await this.fs.writeFileAtomic(linuxPath, content, { mode: existing.mode, expectedVersion: existing.version, signal, agent: asLibAgent(mutationAgent) });
+      await this.fs.writeFileAtomic(linuxPath, content, { mode: existing.mode, expectedVersion: existing.version, signal, agent: mutationAgent });
       const after = await this.fs.stat(linuxPath, { signal });
       return {
         version: after ? after.version : `missing:${target.targetKey}`,

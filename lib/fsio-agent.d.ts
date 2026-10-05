@@ -1,32 +1,56 @@
 /**
- * One agent FS round trip's result — the shape `WslAgent#fs` resolves to.
+ * The distro-side filesystem substrate: fsio's orchestration, run over the
+ * agent's FS frames instead of Node's fs on the 9p share.
  *
- * @typedef {object} AgentFsResult
- * @property {number} exitCode - the op's exit status.
- * @property {Buffer} stdout - the op's payload bytes.
- * @property {Buffer} stderr - the op's diagnostic line(s).
+ * Where `@deepseek-ai/dsh-fs-local` opens paths on the host, this module asks
+ * the resident in-distro agent (`agent/wsl-agent.sh`) to stat, list, read and
+ * write on ext4 — where symlinks resolve, mode bits stick, and `find` walks
+ * the native filesystem. Everything the peer does HOST-side after the bytes
+ * arrive stays here, byte-for-byte: the binary NUL sample, the fatal UTF-8
+ * decode, the LF normalization, the edit algorithm (see `fsio-text.js`).
+ *
+ * Coordinate systems: every method takes and returns LINUX paths; `targetKey`
+ * identity remains the distro's UNC form (the whole harness keys caches and
+ * guards on it), translated at this boundary via `paths.js`. The module is
+ * policy-free — the fence lives in the provider — and peer-free, so it is
+ * unit-testable in a bare checkout against a scripted agent.
+ *
+ * This is a TypeScript source built to `lib/fsio-agent.js`; edit THIS file and
+ * run `pnpm run build` — the artifact under `lib/` is generated, and `pnpm test`
+ * fails when it drifts.
+ *
+ * @module dsh-plugin-wsl/fsio-agent
  */
+import { normalizeLineEndings, restoreLineEndings, applyLiteralEdit } from "./fsio-text.js";
+import type { WslAgent } from "./agent.js";
+import type { ResolvedTarget } from "./fs-substrate.js";
+/** One agent FS round trip's result — the shape `WslAgent#fs` resolves to. */
+export interface AgentFsResult {
+    /** The op's exit status. */
+    exitCode: number;
+    /** The op's payload bytes. */
+    stdout: Buffer;
+    /** The op's diagnostic line(s). */
+    stderr: Buffer;
+}
 /**
  * Normalize one agent timestamp ("seconds.frac", 9 or 10 fractional digits
  * depending on whether stat or find produced it) into the peer's nanosecond
  * string: exactly nine fractional digits, no dot.
- * @param {string} value - the wire timestamp.
- * @returns {string} seconds followed by nine fractional digits.
+ *
+ * @param value - the wire timestamp.
+ * @returns seconds followed by nine fractional digits.
  */
-export function nanoseconds(value: string): string;
+export declare function nanoseconds(value: string): string;
 /**
  * The peer's `versionOf`: dev, inode, size and both nanosecond timestamps.
  * Self-consistency within this provider is what versions need; the ingredients
  * come from one kernel, so a change in any byte of the file changes the string.
-   * @param {object} ingredients - the stat record's identity fields.
-   * @param {string} ingredients.dev - the device id.
-   * @param {string} ingredients.ino - the inode number.
-   * @param {string|number} ingredients.size - the byte size as the wire carries it.
-   * @param {string} ingredients.mtimeNs - the mtime in nanoseconds.
-   * @param {string} ingredients.ctimeNs - the ctime in nanoseconds.
-   * @returns {string} the opaque version string.
-   */
-export function versionOf({ dev, ino, size, mtimeNs, ctimeNs }: {
+ *
+ * @param ingredients - the stat record's identity fields.
+ * @returns the opaque version string.
+ */
+export declare function versionOf({ dev, ino, size, mtimeNs, ctimeNs }: {
     dev: string;
     ino: string;
     size: string | number;
@@ -36,10 +60,11 @@ export function versionOf({ dev, ino, size, mtimeNs, ctimeNs }: {
 /**
  * Parse one stat record as the agent emits it:
  * `type \t mode \t size \t dev \t ino \t mtime \t ctime`.
- * @param {Buffer} stdout - the op's payload.
- * @returns {{type: string, mode: number, size: number, dev: string, ino: string, version: string}}
+ *
+ * @param stdout - the op's payload.
+ * @returns the parsed row.
  */
-export function parseStatRecord(stdout: Buffer): {
+export declare function parseStatRecord(stdout: Buffer): {
     type: string;
     mode: number;
     size: number;
@@ -47,34 +72,53 @@ export function parseStatRecord(stdout: Buffer): {
     ino: string;
     version: string;
 };
+/** One `find` listing row, as `listChildren` shapes it. */
+export interface ChildRow {
+    name: string;
+    type: string;
+    target: {
+        displayPath: string;
+        targetKey: string;
+    };
+    version?: string;
+    size?: number;
+}
+/** The stat row `stat` returns. */
+export interface StatRow {
+    type: string;
+    mode: number;
+    size: number;
+    version: string;
+}
 /**
  * One distro's filesystem face. Owns the agent round trips and the host-side
  * validation; the provider layers the fence on top.
  */
-export class DistroFs {
+export declare class DistroFs {
+    /** The resident in-distro agent. */
+    agent: WslAgent;
+    /** The pinned distro name, for UNC translation. */
+    distro: string;
     /**
-     * @param {object} deps - the substrate's collaborators.
-     * @param {import("./agent.js").WslAgent} deps.agent - the resident in-distro agent.
-     * @param {string} deps.distro - the pinned distro name, for UNC translation.
+     * @param deps - the substrate's collaborators.
      */
     constructor({ agent, distro }: {
-        agent: import("./agent.js").WslAgent;
+        /** The resident in-distro agent. */
+        agent: WslAgent;
+        /** The pinned distro name, for UNC translation. */
         distro: string;
     });
-    agent: import("./agent.js").WslAgent;
-    distro: string;
     /**
      * Run one FS op, mapping an aborted request onto the structured code the
      * provider's callers expect. A mutation may name the agent that must run it
      * — the confined resident whose mount table matches the granted rights —
      * while reads ride the plain resident.
-     * @param {string} op - the FS op name (`stat`, `lstat`, `realpath`, `list`, `read`, `write`).
-     * @param {Array<string|Uint8Array>} args - the op's arguments, one wire line each.
-     * @param {AbortSignal|undefined} signal - the caller's cancellation.
-     * @param {import("./agent.js").WslAgent} [agent] - the agent that must run the
-     *   op; the plain resident by default.
-     * @returns {Promise<AgentFsResult>} the op's result.
-     * @private
+     *
+     * @param op - the FS op name (`stat`, `lstat`, `realpath`, `list`, `read`, `write`).
+     * @param args - the op's arguments, one wire line each.
+     * @param signal - the caller's cancellation.
+     * @param agent - the agent that must run the op; the plain resident by default.
+     * @returns the op's result.
      */
     private request;
     /**
@@ -83,61 +127,48 @@ export class DistroFs {
      * fault carrying whatever stderr the agent did produce. On a WRITE, the
      * kernel's read-only-bind denial is classified as the sandbox refusal it is,
      * mirroring the command path's denial signatures.
-     * @param {string} op - the failed op (`read` or `write`).
-     * @param {AgentFsResult} result - the failed round trip's result.
-     * @param {string} displayPath - the caller-facing path for the message.
-     * @returns {FsCodedError} the structured failure.
-     * @private
+     *
+     * @param op - the failed op (`read` or `write`).
+     * @param result - the failed round trip's result.
+     * @param displayPath - the caller-facing path for the message.
+     * @returns the structured failure.
      */
     private fail;
     /**
      * Stat one Linux path, following or not. A missing path is `null`, exactly
      * like the peer's `probe`; everything else that is not found-class is a
      * structured failure.
-     * @param {string} linuxPath - the path inside the distro.
-     * @param {object} [options] - the stat flavour.
-     * @param {boolean} [options.follow] - follow symlinks (default true).
-     * @param {AbortSignal} [options.signal] - cancels the round trip.
-     * @returns {Promise<{type: string, mode: number, size: number, version: string}|null>}
+     *
+     * @param linuxPath - the path inside the distro.
+     * @param options - the stat flavour.
+     * @returns the stat row, or null when the path is absent.
      */
     stat(linuxPath: string, { follow, signal }?: {
-        follow?: boolean | undefined;
-        signal?: AbortSignal | undefined;
-    }): Promise<{
-        type: string;
-        mode: number;
-        size: number;
-        version: string;
-    } | null>;
+        follow?: boolean;
+        signal?: AbortSignal;
+    }): Promise<StatRow | null>;
     /**
      * The distro-side identity of one path: the strict realpath, or on a missing
      * target the nearest existing ancestor with the missing suffix — the peer's
      * `resolveLocalTarget`, run where the symlinks live.
-     * @param {string} linuxPath - the absolute Linux path to resolve.
-     * @param {AbortSignal} [signal] - cancels the round trip.
-     * @returns {Promise<string>} the canonical Linux path.
+     *
+     * @param linuxPath - the absolute Linux path to resolve.
+     * @param signal - cancels the round trip.
+     * @returns the canonical Linux path.
      */
     canonicalPath(linuxPath: string, signal?: AbortSignal): Promise<string>;
     /**
      * Resolve one Linux path to the target shape the provider and tooling use:
      * the Linux spelling the model sees and the UNC identity the harness keys on.
-     * @param {string} linuxPath - the absolute Linux path to resolve.
-     * @param {AbortSignal} [signal] - cancels the round trip.
-     * @returns {Promise<{displayPath: string, targetKey: string}>}
+     *
+     * @param linuxPath - the absolute Linux path to resolve.
+     * @param signal - cancels the round trip.
+     * @returns the resolved target.
      */
     resolveTarget(linuxPath: string, signal?: AbortSignal): Promise<{
         displayPath: string;
         targetKey: string;
     }>;
-    /**
-     * List one directory's direct children in name order — one `find -L` pass in
-     * the distro, sorted and shaped host-side like the peer's `listDirectory`.
-     * A symlink child's identity is resolved with one extra round trip, because
-     * the follow-stat the list already carried belongs to its target.
-     * @param {import("./fs-substrate.js").ResolvedTarget} target - the resolved directory to list.
-     * @param {AbortSignal} [signal] - aborts between children.
-     * @returns {Promise<Array<{name: string, type: string, target: {displayPath: string, targetKey: string}, version?: string, size?: number}>>}
-     */
     /**
      * List one directory's direct children in name order — one `find` pass in
      * the distro, sorted and shaped host-side like the peer's `listDirectory`.
@@ -145,72 +176,70 @@ export class DistroFs {
      * follow-up stat (its target's version and size) plus a realpath (its
      * identity), and a dangling symlink degrades to the peer's `other` with no
      * version — exactly what the peer's null follow-probe produces.
-     * @param {import("./fs-substrate.js").ResolvedTarget} target - the resolved directory to list.
-     * @param {AbortSignal} [signal] - aborts between children.
-     * @returns {Promise<Array<{name: string, type: string, target: {displayPath: string, targetKey: string}, version?: string, size?: number}>>}
+     *
+     * @param target - the resolved directory to list.
+     * @param signal - aborts between children.
+     * @returns the child rows, name-sorted.
      */
-    listChildren(target: import("./fs-substrate.js").ResolvedTarget, signal?: AbortSignal): Promise<Array<{
-        name: string;
-        type: string;
-        target: {
-            displayPath: string;
-            targetKey: string;
-        };
-        version?: string;
-        size?: number;
-    }>>;
+    listChildren(target: ResolvedTarget, signal?: AbortSignal): Promise<ChildRow[]>;
     /**
      * Stat the target as a regular file or refuse, mirroring the peer's
      * `statRegularFile` messages.
-     * @param {import("./fs-substrate.js").ResolvedTarget} target - the resolved file.
-     * @param {string} verb - the operation name for the messages.
-     * @param {AbortSignal|undefined} signal - the caller's cancellation.
-     * @private
+     *
+     * @param target - the resolved file.
+     * @param verb - the operation name for the messages.
+     * @param signal - the caller's cancellation.
+     * @returns the stat row of the regular file.
      */
     private statRegularFile;
     /**
      * Read the whole file's bytes through windowed frames.
-     * @param {import("./fs-substrate.js").ResolvedTarget} target - the resolved file.
-     * @param {AbortSignal|undefined} signal - the caller's cancellation.
-     * @param {number} [maxBytes] - inclusive byte cap on the complete content.
-     * @private
+     *
+     * @param target - the resolved file.
+     * @param signal - the caller's cancellation.
+     * @param maxBytes - inclusive byte cap on the complete content.
+     * @returns the file's bytes.
      */
     private readWhole;
     /**
      * Read a whole regular UTF-8 file, rejecting binaries and invalid UTF-8.
-     * @param {import("./fs-substrate.js").ResolvedTarget} target - the resolved file.
-     * @param {AbortSignal} [signal] - aborts the read.
-     * @returns {Promise<string>} the full decoded text, byte-for-byte.
+     *
+     * @param target - the resolved file.
+     * @param signal - aborts the read.
+     * @returns the full decoded text, byte-for-byte.
      */
-    readWholeText(target: import("./fs-substrate.js").ResolvedTarget, signal?: AbortSignal): Promise<string>;
+    readWholeText(target: ResolvedTarget, signal?: AbortSignal): Promise<string>;
     /**
      * Read a whole regular file as raw bytes, bounded by `maxBytes`.
-     * @param {import("./fs-substrate.js").ResolvedTarget} target - the resolved file.
-     * @param {AbortSignal|undefined} signal - aborts the read.
-     * @param {number} maxBytes - inclusive byte cap on the complete content.
-     * @returns {Promise<Uint8Array>} the full raw content, at most `maxBytes` long.
+     *
+     * @param target - the resolved file.
+     * @param signal - aborts the read.
+     * @param maxBytes - inclusive byte cap on the complete content.
+     * @returns the full raw content, at most `maxBytes` long.
      */
-    readWholeBytes(target: import("./fs-substrate.js").ResolvedTarget, signal: AbortSignal | undefined, maxBytes: number): Promise<Uint8Array>;
+    readWholeBytes(target: ResolvedTarget, signal: AbortSignal | undefined, maxBytes: number): Promise<Uint8Array>;
     /**
      * Read the bytes at `[offset, offset + length)` of a regular file. A window
      * at or past the end is empty.
-     * @param {import("./fs-substrate.js").ResolvedTarget} target - the resolved file.
-     * @param {{offset: number, length: number}} range - the byte window.
-     * @param {AbortSignal} [signal] - aborts the read.
-     * @returns {Promise<Uint8Array>} the window's bytes.
+     *
+     * @param target - the resolved file.
+     * @param range - the byte window.
+     * @param signal - aborts the read.
+     * @returns the window's bytes.
      */
-    readByteWindow(target: import("./fs-substrate.js").ResolvedTarget, range: {
+    readByteWindow(target: ResolvedTarget, range: {
         offset: number;
         length: number;
     }, signal?: AbortSignal): Promise<Uint8Array>;
     /**
      * Stream a whole regular UTF-8 file as decoded text chunks — the binary
      * sample scan and cross-chunk decoding stay host-side, exactly the peer's.
-     * @param {import("./fs-substrate.js").ResolvedTarget} target - the resolved file.
-     * @param {AbortSignal} [signal] - aborts the stream.
-     * @returns {AsyncGenerator<string>} decoded text chunks in file order.
+     *
+     * @param target - the resolved file.
+     * @param signal - aborts the stream.
+     * @returns decoded text chunks in file order.
      */
-    streamWholeText(target: import("./fs-substrate.js").ResolvedTarget, signal?: AbortSignal): AsyncGenerator<string>;
+    streamWholeText(target: ResolvedTarget, signal?: AbortSignal): AsyncGenerator<string>;
     /**
      * Publish `content` over `linuxPath` the POSIX way: the agent stages into a
      * private 0700 sibling, fsyncs, chmods, and renames — or hard links for a
@@ -218,37 +247,47 @@ export class DistroFs {
      * re-verified by the agent against a fresh stat one syscall before the
      * rename: a concurrent writer (an editor save, a `git stash`) wins, and the
      * stale write refuses with `FS_STALE_VERSION` instead of landing.
-     * @param {string} linuxPath - the target path inside the distro.
-     * @param {string|Uint8Array} content - the full new content.
-     * @param {object} [options]
-     * @param {number} [options.mode] - the mode to publish (omitted keeps the
-     *   temp's 0600 for a create; the caller passes the incumbent's for an edit).
-     * @param {{displayPath: string}} [options.createIfAbsent] - guarded-create
-     *   intent: publish with a no-replace link carrying this display path in errors.
-     * @param {string} [options.expectedVersion] - the version string this write
-     *   was based on (a stat-derived one); re-verified distro-side before the rename.
-     * @param {AbortSignal} [options.signal] - aborts the write.
-     * @param {import("./agent.js").WslAgent} [options.agent] - the agent this mutation rides (the
-     *   confined resident under a confined policy).
-     * @returns {Promise<void>} resolves when the publish landed.
+     *
+     * @param linuxPath - the target path inside the distro.
+     * @param content - the full new content.
+     * @param options - the publish options.
+     * @returns resolves when the publish landed.
      */
     writeFileAtomic(linuxPath: string, content: string | Uint8Array, { mode, createIfAbsent, expectedVersion, signal, agent }?: {
-        mode?: number | undefined;
+        /**
+         * The mode to publish (omitted keeps the temp's 0600 for a create; the
+         * caller passes the incumbent's for an edit).
+         */
+        mode?: number;
+        /**
+         * Guarded-create intent: publish with a no-replace link carrying this
+         * display path in errors.
+         */
         createIfAbsent?: {
             displayPath: string;
-        } | undefined;
-        expectedVersion?: string | undefined;
-        signal?: AbortSignal | undefined;
-        agent?: import("./agent.js").WslAgent | undefined;
+        };
+        /**
+         * The version string this write was based on (a stat-derived one);
+         * re-verified distro-side before the rename.
+         */
+        expectedVersion?: string;
+        /** Aborts the write. */
+        signal?: AbortSignal;
+        /**
+         * The agent this mutation rides (the confined resident under a confined
+         * policy).
+         */
+        agent?: WslAgent;
     }): Promise<void>;
     /**
      * Read and decode a file for editing: LF-normalized content plus the style
      * to restore on write-back.
-     * @param {import("./fs-substrate.js").ResolvedTarget} target - the resolved file.
-     * @param {AbortSignal} [signal] - aborts the read.
-     * @returns {Promise<{content: string, lineEndings: "LF"|"CRLF"}>}
+     *
+     * @param target - the resolved file.
+     * @param signal - aborts the read.
+     * @returns the LF-normalized content and its line-ending style.
      */
-    readForEdit(target: import("./fs-substrate.js").ResolvedTarget, signal?: AbortSignal): Promise<{
+    readForEdit(target: ResolvedTarget, signal?: AbortSignal): Promise<{
         content: string;
         lineEndings: "LF" | "CRLF";
     }>;
@@ -256,32 +295,13 @@ export class DistroFs {
      * Best-effort overwrite diff basis: `null` whenever the file cannot serve
      * one (binary, at/above the bound, vanished), so the write still succeeds
      * and presentation falls back to a whole-file diff.
-     * @param {import("./fs-substrate.js").ResolvedTarget} target - the resolved file.
-     * @param {number} maxBytes - exclusive upper bound for the held basis.
-     * @param {AbortSignal} [signal] - cancellation propagates, unlike I/O failure.
-     * @returns {Promise<string|null>} the LF-normalized text, or null.
+     *
+     * @param target - the resolved file.
+     * @param maxBytes - exclusive upper bound for the held basis.
+     * @param signal - cancellation propagates, unlike I/O failure.
+     * @returns the LF-normalized text, or null.
      */
-    readTextForDiff(target: import("./fs-substrate.js").ResolvedTarget, maxBytes: number, signal?: AbortSignal): Promise<string | null>;
+    readTextForDiff(target: ResolvedTarget, maxBytes: number, signal?: AbortSignal): Promise<string | null>;
 }
-export default DistroFs;
-/**
- * One agent FS round trip's result — the shape `WslAgent#fs` resolves to.
- */
-export type AgentFsResult = {
-    /**
-     * - the op's exit status.
-     */
-    exitCode: number;
-    /**
-     * - the op's payload bytes.
-     */
-    stdout: Buffer;
-    /**
-     * - the op's diagnostic line(s).
-     */
-    stderr: Buffer;
-};
-import { applyLiteralEdit } from "./fsio-text.js";
-import { normalizeLineEndings } from "./fsio-text.js";
-import { restoreLineEndings } from "./fsio-text.js";
 export { applyLiteralEdit, normalizeLineEndings, restoreLineEndings };
+export default DistroFs;

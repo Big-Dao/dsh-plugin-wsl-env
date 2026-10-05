@@ -180,6 +180,12 @@ one boundary (`fs-substrate` handing agents to `DistroFs`) crosses it through a
 single documented assertion naming the lib-side type; it disappears when
 `fsio-agent` migrates. Thirty-three of the thirty-six modules are TypeScript.
 
+`fsio-agent` follows, and with it that seam closes: the lib-side declaration
+it used to drag in is gone, so the boundary assertion in `fs-substrate` is
+deleted in the same commit — the class is declared once now, and the private
+members it keeps are nominal against nothing else. Thirty-four of the
+thirty-six modules are TypeScript; `workspace-files-wsl` and `index` remain.
+
 ## [0.7.5] - 2026-10-05
 
 One theme: a failed environment probe retries instead of being trusted

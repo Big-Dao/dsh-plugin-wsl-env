@@ -70,7 +70,7 @@ check("traversalArgv keeps the path an argv element, never script text", () => {
   assert.equal(argv[0], "sh");
   assert.equal(argv[4], "/home/andy/proj");
   assert.equal(argv[5], dir);
-  assert.equal(argv[6], 5000);
+  assert.equal(argv[6], "5000");
   assert.ok(!argv[2].includes(dir), "the script must not embed the path");
   assert.ok(argv[2].includes("find \"$real\" -mindepth 1 -maxdepth 1 -printf '%y\\t%f\\n'"));
   assert.ok(argv[2].includes("head -n \"$max\""));

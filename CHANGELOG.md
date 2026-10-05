@@ -23,6 +23,15 @@ host's own floor (`^22.19.0 || >=24.0.0`), so the Node 20 legs are gone, and
 the per-target lock test drops its unused `withResolvers` gate, a Node 22+ API
 that hung those legs on every push.
 
+One more theme: `lib/` comes under a TypeScript check gate. `tsc --noEmit`
+under `strict`/`checkJs` now runs as part of `pnpm test`, with the types taken
+from the peer packages' own declarations and the service augmentations loaded
+through `types/dsh-services.d.ts`; the tests and probes are the next scope
+increment. The gate's first pass surfaced the seam work this package already
+carries: the private `spawnSpec` the WSL spawn directory needs
+(`docs/UPSTREAM-SPAWN-SEAM.md` bridges it) and a synchronous-contract violation
+in `processPathFromHostPath`, pending a design decision.
+
 ## [0.7.5] - 2026-10-05
 
 One theme: a failed environment probe retries instead of being trusted

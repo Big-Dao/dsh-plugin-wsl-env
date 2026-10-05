@@ -66,7 +66,8 @@
     "scripts/bootstrap.sh"
   ],
   "scripts": {
-    "test": "pnpm run lint:style && pnpm run test:syntax && pnpm run test:unit",
+    "test": "pnpm run lint:style && pnpm run test:syntax && pnpm run lint:types && pnpm run test:unit",
+    "lint:types": "tsc --noEmit",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=85 --test-coverage-branches=84 --test-coverage-functions=70 test/agent-exec.test.mjs test/agent-fs-script.test.mjs test/agent-protocol.test.mjs test/agent.test.mjs test/fs-substrate.test.mjs test/fs.boot.test.mjs test/workspace-files-wsl.test.mjs test/composition.test.mjs test/provider.test.mjs test/file-reference-wsl.test.mjs test/fsio-agent.test.mjs test/fsio-text.test.mjs test/git-route.test.mjs test/listing.test.mjs test/paths.test.mjs test/ports.test.mjs test/preset-choice.test.mjs test/probe-cache.test.mjs test/sandbox.test.mjs test/search-exec.test.mjs test/search-route.test.mjs test/fs.boot.test.mjs test/shell.test.mjs test/terminal-activity.test.mjs test/terminal.test.mjs test/watcher.test.mjs test/wsl.test.mjs test/fs-decisions.test.mjs",
     "test:syntax": "node test/syntax.mjs",
     "test:unit": "node --test test/fs.boot.test.mjs test/fsio-text.test.mjs test/workspace-files-wsl.test.mjs test/composition.test.mjs test/provider.test.mjs test/file-reference-wsl.test.mjs test/paths.test.mjs test/listing.test.mjs test/shell.test.mjs test/terminal.test.mjs test/probe-cache.test.mjs test/preset-choice.test.mjs test/sandbox.test.mjs test/agent-protocol.test.mjs test/agent.test.mjs test/agent-fs-script.test.mjs test/fsio-agent.test.mjs test/fs-substrate.test.mjs test/agent-exec.test.mjs test/ports.test.mjs test/watcher.test.mjs test/wsl.test.mjs test/fs-decisions.test.mjs test/git-route.test.mjs test/fsio-text.test.mjs test/search-route.test.mjs test/search-exec.test.mjs test/terminal-activity.test.mjs",
@@ -123,7 +124,9 @@
     "@deepseek-ai/dsh-subprocess": "0.2.0-rc.2",
     "@deepseek-ai/dsh-subprocess-local": "0.2.0-rc.2",
     "@deepseek-ai/dsh-typert-protocol": "0.2.0-rc.2",
-    "js-yaml": "4.3.2"
+    "@types/node": "~22.20.5",
+    "js-yaml": "4.3.2",
+    "typescript": "~6.0.3"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.4",

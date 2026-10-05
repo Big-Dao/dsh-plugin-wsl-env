@@ -38,6 +38,30 @@ Exactly three dependencies run install scripts (`@deepseek-ai/dsh-subprocess-loc
 `koffi`, `node-pty` — the native pieces); they are allow-listed in
 `pnpm-workspace.yaml` and everything else builds nothing.
 
+## The type gate
+
+`lint:types` runs `tsc --noEmit` under `strict` with `checkJs`: the JavaScript
+in `lib/` is fully type-checked, and the types come from the peer packages'
+own `.d.ts` — nothing is invented twice. `types/dsh-services.d.ts` pulls in the
+`declare module '@deepseek-ai/cordis'` augmentations the service packages ship,
+so `ctx.fs`, `ctx.shell`, `ctx.sandboxPolicy` and friends are typed; it declares
+nothing itself and ships nowhere.
+
+The gate's scope is deliberate: `lib/**` only, for now. The tests and the
+probes are the next increment (`test/**/*.mjs` is one `include` entry away);
+the shipped artifact is checked first because it is where protocol drift with
+the pinned peers hurts.
+
+Two patterns keep the check honest:
+
+- A subclass's own config keys are declared as a `@typedef` mirroring its
+  `static Config` schema and read through one explicit cast — the schema and
+  the typedef can then only drift apart visibly.
+- `@ts-expect-error` is allowed exactly when the suppressed error names a real
+  upstream seam gap, carries the reason inline, and the gap is written up in
+  `docs/UPSTREAM-*.md`. It is a published finding with a tracking doc, not a
+  silencer.
+
 ## The development loop
 
 1. Clone the repository inside the distro. Most contributors develop there.
@@ -69,9 +93,10 @@ terminal if you would rather not see the prompt.
 
 | Command | Covers | Needs a harness |
 |---|---|---|
-| `pnpm test` | style checks, syntax pass, and unit tests | no |
+| `pnpm test` | style checks, syntax pass, type check, and unit tests | no |
 | `pnpm run test:coverage` | unit tests with coverage | no |
 | `pnpm run lint:style` | style and lint rules | no |
+| `pnpm run lint:types` | the TypeScript check over `lib/` (`tsc --noEmit`) | no |
 | `pnpm run probe` | filesystem behaviour against a real distro | yes |
 | `pnpm run probe:sandbox` | what bubblewrap confines and what it does not | no |
 | `pnpm run probe:sandbox-shell` | the confined executor through a real boot | yes |
@@ -86,7 +111,7 @@ terminal if you would rather not see the prompt.
 | `pnpm run probe:sandbox-off` | the documented opt-out on both providers | yes |
 
 Every script above is wired in `package.json`. `pnpm test` runs `lint:style`,
-`test:syntax` and `test:unit` in that order. `prepublishOnly` runs `pnpm test` again
+`test:syntax`, `lint:types` and `test:unit` in that order. `prepublishOnly` runs `pnpm test` again
 at publish time, so a broken gate stops a release before the upload.
 
 CI runs `pnpm test` on Node 22 and 24, on both `ubuntu-latest` and

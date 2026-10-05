@@ -73,7 +73,7 @@ check("builders produce the argv shape the agent protocol carries", () => {
   assert.deepEqual(listDistroArgv("/root", "/root/src", 500), [
     "sh", "-c",
     'root=$1 dir=$2 max=$3\nreal=$(realpath -L -- "$dir") || exit 2\ncase "$real" in "$root") ;; "$root"/*) ;; *) echo "OUTSIDE:$real" >&2; exit 3;; esac\n[ -d "$real" ] || { echo "NOTDIR:$real" >&2; exit 4; }\nls -1ALp -- "$real" | head -n "$max"',
-    "sh", "/root", "/root/src", 501,
+    "sh", "/root", "/root/src", "501",
   ]);
   assert.deepEqual(statRecordArgv("/root/a.txt").slice(0, 2), ["sh", "-c"]);
   assert.deepEqual(pageArgv("/root/a.txt", 3, 100).slice(3), ["sh", "/root/a.txt", "3", "100"]);

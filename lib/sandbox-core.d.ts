@@ -39,6 +39,21 @@ export declare function missingBwrapRemedy(distro: string, family?: string): str
  */
 export declare function bwrapInstallHint(distro: string): string;
 /**
+ * Append {@link bwrapInstallHint} to a runner-failure detail that names bwrap.
+ * A probe-time failure composes its own classified remedy; this covers the
+ * OTHER order — bwrap probed healthy, then failed a real command — where no
+ * probe failure is on record and the raw `bwrap: …` line is all the model
+ * would see. Details that do not name bwrap pass through untouched: the
+ * runner-failure rules match the confinement runner, and the confinement
+ * runner is always bwrap here, but the wording stays the decider so a future
+ * rule change cannot attach a bwrap remedy to a foreign failure.
+ *
+ * @param detail - the classified runner-failure detail.
+ * @param distro - the distro the command ran in.
+ * @returns the detail, with the remedy appended when it names bwrap.
+ */
+export declare function withBwrapHint(detail: string, distro: string): string;
+/**
  * Probe one distro's `bwrap` under the shared verdict cache. The probe mirrors
  * upstream's: apply the real read-only profile around `true`, and treat a zero
  * exit as the kernel having accepted and enforced it. A missing `bwrap` fails

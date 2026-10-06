@@ -172,5 +172,55 @@ await check("no default distro stays quiet at warn level", async () => {
   assert.equal(f.debugs.length > 0, true, "it stays observable at debug level");
 });
 
+await check("a context without logger or agents survives, and a payload without an agent is silent", async () => {
+  const wslPath = await fakeWsl("wsl-prebare.exe", join(dir, "absent-5"));
+  const f = fakeCtx();
+  const ctx = { on: f.on }; // no logger and no agents: both optional-context arms run
+  await apply(/** @type {never} */ (ctx), { distro: "ubuntu", wslPath, sandbox: true });
+  f.handlers["agent/created"]?.({ agent: undefined }); // an agent-less payload: the cwd scope exits early
+  await new Promise((resolve) => setTimeout(resolve, 150));
+});
+
+await check("an omitted sandbox key defaults on, and the default wslPath fails to a plain remedy", async () => {
+  // No `sandbox` key: the `?? true` default runs the preflight. No `wslPath`:
+  // the `?? "wsl.exe"` default spawns a program that must not resolve — PATH
+  // is stripped for the duration, so the shape is the same on every machine
+  // (a real interop install would make the probe SUCCEED here and warn never
+  // fires, which is correct behaviour and an untestable one).
+  const f = fakeCtx();
+  const savedPath = process.env.PATH;
+  process.env.PATH = "/nonexistent-wsl-path";
+  try {
+    await apply(/** @type {never} */ (wireCtx(f)), { distro: "ubuntu", sandbox: true });
+    await f.fire({ agent: { id: "a6", session: { header: { cwd: DISTRO_UNC } } } });
+  } finally {
+    process.env.PATH = savedPath;
+  }
+  assert.equal(f.warns.length, 1, "the default-on preflight still warns");
+  assert.match(f.warns[0] ?? "", /"bubblewrap" package with the distro's package manager/, "no family means no fabricated direct command");
+});
+
+await check("a warn-only logger still warns; a debug-only logger still debugs", async () => {
+  const failing = await fakeWsl("wsl-prewarnonly.exe", join(dir, "absent-6"));
+  const warnOnly = fakeCtx();
+  await apply(
+    /** @type {never} */ ({ on: warnOnly.on, logger: { warn: warnOnly.logger.warn } }),
+    { distro: "ubuntu", wslPath: failing, sandbox: true },
+  );
+  await warnOnly.fire({ agent: { id: "a7", session: { header: { cwd: DISTRO_UNC } } } });
+  assert.equal(warnOnly.warns.length, 1, "warn lands without a debug method beside it");
+
+  const marker = join(dir, "present-2");
+  const healthy = await fakeWsl("wsl-predebugonly.exe", marker);
+  await writeFile(marker, "");
+  const debugOnly = fakeCtx();
+  await apply(
+    /** @type {never} */ ({ on: debugOnly.on, logger: { debug: debugOnly.logger.debug } }),
+    { distro: "ubuntu", wslPath: healthy, sandbox: true },
+  );
+  await debugOnly.fire({ agent: { id: "a8", session: { header: { cwd: DISTRO_UNC } } } });
+  assert.equal(debugOnly.debugs.length > 0, true, "debug lands without a warn method beside it");
+});
+
 await rm(dir, { recursive: true, force: true });
 console.log(`\n${passed} checks passed`);

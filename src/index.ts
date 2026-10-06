@@ -48,7 +48,7 @@ import { canonicalPath, classifyRunnerFailure, isRunnerSpawnFailure, matchesSign
 import { isAnotherDistrosUnc, isRelativeWorldPath, isWorldPathUnder, isWslUnc, posixToUnc, toLinuxPath, toWorldPath, uncToPosix, windowsToLinuxMount } from "./paths.js";
 import { isConfinedMutation, mutationModeRefusal, outsideDistroRefusal, shareSubstrateRefusal, substrateFailure, workspaceWriteDenial } from "./fs-decisions.js";
 import { WslSandbox } from "./sandbox.js";
-import { bwrapFailure, bwrapInstallHint, missingBwrapRemedy } from "./sandbox-core.js";
+import { bwrapFailure, missingBwrapRemedy, withBwrapHint } from "./sandbox-core.js";
 import { armDistroWatcher } from "./watcher.js";
 import type { WslAgent } from "./agent.js";
 import { AgentUnavailableError } from "./agent-errors.js";
@@ -117,21 +117,6 @@ const SAFE_FORWARD = ["NO_COLOR", "TERM", "PAGER", "GIT_PAGER", "LANG", "LC_ALL"
  */
 function configuredCwd(config: { cwd?: { get(): string | undefined } }): string {
   return String(config.cwd?.get?.() ?? "").trim();
-}
-
-/**
- * Append the run-time bwrap remedy to a runner-failure detail that names bwrap.
- * A probe-time failure composes its own classified remedy (see
- * `lib/sandbox-core.js`); this covers the OTHER order — bwrap probed healthy,
- * then failed a real command — where no probe failure is on record and the raw
- * `bwrap: …` line is all the model would see.
- *
- * @param detail - the classified runner-failure detail.
- * @param distro - the distro the command ran in.
- * @returns the detail, with the remedy appended when it names bwrap.
- */
-function withBwrapHint(detail: string, distro: string): string {
-  return /\bbwrap\b/i.test(detail) ? `${detail} — ${bwrapInstallHint(distro)}` : detail;
 }
 
 /**

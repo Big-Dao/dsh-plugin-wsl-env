@@ -109,15 +109,10 @@ export async function apply(ctx: PreflightContext, config: PreflightConfig = {})
         return;
       }
     }
-    let usable: boolean;
-    try {
-      usable = await bwrapUsable({ wslPath, distro });
-    } catch (error) {
-      // bwrapUsable turns a failed probe into a false verdict, not a throw;
-      // this catch is for anything unexpected, which must stay advisory.
-      warn(`wsl-preflight: could not probe bwrap inside distro "${distro}": ${(error as Error)?.message ?? error}`);
-      return;
-    }
+    // bwrapUsable answers false on a failed probe — it never rejects — so
+    // nothing here can throw except a broken context, which is the caller's
+    // bug, not the session's.
+    const usable = await bwrapUsable({ wslPath, distro });
     if (usable) {
       ctx.logger?.debug?.(`wsl-preflight: bwrap is usable inside distro "${distro}"`);
       return;

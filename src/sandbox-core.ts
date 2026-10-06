@@ -121,12 +121,13 @@ function classifyProbeOutput(output: string): "broken" | "missing" | "unknown" {
 async function detectPackageFamily(wslPath: string, distro: string, signal?: AbortSignal): Promise<string | undefined> {
   try {
     const script = "for m in apt-get dnf pacman zypper; do command -v $m && break; done";
-    const found = (await runCapture([wslPath, "-d", distro, "--exec", "sh", "-c", script], signal)).trim();
-    const manager = found.split("\n")[0]?.trim() ?? "";
-    if (manager.endsWith("/apt-get") || manager === "apt-get") return "apt";
-    if (manager.endsWith("/dnf") || manager === "dnf") return "dnf";
-    if (manager.endsWith("/pacman") || manager === "pacman") return "pacman";
-    if (manager.endsWith("/zypper") || manager === "zypper") return "zypper";
+    // `command -v` answers with the PATH-resolved path, so matching on the
+    // trailing name is exact — a bare manager name never comes back.
+    const manager = (await runCapture([wslPath, "-d", distro, "--exec", "sh", "-c", script], signal)).trim().split("\n")[0]?.trim() ?? "";
+    if (manager.endsWith("/apt-get")) return "apt";
+    if (manager.endsWith("/dnf")) return "dnf";
+    if (manager.endsWith("/pacman")) return "pacman";
+    if (manager.endsWith("/zypper")) return "zypper";
     return undefined;
   } catch {
     return undefined;
@@ -200,6 +201,24 @@ export function bwrapInstallHint(distro: string): string {
     `bwrap failed at run time inside distro "${distro}". Check \`bwrap --version\` there, ` +
     `or reinstall it: "scripts/bootstrap.sh ${distro} --install".`
   );
+}
+
+/**
+ * Append {@link bwrapInstallHint} to a runner-failure detail that names bwrap.
+ * A probe-time failure composes its own classified remedy; this covers the
+ * OTHER order — bwrap probed healthy, then failed a real command — where no
+ * probe failure is on record and the raw `bwrap: …` line is all the model
+ * would see. Details that do not name bwrap pass through untouched: the
+ * runner-failure rules match the confinement runner, and the confinement
+ * runner is always bwrap here, but the wording stays the decider so a future
+ * rule change cannot attach a bwrap remedy to a foreign failure.
+ *
+ * @param detail - the classified runner-failure detail.
+ * @param distro - the distro the command ran in.
+ * @returns the detail, with the remedy appended when it names bwrap.
+ */
+export function withBwrapHint(detail: string, distro: string): string {
+  return /\bbwrap\b/i.test(detail) ? `${detail} — ${bwrapInstallHint(distro)}` : detail;
 }
 
 /**

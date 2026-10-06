@@ -19,7 +19,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bwrapFailure, bwrapUsable, createSandboxCore } from "../lib/sandbox-core.js";
+import { bwrapFailure, bwrapUsable, createSandboxCore, withBwrapHint } from "../lib/sandbox-core.js";
 
 if (process.platform === "win32") {
   console.log("SKIP  sandbox checks: the fake wsl.exe is a POSIX script");
@@ -171,6 +171,14 @@ await check("an unclassified failure quotes the output beside the install remedy
   const remedy = bwrapFailure(wslPath, "suse") ?? "";
   assert.match(remedy, /scripts\/bootstrap\.sh suse --install/, "unclassified falls back to the install remedy");
   assert.match(remedy, /"bubblewrap" package with the distro's package manager/, "no family means no fabricated direct command");
+});
+
+await check("the run-time hint rides only details that name bwrap", () => {
+  const bwrapDetail = withBwrapHint("bwrap: setting up uid map: Operation not permitted", "ubuntu");
+  assert.match(bwrapDetail, /— bwrap failed at run time inside distro "ubuntu"/, "the bwrap detail gains the remedy");
+  assert.match(bwrapDetail, /bootstrap\.sh ubuntu --install/, "the remedy names the bootstrap path");
+  const foreign = withBwrapHint("setsid: failed to execute rg: No such file or directory", "ubuntu");
+  assert.equal(foreign, "setsid: failed to execute rg: No such file or directory", "a foreign detail passes through untouched");
 });
 
 await check("the other package families get their own direct commands", async () => {

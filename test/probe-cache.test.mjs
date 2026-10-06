@@ -54,6 +54,14 @@ await check("a throwing probe is a failed probe, not a propagated error", async 
   assert.equal(await cache.run("k", () => true), true);
 });
 
+await check("a non-Error throw is remembered as its stringified reason", async () => {
+  const cache = createProbeCache();
+  await cache.run("k2", () => {
+    throw "timeout"; // a non-Error rejection shape; run() must stringify it, not crash
+  });
+  assert.equal(cache.failure("k2"), "timeout");
+});
+
 await check("concurrent misses share one probe", async () => {
   const cache = createProbeCache();
   let calls = 0;

@@ -177,13 +177,24 @@ and does not cover.
 
 The default posture needs `bubblewrap` **inside the distro** and fails closed: a
 distro without a usable `bwrap` refuses the command (`SANDBOX_UNAVAILABLE`) or the
-write (`FS_IO_ERROR`, the message carrying the same install guidance) instead of
-running it unconfined. A failed probe is re-run,
+write (`FS_IO_ERROR`, the message carrying the same guidance) instead of
+running it unconfined. The refusal distinguishes the two causes — `bwrap`
+missing (install it) from `bwrap` present but failing (usually the kernel's
+unprivileged user namespaces; reinstalling will not help) — and the direct
+install command it prints follows the distro's own package family
+(apt/dnf/pacman/zypper). A failed probe is re-run,
 so installing `bubblewrap` takes effect on the next command without a restart.
 Install it with `scripts/bootstrap.sh <distro> --install`, or directly:
 `wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap`. Run without
 `--install`, `scripts/bootstrap.sh <distro>` is a read-only check that prints what
 is missing.
+
+The same probe also runs when a session opens: the `wsl-preflight` row warns
+with the full remedy if `bwrap` is unusable, so the news arrives with the
+session rather than with the first failed command. It is advisory — it never
+installs anything and never changes the fail-closed semantics; drop the
+`wsl-preflight` row from your layer (or set `sandbox: false` on it) to silence
+the warning.
 
 ## Checking a change, and what refuses
 
@@ -197,8 +208,8 @@ When something refuses, the message names the row or the code:
 
 | Symptom | What you see | What clears it |
 |---|---|---|
-| commands fail with no usable sandbox | `SANDBOX_UNAVAILABLE` | install `bubblewrap` in the distro (`scripts/bootstrap.sh <distro> --install`), or set `sandbox: false` on `wsl-shell` |
-| writes fail with no usable sandbox | `FS_IO_ERROR`, with a message saying `bwrap` is not usable inside the distro | the same install, or `sandbox: false` on `wsl-fs` (`fs-routing` for root-plane writes) |
+| commands fail with no usable sandbox | `SANDBOX_UNAVAILABLE` — the text says whether `bwrap` is missing or present but failing, with the matching remedy | missing: install `bubblewrap` (`scripts/bootstrap.sh <distro> --install`, or the printed family command); present-but-failing: check `bwrap --version` and the kernel's unprivileged user namespaces, or set `sandbox: false` on `wsl-shell` |
+| writes fail with no usable sandbox | `FS_IO_ERROR`, with the same `bwrap` remedy the commands carry | the same install, or `sandbox: false` on `wsl-fs` (`fs-routing` for root-plane writes) |
 | file tools fail while the distro is down | `FS_IO_ERROR`, "the distro file substrate is unavailable" | start the distro (`wsl.exe -l -v`), restart the session if it stays out |
 | a command never starts | a `WSL_E_*` code naming the distro | start it with `wsl.exe -d <distro>`, or point `distro` at another one — wider permissions do not help |
 | `wsl.exe` itself cannot be started | the error names the executable and says to check `wslPath` on this row | fix `wslPath`, and check WSL is installed |

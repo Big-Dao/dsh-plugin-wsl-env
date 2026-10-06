@@ -26,9 +26,15 @@ dsh --profile wsl                                  # 4. 启动
 
 第 3 步应该打印出名为 `# == dsh-plugin-wsl-env` 的层，并且 `- id: terminal-controller` 上应出现 `shell: { path: wsl.exe, name: WSL }`。这个包是 DSH bundle，所以第 2 步会把 [`cordis.patch.yml`](../cordis.patch.yml) 作为配置层施加进去，没有任何需要手工合并的补丁。
 
-然后在 GUI 里打开 `\\wsl.localhost\<子系统>\...` 下的文件夹。选择器会在根一级列出每个已安装的子系统，**New terminal** 会在子系统里打开 shell。
+**第一条命令之前，先给子系统装上 bubblewrap。** 每条命令都由 [bubblewrap](#沙箱) 约束执行，而多数子系统不预装它；没有它每条命令都会失败关闭——这是设计，绝不放行为不受限执行：
 
-还需要在子系统里安装 **bubblewrap**：在插件包目录里（仓库检出，或 DSH 安装该包的位置）运行 `pnpm run bootstrap <子系统> --install`（只读检测去掉 `--install`；`bootstrap` 是包内的 pnpm 脚本，需要 `pnpm` 与 `bash`），或直接执行 `wsl.exe -d <子系统> -u root -- apt-get install -y bubblewrap`。没有它每条命令都会失败关闭，见[沙箱](#沙箱)。
+```powershell
+wsl.exe -d <子系统> -u root -- apt-get install -y bubblewrap    # Debian/Ubuntu
+```
+
+在本插件的检出目录里，`pnpm run bootstrap -- <子系统>` 会检查插件用到的全部四个工具（bubblewrap、ripgrep、git、inotify-tools），并按子系统自己的包管理器家族打印对应的安装命令；加 `--install` 则直接执行（`bootstrap` 是包内 pnpm 脚本，需要 `pnpm` 与 `bash`）。漏了这一步它会自己找上门：distro 会话打开时插件会探测 bubblewrap 并带完整修复指引发出警告——第一条命令不必再充当发现时刻。
+
+然后在 GUI 里打开 `\\wsl.localhost\<子系统>\...` 下的文件夹。选择器会在根一级列出每个已安装的子系统，**New terminal** 会在子系统里打开 shell。
 
 卸载：`dsh plugin --profile wsl remove dsh-plugin-wsl-env`。升级：再执行一次同样的 `add` 命令。
 
@@ -121,14 +127,14 @@ preset-wsl（wsl agent preset；其服务运行在 isolate realm 内）
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| 每条命令都报 `SANDBOX_UNAVAILABLE` | 子系统里没有 `bubblewrap` | 执行 `pnpm run bootstrap <子系统> --install`，或在 `wsl-shell`（命令）与 `wsl-fs`（写入）上都设 `sandbox: false`（根级路由的 `fs-routing` 行另有自己的一份；前两行怎么改见[配置](#配置)） |
+| 每条命令都报 `SANDBOX_UNAVAILABLE` | 子系统里没有 `bubblewrap`（或存在但不可用，错误消息会区分这两种情况并给出对应处置） | 按 `wsl-shell`（命令）与 `wsl-fs`（写入）错误消息里的指引安装，或 `pnpm run bootstrap -- <子系统> --install`，或在两个 provider 上都设 `sandbox: false`（根级路由的 `fs-routing` 行另有自己的一份；前两行怎么改见[配置](#配置)） |
 | 命令或写入在会话目录之外被拒绝 | `workspace-write` 的预期行为 | 接受工具给出的放宽权限提示，或把会话直接开在需要的目录上 |
 | 连工作区内的写入也被拒绝 | 会处在 `read-only` 模式 | 切换权限选择器 |
-| 重复执行 `dsh plugin add` 没有任何输出，`--dump-config` 里也没有变化 | 依赖之前已经装过；`add` 对已存在的依赖是静默 no-op，没有需要记录的内容 | 先执行 `dsh plugin --profile wsl remove dsh-plugin-wsl-env`，再装一次 |
+| 重复执行 `dsh plugin add` 没有任何输出，`--dump-config` 里也没有变化 | 依赖之前已经装过；`add` 对已存在的依赖是静默 no-op，没有需要记录的内容 | 无需任何操作——层已经就位，`dsh --profile wsl --dump-config` 仍能看到 `# == dsh-plugin-wsl-env` |
 | 终端打开后仍然是 `cmd.exe` | 这一层里的 `terminal-controller` 行没有生效 | 用 `dsh --profile wsl --dump-config` 确认能看到 `shell: { path: wsl.exe, name: WSL }` |
 | 改了 `lib/` 但不生效 | 应用加载的是 Windows 侧运行时镜像，且运行中的进程会缓存 ES module | 先 `pnpm run sync:windows` 同步到镜像，再重启应用 |
 | 用 `link:\\wsl.localhost\...` 安装后符号链接是坏的 | pnpm 无法链接 UNC 路径 | 改成链接 Windows 路径；在子系统内开发时用运行时镜像，见[开发](#开发) |
-| `glob`/`grep` 很慢 | 子系统内没有 rg 时，搜索只能报 rg 自己的 "command not found"；Windows 目录的搜索走宿主原生 rg，不受影响 | 运行 `pnpm run bootstrap <子系统> --install`（安装 ripgrep）；子系统工作区的搜索始终跑子系统内的 rg，绝不遍历 9p 共享 |
+| `glob`/`grep` 很慢 | 子系统内没有 rg 时，搜索只能报 rg 自己的 "command not found"；Windows 目录的搜索走宿主原生 rg，不受影响 | 运行 `pnpm run bootstrap -- <子系统> --install`（安装 ripgrep）；子系统工作区的搜索始终跑子系统内的 rg，绝不遍历 9p 共享 |
 | 终端活动显示 `unknown` | 仅在常驻代理不可用时出现——distro 终端从子系统内部观测（`/proc` 中扫描 `DSH_TERMINAL_ID` 标记：shell 独处为 `idle`，运行任何命令为 `busy`） | 确认子系统在运行；空闲终端会在控制器的无人值守超时（默认 2 小时）后自动回收，`terminalIdleReclaim: false` 恢复手动关闭 |
 | 结果里出现 `FS_*` 码 | 码本身说明了是谁拒绝的、以及怎样解除 | 见 [docs/ARCHITECTURE.md](ARCHITECTURE.md#error-codes) 的错误码表 |
 
@@ -139,6 +145,8 @@ pnpm run build                # 从 src/ 生成 lib/（产物提交进仓，改 
 pnpm test                     # 风格、语法、构建一致性、类型检查与单元测试
 pnpm run sync:windows         # 把 lib/ 同步到 Windows 侧运行时镜像（改 lib/ 后必跑，再重启应用）
 pnpm run test:coverage        # 带覆盖率阈值的单元测试（需 Node 22.8+）
+pnpm run diagnose             # 只读诊断报告（可直接贴进 issue）：版本、工具、bwrap 探测
+pnpm run bootstrap -- <子系统> # 检查四个子系统侧工具；加 --install 安装缺失项
 pnpm run probe:sandbox        # 在子系统里实测 bubblewrap 能约束什么、不能约束什么
 pnpm run probe                # 文件系统探针，需要真实子系统（仅 Windows + WSL）
 pnpm run probe:sandbox-shell  # 启动真实 harness，驱动受限执行器

@@ -16,6 +16,17 @@ were part of the record.
 
 ## [Unreleased]
 
+A usability round over the sandbox failure path. The bwrap refusal now
+classifies its cause — missing versus present-but-failing — and prints the
+direct install command in the distro's own package family (apt/dnf/pacman/
+zypper) instead of a hardcoded `apt-get` line; every consumer composes it from
+one place. A new `wsl-preflight` service runs the same shared probe when a
+distro session opens and surfaces an unusable bwrap as a warning with the full
+remedy, moving the discovery moment ahead of the first failed command —
+advisory only, never installing. `pnpm run diagnose` collects a read-only,
+paste-ready diagnostic report for issues, and the three bare wsl-probe
+failures (no distro, no `$HOME`, no shell) now carry their next steps.
+
 ## [0.8.0] - 2026-10-06
 
 The toolchain's TypeScript story completes (pnpm, a checkJs gate, and 36 of 36

@@ -26,9 +26,15 @@ dsh --profile wsl                                  # 4. run
 
 Step 3 should print a layer named `# == dsh-plugin-wsl-env`, and `- id: terminal-controller` should now carry `shell: { path: wsl.exe, name: WSL }`. The package is a DSH bundle, so step 2 applies [`cordis.patch.yml`](cordis.patch.yml) as a configuration layer; nothing is merged by hand.
 
-Then open a folder under `\\wsl.localhost\<distro>\...` in the GUI. The picker lists every installed distro at its root level, and **New terminal** opens a shell in the distro.
+**Before the first command, give the distro bubblewrap.** Every command runs confined by [bubblewrap](#sandbox), which most distros do not preinstall, and without it every command fails closed — by design, never unconfined:
 
-You also need **bubblewrap inside the distro**: run `pnpm run bootstrap -- <distro> --install` (drop `--install` for a read-only check), or paste `wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap`. Without it every command fails closed, see [Sandbox](#sandbox).
+```powershell
+wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap    # Debian/Ubuntu
+```
+
+From a checkout of this plugin, `pnpm run bootstrap -- <distro>` checks all four tools the plugin uses (bubblewrap, ripgrep, git, inotify-tools) and prints the install command for the distro's own package family; add `--install` to run it. A skipped step announces itself: when a distro session opens, the plugin probes bubblewrap and warns with the exact remedy — the first command never has to be the discovery moment.
+
+Then open a folder under `\\wsl.localhost\<distro>\...` in the GUI. The picker lists every installed distro at its root level, and **New terminal** opens a shell in the distro.
 
 Uninstall: `dsh plugin --profile wsl remove dsh-plugin-wsl-env`. Upgrade: run the same `add` command again.
 
@@ -125,7 +131,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#sandbox) for the design, and [do
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| every command reports `SANDBOX_UNAVAILABLE` | `bubblewrap` is not installed in the distro | run `pnpm run bootstrap -- <distro> --install`, or set `sandbox: false` on `wsl-shell` (commands) and `wsl-fs` (writes) — see [Configure](#configure) for how to reach those rows |
+| every command reports `SANDBOX_UNAVAILABLE` | `bubblewrap` is missing from the distro, or present but unusable — the error text distinguishes the two and carries the matching remedy | follow the remedy in the error, or set `sandbox: false` on `wsl-shell` (commands) and `wsl-fs` (writes) — see [Configure](#configure) for how to reach those rows |
 | a command or write is refused outside the session folder | expected behaviour of `workspace-write` | accept the wider-permission offer, or open a session on the folder you need |
 | writes are refused even inside the workspace | the session is in `read-only` mode | switch the Permissions selector |
 | `dsh plugin add` prints no confirmation that a layer was added | the dependency is already installed and the bundle list is unchanged, so `add` reconciles to the same manifest without reporting anything — that is the success path, not a failure | nothing to do; the layer is already in place, and `dsh --profile wsl --dump-config` still shows `# == dsh-plugin-wsl-env` |
@@ -143,6 +149,8 @@ pnpm run build                # compile src/ into lib/ (the artifact is committe
 pnpm test                     # style checks, syntax pass, build consistency, type check, and unit tests
 pnpm run sync:windows         # mirror the checkout onto the Windows-side copy the app loads (after any lib/ change, then restart the app)
 pnpm run test:coverage        # the unit tests with coverage thresholds (Node 22.8+)
+pnpm run diagnose             # read-only diagnostic report for a bug issue: versions, tools, bwrap probe
+pnpm run bootstrap -- <distro> # check the four distro tools; add --install to install what is missing
 pnpm run probe:sandbox        # measure inside the distro what bubblewrap does and does not confine
 pnpm run probe                # filesystem probe against a real distro (Windows + WSL only)
 pnpm run probe:sandbox-shell  # boot a real harness and drive the confined executor

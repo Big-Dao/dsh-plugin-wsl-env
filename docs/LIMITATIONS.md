@@ -114,7 +114,12 @@ crosses the 9p share. What to know about the one substrate there is:
   `wsl.conf`).
 - **`bubblewrap` must be installed**, or both providers fail immediately. The
   usability probe re-runs after a failure, so installing bubblewrap while the app
-  runs is believed on the next command; only a success is cached.
+  runs is believed on the next command; only a success is cached. The refusal
+  classifies the probe's failure — missing versus present-but-failing — and the
+  direct install command follows the distro's package family; a probe failure
+  with no recognisable shape falls back to the install remedy with the raw
+  output quoted. A session-start preflight (`wsl-preflight`) surfaces the same
+  text as a warning; it is advisory and never installs.
 - `workspace-write` binds the workspace root as writable, and bubblewrap refuses a
   bind whose source directory does not exist, so a session whose workspace directory was
   deleted fails with a runner error; the plugin does not recreate it. A workdir that

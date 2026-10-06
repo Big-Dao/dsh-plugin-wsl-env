@@ -134,7 +134,13 @@ export function parseDistroList(stdout: string): string[] {
  */
 export async function defaultDistro(options: WslCallOptions = {}): Promise<string> {
   const [first] = await listDistros(options);
-  if (first === undefined) throw new Error("dsh-plugin-wsl: no WSL distro is installed (`wsl.exe -l -q` returned nothing)");
+  if (first === undefined) {
+    throw new Error(
+      "dsh-plugin-wsl: no WSL distro is installed (`wsl.exe -l -q` returned nothing). " +
+        "Install one: `wsl.exe --list --online` lists the available names, then `wsl --install -d <name>`, " +
+        "or point this row's `distro` at an existing one.",
+    );
+  }
   return first;
 }
 
@@ -168,7 +174,10 @@ export async function linuxHomePath(distro: string, options: WslCallOptions = {}
 export function parseHomePath(distro: string, stdout: string): string {
   const home = String(stdout).trim();
   if (home.length === 0 || !home.startsWith("/")) {
-    throw new Error(`dsh-plugin-wsl: distro "${distro}" reported no usable $HOME (got "${home}")`);
+    throw new Error(
+      `dsh-plugin-wsl: distro "${distro}" reported no usable $HOME (got "${home}"). ` +
+        `Check the distro's default user in /etc/wsl.conf, and that the user's /etc/passwd entry carries a home directory.`,
+    );
   }
   return home;
 }
@@ -432,7 +441,11 @@ export interface WslRunOptions {
 export async function runInDistro(distro: string, command: string, options: WslRunOptions = {}): Promise<string> {
   const shell = options.shell ?? (await defaultShell(distro, options));
   if (shell === undefined) {
-    throw new Error(`dsh-plugin-wsl: distro "${distro}" named no usable shell (passwd probe and $SHELL both failed)`);
+    throw new Error(
+      `dsh-plugin-wsl: distro "${distro}" named no usable shell (passwd probe and $SHELL both failed). ` +
+        `Check the user's login shell in /etc/passwd (\`getent passwd "$(id -u)"\` inside the distro), ` +
+        `or point this row's \`shell\` at an existing absolute path.`,
+    );
   }
   return runCapture(
     [options.wslPath ?? DEFAULT_WSL_PATH, "-d", distro, "--exec", shell, ...shellArgs(shell, options.loginShell !== false), command],

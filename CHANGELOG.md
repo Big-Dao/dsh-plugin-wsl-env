@@ -16,16 +16,26 @@ were part of the record.
 
 ## [Unreleased]
 
-A usability round over the sandbox failure path. The bwrap refusal now
-classifies its cause — missing versus present-but-failing — and prints the
-direct install command in the distro's own package family (apt/dnf/pacman/
-zypper) instead of a hardcoded `apt-get` line; every consumer composes it from
-one place. A new `wsl-preflight` service runs the same shared probe when a
-distro session opens and surfaces an unusable bwrap as a warning with the full
-remedy, moving the discovery moment ahead of the first failed command —
-advisory only, never installing. `pnpm run diagnose` collects a read-only,
-paste-ready diagnostic report for issues, and the three bare wsl-probe
-failures (no distro, no `$HOME`, no shell) now carry their next steps.
+## [0.9.0] - 2026-10-06
+
+A usability round over the sandbox failure path: the failure stops being a
+wall the first command walks into, and becomes a message that arrives early
+and says how to fix it.
+
+The bwrap refusal now classifies its cause — missing versus
+present-but-failing — and prints the direct install command in the distro's
+own package family (apt/dnf/pacman/zypper) instead of a hardcoded `apt-get`
+line; every consumer composes it from one place. A new `wsl-preflight`
+service runs the same shared probe when a distro session opens and surfaces
+an unusable bwrap as a warning with the full remedy, moving the discovery
+moment ahead of the first failed command — advisory only, never installing.
+`pnpm run diagnose` collects a read-only, paste-ready diagnostic report for
+issues, and the three bare wsl-probe failures (no distro, no `$HOME`, no
+shell) now carry their next steps. The agent probe's parity legs classify
+the nested-interop service timeout (`Wsl/Service/WSAETIMEDOUT`, observed on
+WSL 3.0.1.0) as SKIP with the evidence attached, so an environment failure
+that prevents the comparison reads as what it is instead of a parity
+violation.
 
 ## [0.8.0] - 2026-10-06
 

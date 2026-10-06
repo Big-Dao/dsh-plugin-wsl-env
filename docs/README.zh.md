@@ -10,7 +10,7 @@
 
 **只支持 Windows + WSL2。** 安装只需一条命令，插件自身没有依赖。环境按会话生效：打开 Windows 文件夹的会话继续使用原来的 Windows 环境。
 
-[安装](#安装) · [使用](#使用) · [配置](#配置) · [配方](#配方) · [架构](#架构) · [沙箱](#沙箱) · [常见问题](#常见问题) ·
+[安装](#安装) · [使用](#使用) · [方案对比](#方案对比) · [配置](#配置) · [配方](#配方) · [架构](#架构) · [沙箱](#沙箱) · [常见问题](#常见问题) ·
 [开发](#开发) · [文档](#文档)
 
 ## 安装
@@ -51,6 +51,26 @@ wsl.exe -d <子系统> -u root -- apt-get install -y bubblewrap    # Debian/Ubun
 - **端口可见性**：子系统里监听中的端口经 `DSH_WSL_PORTS` 暴露给模型（约每 10 秒刷新）；子系统内启动的 dev server 可由模型直接告知确切 URL（WSL2 的 localhost 转发是平台行为，Windows 侧直接可达）。
 - **模型能看到自己的 shell 环境。** 插件向受管的 `DSH_*` 命名空间注册 `DSH_WSL_DISTRO`、`DSH_WSL_SHELL`、`DSH_WSL_HOME` 和端口快照 `DSH_WSL_PORTS`。
 - **权限与 Linux 主机一致。** 权限选择器在 `read-only`、`workspace-write`（默认）和 `danger-full-access` 之间切换。被拒绝的命令或写入会带回"放宽权限"的提议；批准后，这一次调用不加沙箱执行。
+
+## 方案对比
+
+Windows 编程工具对 WSL 项目做的每件事都要跨一条边界，业界给出三种形态，本插件是第三种。
+
+**把工具装进子系统。** Codex CLI、Claude Code、ZCode CLI 在 Windows 上的官方建议正是如此：CLI 住在项目所在的地方，边界根本不存在。如果一款 CLI 工具能覆盖你的工作流，它仍是最简单的正确答案——本插件不与它竞争。它不适用于"界面与执行都在 Windows 侧"的 harness，而那正是本插件服务的场景。
+
+**由桌面端铺设远程 runtime。** IDE 的答案——VS Code 的 Remote-WSL 及其开源镜像 [open-remote-wsl](https://github.com/jeanp413/open-remote-wsl)——与 agent 桌面端的答案——[ZCode](https://github.com/zai-org/ZCode) 的 SSH/WSL/Docker 模式——都把界面留在 Windows，在子系统里启动一个 server。两者都是成熟可用的设计，但架构在用户可感知的地方不同：
+
+| | Remote-WSL 家族 | ZCode 桌面端 | 本插件 |
+|---|---|---|---|
+| 通道 | TCP 走 WSL2 localhost 转发，token 鉴权 | 一根 `wsl.exe` stdio 管道 | 一根 `wsl.exe` stdio 管道 |
+| 目标侧足迹 | `~/.vscode-server`——每个构建一个 daemon，跨连接保留 | `~/.zcode/server`——node 运行时、server bundle 与 agent，跨连接复用 | 无：agent 脚本就是安装包自己的文件，每次握手都校验摘要 |
+| 进程生命周期 | daemon 比连接活得久 | 前台 server，随连接消亡 | 宿主进程拥有的常驻 agent，空闲自退休，失败自重建或回退 |
+| 沙箱 | 无 | 无 | 子系统内的 `bubblewrap`，enforcement 如实上报为 `partial` |
+| 卸载残留 | server 目录树，需手动清理 | server 目录树，需手动清理 | 无 |
+
+**这种形态带给 DSH 用户的是：** 没有监听端口、没有 token——管道不携带任何地址，TCP 形态的著名故障（localhost 转发失效）在这里无从发生；没有需要供给、追版本、清理的 server 目录树；每条受限命令都有隔离，且 `bubblewrap` 缺失时会在会话打开时就收到带修复指引的警告；工作区是 Windows 文件夹的会话完全不进入这一切——环境属于会话，不属于进程。
+
+**别人赢的地方也照实说。** daemon 让工作区重开即达、可跨窗口共享；Remote-WSL 五年的生产打磨是本插件拿不出来的；ZCode 自带的代理翻译与服务管道是本插件不需要的；而装进子系统的 CLI 根本不需要这套机器。这里的比较说的是 Windows 侧 harness 可以采用的架构——不是产品之间的比较：本插件只存在于 DeepSeek Harness 会话之中。
 
 ## 配置
 

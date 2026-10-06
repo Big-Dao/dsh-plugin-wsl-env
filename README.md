@@ -10,7 +10,7 @@ This plugin lets [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 **Windows + WSL2 only.** One install command, no dependencies of its own. The environment applies per session, so a session on a Windows folder keeps its normal Windows environment.
 
-[Install](#install) · [Using it](#using-it) · [Configure](#configure) · [Recipes](#recipes) · [Architecture](#architecture) · [Sandbox](#sandbox) ·
+[Install](#install) · [Using it](#using-it) · [How it compares](#how-it-compares) · [Configure](#configure) · [Recipes](#recipes) · [Architecture](#architecture) · [Sandbox](#sandbox) ·
 [Troubleshooting](#troubleshooting) · [Development](#development) · [Documentation](#documentation)
 
 ## Install
@@ -51,6 +51,26 @@ Open `\\wsl.localhost\ubuntu\home\you\project` as the workspace, then ask the mo
 - **Port visibility.** The model sees which ports have a listener inside the distro (`DSH_WSL_PORTS`, refreshed about every 10 s), so it can hand you the exact URL of a dev server it just started; WSL2's localhost forwarding makes it reachable from Windows directly.
 - **The model sees its shell environment.** The plugin registers `DSH_WSL_DISTRO`, `DSH_WSL_SHELL`, `DSH_WSL_HOME` and the port snapshot `DSH_WSL_PORTS` in the managed `DSH_*` namespace.
 - **Permissions work as on a Linux host.** The Permissions selector switches between `read-only`, `workspace-write` (the default) and `danger-full-access`. A refused command or write comes back with an offer to retry it once with the narrowest wider mode that suffices; if you approve, that one call runs in the approved mode — from `read-only` that is usually `workspace-write`, still inside the sandbox, and only an escalation to `danger-full-access` runs without one.
+
+## How it compares
+
+Everything a Windows coding tool does with a WSL project crosses one boundary, and the field answers it with three shapes. This plugin is the third.
+
+**Install the tool inside the distro.** Codex CLI, Claude Code and the ZCode CLI recommend exactly this on Windows: the CLI lives where the project lives, and no boundary exists. When a CLI tool covers your workflow, that remains the simplest correct answer — nothing here competes with it. It is not available to a harness whose UI and execution stay on Windows, which is the case this plugin serves.
+
+**Provision a remote runtime from the desktop.** The IDE answer — VS Code's Remote-WSL, and its open-source mirror [open-remote-wsl](https://github.com/jeanp413/open-remote-wsl) — and the agent-desktop answer — [ZCode](https://github.com/zai-org/ZCode)'s SSH/WSL/Docker modes — keep the UI on Windows and start a server inside the distro. Both are sound, working designs; the architectures differ where a user can feel it:
+
+| | Remote-WSL family | ZCode desktop | this plugin |
+|---|---|---|---|
+| channel | TCP over WSL2's localhost forwarding, token-authenticated | one `wsl.exe` stdio pipe | one `wsl.exe` stdio pipe |
+| target-side footprint | `~/.vscode-server` — a daemon per build, kept across connections | `~/.zcode/server` — a node runtime, server bundle and agent, reused across connections | none: the agent script is the installed package's own file, digest-checked at every handshake |
+| process lifetime | the daemon outlives the connection | a foreground server that dies with it | a resident agent owned by the host process, retired after idle, rebuilt or fallen back on failure |
+| sandbox | none | none | `bubblewrap` inside the distro, enforcement reported honestly as `partial` |
+| uninstall leaves | the server tree, removed by hand | the server tree, removed by hand | nothing |
+
+**What this shape buys:** no listening port and no token — the pipe carries no addresses, and the TCP shape's famous failure mode (localhost forwarding broken) cannot happen; no server tree to provision, version or clean up; confinement on every confined command, with a session-start warning that names the fix when `bubblewrap` is missing; and a session whose workspace is a Windows folder never enters any of this — the environment is per session.
+
+**Where the others win, stated plainly.** A daemon re-opens a workspace instantly and is shared across windows; five years of Remote-WSL production use is hardening this plugin cannot claim; ZCode ships proxy translation and service plumbing this plugin does not need; and a CLI installed inside the distro needs none of this machinery at all. The comparison is between architectures a Windows-side harness can adopt — not between products: this plugin only exists inside DeepSeek Harness sessions.
 
 ## Configure
 

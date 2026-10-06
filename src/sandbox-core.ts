@@ -72,6 +72,180 @@ const ENFORCEMENT = "partial";
  */
 const probeVerdicts = createProbeCache();
 
+/** The cache key one (wsl.exe, distro) pair's bwrap verdict lives under. */
+const probeKey = (wslPath: string, distro: string): string => `${wslPath}\u0000${distro}`;
+
+/**
+ * The direct install command each detected package family gets in the remedy.
+ * The bootstrap script remains the first-choice path — it detects the family
+ * itself — but a user pasting the message on a dnf or pacman distro must not
+ * be handed an `apt-get` line.
+ */
+const FAMILY_INSTALL: Record<string, string> = {
+  apt: "apt-get install -y bubblewrap",
+  dnf: "dnf install -y bubblewrap",
+  pacman: "pacman -S --noconfirm bubblewrap",
+  zypper: "zypper --non-interactive install bubblewrap",
+};
+
+/** How many characters of the failed probe's output the remedy quotes. */
+const PROBE_OUTPUT_CAP = 300;
+
+/**
+ * Classify one failed probe's output. `bwrap: ` on the output means the binary
+ * RAN and refused — a present-but-unusable bwrap (an old build, a kernel
+ * without unprivileged user namespaces), which no reinstall fixes. wsl.exe's
+ * own relay for a missing `--exec` binary names the exec instead, which is the
+ * install case. Anything else is unclassified and gets the install remedy with
+ * the raw output quoted, so neither reading is lost.
+ *
+ * @param output - the failed probe's combined stdout+stderr, NULs stripped.
+ * @returns why the probe failed, as the remedy needs it.
+ */
+function classifyProbeOutput(output: string): "broken" | "missing" | "unknown" {
+  if (/\bbwrap: /i.test(output)) return "broken";
+  if (/no such file|execv|not found|cannot run|could not be started/i.test(output)) return "missing";
+  return "unknown";
+}
+
+/**
+ * The package manager the distro offers, for the remedy's direct command. Only
+ * consulted on a FAILED probe, so a healthy distro never pays for it; a probe
+ * that cannot answer leaves the remedy with the package-manager-agnostic line.
+ *
+ * @param wslPath - the `wsl.exe` path the failed probe used.
+ * @param distro - the distro the failed probe ran in.
+ * @param signal - optional cancellation shared with the probe.
+ * @returns the first family whose manager exists, or undefined.
+ */
+async function detectPackageFamily(wslPath: string, distro: string, signal?: AbortSignal): Promise<string | undefined> {
+  try {
+    const script = "for m in apt-get dnf pacman zypper; do command -v $m && break; done";
+    const found = (await runCapture([wslPath, "-d", distro, "--exec", "sh", "-c", script], signal)).trim();
+    const manager = found.split("\n")[0]?.trim() ?? "";
+    if (manager.endsWith("/apt-get") || manager === "apt-get") return "apt";
+    if (manager.endsWith("/dnf") || manager === "dnf") return "dnf";
+    if (manager.endsWith("/pacman") || manager === "pacman") return "pacman";
+    if (manager.endsWith("/zypper") || manager === "zypper") return "zypper";
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Compose the remedy one failed probe reports. Pure apart from the optional
+ * family probe it may issue (a failed probe only), so the text is unit-testable
+ * through a fake `wsl.exe`.
+ *
+ * @param wslPath - the `wsl.exe` path the probe used.
+ * @param distro - the distro the probe ran in.
+ * @param cause - the raw probe failure.
+ * @param signal - optional cancellation shared with the probe.
+ * @returns the operator-facing remedy text.
+ */
+async function composeBwrapFailure(wslPath: string, distro: string, cause: unknown, signal?: AbortSignal): Promise<string> {
+  const output = String((cause as { message?: string })?.message ?? cause ?? "").slice(0, PROBE_OUTPUT_CAP).trim();
+  const kind = classifyProbeOutput(output);
+  if (kind === "broken") {
+    // A broken verdict requires the bwrap banner, so the output is never empty here.
+    return (
+      `bwrap is installed inside distro "${distro}" but failed the usability probe: ${output}. ` +
+      `This is usually the kernel (unprivileged user namespaces disabled) or an unusable bwrap build rather than a missing package, so reinstalling will not help. ` +
+      `Check \`wsl.exe -d ${distro} --exec bwrap --version\` inside the distro, or set \`sandbox: false\` on the wsl-shell and wsl-fs rows to run unconfined.`
+    );
+  }
+  const remedy = missingBwrapRemedy(distro, await detectPackageFamily(wslPath, distro, signal));
+  return kind === "unknown" && output.length > 0 ? `${remedy} The probe failed with: ${output}` : remedy;
+}
+
+/**
+ * The canonical remedy for a distro whose `bwrap` is missing — also the
+ * fallback for callers that know only "the probe failed", without a classified
+ * reason. The direct command is family-aware when the caller knows the family;
+ * the bootstrap script is always the first-choice path because it detects the
+ * family itself.
+ *
+ * @param distro - the distro to install into.
+ * @param family - the detected package family, when known.
+ * @returns the operator-facing remedy text.
+ */
+export function missingBwrapRemedy(distro: string, family?: string): string {
+  const direct = family === undefined ? undefined : FAMILY_INSTALL[family];
+  if (direct === undefined) {
+    return (
+      `bwrap is not usable inside distro "${distro}". Install it with ` +
+      `"scripts/bootstrap.sh ${distro} --install" (from the package), or install the ` +
+      `"bubblewrap" package with the distro's package manager.`
+    );
+  }
+  return (
+    `bwrap is not usable inside distro "${distro}". Install it with ` +
+    `"scripts/bootstrap.sh ${distro} --install" (from the package), or directly: ` +
+    `wsl.exe -d ${distro} -u root -- ${direct}`
+  );
+}
+
+/**
+ * The remedy for a bwrap that PROBED healthy but failed a run — the runtime
+ * twin of {@link missingBwrapRemedy}. No family knowledge exists on this path
+ * (the probe succeeded, so no family probe ever ran), and reinstalling is only
+ * one of the plausible fixes, so the hint leads with diagnosis.
+ *
+ * @param distro - the distro whose bwrap failed at run time.
+ * @returns the operator-facing hint text.
+ */
+export function bwrapInstallHint(distro: string): string {
+  return (
+    `bwrap failed at run time inside distro "${distro}". Check \`bwrap --version\` there, ` +
+    `or reinstall it: "scripts/bootstrap.sh ${distro} --install".`
+  );
+}
+
+/**
+ * Probe one distro's `bwrap` under the shared verdict cache. The probe mirrors
+ * upstream's: apply the real read-only profile around `true`, and treat a zero
+ * exit as the kernel having accepted and enforced it. A missing `bwrap` fails
+ * the spawn and probes unusable, which is what makes the providers fail closed
+ * rather than silently run unconfined.
+ *
+ * A success is remembered for the process lifetime; a failure is not, so a
+ * `bubblewrap` installed while the app is running is believed on the next
+ * command. The failure's composed remedy stays readable through
+ * {@link bwrapFailure}, which is how every refusal and the preflight surface it.
+ *
+ * @param options - the `wsl.exe` path and the distro to probe.
+ * @param options.wslPath - the `wsl.exe` path.
+ * @param options.distro - the distro to probe.
+ * @param options.signal - optional cancellation.
+ * @returns true when a confined command can run there.
+ */
+export async function bwrapUsable(options: { wslPath: string, distro: string, signal?: AbortSignal | undefined }): Promise<boolean> {
+  const { wslPath, distro, signal } = options;
+  return probeVerdicts.run(probeKey(wslPath, distro), async () => {
+    const prefix = bwrapArgvPrefix({ mode: "read-only", workspaceRoot: "/" });
+    try {
+      await runCapture([wslPath, "-d", distro, "--exec", ...prefix, "true"], signal);
+      return true;
+    } catch (cause) {
+      throw new Error(await composeBwrapFailure(wslPath, distro, cause, signal));
+    }
+  });
+}
+
+/**
+ * The remedy text of a key's last failed probe, as {@link bwrapUsable} composed
+ * it — the same string the providers' refusals carry. Undefined while the probe
+ * never failed (or last succeeded).
+ *
+ * @param wslPath - the `wsl.exe` path the probe used.
+ * @param distro - the distro the probe ran in.
+ * @returns the composed remedy, or undefined.
+ */
+export function bwrapFailure(wslPath: string, distro: string): string | undefined {
+  return probeVerdicts.failure(probeKey(wslPath, distro));
+}
+
 /**
  * The seam's `ConfinedArgv` settlement facts, plus this core's `windowsDrive`
  * mitigation flag.
@@ -137,27 +311,16 @@ export function createSandboxCore({ SandboxUnavailableError }: {
     }
 
     /**
-     * Whether `bwrap` can create a profile inside this distro. The probe mirrors
-     * upstream's: apply the real read-only profile around `true`, and treat a zero
-     * exit as the kernel having accepted and enforced it. A missing `bwrap` fails the
-     * spawn and probes unusable, which is what makes the provider fail closed rather
-     * than silently run unconfined.
-     *
-     * A success is remembered for the process lifetime; a failure is not, so a
-     * `bubblewrap` installed while the app is running is believed on the next
-     * command.
+     * Whether `bwrap` can create a profile inside this distro. Delegates to the
+     * shared free probe — the same cache the preflight service and every other
+     * instance instance read, so a verdict paid once is paid once per process.
      *
      * @param distro - the distro to probe.
      * @param signal - optional cancellation.
      * @returns true when a confined command can run there.
      */
     async usable(distro: string, signal?: AbortSignal): Promise<boolean> {
-      const key = `${this.wslPath}\u0000${distro}`;
-      return probeVerdicts.run(key, async () => {
-        const prefix = bwrapArgvPrefix({ mode: "read-only", workspaceRoot: "/" });
-        await runCapture([this.wslPath, "-d", distro, "--exec", ...prefix, "true"], signal);
-        return true;
-      });
+      return bwrapUsable({ wslPath: this.wslPath, distro, signal });
     }
 
     /**
@@ -181,9 +344,7 @@ export function createSandboxCore({ SandboxUnavailableError }: {
       if (!(await this.usable(distro, signal))) {
         throw new SandboxUnavailableError(
           policy.mode,
-          `bwrap is not usable inside distro "${distro}". Install it with ` +
-            `"scripts/bootstrap.sh ${distro} --install" (from the package), or directly: ` +
-            `wsl.exe -d ${distro} -u root -- apt-get install -y bubblewrap`,
+          bwrapFailure(this.wslPath, distro) ?? missingBwrapRemedy(distro),
         );
       }
       const workspaceRoot = toLinuxPath(policy.workspaceRoot, { distro });

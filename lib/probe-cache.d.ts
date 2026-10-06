@@ -25,10 +25,21 @@ export interface ProbeCache {
      *
      * @param key - the probe's cache key.
      * @param probe - the probe to run on a miss. A throw is a failed probe, never
-     *   a propagated error.
+     *   a propagated error; its message is remembered for {@link failure}.
      * @returns the verdict; a success is remembered, a failure is not.
      */
     run(key: string, probe: () => Promise<boolean> | boolean): Promise<boolean>;
+    /**
+     * The message of the probe failure the key last recorded, if any. A failed
+     * verdict is not remembered as a verdict, but its reason outlives the miss:
+     * the remedy a caller prints is composed from WHY the probe failed, and the
+     * next caller — often the very next command — must still see it.
+     *
+     * @param key - the probe's cache key.
+     * @returns the thrown error's message, or undefined while no failure is
+     *   recorded; cleared on the key's next success.
+     */
+    failure(key: string): string | undefined;
     /** Remembered successes, for tests and diagnostics. */
     readonly size: number;
 }

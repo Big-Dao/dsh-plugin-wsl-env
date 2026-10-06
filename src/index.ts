@@ -48,6 +48,7 @@ import { canonicalPath, classifyRunnerFailure, isRunnerSpawnFailure, matchesSign
 import { isAnotherDistrosUnc, isRelativeWorldPath, isWorldPathUnder, isWslUnc, posixToUnc, toLinuxPath, toWorldPath, uncToPosix, windowsToLinuxMount } from "./paths.js";
 import { isConfinedMutation, mutationModeRefusal, outsideDistroRefusal, shareSubstrateRefusal, substrateFailure, workspaceWriteDenial } from "./fs-decisions.js";
 import { WslSandbox } from "./sandbox.js";
+import { bwrapFailure, bwrapInstallHint, missingBwrapRemedy } from "./sandbox-core.js";
 import { armDistroWatcher } from "./watcher.js";
 import type { WslAgent } from "./agent.js";
 import { AgentUnavailableError } from "./agent-errors.js";
@@ -116,6 +117,21 @@ const SAFE_FORWARD = ["NO_COLOR", "TERM", "PAGER", "GIT_PAGER", "LANG", "LC_ALL"
  */
 function configuredCwd(config: { cwd?: { get(): string | undefined } }): string {
   return String(config.cwd?.get?.() ?? "").trim();
+}
+
+/**
+ * Append the run-time bwrap remedy to a runner-failure detail that names bwrap.
+ * A probe-time failure composes its own classified remedy (see
+ * `lib/sandbox-core.js`); this covers the OTHER order — bwrap probed healthy,
+ * then failed a real command — where no probe failure is on record and the raw
+ * `bwrap: …` line is all the model would see.
+ *
+ * @param detail - the classified runner-failure detail.
+ * @param distro - the distro the command ran in.
+ * @returns the detail, with the remedy appended when it names bwrap.
+ */
+function withBwrapHint(detail: string, distro: string): string {
+  return /\bbwrap\b/i.test(detail) ? `${detail} — ${bwrapInstallHint(distro)}` : detail;
 }
 
 /**
@@ -791,7 +807,10 @@ export class WslShellExecutor
       const { enforcement, denialSignatures, runnerFailureRules, windowsDrive } = confined;
       const runnerFailure = classifyRunnerFailure(result.exitCode, result.stderr.text, runnerFailureRules);
       if (runnerFailure !== undefined) {
-        throw new SandboxUnavailableError(mode as ConfinedSandboxMode, runnerFailure.detail);
+        // This path computes `mode` as `policy?.mode`, which the seam spells as
+        // the wider union: a runner failure is only ever thrown under a
+        // confinement, and there the mode is one of the two confined ones.
+        throw new SandboxUnavailableError(mode as ConfinedSandboxMode, withBwrapHint(runnerFailure.detail, distro));
       }
       return ({
         ...result,
@@ -884,7 +903,7 @@ export class WslShellExecutor
       const { enforcement, denialSignatures, runnerFailureRules, windowsDrive } = confined;
       // Runner failure outranks denial because the command did not run at all.
       const runnerFailure = classifyRunnerFailure(result.exitCode, result.stderr.text, runnerFailureRules);
-      if (runnerFailure !== undefined) throw new SandboxUnavailableError(mode, runnerFailure.detail);
+      if (runnerFailure !== undefined) throw new SandboxUnavailableError(mode, withBwrapHint(runnerFailure.detail, distro));
       return ({
         ...result,
         sandbox: {
@@ -898,7 +917,7 @@ export class WslShellExecutor
       // An upstream abort remains cancellation even when it prevents spawn.
       if (resolved.signal?.aborted === true) resolved.signal.throwIfAborted();
       if (confined !== undefined && isRunnerSpawnFailure(error, confined.argv[0], resolved.workdir)) {
-        throw new SandboxUnavailableError(mode, String(error));
+        throw new SandboxUnavailableError(mode, withBwrapHint(String(error), distro));
       }
       throw error;
     });
@@ -1134,11 +1153,12 @@ export class WslFileSystem extends LocalFileSystem {
     const confinedPolicy = policy as { mode: ConfinedSandboxMode, workspaceRoot: string };
     const distro = await this.distro();
     if (!(await this.sandbox.usable(distro))) {
+      // The probe's classified remedy — missing vs present-but-broken, with the
+      // distro's own package family — is what every other refusal surfaces;
+      // this path has the same failure, so it carries the same text.
       throw new SandboxUnavailableError(
         confinedPolicy.mode,
-        `bwrap is not usable inside distro "${distro}". Install it with ` +
-          `"scripts/bootstrap.sh ${distro} --install" (from the package), or directly: ` +
-          `wsl.exe -d ${distro} -u root -- apt-get install -y bubblewrap`,
+        bwrapFailure(config.wslPath, distro) ?? missingBwrapRemedy(distro),
       );
     }
     return confinedAgent({ distro, wslPath: config.wslPath, policy: confinedPolicy, maskWindowsDrive: config.maskWindowsDrive });

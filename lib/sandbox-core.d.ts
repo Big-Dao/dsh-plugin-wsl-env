@@ -17,6 +17,61 @@
  * @module dsh-plugin-wsl/sandbox-core
  */
 /**
+ * The canonical remedy for a distro whose `bwrap` is missing — also the
+ * fallback for callers that know only "the probe failed", without a classified
+ * reason. The direct command is family-aware when the caller knows the family;
+ * the bootstrap script is always the first-choice path because it detects the
+ * family itself.
+ *
+ * @param distro - the distro to install into.
+ * @param family - the detected package family, when known.
+ * @returns the operator-facing remedy text.
+ */
+export declare function missingBwrapRemedy(distro: string, family?: string): string;
+/**
+ * The remedy for a bwrap that PROBED healthy but failed a run — the runtime
+ * twin of {@link missingBwrapRemedy}. No family knowledge exists on this path
+ * (the probe succeeded, so no family probe ever ran), and reinstalling is only
+ * one of the plausible fixes, so the hint leads with diagnosis.
+ *
+ * @param distro - the distro whose bwrap failed at run time.
+ * @returns the operator-facing hint text.
+ */
+export declare function bwrapInstallHint(distro: string): string;
+/**
+ * Probe one distro's `bwrap` under the shared verdict cache. The probe mirrors
+ * upstream's: apply the real read-only profile around `true`, and treat a zero
+ * exit as the kernel having accepted and enforced it. A missing `bwrap` fails
+ * the spawn and probes unusable, which is what makes the providers fail closed
+ * rather than silently run unconfined.
+ *
+ * A success is remembered for the process lifetime; a failure is not, so a
+ * `bubblewrap` installed while the app is running is believed on the next
+ * command. The failure's composed remedy stays readable through
+ * {@link bwrapFailure}, which is how every refusal and the preflight surface it.
+ *
+ * @param options - the `wsl.exe` path and the distro to probe.
+ * @param options.wslPath - the `wsl.exe` path.
+ * @param options.distro - the distro to probe.
+ * @param options.signal - optional cancellation.
+ * @returns true when a confined command can run there.
+ */
+export declare function bwrapUsable(options: {
+    wslPath: string;
+    distro: string;
+    signal?: AbortSignal | undefined;
+}): Promise<boolean>;
+/**
+ * The remedy text of a key's last failed probe, as {@link bwrapUsable} composed
+ * it — the same string the providers' refusals carry. Undefined while the probe
+ * never failed (or last succeeded).
+ *
+ * @param wslPath - the `wsl.exe` path the probe used.
+ * @param distro - the distro the probe ran in.
+ * @returns the composed remedy, or undefined.
+ */
+export declare function bwrapFailure(wslPath: string, distro: string): string | undefined;
+/**
  * The seam's `ConfinedArgv` settlement facts, plus this core's `windowsDrive`
  * mitigation flag.
  */

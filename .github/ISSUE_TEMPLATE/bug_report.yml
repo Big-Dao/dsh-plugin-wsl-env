@@ -41,8 +41,11 @@ body:
     attributes:
       label: Output
       description: |
-        The command that failed and what it printed. When the sandbox is involved,
-        the output of `npm run probe:sandbox` answers most of the usual questions.
+        The command that failed and what it printed. Easiest first step:
+        `pnpm run diagnose` (or `bash scripts/diagnose.sh`) collects the
+        environment, the tools and a bwrap probe as one paste-ready report.
+        When the sandbox is involved, the output of `npm run probe:sandbox`
+        answers most of the remaining questions.
       render: text
     validations:
       required: false

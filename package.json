@@ -110,7 +110,8 @@
     "SECURITY.md",
     "SUPPORT.md",
     "LICENSE",
-    "scripts/bootstrap.sh"
+    "scripts/bootstrap.sh",
+    "scripts/diagnose.sh"
   ],
   "scripts": {
     "test": "pnpm run lint:style && pnpm run test:syntax && pnpm run lint:build && pnpm run lint:types && pnpm run test:unit",
@@ -135,7 +136,8 @@
     "probe:agent": "bash test/probe/agent.sh",
     "probe:substrate": "bash test/probe/substrate.sh",
     "probe:exec": "bash test/probe/exec.sh",
-    "bootstrap": "bash scripts/bootstrap.sh"
+    "bootstrap": "bash scripts/bootstrap.sh",
+    "diagnose": "bash scripts/diagnose.sh"
   },
   "packageManager": "pnpm@11.7.0",
   "engines": {

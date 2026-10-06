@@ -58,14 +58,19 @@ There is no long-term support branch. Fixes go to the latest version.
 
 ## What a good bug report contains
 
+The one-command path: `pnpm run diagnose` (from a checkout of the plugin, or
+`bash scripts/diagnose.sh`) collects most of the table below — Windows build,
+WSL status, distro, kernel, package family, the four tools with their versions,
+and a bwrap functional probe — as a paste-ready report. Run it first, then add
+what it cannot see:
+
 | Item | How to get it |
 |---|---|
+| The diagnose report | `pnpm run diagnose -- <distro>` (read-only; safe to paste) |
 | Plugin version | `npm ls dsh-plugin-wsl-env`, or the git tag you built from |
 | DSH version | the version of the harness you run |
-| Distro and kernel | `wsl.exe -l -v`, and `uname -r` inside the distro |
-| Windows build | `winver` |
 | The composed configuration | `dsh --profile <name> --dump-config`, in particular the `dsh-plugin-wsl-env` layer and the rows it patches |
-| Sandbox behaviour | the output of `npm run probe:sandbox`, run from inside the distro (`wsl.exe -d <distro>` first) — the probe calls `bwrap` and reads `lib/bwrap.js` there, so it needs both in the distro |
+| Sandbox behaviour, in depth | the output of `npm run probe:sandbox`, run from inside the distro (`wsl.exe -d <distro>` first) — the probe calls `bwrap` and reads `lib/bwrap.js` there, so it needs both in the distro |
 | What you expected and what happened | one paragraph each |
 | A reproduction | the exact command, or the exact sequence of clicks |
 

@@ -6,8 +6,9 @@
 > **现行状态只以仓库根目录的 [`README.md`](../../README.md) 为准**（中文翻译版：[docs/README.zh.md](../README.zh.md)，与英文版逐节同构）；两者冲突时，以 README.md 为准。
 > 本文的部分结论已被后续工作推翻，最典型的是 §2.1/§3.4/§9 由"Windows 沙箱到不了 WSL"推出的
 > "本插件必须运行在无沙箱 provider 上"——现行实现改为在 distro 内用 bubblewrap 施加约束，
-> 边界与代价见 README 的 *Sandboxing* 一节。
+> 边界与代价见 README 的 *Sandbox* 一节（中文版为 *沙箱*）。
 > 被替换设计的对照表见 [`design-history.zh.md`](design-history.zh.md)。
+> 本文冻结于 2026-10-02（归档之日）：不再追加内容，只做归档性订正；后续变更见 [`CHANGELOG.md`](../../CHANGELOG.md)。
 >
 > 文中的相对链接（`lib/…`、`test/…` 等）写于它还在仓库根目录的时候，归档时未逐条改写；
 > 要按链接找文件请以仓库现状为准。
@@ -28,18 +29,22 @@
 
 > **验证边界**：架构、seam 契约、WSL 行为、UNC 原语、选择器行为（子系统发现、子系统根列目录、面包屑）、**挂接后的运行时行为**、**写/改/权限位的完整发布路径**（`test/probe/`，含负对照，见 §16.5）、以及**终端 provider 的端到端启动**（`test/probe/terminal.sh`，见 §17.6）均已在本机实测；纯函数单测 35 项、文件系统行为探针 14 项、终端探针 3 项全部通过；**插件已装进一个独立 profile 并在 harness 进程内端到端跑通**（`exit=0`，见 §9），**日常 GUI 也已在真实模型回合里验证过 `bash` 与 `read`**（§10），**写侧则由一个只挂 WSL 环境的 headless profile 在真实回合里验证过 `write → chmod → read → edit → 执行`**（§16.5）。
 
+> **归档批注**：这里的"纯函数单测 35 项"（§4 表列的 12/9/5/9）是更早修订的快照 —— 归档时（2026-10-02）这四支已合计 42 项（19/9/5/9），本机现状（2026-10-06 实测）为 21/13/10/10 = 54 项。
+
 ### 0.1 本文的范围与历史留档
 
 本文是**历史记录**：它写下的是 0.1.x 开发当时的契约、设计、安装、使用、限制与验证方式。
-现行状态见仓库根目录的 [`README.md`](../../README.md)，本目录只保管历史。
+现行状态见仓库根目录的 [`README.md`](../../README.md)，本目录只保管历史；冻结与后续变更的说明见文首。
 
 三条被否掉的"工具命名"路线、per-process 的 `DSH_WSL` 开关、以及当初的排查过程，都移到了
 [`design-history.zh.md`](design-history.zh.md) —— 那里按**当时的节号**原样保留，
 并标出每个结论当时的对应位置（那些指针指向的是本文的节号，而不是 README 的）。
 
 本文的"已修复缺陷"几节（§11、§12、§16）解释的是**代码为什么长这样**
-（`--exec` 为什么是必需的、shell 为什么不能硬编码、发布路径为什么绕开 Windows 描述符分支）——
-这些理由今天仍然成立，即便文中的安装步骤、沙箱结论与部分自检输出已经过时。
+（`--exec` 为什么是必需的、shell 为什么不能硬编码、发布路径为什么绕开 Windows 描述符分支）。
+前两条理由在现行实现里仍然成立；第三条只成立于当时那条"文件工具跨 9p 共享读写"的路线 ——
+文件工具后来改由常驻子系统内代理在 ext4 上直读直写，不再跨共享，§16.4 那段绕行代码已不在现行实现里
+（见 README.md 的 `substrate` 行）。文中的安装步骤、沙箱结论、检查链与 CI 的描述、以及部分自检输出同样早已过时。
 
 ---
 
@@ -279,6 +284,11 @@ await writeFileAtomic(target.targetKey, content, existing?.mode, signal, this.in
 | `docs/archive/`（本目录） | 已废弃设计与本文的留档，含[说明](README.md)（如 per-process 的 `DSH_WSL` 旧补丁） |
 | [`.editorconfig`](.editorconfig) / [`.gitattributes`](.gitattributes) / [`.gitignore`](.gitignore) | 2 空格 + LF（跨 WSL/Windows 必须）、忽略 `node_modules/` 与探针产物 |
 
+> **归档批注**：上面 CI 一行与 §4.1 的前两条写的是冻结当天的事实 —— 检查链此后迁到 pnpm + TypeScript：
+> `pnpm test` 现在是 `lint:style` → `test:syntax` → `lint:build` → `lint:types`（`tsc --noEmit`，要装依赖）→ `test:unit`，
+> `engines` 下限提到 `^22.19.0 || >=24.0.0`；CI 先 `pnpm install --frozen-lockfile` 再 `pnpm test`（node 22/24 × ubuntu + windows），
+> 另有 coverage job，以及只在 workflow_dispatch 下运行、托管 runner 上全部跳过的探针 job。
+
 ### 4.1 工程化脚手架
 
 仓库在 2026-10-02 做了第一次 `git init`（此前 32 个文件、4800 余行只有这份 README 作为历史）。几条刻意的取舍：
@@ -314,6 +324,7 @@ dsh-shell/README.md              ← ctx.shell 契约与必须遵守的语义
 > 那些命令记录的是真实跑过的路径，本身仍然有效，只是 profile 要先建出来：
 > `dsh wsl --from-default-profile web`（完整三步见 §9.4）。
 > 当前目录里是日常的 `desktop`，以及两个**按需重建**的探针 profile `wslfs` / `wslmodel`（§16.6）。
+> **归档批注**：本机 `$DSH_HOME/profiles/` 里另有 `envweb` 目录（旧的 link，未被清理）—— 见 §13.6 的归档批注。
 
 `desktop` profile 由 Electron 应用独占（`--dump-config` 会报 `profile "desktop" is managed exclusively by the Electron application`），**不要在外部改它**。开发走自定义 profile：
 
@@ -585,6 +596,8 @@ npm test          # test:syntax + test:unit，纯函数，任意 Node ≥ 20 可
 npm run probe     # 行为探针，必须从子系统内跑（它自己通过 interop 调 Windows 侧的 Node）
 ```
 
+> **归档批注**：这条 `npm test` 注释已过时 —— 见 §4 表后的归档批注（现在是 `pnpm test`，Node 下限 22.19）。
+
 `dsh` 未加入 PATH 时，直接调安装目录里的 CLI：
 
 ```powershell
@@ -609,6 +622,8 @@ dsh wsl --from-default-profile web      # 再按 §9.4 的第 2、3 步装插件
 ```
 
 现在目录里保留的是日常 `desktop` 与两个按需重建的探针 profile（`wslfs`、`wslmodel`，见 §16.6）。日常 GUI 的挂接见 §13。
+
+> **归档批注**：本机目录里还有 `envweb`，见 §13.6 的归档批注。
 
 ---
 
@@ -868,6 +883,10 @@ auto-preset（新）
 
 **工具名不再有歧义**：宿主 preset 用 `pwsh`，wsl preset 用 `zsh`（由 shell 路径推导），二者从不出现在同一个 agent 的工具集里 —— 这正是"彻底解决工具层命名"的终局。
 
+> **归档批注**：这条"工具名不再有歧义"只成立于当时那条"给 shell 工具改名"的路线（design-history §15/§17/§18）。
+> 该路线已删除 —— `preset-wsl` 现在启用随包的 `dsh-tool-bash`（`cordis.patch.yml`），插件本身不再派生模型工具，
+> 所以模型可见的工具名仍是 `bash`，与本文 §12.5、§14.6 一致；`zsh` 只是实际执行命令的登录 shell。
+
 ### 13.4 auto-preset 的两个关键细节（都由实验确定）
 
 **① 尊重显式选择。** 事件触发时 preset 已按"请求值或默认值"挂载，无法区分二者 —— 所以只在**挂载值等于 registry 默认值**时才改写（说明客户端没指定）。操作者的显式选择永不被覆盖。
@@ -889,6 +908,8 @@ Error: tool "subagent" is already registered in this scope
 ```
 
 这条输出只能在子系统内核里取到，所以它一次性证明了完整链路：auto-preset 识别 WSL 工作区 → 绑定 `wsl` preset → **模型可见的工具变成 `zsh`** → 在子系统内真实执行并回传。Windows 工作区则保持在宿主 preset（沙箱 + Permissions 都在）。
+
+> **归档批注**：这条实测证明的是"在子系统内真实执行"；工具名当时报 `zsh`，随 §13.3 那条改名路线一并作废，现在仍是 `bash`（见 §12.5、§14.6）。
 
 **② 进程内验证（用已安装的补丁文件本身）**
 
@@ -913,6 +934,10 @@ consider cwd="C:\\Users\\andyz\\Documents\\..."      current=standard
 **什么都不用切。** 打开 WSL 里的文件夹时，新会话自动进入 wsl preset；打开 Windows 文件夹时留在宿主 preset。两者可在同一进程内并行。想手动指定就用 GUI 的 preset 选择器。
 
 这套隔离就是在日常 `desktop` profile 上验证的 —— §13.5 的三行输出来自同一进程里的三个会话。当时另外建的 `wslverify`、`envweb` 两个临时 profile 已在工程化清理中删除。
+
+> **归档批注（本机复核，2026-10-06）**：`wslverify` 确实已不在，但 `envweb` 仍留在 `$DSH_HOME/profiles/`
+> （自 2026-10-01 起未改动，`package.json` 仍 link 到旧的 `…/default-workspace/dsh-plugin-wsl` 路径）——
+> "两个都已删除"只对 `wslverify` 成立；§5、§9.6 的同类说法同此。
 
 ### 13.7 踩过的坑
 
@@ -1451,6 +1476,10 @@ terminal probe passed
 ```
 
 四条断言各自证明一件事：会话工作区（UNC）被翻成正确的 Linux 目录、`--cd` 生效；`DSH_SESSION_ID` 经 `WSLENV` 进了子系统；shell 是**子系统用户的登录 shell**（`/usr/bin/zsh`，不是硬编码 bash）；并且这是一个真正的交互式 PTY（能读到 starship 提示符）。
+
+> **归档批注**：终端探针实际只断言**三条**（`arithmetic ran`、`cwd translated`、`DSHENV forwarded`，见 `test/probe/terminal-probe.mjs`），
+> 退出码也只由这三条决定；上面列的四个事实里，`DISTRO=`/`SHELL=` 两行只是打印出来供人核对、不参与判定，
+> 而被断言的"算术执行过"（`PROBE-42`）没有列进那四条 —— 实际项数以 §0 的"终端探针 3 项"为准。
 
 ### 17.7 已知限制（终端）
 

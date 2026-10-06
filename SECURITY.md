@@ -45,6 +45,21 @@ These are targets, not a contract.
 
 If a report is out of scope, we will say so and explain why.
 
+## Disclosure
+
+A confirmed vulnerability is fixed and disclosed through the ordinary release
+process, not through a separate security track.
+
+- The fix ships in the next release of the package, which is the only version the
+  Supported versions table above covers.
+- That release records the fix in [`CHANGELOG.md`](CHANGELOG.md), and the GitHub
+  Release notes are taken from that section.
+- The advisory is published on this repository's Security tab, where the private
+  report was filed, once the release that carries the fix is out.
+
+A report that is out of scope, or that we cannot confirm as a vulnerability, is
+closed without a published advisory.
+
 ## Scope
 
 In scope:
@@ -69,8 +84,9 @@ process inside the distro can still start a Windows program through WSL interop,
 for example `/mnt/c/.../*.exe`. That program runs outside the Linux sandbox.
 
 This is a documented design boundary, not a vulnerability by itself. The command
-`npm run probe:sandbox` demonstrates it on your machine, and the README states it
-in its Sandbox section.
+`npm run probe:sandbox` demonstrates it on your machine when run from inside the
+distro, where `bubblewrap` and `node` must be installed; the README states it in
+its Sandbox section.
 
 A report is still welcome if you find an escape that does not depend on interop,
 or if the plugin ever reports `full` while interop is reachable.

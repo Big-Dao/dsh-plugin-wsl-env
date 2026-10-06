@@ -36,7 +36,7 @@ This Code of Conduct applies within all community spaces, and also applies when 
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community leaders responsible for enforcement at the channels listed in [`SECURITY.md`](SECURITY.md): GitHub private vulnerability reporting, or an issue asking a maintainer for a private channel. All complaints will be reviewed and investigated promptly and fairly.
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported privately to the community leaders responsible for enforcement at the channel that [`SECURITY.md`](SECURITY.md) describes: [GitHub's private reporting form](https://github.com/Big-Dao/dsh-plugin-wsl-env/security/advisories/new), or, if that form is not available to you, an issue that asks a maintainer for a private channel without describing the incident in it. That channel is for conduct reports as well as vulnerability reports; the guidance in `SECURITY.md` on what to include in a report, and its response-time targets, are written for vulnerabilities and do not apply to a conduct report. All complaints will be reviewed and investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the reporter of any incident.
 

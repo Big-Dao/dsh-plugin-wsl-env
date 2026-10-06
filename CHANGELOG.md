@@ -7,8 +7,12 @@ All notable changes to this project are documented here. The format follows
 The reasoning and the measurements behind each entry are in the archived
 engineering record,
 [docs/archive/engineering-record.zh.md](docs/archive/engineering-record.zh.md)
-(Chinese, repository only — it is history, never a second README). Every `§`
-reference below points at that record's numbering.
+(Chinese, repository only — it is history, never a second README). A `§`
+reference below points at that record's numbering unless it names another
+document: the 0.1.0 entry's `design-history §` references are to
+[docs/archive/design-history.zh.md](docs/archive/design-history.zh.md), which
+keeps the superseded designs under the section numbers they had while they
+were part of the record.
 
 ## [Unreleased]
 
@@ -31,10 +35,34 @@ host's own floor (`^22.19.0 || >=24.0.0`), so the Node 20 legs are gone, and
 the per-target lock test drops its unused `withResolvers` gate, a Node 22+ API
 that hung those legs on every push.
 
+The unit suite also takes on the integration layer. `test/provider.test.mjs`
+boots the REAL `WslShellExecutor` and `WslFileSystem` with substitutes only at
+the seams that would reach `wsl.exe` — the agent, the substrate, the
+confinement — so the guard chain, the mutation routing, the agent execution
+path with its result decoration, the one-shot fallback and the runner-failure
+remap are measured: `lib/index.js` goes from 60% lines / 9% functions covered
+to 97%/90% when it joins, and measures 97.49% lines / 95.16% functions in the
+released tree. The coverage gate's branch threshold moves with it, 85 to 84 —
+the newly measured layer's uncovered tail is the distro-resolution branches
+(`defaultDistro`'s no-distro throw, `linuxHomePath`'s refusals, the watcher's
+real spawn internals) that need a live `wsl.exe`, and RELEASING.md records
+the bar for raising it again: cover that tail on the Windows CI legs, or move
+the coverage job to `windows-latest`. And the probes join CI: a
+`workflow_dispatch` job — named for the self-hosted Windows runner, though it
+carries the hosted `windows-latest` label — runs five of them: `sandbox`
+unconditionally, since it needs only bubblewrap in the default distro, then
+`mode`, `terminal`, `picker` and `missing-wsl` where the harness app is
+present. The `sandbox` leg fails, not skips, where bubblewrap is absent, so a
+dispatch to a hosted runner is no green no-op. Separately,
+`test/probe/run-all-when-closed.sh`'s suite gains the four probes it was
+missing — `agent`, `watch`, `substrate`, `exec`.
+
 One more theme: the whole repository comes under a TypeScript check gate.
 `tsc --noEmit` under `strict`/`checkJs` now runs as part of `pnpm test` over
-`lib/**`, `test/**` and the probe scripts, with the types taken from the peer
-packages' own declarations and the service augmentations loaded through
+`lib/**`, `test/**` and the probe scripts — a scope that narrows to what is
+NOT generated once the migration completes, `lib/**` leaving the gate for the
+build program below — with the types taken from the peer packages' own
+declarations and the service augmentations loaded through
 `types/dsh-services.d.ts`. The gate's first pass surfaced the seam work this
 package already carries: the private `spawnSpec` the WSL spawn directory needs
 (`docs/UPSTREAM-SPAWN-SEAM.md` bridges it) and a synchronous-contract violation
@@ -90,7 +118,9 @@ keeps those names, so nothing downstream changes except that they now come
 from a checked source. CONTRIBUTING records the per-module checklist this
 settled into: write `src/<name>.ts`, add the generated JavaScript to the two
 `exclude` lists, build, and let the suite verify the artifact is
-behaviourally identical.
+behaviourally identical — the `exclude` step lasts only while the tree is
+mixed; the finished checklist ends at write, build and test, with no list to
+maintain.
 
 Three leaf modules then follow in one pass — `agent-errors` (the two error
 classes the executor switches on), `probe-cache` (the verdict policy that
@@ -221,7 +251,7 @@ The transitional scaffolding then retires, nothing left for it to do:
 declaration-only second pass (`tsconfig.dts.json`) existed to give the
 hand-written JavaScript its `.d.ts`. `pnpm run build` is one `tsc` pass
 emitting JavaScript and declarations straight into `lib/`, pruning
-declarations no source owns; the `checkJs` gate drops its 36-entry exclude
+declarations no source owns; the `checkJs` gate drops its 35-entry exclude
 list and states what is NOT generated — `test/**` and the ambient service
 types, with `src/` checked by the build program (`noEmitOnError`); and
 `lint:build` enforces the closed corpus (every `lib/*.js` has its
@@ -995,6 +1025,17 @@ overwrite guard that stopped at the host.
   app's own runtime, both entries import; `test/syntax.mjs` now checks every
   `z.<member>` in `lib/` against the pinned peer's surface, which fails on
   `z.enum` and passes on `z.union`.
+
+## [0.2.0] - 2026-10-03
+
+One theme: the Remote-WSL parity plan (`docs/PARITY.md`) lands, Phases 0–7 —
+a resident in-distro agent plus the shell-execution, watch, publication,
+ports, terminal-routing and bootstrap work that migrates the seams onto it.
+The release closes with the two agent-path breaks that took down every GUI
+shell call, both surfacing only through the GUI's wire protocol.
+
+### Fixed
+
 - **`truncated` missing from the agent path's output streams** — the bash tool's
   canonical result copies the field unconditionally (`canonicalBashResult`), so an
   `undefined` failed the wire's lossless-JSON snapshot and EVERY shell tool call
@@ -1077,9 +1118,6 @@ overwrite guard that stopped at the host.
   Probed end-to-end against a real distro: `test/probe/agent.sh` (8 checks, including
   binary-safe payloads, an in-distro timeout kill, and a 2 MB single-line response).
   Unit tests cover the codecs and the lifecycle state machine with a fake transport.
-
-### Added
-
 - `docs/PARITY.md`: the plan to reach VS Code Remote-WSL-grade experience — a resident
   in-distro agent as the core, with the `fs` and `shell` seams migrated onto it and the
   current 9p/one-shot paths kept as the documented fallback — plus the Phase-0 contract
@@ -1621,9 +1659,9 @@ freshly created files.
 - Three peer declarations this plugin neither imports nor injects:
   `@deepseek-ai/dsh-sandbox`, `@deepseek-ai/dsh-shell` and
   `@deepseek-ai/dsh-tools`. They were required by the abandoned tool-renaming
-  designs (archive §15/§18), which could only stub the sandbox symbols locally
-  (archive §15.5). The remaining set is checkable in one command —
-  `grep -rho 'from "@deepseek-ai/[^"]*"' lib/ | sort -u` — plus
+  designs (design-history §15/§18), which could only stub the sandbox symbols
+  locally (design-history §15.5). The remaining set is checkable in one
+  command — `grep -rho 'from "@deepseek-ai/[^"]*"' lib/ | sort -u` — plus
   `@deepseek-ai/dsh-subprocess` (the service `static inject` requires) and
   `@deepseek-ai/cordis`, which every DSH plugin declares.
   (`@deepseek-ai/dsh-sandbox` came back in this same release: the distro-side

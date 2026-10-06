@@ -9,14 +9,17 @@ they could not do before? -->
 
 ## Checks
 
-- [ ] `npm test` passes: style and packaging, syntax, unit
-- [ ] `npm run test:coverage` passes, or the drop is explained in a comment
+- [ ] `pnpm test` passes: style and packaging, syntax, build consistency, types, unit
+- [ ] `pnpm run test:coverage` passes, or the drop is explained in a comment
 - [ ] Behaviour changed, so `CHANGELOG.md` has an entry under `## [Unreleased]`
 - [ ] The two READMEs still match section for section (`README.md`, `docs/README.zh.md`)
-- [ ] Probes run where they apply, or this PR says why not: `npm run probe`,
-      `npm run probe:sandbox`, `npm run probe:sandbox-shell`, `npm run probe:terminal`,
-      and inside the distro `npm run probe:substrate`, `npm run probe:watch`,
-      `npm run probe:agent`, `npm run probe:exec`
+- [ ] Probes run where they apply, or this PR says why not. The full set of twelve is
+      `test/probe/run-all-when-closed.sh --include-fs`, which waits for the harness to
+      close first; individually: `pnpm run probe`, `pnpm run probe:sandbox`,
+      `pnpm run probe:sandbox-shell`, `pnpm run probe:terminal`,
+      `pnpm run probe:missing-wsl`, `pnpm run probe:picker`, `pnpm run probe:mode`,
+      `pnpm run probe:sandbox-off`, and inside the distro `pnpm run probe:substrate`,
+      `pnpm run probe:watch`, `pnpm run probe:agent`, `pnpm run probe:exec`
 
 ## Notes for the reviewer
 

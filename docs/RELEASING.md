@@ -39,12 +39,18 @@ build step at pack time.
 
 The coverage thresholds are 85 lines / 84 branches / 70 functions. The
 branch threshold is one point under the others deliberately: the
-integration layer (`lib/index.js`) is now measured, and its uncovered
-tail is the distro-resolution branches (`defaultDistro`'s no-distro
-throw, `linuxHomePath`'s refusals, the watcher's real spawn internals)
-that need a live `wsl.exe` — covered by the real-machine probes, not by
-CI. Do not raise the branch number without either covering that tail on
-the Windows CI legs or moving the coverage job to `windows-latest`.
+integration layer is now measured, and part of what it leaves uncovered
+needs a live `wsl.exe` — the distro-bound paths in `lib/index.js` (the
+resolved home, the distro home, arming the watcher), the `wsl.exe` calls
+in `lib/wsl.js` (`defaultDistro`'s no-distro throw, `linuxHomePath`,
+`runInDistro`, and the other distro calls), and the real spawn internals
+in `lib/watcher.js`. The real-machine probes cover that tail, not CI.
+The rest of the uncovered branches — the host-path arm of
+`wslWritableRoots`, the sandbox-error and rethrow arms, the
+unrestricted-path result, all in `lib/index.js` — is ordinary
+CI-coverable code. Do not raise the branch number without either covering
+the `wsl.exe` tail on the Windows CI legs or moving the coverage job to
+`windows-latest`.
 
 Run the probes as well when behaviour changed, and keep their output for the pull
 request or the release notes:
@@ -53,6 +59,7 @@ request or the release notes:
 pnpm run probe
 pnpm run probe:sandbox
 pnpm run probe:sandbox-shell
+pnpm run probe:sandbox-off
 pnpm run probe:terminal
 pnpm run probe:picker
 pnpm run probe:missing-wsl
@@ -63,10 +70,13 @@ pnpm run probe:agent
 pnpm run probe:exec
 ```
 
-`pnpm run probe:sandbox` needs no harness; `pnpm run probe:mode` needs Windows Node
-but no harness. `probe:substrate`, `probe:watch`, `probe:agent` and `probe:exec`
-run from inside the distro. The rest need Windows, WSL2, a mounted profile and a
-linked checkout.
+`pnpm run probe:sandbox` runs from inside the distro and needs neither the harness
+nor a profile. `pnpm run probe:mode` uses the harness executable as its Windows
+Node, so it needs no harness boot and no profile. `probe:substrate`,
+`probe:watch`, `probe:agent` and `probe:exec` also run from inside the distro.
+The rest — `probe`, `probe:sandbox-shell`, `probe:terminal`, `probe:picker`,
+`probe:missing-wsl` and `probe:sandbox-off` — need Windows, WSL2, a mounted
+profile and a linked checkout.
 
 `npm publish` runs the `prepublishOnly` script, which is `pnpm test`. The local
 gates therefore run again during the release step.
@@ -87,15 +97,18 @@ GitHub Release do. The tag push starts the release workflow described in step 5.
 
 ### The tag-triggered workflow
 
-Pushing the tag starts `.github/workflows/release.yml`. It does four things, in
+Pushing the tag starts `.github/workflows/release.yml`. It does five things, in
 this order:
 
 1. Checks that the tag matches `version` in `package.json`, using
    `scripts/check-release-tag.mjs`.
 2. Runs the gates, `pnpm test` and `pnpm run test:coverage`.
-3. Publishes with `npm publish --provenance --access public`. That attaches a
+3. Asks the registry whether this version is already published, and skips the
+   upload when it is. Re-pushing the same tag therefore does not publish again —
+   it only gets you as far as the GitHub Release.
+4. Publishes with `npm publish --provenance --access public`. That attaches a
    signed attestation tying the tarball to this workflow run and this commit.
-4. Creates the GitHub Release, with notes taken from the changelog section by
+5. Creates the GitHub Release, with notes taken from the changelog section by
    `scripts/changelog-section.mjs`.
 
 The workflow requires a trusted publisher configured on npmjs.com for this
@@ -104,8 +117,10 @@ lets npm exchange the run's OIDC token (`id-token: write`) for a short-lived
 publish credential, so no npm token is stored in the repository.
 
 If trusted publishing is not configured, add an `NPM_TOKEN` repository secret and
-pass it to the publish step as `NODE_AUTH_TOKEN`. Configure required reviewers on
-the `npm-publish` environment to put a second person in front of every publish.
+hand it to the Publish step in `.github/workflows/release.yml` — the step does not
+read it on its own, so add `env: NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` to it.
+Configure required reviewers on the `npm-publish` environment to put a second
+person in front of every publish.
 
 ### Manual fallback
 
@@ -113,7 +128,12 @@ Use this when the workflow cannot run. Publish from a machine that holds a granu
 access token with write access to the package. The token needs `bypass 2FA`
 enabled if the account requires 2FA.
 
+Run the same tag check the workflow runs, against the tag you are about to push,
+then publish:
+
 ```bash
+node scripts/check-release-tag.mjs vx.y.z
+
 npm publish --registry=https://registry.npmjs.org/ \
   --//registry.npmjs.org/:_authToken=<token>
 ```
@@ -163,8 +183,10 @@ The tag-triggered workflow creates the Release for you, with notes from the
 changelog section. Do it by hand only after a manual publish:
 
 ```bash
+node scripts/changelog-section.mjs > notes.md
+
 gh release create vx.y.z --repo Big-Dao/dsh-plugin-wsl-env \
-  --title "vx.y.z - <short title>" --notes-file <notes.md> --verify-tag
+  --title "vx.y.z - <short title>" --notes-file notes.md --verify-tag
 ```
 
 The notes summarise the changelog section. Mention anything a user must do, such as
@@ -182,19 +204,44 @@ pnpm run sync:windows
 Then confirm that the two trees match:
 
 ```bash
-diff -rq --exclude=.git --exclude=node_modules \
+diff -rq --exclude=.git --exclude=node_modules --exclude=.scratch \
   . /mnt/c/Users/<you>/Documents/deepseek-harness/default-workspace/dsh-plugin-wsl
 ```
 
+Read this as "no unexpected differences", not "no output". `test/probe/.scratch`
+is never copied, and the sync is additive on purpose — it never deletes — so the
+mirror legitimately keeps files this checkout no longer has.
+`test/probe/sync-to-windows.sh` reports that same residual set as a note rather
+than a failure. What matters is the other direction: a file this checkout has and
+the mirror does not, or one that differs.
+
 That destination is outside a session workspace, so a confined agent session is
 refused there and has to approve a wider permission for the one command.
+
+## 9. If a version turns out to be bad
+
+npm does not let a published version be replaced, so the fix goes forward:
+
+1. Deprecate the bad version, so anyone who installs it sees the warning:
+
+   ```bash
+   npm deprecate dsh-plugin-wsl-env@x.y.z "<what is wrong>; use x.y.(z+1)" \
+     --registry=https://registry.npmjs.org/
+   ```
+
+2. Cut the fix as the next patch version, following this document from step 2.
+   Prefer that to `npm unpublish`, which is not a rollback: it removes the
+   tarball for every consumer that already resolved it.
+
+3. Correct the GitHub Release for the bad tag, or point its notes at the patch
+   release. The release notes stay the first thing a reader finds.
 
 ## Operational facts worth remembering
 
 | Fact | What it means in practice |
 |---|---|
 | `npm publish` prints success at upload time | The version may still return 404 for a minute or two. Poll the registry, and do not conclude that the publish failed. |
-| A retry can fail with `409 Cannot publish over previously staged version` | The first publish did land. Verify it instead of publishing again. |
-| The npm readme is chosen from the candidate files at the package root, and the rule is not fully explained. With `README.md` and `README.zh.md` side by side, version 0.1.1 published as `readmeFilename: README.zh.md`, so its npm page rendered Chinese. The npm CLI's own selection code (`@npmcli/package-json/lib/normalize.js`, `glob('{README,README.*}')` with the pattern `/\.m?a?r?k?d?o?w?n$/i/`) does not match a `.md` name at all, and the tarball listed `README.md` first. | Do not rely on the rule. Keep exactly one readme candidate at the package root, which `pnpm run lint:style` checks. The Chinese README lives in `docs/` for this reason. |
+| A repeated publish of the same version is refused | npm checks the registry first and stops with `You cannot publish over the previously published versions: x.y.z.`; a registry-side conflict surfaces as `EPUBLISHCONFLICT` ("Cannot publish over existing version."). Either one means the first publish landed. Verify it instead of publishing again — the release workflow's already-published check exists for the same reason. |
+| The npm readme is chosen from the candidate files at the package root, and the rule is not fully explained. With `README.md` and `README.zh.md` side by side, version 0.1.1 published as `readmeFilename: README.zh.md`, so its npm page rendered Chinese — even though the tarball listed `README.md` first. Both names match the npm CLI's own selection code (`@npmcli/package-json/lib/normalize.js` globs `{README,README.*}` and accepts `/\.m?a?r?k?d?o?w?n?$/i`, which does match `.md`), so neither name is screened out. | Do not rely on the rule. Keep exactly one readme candidate at the package root, which `pnpm run lint:style` checks. The Chinese README lives in `docs/` for this reason. |
 | A local `~/.npmrc` may point at a mirror | Pass `--registry=https://registry.npmjs.org/` on every publish and every verification. |
 | The npm token is a credential | Pass it per command, never commit it, and revoke it after the release. |

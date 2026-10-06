@@ -33,15 +33,17 @@ crosses the 9p share. What to know about the one substrate there is:
   publication fsyncs the staged file before its atomic rename, but the
   containing directory is not fsynced afterwards: a kernel panic or power loss
   immediately after a successful write can lose the rename, and the file
-  reverts to its pre-write content. This is stronger than the peer backend,
-  which fsyncs nothing, and short of a crash-consistent store.
+  reverts to its pre-write content. The peer backend fsyncs its staged file the
+  same way, but neither fsyncs the containing directory — the exposure is the
+  peer's too, and it stays short of a crash-consistent store.
 - **A Linux filename containing a backslash cannot be addressed.** The UNC
   display form (`\\wsl.localhost\<distro>\...`) is the file's identity
   everywhere - the session header, the GUI, the caches - and the backslash is
   the UNC's separator, so `a\b.ts` in the distro round-trips to `a/b.ts`: the
   tools would silently address a different path. This is the coordinate
-  system's own limit (the peer's UNC provider has it too), not a defect of
-  the substrate; a rename away from backslash names is the workaround.
+  system's own limit — a backslash-delimited identity cannot spell a name
+  containing a backslash — not a defect of the substrate; a rename away from
+  backslash names is the workaround.
 - **Stage two routes mutations through a confined resident.** A write or edit
   under a confined policy runs on its own long-lived agent, spawned inside the
   bwrap profile that binds exactly what the mode grants — so the kernel, not
@@ -51,39 +53,27 @@ crosses the 9p share. What to know about the one substrate there is:
   refuses them with the bootstrap command, rather than downgrading); a policy
   change addresses a different resident, so the first write after switching the
   Permissions selector pays one agent startup; and a write the policy grants to
-  the distro's `/tmp` lands in the confined mount's tmpfs, not the real `/tmp`
-  — the same hand-off rule as the commands' `/tmp`: pass files through the
-  session workspace.
+  the distro's `/tmp` lands in the distro's real `/tmp`, because the
+  file-writes resident binds it read-write — where the read tools, the plain
+  resident and the user's own shell all see it. The ephemeral tmpfs belongs to
+  the command side alone, so a file handed over from a command still goes
+  through the session workspace.
 - **`glob` and `grep` run the distro's own rg** (`lib/search-route.js`): the
   tool's arguments are forwarded verbatim, so results, output format and exit
   codes are rg's own — at ext4 speed, with the distro's `.gitignore` rules.
-  A distro without rg surfaces rg's own "command not found" (exit 127);
-  `npm run bootstrap -- <distro> --install` installs it. A search whose
-  directory is a Windows folder keeps the host binary, which is native there.
+  A distro without rg fails the search outright: exit 127, with the message
+  from the exec launcher and never from rg itself (which is the missing
+  program) — `setsid: failed to execute rg: No such file or directory` where
+  the distro has `setsid`, the script shell's `rg: not found` where it does
+  not. The install command `scripts/bootstrap.sh` prints — `wsl.exe -d <distro>
+  -u root -- apt-get install -y bubblewrap git ripgrep inotify-tools`, or the
+  detected family's spelling — installs it. `--install` runs that command only
+  when `bubblewrap` itself is missing, so a distro that has bwrap but not rg
+  needs the printed line run by hand. A search whose directory is a Windows
+  folder keeps the host binary, which is native there.
 - **`watch()` is one poll loop** (a `find -newer` scan inside the distro), so
   the coarse-invalidation caveats below apply. An inotify backend is planned,
   not shipped.
-
-- **The sandbox does not govern WSL interop.** A confined command can still run a
-  Windows program, which escapes the Linux-side boundary. The plugin reports this as
-  `enforcement: partial`. See [ARCHITECTURE.md](ARCHITECTURE.md#reported-enforcement).
-  The `maskWindowsDrive` key on `wsl-shell` and `wsl-fs` narrows the hole: the
-  confined profile shadows `/mnt` with an empty tmpfs, so the drive's files cannot be
-  read or exfiltrated and its executables cannot be launched. It is not a closure — a
-  command that can write the workspace can write an executable there and run it
-  (binfmt interop dispatches on file content, not location) — so enforcement stays
-  `partial`, the result's sandbox fact reports `windowsDrive: "masked"`, and the only
-  complete closure remains distro-level (`[interop] enabled=false` in `wsl.conf`).
-- **`bubblewrap` must be installed**, or both providers fail immediately. The
-  usability probe re-runs after a failure, so installing bubblewrap while the app
-  runs is believed on the next command; only a success is cached.
-- **The port poller keeps the resident agent permanently warm.** The
-  `DSH_WSL_PORTS` snapshot refreshes through the shared resident agent every
-  `portsRefreshMs` (10 s by default, well inside the agent's idle timeout), so
-  while the app runs the agent never idles out: one `wsl.exe` and one
-  in-distro agent process stay resident per pinned distro even with no command
-  in flight. Raising `portsRefreshMs` past the agent's idle timeout restores
-  idle shutdown, at the cost of staler port facts.
 - **A confined command's `/tmp` is not the write tool's `/tmp`.** `workspace-write`
   mounts a fresh tmpfs at `/tmp` for the command — that is what makes it ephemeral —
   while the file tools' fence grants the distro's *real* `/tmp`. Both are writable, so
@@ -91,25 +81,72 @@ crosses the 9p share. What to know about the one substrate there is:
   `bash` and vice versa. Hand a file between them through the session workspace.
 - A distro that is stopped or unregistered while the app runs takes the file
   tools' substrate with it: reads and writes report the substrate-unavailable
-  error naming the cause, and recover on the next call once the distro starts.
+  error naming the cause. A death with nothing in flight costs nothing — the
+  next call starts a fresh transport, so a distro that comes back is served
+  again. A death with a request in flight spends the resident's one permitted
+  rebuild, and when that rebuild cannot complete — the distro is still down, or
+  gone — the resident is permanently out: every later file operation fails the
+  same way until the app restarts.
+- `watch()` observes from inside the distro (a `find -newer` poll loop, see
+  `lib/watcher.js`), so events are coarse invalidation, not per-file notifications,
+  and they arrive on the poll cadence, not instantly. A creation is seen even when
+  the new file's own mtime is old: creating it bumps the containing directory's
+  mtime, and the scan includes the watched directory itself (deletions are seen the
+  same way). What escapes the stamp is a change that leaves every scanned mtime
+  older than it — an in-place `cp -p` onto an existing file (new content, a
+  copied-back mtime), or a `tar -x` whose archive restores the containing
+  directory's own mtime. Watching a 9p share from the Windows side remains
+  unsupported — the loop runs where the kernel can actually report change.
+- `editText` reads the whole file into memory before writing it back.
+
+## The sandbox
+
+- **The sandbox does not govern WSL interop.** A confined command can still run a
+  Windows program, which escapes the Linux-side boundary. The plugin reports this as
+  `enforcement: partial`. See [ARCHITECTURE.md](ARCHITECTURE.md#reported-enforcement).
+  The `maskWindowsDrive` key on `wsl-shell`, `wsl-fs` and `fs-routing` narrows the
+  hole: the confined profile shadows `/mnt` with an empty tmpfs, so the drive's files
+  cannot be read or exfiltrated and its executables cannot be launched. It is not a
+  closure — a command that can write the workspace can write an executable there and
+  run it (binfmt interop dispatches on file content, not location) — so enforcement
+  stays `partial`, the result's sandbox fact reports `windowsDrive: "masked"`, and
+  the only complete closure remains distro-level (`[interop] enabled=false` in
+  `wsl.conf`).
+- **`bubblewrap` must be installed**, or both providers fail immediately. The
+  usability probe re-runs after a failure, so installing bubblewrap while the app
+  runs is believed on the next command; only a success is cached.
 - `workspace-write` binds the workspace root as writable, and bubblewrap refuses a
   bind whose source directory does not exist, so a session whose workspace directory was
   deleted fails with a runner error; the plugin does not recreate it. A workdir that
   does not exist — a configured `cwd` pointing at a deleted directory, for instance — is
   a separate case and is now reported as an error naming that directory, because
   `wsl.exe` would otherwise run the command in `/` and exit 0.
-- `watch()` observes from inside the distro (a `find -newer` poll loop, see
-  `lib/watcher.js`), so events are coarse invalidation, not per-file notifications,
-  and they arrive on the poll cadence, not instantly. A file created with an mtime
-  older than the watcher's stamp (`cp -p`, `tar -x`) is not seen until something
-  else touches the tree. Watching a 9p share from the Windows side remains
-  unsupported — the loop runs where the kernel can actually report change.
-- `editText` reads the whole file into memory before writing it back.
+
+## Ports
+
+- **The port poller keeps the resident agent permanently warm.** The
+  `DSH_WSL_PORTS` snapshot refreshes through the shared resident agent every
+  `portsRefreshMs` (10 s by default, well inside the agent's idle timeout), so
+  while the app runs the agent never idles out: one `wsl.exe` and one
+  in-distro agent process stay resident per pinned distro even with no command
+  in flight. Raising `portsRefreshMs` past the agent's idle timeout restores
+  idle shutdown, at the cost of staler port facts.
+
+## The directory picker
+
 - The directory picker lists distro levels from inside the distro — the
   resident's `ls -1ALp` in one round trip, a one-shot `wsl.exe --exec ls` when
   it is out, never the 9p walk the host used to pay per entry. The listing is
-  line-parsed, so a filename containing a newline would render as two rows;
-  `/` cannot appear in a name, so nothing else can split one.
+  line-parsed and only a line that ends in `/` becomes a row, so a directory
+  name containing a newline cannot be listed correctly: `ls` emits `a\nb` as
+  the two lines `a` and `b/`, and the picker offers the single row `b` at
+  `<parent>/b` — the part after the newline, a different directory or none at
+  all. A name that ends in a newline yields no row at all: the split leaves one
+  segment without a trailing `/` and one empty name, and the parser keeps
+  neither. `/` cannot appear in a name, so nothing else can split one.
+
+## Terminals
+
 - Terminal routing is per-session by workspace coordinates (`subprocess-wsl.hostSessions`,
   default on): a WSL-folder session gets the distro shell, a Windows-folder session gets
   `powershell.exe` in its own directory. The shell MENU remains the single configured
@@ -137,6 +174,9 @@ crosses the 9p share. What to know about the one substrate there is:
   the idle threshold is the controller's `unattendedTimeoutMs` (2 h by
   default); and the host-side shell-activity integration is still not armed
   for these launches — `wsl.exe` on win32 fails its gate — which is why the
-  observation is a scan rather than shell cooperation.
+  observation is a scan rather than shell cooperation. `terminalIdleReclaim:
+  false` on the `subprocess-wsl` row restores close-by-hand: the launch then
+  carries no `DSH_TERMINAL_ID` marker, and the handle keeps the shipped
+  `unknown` activity, which never accumulates idle.
 - Windows-folder host terminals (the `powershell.exe` branch) keep the shipped
   behaviour: `unknown` activity, no reclamation.

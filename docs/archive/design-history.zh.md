@@ -2,10 +2,12 @@
 
 本目录保存**不再描述现行形态**的材料。现行文档是仓库根目录的 [`README.md`](../../README.md)；
 本目录另存 [`engineering-record.zh.md`](engineering-record.zh.md)（开发当时的完整工程记录，**历史，不是第二份 README**）。
+文中引用的 `dsh-wsl-research/…` 是**仓库外的本机对照目录**（当时存放从 `app.asar` 抽出的官方包副本与生成器），不在本仓库内。
 
-这里的文字是**当时写的，按当时的节号原样保留**。两条读法约定：
+这里的文字是**当时写的，按当时的节号原样保留**：内容截止 **0.1.x 开发期**（2026-10-02 拆分归档），文中的"现在 / 今天"都指当时，不是仓库现状。三条读法约定：
 
-- **`README §N`** 指现行文档重新编号后的那一节（本文的节号与它已经对不上，凡是指向现行文档的引用都显式写成 `README §N`）。
+- **`工程记录 §N`** 指本目录的 [`engineering-record.zh.md`](engineering-record.zh.md) 的节号（本文保留拆分前的旧节号，工程记录用的是重新编号后的一套 —— 两套编号不一致，不要互套）。
+- **`README → 小节名`** 指现行 [`README.md`](../../README.md) 里按标题定位的小节（现行文档已没有编号小节，只能按标题指）。
 - **裸 `§N`** 指本文自己的节号，即下面这五节。
 
 | 本文 | 当时是什么 | 为什么被推翻 |
@@ -16,12 +18,12 @@
 | §17 | 同一问题的上游改动（路线 A） | 要改上游才能落地，插件侧无法独立完成 |
 | §18 | 同一问题的运行时改名（B′） | 在 agent 创建后改写别人的工具定义，时序上撞上上一代工具尚未退休；最终改用 `ctx.shellEnv` 贡献环境事实（[工程记录 §14](engineering-record.zh.md)） |
 
-§10.8（应用升级后重新生成 `preset-wsl` 段）**不是**被推翻的内容，已单独移入现行文档。
+§10.8（应用升级后重新生成 `preset-wsl` 段）**不是**被推翻的内容：流程见 [工程记录 §13.9](engineering-record.zh.md)，现行 `cordis.patch.yml` 的 `preset-wsl` 段上方也留着同一句提醒（"Re-run it after an app update that changes the preset."）。
 
 ---
 ## 10. 挂进日常 GUI（desktop profile）—— per-process 的 `DSH_WSL` 开关
 
-> **本节记录的是 per-process 设计** —— 一个 `DSH_WSL` 进程开关，整体替换掉全局 `ctx.fs` / `ctx.shell`。仍成立的只有两件事：插件确实挂在 `desktop` profile 上，以及 §10.8 的"应用升级后要重新生成 preset"。`DSH_WSL` 开关已从 desktop 移除，§10.2 / §10.4 / §10.5 / §10.9 的操作与对照都**不再适用**；§10.7 那两个 YAML 教训与具体设计无关，依然有效。现行设计见 README §13。
+> **本节记录的是 per-process 设计** —— 一个 `DSH_WSL` 进程开关，整体替换掉全局 `ctx.fs` / `ctx.shell`。仍成立的只有两件事：插件确实挂在 `desktop` profile 上，以及 §10.8 的"应用升级后要重新生成 preset"。`DSH_WSL` 开关已从 desktop 移除，§10.2 / §10.4 / §10.5 / §10.9 的操作与对照都**不再适用**；§10.7 那两个 YAML 教训与具体设计无关，依然有效。现行设计见 [README → Architecture](../../README.md#architecture)。
 
 ### 10.1 已完成的改动
 
@@ -61,7 +63,7 @@ provider 是**启动时**按服务可用性选择的，而 `ctx.shell` / `ctx.fs
 ### 10.5 WSL 模式下的取舍（用之前必须知道）
 
 - **文件围栏消失**：`dsh-fs-sandbox` 是唯一真正执行写入围栏的组件，WSL 模式下它被禁用。Windows 路径（`C:\...`）仍可读写——`restrictToDistro` 只挡"别的子系统"，不挡 Windows 盘。
-- **Permissions 选择器消失**：因为框架拒绝把"声称带沙箱模式"的预设架在不围栏的执行器上（README §9.2 的 fail-loud）。这不是配置疏忽，是无解的结构约束。
+- **Permissions 选择器消失**：因为框架拒绝把"声称带沙箱模式"的预设架在不围栏的执行器上（[工程记录 §9.2](engineering-record.zh.md) 的 fail-loud）。这不是配置疏忽，是无解的结构约束。
 - **`bash` 只在 WSL 里跑**：Windows 原生命令要么走 `/mnt/c/...`，要么靠 interop 直接执行 `.exe`。
 - 想要回到完全受沙箱保护的日常使用：取消 `DSH_WSL` 并重启。两者可随时来回切。
 
@@ -69,7 +71,7 @@ provider 是**启动时**按服务可用性选择的，而 `ctx.shell` / `ctx.fs
 
 - 写入 desktop 的补丁与**我在临时 profile 上双模式验证过的产物 SHA256 完全一致**（`1C63F848…89CADF`）。
 - Mode A 实机启动：确认仍是 `SandboxPwshExecutor` + `sandboxMode: workspace-write`——即原行为未被破坏。
-- Mode B 实机启动：`WslShellExecutor` / `WslFileSystem` / `directoryPicker: browse`，且 README §9.3 的全部自检项通过、`exit=0`。
+- Mode B 实机启动：`WslShellExecutor` / `WslFileSystem` / `directoryPicker: browse`，且 [工程记录 §9.3](engineering-record.zh.md) 的全部自检项通过、`exit=0`。
 - 临时 profile 已删除；`DSH_WSL` 确认在用户级/机器级都为空。
 
 ### 10.7 校验过程拦下的两个真实错误（都发生在写 desktop 之前）
@@ -98,7 +100,7 @@ Copy-Item "$env:USERPROFILE\.dsh\profiles\desktop\cordis.patch.yml.bak-20261001-
 
 ## 12. 手动试用（step by step）—— 同一开关的操作流程
 
-> **⚠️ 本节整套流程建立在已被移除的 `DSH_WSL` 进程开关上，照做不会有任何效果。** 现在的试用方式短得多：**重启应用 → 在 GUI 里直接打开一个 WSL 文件夹 → 新建会话**，环境按会话自动选择（README §13.6）。下面仍然有用的是第 4、5 步（怎么在对话框里进子系统、怎么确认文件工具也在子系统里）和"出问题怎么办"里的排查思路。
+> **⚠️ 本节整套流程建立在已被移除的 `DSH_WSL` 进程开关上，照做不会有任何效果。** 现在的试用方式短得多：**重启应用 → 在 GUI 里直接打开一个 WSL 文件夹 → 新建会话**，环境按会话自动选择（见 [README → Using it](../../README.md#using-it)）。下面仍然有用的是第 4、5 步（怎么在对话框里进子系统、怎么确认文件工具也在子系统里）和"出问题怎么办"里的排查思路。
 
 ### 前提
 
@@ -164,7 +166,7 @@ use the read tool on /etc/os-release and report the first line
 
 ### 不想动日常 GUI 的替代路径
 
-当时另有独立 `wsl` profile（同样已挂接验证，现已删除 —— 见 README §9.6），用它启动就是 WSL 模式，desktop 完全不受影响：
+当时另有独立 `wsl` profile（同样已挂接验证，现已删除 —— 见 [工程记录 §9.6](engineering-record.zh.md)），用它启动就是 WSL 模式，desktop 完全不受影响：
 
 ```powershell
 $env:ELECTRON_RUN_AS_NODE=1
@@ -190,7 +192,7 @@ Copy-Item "$env:USERPROFILE\.dsh\profiles\desktop\cordis.patch.yml.bak-20261001-
 
 **`bash` 报 `Wsl/E_ACCESSDENIED`** → 说明旧 provider 还在（`pwsh-sandbox` 没被替换），即没真正进 WSL 模式。
 
-**`bash` 里变量取不到值**（`x=[]`、`$?` 恒为 0、heredoc 内容被展开、`EXE=/p; "$EXE"` 报 `: command not found`）→ 这是 README §11 的缺陷，**已修复**；因为模块代码不走 HMR，需要**完全退出应用再启动**才会生效。
+**`bash` 里变量取不到值**（`x=[]`、`$?` 恒为 0、heredoc 内容被展开、`EXE=/p; "$EXE"` 报 `: command not found`）→ 这是 [工程记录 §11](engineering-record.zh.md) 记录的缺陷，**已修复**；因为模块代码不走 HMR，需要**完全退出应用再启动**才会生效。
 
 ### 试用期间要记住的取舍
 
@@ -200,9 +202,9 @@ WSL 模式下**没有文件沙箱**（`dsh-fs-sandbox` 被禁用），**也没�
 
 ## 15. 工具层命名，路线：派生 dsh-tool-bash
 
-> **本节描述的 fork 方案已删除**（`lib/shell-tool.js` 与 `fork-shell-tool.mjs` 都不在了）。工具名现由上游从挂载的 shell 推导，见 §17。保留此节仅作决策记录。
+> **本节描述的 fork 方案已删除**（`lib/shell-tool.js` 与 `fork-shell-tool.mjs` 都不在了）。§17 的上游改动没有发生，§18 的运行时改名也已移除 —— 随包的 `dsh-tool-bash` 仍硬编码 `name: "bash"`，**模型可见的工具名仍是 `bash`**；真实 shell 改由 `DSH_*` 环境事实告知模型（见 [工程记录 §14.6](engineering-record.zh.md)）。保留此节仅作决策记录。
 
-README §12 修好了"跑哪个 shell"，但**工具名还是 `bash`** —— 模型看到 `bash`、实际跑 zsh。这一章把它彻底解决。
+[工程记录 §12](engineering-record.zh.md) 修好了"跑哪个 shell"，但**工具名还是 `bash`** —— 模型看到 `bash`、实际跑 zsh。这一章把它彻底解决。
 
 ### 15.1 问题不在配置层
 
@@ -245,7 +247,7 @@ register(definition) {
 dsh-wsl-research/fork-shell-tool.mjs  →  dsh-plugin-wsl-env/lib/shell-tool.js
 ```
 
-生成器对每个替换点断言"恰好命中一次"，共 12 处改写：
+生成器对每个替换点断言"恰好命中一次"，共 12 处改写（**归档批注**：存世的 `dsh-wsl-research/fork-removed/fork-shell-tool.mjs` 是 15 处改写点、产物 791 行，与此处对不上；当时是哪一版已无法核对）：
 
 | 改写点 | 内容 |
 |---|---|
@@ -276,10 +278,10 @@ tool-wsl-shell (dsh-plugin-wsl-env/tool): failed to import
 
 ### 15.5 `HarnessError` 绝不能伪造
 
-`dsh-tools` 用 `instanceof` 提取结构化错误码：
+`dsh-tools`（0.2.0-rc.2）用 `instanceof` 提取结构化错误码：
 
 ```js
-return error instanceof HarnessError ? { name: code } : undefined;
+return error instanceof HarnessError ? { name: error.name, code: error.code } : void 0;
 ```
 
 所以本地复制一个 `HarnessError` 会让 `new HarnessError("tool call aborted", TOOL_ABORTED)` **不再被识别为 ABORTED**，中断语义静默失效。
@@ -334,7 +336,7 @@ tool_result  completed    "x=[7]\nq=[1]\n"
 
 ### 15.8 代价与维护
 
-- `lib/shell-tool.js` 是官方工具在**当前版本**上的派生副本（735 行）。应用升级后若官方改了工具逻辑，需要重跑生成器跟进：官方 `lib/index.js` 用 `extract.mjs` 重新抽出，再执行 `fork-shell-tool.mjs`。生成器的每个替换点都有断言，官方结构一旦变化会**立即报错而不是悄悄产出错文件**。
+- `lib/shell-tool.js` 是官方工具在**当前版本**上的派生副本（735 行；**归档批注**：存世的 `dsh-wsl-research/fork-removed/shell-tool.js` 是 791 行，与此处对不上）。应用升级后若官方改了工具逻辑，需要重跑生成器跟进：官方 `lib/index.js` 用 `extract.mjs` 重新抽出，再执行 `fork-shell-tool.mjs`。生成器的每个替换点都有断言，官方结构一旦变化会**立即报错而不是悄悄产出错文件**。
 - 派生副本对 `/tool` 之外的行为与官方一致（jobs、超时提升、渲染、终端卡片都没动）。
 - `Config` 里 `toolName` 可随时覆盖工具名。
 
@@ -348,7 +350,7 @@ tool_result  completed    "x=[7]\nq=[1]\n"
 
 > **本节已作废。** 它的前提是"有人能改上游"，而这个前提在你的机器上不成立（没有 DSH 源码树），且实测证明**根本不需要**改上游 —— 见 §18。A 的规格与补丁仍保留在 `dsh-wsl-research/UPSTREAM-A-shell-naming.md` 与 `A-patch.mjs`，留给将来确实能拿到源码的场景。
 
-> **§15 描述的那份 fork 已删除。** `lib/shell-tool.js` 与 `fork-shell-tool.mjs` 都不在了（备份在 `dsh-wsl-research/fork-removed/`）。工具名改由**上游**从挂载的 shell 推导。
+> **§15 描述的那份 fork 已删除。** `lib/shell-tool.js` 与 `fork-shell-tool.mjs` 都不在了（备份在 `dsh-wsl-research/fork-removed/`）。路线 A 从未落地 —— 随包工具（本机 app 载荷里是 `dsh-tool-bash@0.2.0-rc.2`）仍硬编码 `name: "bash"`，模型可见的工具名仍是 `bash`。
 
 ### 17.1 为什么必须走上游
 
@@ -375,7 +377,7 @@ fork 之所以存在，是因为工具的**身份在上游是硬编码的**，�
 ### 17.3 插件侧已就位（无需再改）
 
 - 删除了 fork、shim 块、生成器与 `"./tool"` 导出；
-- `WslShellExecutor` 实现 `async shellName()` → `toolNameFor(await this.shell())`，实测返回 `"zsh"`；
+- `WslShellExecutor` 实现 `async shellName()`：取登录 shell 路径的 basename（去掉 `.exe` 与前导 `-`/`.`，不像 POSIX 名字就回退 `bash`），实测返回 `"zsh"`（**归档批注**：本节原先写作 `toolNameFor(await this.shell())`，但仓库代码里从来没有这个 helper —— 它只存在于已删除的 fork 产物与 A 的规格里）；
 - `preset-wsl` 不再挂自有工具，改为**启用随包的 `tool-bash`**（`disabled: false`）—— 它读本 preset 隔离 realm 里的 `ctx.shell`，A 落地后自动自称 `zsh`。
 
 ### 17.4 ⚠️ 过渡态
@@ -393,7 +395,7 @@ A 合入并发版**之前**，wsl preset 的 shell 工具会自称 `bash`、描�
 
 ## 18. 工具层命名，路线 B′：运行时改名
 
-> **本节方案已删除**（`lib/shell-rename.js` 已移除，备份在 `dsh-wsl-research/fork-removed/`）。改用 DSH 自带的 `DSH_*` 环境事实通道 —— 见 README §14。保留此节作为决策记录：它证明过"运行时改名在技术上可行且不泄漏"，只是在发现官方机制后不再必要。
+> **本节方案已删除**（`lib/shell-rename.js` 已移除，备份在 `dsh-wsl-research/fork-removed/`）。改用 DSH 自带的 `DSH_*` 环境事实通道 —— 现行做法见 [README → Using it](../../README.md#using-it)，当时的机制见 [工程记录 §14](engineering-record.zh.md)。保留此节作为决策记录：它证明过"运行时改名在技术上可行且不泄漏"，只是在发现官方机制后不再必要。
 
 > **§17（上游改动 A）已作废**，fork（§15）也已删除。现状是：不改上游、不复制代码、升级 app 后什么都不用做。
 
@@ -408,13 +410,13 @@ agent.ctx.tools.register({ ...def, name, description, parameters })
 实现见 `lib/shell-rename.js`（约 150 行）。要点：
 
 - **复用活定义**，所以 `execute`、退出码渲染（`output.render`）、终端卡片全部是上游的，且上游改措辞会被自动继承 —— 不再有"副本与上游脱节"的问题；
-- 名字来自执行器的 `async shellName()`：`WslShellExecutor` 返回 `zsh`（`toolNameFor(await this.shell())`）；宿主 `SandboxPwshExecutor` 没有该方法，插件**原样不动**（它的名字本来就对）；
+- 名字来自执行器的 `async shellName()`：`WslShellExecutor` 返回 `zsh`（取登录 shell 路径的 basename，内联推导 —— 见 §17.3 的归档批注）；宿主 `SandboxPwshExecutor` 没有该方法，插件**原样不动**（它的名字本来就对）；
 - 描述里所有 `description` 字段**递归**改写（`parameters` 是 JSON Schema，逐参数文本在 `properties.command.description`，不是扁平表）；
 - `restrict` + `register` 都是同步、不冲突的（新名字与旧名字不同），所以不像预设切换那样有"上一代未退休"的碰撞。
 
 ### 18.2 为什么必须监听 `tools/change`，而不是只监听 `agent/created`
 
-preset 是在 agent 创建**之后**才切换的 —— 创建期间切换会撞上上一代工具尚未退休（见 README §13.4 ②）。所以在 `agent/created` 那一刻，agent 还挂在**旧** preset 上，它的 shell 没有 `shellName()`，也根本不是这个工具该据以命名的 shell。
+preset 是在 agent 创建**之后**才切换的 —— 创建期间切换会撞上上一代工具尚未退休（见 [工程记录 §13.4](engineering-record.zh.md) ②）。所以在 `agent/created` 那一刻，agent 还挂在**旧** preset 上，它的 shell 没有 `shellName()`，也根本不是这个工具该据以命名的 shell。
 
 切换 preset 会 emit **`tools/change`**，那一刻"该叫什么"才可知。所以：
 

@@ -54,23 +54,23 @@ wsl.exe -d <子系统> -u root -- apt-get install -y bubblewrap    # Debian/Ubun
 
 ## 方案对比
 
-Windows 编程工具对 WSL 项目做的每件事都要跨一条边界，业界给出三种形态，本插件是第三种。
+Windows 上的编程工具要在 WSL 项目上干活，一共三条路。本插件是其中一条——选哪条，值得花十分钟弄清楚。
 
-**把工具装进子系统。** Codex CLI、Claude Code、ZCode CLI 在 Windows 上的官方建议正是如此：CLI 住在项目所在的地方，边界根本不存在。如果一款 CLI 工具能覆盖你的工作流，它仍是最简单的正确答案——本插件不与它竞争。它不适用于"界面与执行都在 Windows 侧"的 harness，而那正是本插件服务的场景。
+**第一条：把工具装进 WSL。** Codex CLI、Claude Code、ZCode CLI 的官方建议都是这样：工具跟项目住在一起，中间没有任何边界。如果有这样的 CLI 能覆盖你的工作，直接用它——这是最简单的路，本插件也不和它竞争。它只有一个前提：整个工具都能搬进 WSL。DeepSeek Harness 做不到这一点，所以对 Harness 来说只剩下面两条路。
 
-**由桌面端铺设远程 runtime。** IDE 的答案——VS Code 的 Remote-WSL 及其开源镜像 [open-remote-wsl](https://github.com/jeanp413/open-remote-wsl)——与 agent 桌面端的答案——[ZCode](https://github.com/zai-org/ZCode) 的 SSH/WSL/Docker 模式——都把界面留在 Windows，在子系统里启动一个 server。两者都是成熟可用的设计，但架构在用户可感知的地方不同：
+**第二条：桌面应用远程连进 WSL。** VS Code（Remote-WSL，开源镜像 [open-remote-wsl](https://github.com/jeanp413/open-remote-wsl)）和 [ZCode](https://github.com/zai-org/ZCode) 这类 agent 桌面端把应用留在 Windows，往子系统里装一个服务程序。这条路很成熟，大量人在用。代价是它装的东西、开的东西：家目录下多出一棵服务目录（`~/.vscode-server`、`~/.zcode/server`），子系统里多出一个端口。
 
-| | Remote-WSL 家族 | ZCode 桌面端 | 本插件 |
-|---|---|---|---|
-| 通道 | TCP 走 WSL2 localhost 转发，token 鉴权 | 一根 `wsl.exe` stdio 管道 | 一根 `wsl.exe` stdio 管道 |
-| 目标侧足迹 | `~/.vscode-server`——每个构建一个 daemon，跨连接保留 | `~/.zcode/server`——node 运行时、server bundle 与 agent，跨连接复用 | 无：agent 脚本就是安装包自己的文件，每次握手都校验摘要 |
-| 进程生命周期 | daemon 比连接活得久 | 前台 server，随连接消亡 | 宿主进程拥有的常驻 agent，空闲自退休，失败自重建或回退 |
-| 沙箱 | 无 | 无 | 子系统内的 `bubblewrap`，enforcement 如实上报为 `partial` |
-| 卸载残留 | server 目录树，需手动清理 | server 目录树，需手动清理 | 无 |
+**第三条：本插件。** Harness 留在 Windows，插件不往子系统里装任何东西——它从 WSL 自己的大门（`wsl.exe`）进去，带着一个小助手脚本就地干活。命令跑在 bubblewrap 沙箱里，文件读写碰到的都是子系统的真实文件；缺了什么（比如 bubblewrap），会话打开时就会直接告诉你装什么。
 
-**这种形态带给 DSH 用户的是：** 没有监听端口、没有 token——管道不携带任何地址，TCP 形态的著名故障（localhost 转发失效）在这里无从发生；没有需要供给、追版本、清理的 server 目录树；每条受限命令都有隔离，且 `bubblewrap` 缺失时会在会话打开时就收到带修复指引的警告；工作区是 Windows 文件夹的会话完全不进入这一切——环境属于会话，不属于进程。
+| 你的直接体验 | 第二条（远程连接） | 第三条（本插件） |
+|---|---|---|
+| 往子系统里装了什么 | 一棵服务目录 | 什么都不装 |
+| 网络 | 开一个端口，Windows 上的程序都能访问 | 不开端口，不用密码 |
+| 命令沙箱 | 没有 | bubblewrap，管不到哪里的说明都写清楚 |
+| 卸载之后 | 自己动手删服务目录 | 没有任何残留 |
+| WSL 升级出了问题 | 服务可能要修 | 下一条命令自己就恢复了 |
 
-**别人赢的地方也照实说。** daemon 让工作区重开即达、可跨窗口共享；Remote-WSL 五年的生产打磨是本插件拿不出来的；ZCode 自带的代理翻译与服务管道是本插件不需要的；而装进子系统的 CLI 根本不需要这套机器。这里的比较说的是 Windows 侧 harness 可以采用的架构——不是产品之间的比较：本插件只存在于 DeepSeek Harness 会话之中。
+**别家仍然更强的地方，也照实说。** 桌面远程重开工作区是秒开的，因为它的服务一直热着；VS Code 的远程有多年生产环境打磨；装进 WSL 的 CLI 根本不需要这些机器。如果它们够你的用，就用它们——本插件只为一种情况存在：harness 必须留在 Windows，同时又想让 WSL 里的活儿被沙箱管住。
 
 ## 配置
 

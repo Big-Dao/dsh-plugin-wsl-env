@@ -53,23 +53,21 @@ wsl.exe -d <子系统> -u root -- apt-get install -y bubblewrap    # Debian/Ubun
 
 ## 方案对比
 
-Windows 上的编程工具要在 WSL 项目上干活，一共三条路。本插件是其中一条——选哪条，值得花十分钟弄清楚。
+Windows 上的编程工具要在 WSL 项目上干活，一共三条路：
 
-**第一条：把工具装进 WSL。** Codex CLI、Claude Code、ZCode CLI 的官方建议都是这样：工具跟项目住在一起，中间没有任何边界。如果有这样的 CLI 能覆盖你的工作，直接用它——这是最简单的路，本插件也不和它竞争。它只有一个前提：整个工具都能搬进 WSL。DeepSeek Harness 做不到这一点，所以对 Harness 来说只剩下面两条路。
+1. **把工具装进 WSL。** Codex CLI、Claude Code、ZCode CLI 的官方建议都是这条，而且没错——如果一款 CLI 能覆盖你的工作，它就是最简单的路。前提是整个工具都能搬进 WSL；DeepSeek Harness 搬不进去，所以只剩下面两条。
+2. **桌面应用远程连进 WSL。** VS Code（Remote-WSL，开源镜像 [open-remote-wsl](https://github.com/jeanp413/open-remote-wsl)）和 [ZCode](https://github.com/zai-org/ZCode) 这类 agent 桌面端把应用留在 Windows，往子系统里装一个服务程序。很成熟。代价：一棵服务目录（`~/.vscode-server`、`~/.zcode/server`）、一个端口，命令没有沙箱。
+3. **本插件。** Harness 留在 Windows。子系统里什么都不装、不开端口，命令跑在 bubblewrap 沙箱里。缺了什么，会话打开的那一刻就会告诉你装什么。
 
-**第二条：桌面应用远程连进 WSL。** VS Code（Remote-WSL，开源镜像 [open-remote-wsl](https://github.com/jeanp413/open-remote-wsl)）和 [ZCode](https://github.com/zai-org/ZCode) 这类 agent 桌面端把应用留在 Windows，往子系统里装一个服务程序。这条路很成熟，大量人在用。代价是它装的东西、开的东西：家目录下多出一棵服务目录（`~/.vscode-server`、`~/.zcode/server`），子系统里多出一个端口。
-
-**第三条：本插件。** Harness 留在 Windows，插件不往子系统里装任何东西——它从 WSL 自己的大门（`wsl.exe`）进去，带着一个小助手脚本就地干活。命令跑在 bubblewrap 沙箱里，文件读写碰到的都是子系统的真实文件；缺了什么（比如 bubblewrap），会话打开时就会直接告诉你装什么。
-
-| 你的直接体验 | 第二条（远程连接） | 第三条（本插件） |
+| | 第二条（桌面远程） | 第三条（本插件） |
 |---|---|---|
 | 往子系统里装了什么 | 一棵服务目录 | 什么都不装 |
-| 网络 | 开一个端口，Windows 上的程序都能访问 | 不开端口，不用密码 |
-| 命令沙箱 | 没有 | bubblewrap，管不到哪里的说明都写清楚 |
-| 卸载之后 | 自己动手删服务目录 | 没有任何残留 |
-| WSL 升级出了问题 | 服务可能要修 | 下一条命令自己就恢复了 |
+| 开不开端口 | 开 | 不开 |
+| 命令沙箱 | 没有 | bubblewrap |
+| 卸载之后 | 自己动手删服务目录 | 没有残留 |
+| WSL 升级出了问题 | 服务可能要修 | 下一条命令自己就恢复 |
 
-**别家仍然更强的地方，也照实说。** 桌面远程重开工作区是秒开的，因为它的服务一直热着；VS Code 的远程有多年生产环境打磨；装进 WSL 的 CLI 根本不需要这些机器。如果它们够你的用，就用它们——本插件只为一种情况存在：harness 必须留在 Windows，同时又想让 WSL 里的活儿被沙箱管住。
+**别家仍然更强的地方。** 桌面远程重开工作区是秒开的——它的服务一直热着；VS Code 的远程有多年打磨。装进 WSL 的 CLI 什么都不需要。本插件只为一种情况存在：DeepSeek Harness 跑在 Windows 上、干的是 WSL 项目、活儿还被沙箱管着。
 
 ## 配置
 
@@ -120,7 +118,9 @@ preset-wsl（wsl agent preset；这个环境里的服务相互独立）
 
 **为什么分两层。** `wsl-shell` 和 `wsl-fs` 是随会话变化的两件事，所以放在 `wsl` preset 里：会话打开子系统目录时，`auto-preset` 给它绑上这个 preset；打开 Windows 目录的会话继续用原生 Windows 工具。一个进程，每个会话各有各的环境。GUI 终端是例外：它读的是应用层的配置，永远看不到 preset，所以 `subprocess-wsl` 挂在应用层。GUI 文件树和根级文件系统正好反过来——每个会话都用它们，单个 preset 拥有不了——所以 `workspace-files-wsl` 和 `fs-routing` 也挂在应用层。它们替换了随包的两行；根级路由的设计见 [docs/root-fs-routing.md](root-fs-routing.md)。
 
-**一条命令是怎么跑的。** 命令通常交给一个常驻在子系统里的小助手程序（每个子系统一个）。助手收到命令，在你的登录 shell 里、bubblewrap 沙箱内执行，再把输出发回来。助手不在时（或设了 `agent: false`），同样的命令改由一个新开的 `wsl.exe` 进程执行——结果一样，稍慢一点。文件操作同理：读、写、搜索都发生在子系统内部、它自己的磁盘上、用它自己的工具。子系统工作区的搜索跑的是子系统里的 `rg`，从来不用 Windows 那份去走慢桥。文件写入和命令沙箱用同一份策略检查。
+**一条命令是怎么跑的。** 命令通常交给一个常驻在子系统里的小助手程序——每个子系统一个。助手在你的登录 shell 里、bubblewrap 沙箱内执行命令，把输出送回来。助手不在时（或设了 `agent: false`），同一条命令改由一个新开的 `wsl.exe` 进程执行——结果一样，稍慢一点。
+
+**文件操作是怎么跑的。** 读、写、搜索同样发生在子系统内部：用它自己的磁盘、它自己的工具。子系统工作区的搜索跑的是子系统里的 `rg`，从来不用 Windows 那份去走慢桥。文件写入和命令沙箱用同一份策略检查。
 
 ## 沙箱
 

@@ -53,23 +53,21 @@ Open a distro folder as the workspace — for example `\\wsl.localhost\ubuntu\ho
 
 ## How it compares
 
-There are three ways for a Windows coding tool to work on a WSL project. This plugin is one of them — and which one you pick is worth ten minutes of reading.
+Three ways for a Windows coding tool to work on a WSL project:
 
-**Option 1 — install the tool inside WSL.** Codex CLI, Claude Code and ZCode CLI all recommend this: the tool runs where your project runs. If such a tool covers your work, use it. It is the simplest option, and this plugin does not compete with it. It has one precondition: the whole tool must live inside WSL. DeepSeek Harness cannot, so for Harness only the next two remain.
+1. **Install the tool inside WSL.** Codex CLI, Claude Code and ZCode CLI all recommend this, and they are right — it is the simplest path when a CLI tool covers your work. It needs the whole tool to live inside WSL. DeepSeek Harness cannot, so it needs one of the next two.
+2. **Connect from a desktop app.** VS Code (Remote-WSL, and its open-source mirror [open-remote-wsl](https://github.com/jeanp413/open-remote-wsl)) and agent desktops like [ZCode](https://github.com/zai-org/ZCode) keep the app on Windows and set up a helper server inside the distro. Battle-tested. The cost: a server folder (`~/.vscode-server`, `~/.zcode/server`), a port, and no sandbox for commands.
+3. **This plugin.** The harness stays on Windows. Nothing is installed in the distro, no port is opened, and commands run inside a bubblewrap sandbox. If something is missing, the session says what to install the moment it opens.
 
-**Option 2 — a desktop app connects into WSL.** VS Code (Remote-WSL, and its open-source mirror [open-remote-wsl](https://github.com/jeanp413/open-remote-wsl)) and agent desktops like [ZCode](https://github.com/zai-org/ZCode) keep the app on Windows and set up a helper server inside the distro. This works well and is battle-tested. The price is what it sets up: a server folder under your home directory (`~/.vscode-server`, `~/.zcode/server`), and a network port inside the distro.
-
-**Option 3 — this plugin.** The harness stays on Windows. Nothing is installed into the distro: the plugin enters through WSL's own front door (`wsl.exe`) and runs a small helper script it carries with it. Commands run in a bubblewrap sandbox, file tools touch the real distro files, and if something is missing the session tells you what to install, right when it opens.
-
-| What you will notice | Option 2 (remote connection) | Option 3 (this plugin) |
+| | Option 2 (desktop remote) | Option 3 (this plugin) |
 |---|---|---|
-| Installed into the distro | a server folder | nothing |
-| Network | opens a port that any Windows program can reach | no port, no password |
-| Command sandbox | none | bubblewrap, with its limits written down |
-| After uninstall | remove the server folder by hand | nothing to remove |
-| After a WSL upgrade breaks things | the server may need repair | the next command recovers on its own |
+| installed in the distro | a server folder | nothing |
+| opens a port | yes | no |
+| command sandbox | none | bubblewrap |
+| after uninstall | remove the server by hand | nothing left |
+| after a WSL upgrade | server may need repair | the next command just works |
 
-**Where the others are genuinely better.** A desktop remote re-opens your workspace instantly, because its server stays warm, and VS Code's remote has years of production hardening behind it. And if a CLI inside WSL covers your work, it needs none of this machinery. This plugin exists for the one case the others don't cover: a harness that must stay on Windows, whose WSL work should still be sandboxed.
+**Where the others win.** A desktop remote re-opens a workspace instantly — its server stays warm — and VS Code's remote has years of hardening behind it. A CLI inside WSL needs none of this. This plugin is for one case: DeepSeek Harness on Windows, working on WSL projects, with the work sandboxed.
 
 ## Configure
 
@@ -119,7 +117,9 @@ preset-wsl (the wsl agent preset; its settings are separate from the app's)
 
 **Why two levels.** The `wsl` preset holds `wsl-shell` and `wsl-fs`, the two things that differ per session. When a session opens a distro folder, `auto-preset` gives that session the preset; a Windows-folder session keeps the normal Windows tools. One environment per session, in one process. The GUI terminal is the exception: it reads its shell from the app level, which never sees a preset, so `subprocess-wsl` is mounted at the app level. The GUI file tree and the root filesystem have the same shape of problem — every session uses them, so no single preset can own them — and `workspace-files-wsl` and `fs-routing` sit at the app level for that reason. They replace two shipped rows; [docs/root-fs-routing.md](docs/root-fs-routing.md) has the routing design.
 
-**How a command runs.** A command normally goes to a small helper program that stays running inside the distro, one per distro. The helper receives the command, runs it in your login shell inside a bubblewrap sandbox, and sends the output back. If the helper is not available (or you set `agent: false`), the same command runs through a fresh `wsl.exe` process instead — same result, a little slower. File operations work the same way: reads, writes, and searches all happen inside the distro, on its own disk, with its own tools. A search over a distro workspace runs the distro's `rg`, never the Windows copy over the slow bridge. File writes are checked against the same policy the command sandbox enforces.
+**How a command runs.** A command normally goes to a small helper program that stays running inside the distro — one per distro. The helper runs it in your login shell, inside a bubblewrap sandbox, and sends the output back. If the helper is not available (or you set `agent: false`), the same command runs through a fresh `wsl.exe` process instead — same result, a little slower.
+
+**How file operations run.** Reads, writes and searches also happen inside the distro, on its own disk, with its own tools. A search over a distro workspace runs the distro's `rg`, never the Windows copy over the slow bridge. File writes are checked against the same policy the command sandbox enforces.
 
 ## Sandbox
 

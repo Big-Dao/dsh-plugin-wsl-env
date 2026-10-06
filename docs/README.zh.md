@@ -26,13 +26,13 @@ dsh --profile wsl                                  # 4. 启动
 
 第 3 步应该能看到一行 `# == dsh-plugin-wsl-env`——那就是插件的配置已经进了你的 profile。插件自带配置，第 2 步会自动接好，基本安装不需要手动改任何文件。
 
-**第一条命令之前，先给子系统装上 bubblewrap。** 每条命令都跑在 bubblewrap 沙箱里，而多数子系统不预装它。没有它，每条命令都会直接失败，而不是不带沙箱地运行：
+**第一条命令之前，先给子系统安装 bubblewrap。** 每条命令都运行在 bubblewrap 沙箱内，而多数子系统不预装它。缺失时，命令直接失败，不会脱箱运行：
 
 ```powershell
 wsl.exe -d <子系统> -u root -- apt-get install -y bubblewrap    # Debian/Ubuntu
 ```
 
-在本插件的检出目录里，`pnpm run bootstrap -- <子系统>` 会检查插件用到的四个工具（bubblewrap、ripgrep、git、inotify-tools），并按子系统的包管理器打印对应的安装命令；加 `--install` 则直接执行。就算漏了这一步也没关系：会话打开时插件会发现，并直接告诉你装什么。不会让你猜。
+在插件检出目录里，`pnpm run bootstrap -- <子系统>` 检查插件用到的四个工具（bubblewrap、ripgrep、git、inotify-tools），并按子系统的包管理器打印安装命令；加 `--install` 直接执行。若跳过此步，会话打开时会报告缺失的包及确切的安装命令。
 
 然后在 GUI 里打开一个 `\\wsl.localhost\<子系统>\...` 下的文件夹。选择器会列出每个已安装的子系统，**New terminal** 开的也是子系统里的 shell。
 
@@ -42,13 +42,13 @@ wsl.exe -d <子系统> -u root -- apt-get install -y bubblewrap    # Debian/Ubun
 
 ## 使用
 
-把一个子系统文件夹作为工作区打开——比如 `\\wsl.localhost\ubuntu\home\you\project`——然后问模型："我现在在什么内核上，`/etc/os-release` 里写了什么？" 它会在子系统里执行 `uname -r` 并读取这个文件。不复制文件，也不走 `/mnt/c` 那条慢路。
+把一个子系统文件夹作为工作区打开——比如 `\\wsl.localhost\ubuntu\home\you\project`——然后问模型："我现在在什么内核上，`/etc/os-release` 里写了什么？" 它会在子系统里执行 `uname -r` 并读取这个文件。不复制文件，也不经过 `/mnt/c`。
 
 - **子系统文件夹自动获得子系统环境。** 会话一打开子系统文件夹，就会被自动配上 WSL 环境。第一条命令就已经是对的。
 - **命令在你期望的地方运行。** 命令在子系统里、用你自己的登录 shell 执行——所以你的 `PATH`、`nvm`、`cargo`、`pyenv` 和 rc 配置全部生效。shell 用的是子系统配置的那个，不是写死的 bash。
 - **文件就是真实的文件。** `/home/you/x` 和 `\\wsl.localhost\ubuntu\home\you\x` 是同一个文件。`/mnt/c/...` 照常通向 Windows 磁盘。
 - **终端也是。** 右侧栏 → *New terminal*：子系统里的 shell，落在会话所在目录。
-- **模型知道你的端口。** 子系统里有什么程序开始监听端口，模型就能看到（约每 10 秒刷新一次），会直接给你它刚启动的 dev server 的确切网址。WSL2 会把 localhost 转发给 Windows，浏览器里直接就能打开。
+- **端口可见性。** 模型能看到子系统内正在监听的端口（约每 10 秒刷新），并给出它启动的 dev server 的确切地址。WSL2 将 localhost 转发给 Windows，浏览器直接可访问。
 - **权限和 Linux 主机一致。** 权限选择器有三档：`read-only`、`workspace-write`（默认）和 `danger-full-access`。有操作被拒绝时，模型会收到一次"用刚好够用的权限重试"的提议。只有 `danger-full-access` 是不带沙箱运行的。
 
 ## 方案对比
@@ -56,18 +56,18 @@ wsl.exe -d <子系统> -u root -- apt-get install -y bubblewrap    # Debian/Ubun
 Windows 上的编程工具要在 WSL 项目上干活，一共三条路：
 
 1. **把工具装进 WSL。** Codex CLI、Claude Code、ZCode CLI 的官方建议都是这条，而且没错——如果一款 CLI 能覆盖你的工作，它就是最简单的路。前提是整个工具都能搬进 WSL；DeepSeek Harness 搬不进去，所以只剩下面两条。
-2. **桌面应用远程连进 WSL。** VS Code（Remote-WSL，开源镜像 [open-remote-wsl](https://github.com/jeanp413/open-remote-wsl)）和 [ZCode](https://github.com/zai-org/ZCode) 这类 agent 桌面端把应用留在 Windows，往子系统里装一个服务程序。很成熟。代价：一棵服务目录（`~/.vscode-server`、`~/.zcode/server`）、一个端口，命令没有沙箱。
-3. **本插件。** Harness 留在 Windows。子系统里什么都不装、不开端口，命令跑在 bubblewrap 沙箱里。缺了什么，会话打开的那一刻就会告诉你装什么。
+2. **桌面应用远程连进 WSL。** VS Code（Remote-WSL，开源镜像 [open-remote-wsl](https://github.com/jeanp413/open-remote-wsl)）和 [ZCode](https://github.com/zai-org/ZCode) 这类 agent 桌面端把应用留在 Windows，往子系统里装一个服务程序。很成熟。代价：服务目录（`~/.vscode-server`、`~/.zcode/server`）、一个端口，命令无沙箱。
+3. **本插件。** Harness 留在 Windows。子系统内不安装任何内容、不监听端口，命令运行在 bubblewrap 沙箱内。缺失时，会话打开即报告缺失项与安装命令。
 
 | | 第二条（桌面远程） | 第三条（本插件） |
 |---|---|---|
-| 往子系统里装了什么 | 一棵服务目录 | 什么都不装 |
-| 开不开端口 | 开 | 不开 |
-| 命令沙箱 | 没有 | bubblewrap |
-| 卸载之后 | 自己动手删服务目录 | 没有残留 |
-| WSL 升级出了问题 | 服务可能要修 | 下一条命令自己就恢复 |
+| 往子系统里装了什么 | 一个服务目录 | 什么都不装 |
+| 是否监听端口 | 是 | 否 |
+| 命令沙箱 | 无 | bubblewrap |
+| 卸载之后 | 手动删除服务目录 | 无残留 |
+| WSL 升级出了问题 | 服务可能需要修复 | 下一条命令自动恢复 |
 
-**别家仍然更强的地方。** 桌面远程重开工作区是秒开的——它的服务一直热着；VS Code 的远程有多年打磨。装进 WSL 的 CLI 什么都不需要。本插件只为一种情况存在：DeepSeek Harness 跑在 Windows 上、干的是 WSL 项目、活儿还被沙箱管着。
+**各方案的取舍。** 桌面远程重开工作区是即时的——其服务常驻运行；VS Code 的远程有多年生产打磨。装进 WSL 的 CLI 不需要任何额外机制。本插件只针对一种场景：DeepSeek Harness 运行在 Windows 上，同时要求 WSL 内的工作在沙箱中执行。
 
 ## 配置
 
@@ -81,7 +81,7 @@ Windows 上的编程工具要在 WSL 项目上干活，一共三条路：
 | `wsl-fs` | `distro` | `''` | 同上 |
 | | `restrictToDistro` | `true` | 拒绝属于**别的子系统**的路径（`/mnt/c` 属于本子系统，不受影响）。拒绝码是 `FS_OUTSIDE_DISTRO`，放宽权限也解不开 |
 | | `sandbox` | `true` | 文件写入按同一份策略检查 |
-| | `substrate` | `agent` | 文件操作怎么进子系统。只剩一种：通过子系统里的助手，读写直接落在子系统自己的磁盘上（真实的符号链接和权限位）。旧的 `"share"` 选项走的是那条慢桥，现在启动时就会被拒绝 |
+| | `substrate` | `agent` | 文件操作如何到达子系统。只剩一种：子系统内的 agent，读写直接落在子系统自己的文件系统上（原生符号链接与权限位）。旧 `"share"` 选项走 9p 共享，启动时即被拒绝 |
 | `directory-picker-wsl` | `includeHostHome` | `true` | 选择器里同时列出 Windows 家目录 |
 | `subprocess-wsl` | `distro` | `''` | GUI 终端开在哪个子系统 |
 
@@ -118,9 +118,9 @@ preset-wsl（wsl agent preset；这个环境里的服务相互独立）
 
 **为什么分两层。** `wsl-shell` 和 `wsl-fs` 是随会话变化的两件事，所以放在 `wsl` preset 里：会话打开子系统目录时，`auto-preset` 给它绑上这个 preset；打开 Windows 目录的会话继续用原生 Windows 工具。一个进程，每个会话各有各的环境。GUI 终端是例外：它读的是应用层的配置，永远看不到 preset，所以 `subprocess-wsl` 挂在应用层。GUI 文件树和根级文件系统正好反过来——每个会话都用它们，单个 preset 拥有不了——所以 `workspace-files-wsl` 和 `fs-routing` 也挂在应用层。它们替换了随包的两行；根级路由的设计见 [docs/root-fs-routing.md](root-fs-routing.md)。
 
-**一条命令是怎么跑的。** 命令通常交给一个常驻在子系统里的小助手程序——每个子系统一个。助手在你的登录 shell 里、bubblewrap 沙箱内执行命令，把输出送回来。助手不在时（或设了 `agent: false`），同一条命令改由一个新开的 `wsl.exe` 进程执行——结果一样，稍慢一点。
+**命令的执行路径。** 命令通常由一个常驻子系统内的 agent 进程执行（每个子系统一个）。agent 在你的登录 shell 中、bubblewrap 沙箱内运行命令并回传输出。agent 不可用时（或设了 `agent: false`），同一条命令改由新开的 `wsl.exe` 进程执行——结果一致，开销略高。
 
-**文件操作是怎么跑的。** 读、写、搜索同样发生在子系统内部：用它自己的磁盘、它自己的工具。子系统工作区的搜索跑的是子系统里的 `rg`，从来不用 Windows 那份去走慢桥。文件写入和命令沙箱用同一份策略检查。
+**文件操作的执行路径。** 读、写、搜索同样发生在子系统内部：使用子系统自己的磁盘与工具。子系统工作区的搜索运行子系统内的 `rg`，不使用 Windows 侧副本走 9p 共享。文件写入与命令沙箱使用同一份策略检查。
 
 ## 沙箱
 
@@ -134,7 +134,7 @@ preset-wsl（wsl agent preset；这个环境里的服务相互独立）
 
 **bubblewrap 是必需项，缺了就宁可不做。** 没有它，每条受限命令都报 `SANDBOX_UNAVAILABLE`——命令不会脱着沙箱运行。想关掉沙箱，在管这件事的行上设 `sandbox: false`：命令归 `wsl-shell`，文件写入归 `wsl-fs`，根级写入归顶层的 `fs-routing`（应用自己用的那套文件系统）。（前两行要经 `preset-wsl` 改，见[配置](#配置)。）关掉后，模型会如实收到"这些操作没有沙箱"的说明。
 
-**沙箱管不到的地方，文档照实写。** 子系统里的命令仍然可以启动 Windows 程序（`/mnt/c/.../*.exe`），bubblewrap 管不到 Windows 程序。`pnpm run probe:sandbox` 会在你的机器上演示这条边界。在三个行上设 `maskWindowsDrive: true` 能收窄它：`/mnt` 会从命令的视野里消失，Windows 磁盘的文件读不到、程序启动不了。但洞没有关死——命令仍可以把一个 Windows 程序复制进工作区再运行——所以上报仍是 `partial`。彻底关死的办法在子系统自己身上：`wsl.conf` 里设 `[interop] enabled=false`（见 [docs/CONFIGURATION.md](CONFIGURATION.md)）。
+**已知边界。** 子系统内的命令仍可启动 Windows 程序（`/mnt/c/.../*.exe`），bubblewrap 不覆盖 Windows 进程。`pnpm run probe:sandbox` 会在你的机器上演示这条边界。在三个行上设 `maskWindowsDrive: true` 能收窄它：`/mnt` 会从命令的视野里消失，Windows 磁盘的文件读不到、程序启动不了。但并未完全关闭——命令仍可将 Windows 程序复制进工作区后运行——因此上报仍为 `partial`。彻底关闭的方法在子系统层面：`wsl.conf` 里设 `[interop] enabled=false`（见 [docs/CONFIGURATION.md](CONFIGURATION.md)）。
 
 设计见 [docs/ARCHITECTURE.md](ARCHITECTURE.md#sandbox)，插件不做的事情见 [docs/LIMITATIONS.md](LIMITATIONS.md)。
 
@@ -150,7 +150,7 @@ preset-wsl（wsl agent preset；这个环境里的服务相互独立）
 | 改了 `lib/` 但不生效 | 应用跑的是 Windows 侧那份代码副本，运行中的进程还会缓存模块 | 先 `pnpm run sync:windows` 更新副本，再重启应用 |
 | 用 `link:\\wsl.localhost\...` 安装后符号链接是坏的 | pnpm 无法链接 UNC 路径 | 改链接 Windows 路径；在子系统里开发请用运行时镜像，见[开发](#开发) |
 | `glob`/`grep` 很慢 | 子系统里没装 `rg`；Windows 目录的搜索不受影响 | 运行 `pnpm run bootstrap -- <子系统> --install`（装 ripgrep）；子系统工作区的搜索永远用子系统里的 rg，不走慢桥 |
-| 终端活动显示 `unknown` | 只在子系统里的助手暂时不在时出现——distro 终端是从子系统内部观察的（`/proc` 里扫 `DSH_TERMINAL_ID` 标记：只有 shell 是 `idle`，在跑任何命令是 `busy`） | 确认子系统在运行；空闲终端会在控制器的空闲超时（默认 2 小时）后自动关闭，`terminalIdleReclaim: false` 可以改成手动关 |
+| 终端活动显示 `unknown` | 仅在子系统内 agent 暂时不可用时出现——distro 终端是从子系统内部观察的（`/proc` 里扫 `DSH_TERMINAL_ID` 标记：只有 shell 是 `idle`，在跑任何命令是 `busy`） | 确认子系统在运行；空闲终端会在控制器的空闲超时（默认 2 小时）后自动关闭，`terminalIdleReclaim: false` 可以改成手动关 |
 | 结果里出现 `FS_*` 码 | 码本身说明了是谁拒绝的、怎么解除 | 见 [docs/ARCHITECTURE.md](ARCHITECTURE.md#error-codes) 的错误码表 |
 
 ## 开发

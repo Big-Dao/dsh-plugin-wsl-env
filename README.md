@@ -32,7 +32,7 @@ Step 3 should print a line `# == dsh-plugin-wsl-env`. That line is the plugin's 
 wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap    # Debian/Ubuntu
 ```
 
-Working from a checkout of this plugin? `pnpm run bootstrap -- <distro>` checks the four tools the plugin uses (bubblewrap, ripgrep, git, inotify-tools) and prints the install command for your distro's package manager. Add `--install` to run it. And if you skip this step anyway: when a session opens, the plugin notices and tells you exactly what to install. You will not be left guessing.
+From a plugin checkout, `pnpm run bootstrap -- <distro>` checks the four tools the plugin uses (bubblewrap, ripgrep, git, inotify-tools) and prints the install command for the distro's package manager; `--install` runs it. If this step is skipped, the session reports the missing package with the exact install command when it opens.
 
 Then open a folder like `\\wsl.localhost\<distro>\...` in the GUI. The folder picker lists every installed distro, and **New terminal** opens a shell inside the distro.
 
@@ -42,13 +42,13 @@ Uninstall: `dsh plugin --profile wsl remove dsh-plugin-wsl-env`. Upgrade: run th
 
 ## Using it
 
-Open a distro folder as the workspace — for example `\\wsl.localhost\ubuntu\home\you\project` — and ask the model "what kernel am I on, and what is in `/etc/os-release`?". It runs `uname -r` and reads that file inside the distro. Nothing is copied, and nothing takes the slow road through `/mnt/c`.
+Open a distro folder as the workspace — for example `\\wsl.localhost\ubuntu\home\you\project` — and ask the model "what kernel am I on, and what is in `/etc/os-release`?". It runs `uname -r` and reads that file inside the distro. Nothing is copied, and nothing crosses `/mnt/c`.
 
 - **A distro folder gets the distro environment.** When a session opens a distro folder, it is automatically given the WSL environment. The very first command is already right.
-- **Commands run where you expect.** They run inside the distro, in your own login shell — so your `PATH`, `nvm`, `cargo`, `pyenv` and rc files all apply. The shell is whatever your distro says; it is not hardcoded to bash.
+- **Commands run where you expect.** They run inside the distro, in your own login shell — so your `PATH`, `nvm`, `cargo`, `pyenv` and rc files all apply. The shell comes from the distro's configuration; it is not hardcoded to bash.
 - **Files are the real files.** `/home/you/x` and `\\wsl.localhost\ubuntu\home\you\x` are the same file. `/mnt/c/...` reaches the Windows disk as usual.
 - **The terminal too.** Right sidebar, *New terminal*: a shell inside the distro, in the session's folder.
-- **The model knows your ports.** When something starts listening inside the distro, the model sees it (checked about every 10 seconds) and can hand you the exact URL of the dev server it just started. WSL2 forwards localhost to Windows, so the URL works in your browser right away.
+- **Port visibility.** The model sees which ports are listening inside the distro (refreshed about every 10 seconds) and can return the exact URL of a dev server it starts. WSL2 forwards localhost to Windows, so the URL opens in the browser directly.
 - **Permissions work like on a Linux host.** The Permissions selector offers `read-only`, `workspace-write` (the default) and `danger-full-access`. When something is refused, the model is offered one retry with the smallest permission that would work. Only `danger-full-access` runs without the sandbox.
 
 ## How it compares
@@ -64,10 +64,10 @@ Three ways for a Windows coding tool to work on a WSL project:
 | installed in the distro | a server folder | nothing |
 | opens a port | yes | no |
 | command sandbox | none | bubblewrap |
-| after uninstall | remove the server by hand | nothing left |
-| after a WSL upgrade | server may need repair | the next command just works |
+| after uninstall | remove the server manually | nothing left |
+| after a WSL upgrade | server may need repair | the next command recovers automatically |
 
-**Where the others win.** A desktop remote re-opens a workspace instantly — its server stays warm — and VS Code's remote has years of hardening behind it. A CLI inside WSL needs none of this. This plugin is for one case: DeepSeek Harness on Windows, working on WSL projects, with the work sandboxed.
+**Where the others win.** A desktop remote re-opens a workspace instantly — its server stays warm — and VS Code's remote has years of hardening behind it. A CLI inside WSL needs none of this. This plugin is for one case: DeepSeek Harness on Windows, working on WSL projects, with commands sandboxed.
 
 ## Configure
 
@@ -80,7 +80,7 @@ Each setting lives on a named row. To change one, add a row with the same id to 
 | `wsl-fs` | `distro` | `''` | same as above |
 | | `restrictToDistro` | `true` | refuse paths that belong to a **different** distro. (`/mnt/c` belongs to this distro, so it is not affected.) The refusal is `FS_OUTSIDE_DISTRO`; wider permissions cannot lift it |
 | | `sandbox` | `true` | check file writes against the same policy |
-| | `substrate` | `agent` | how file operations reach the distro. Only one value remains: the helper inside the distro, so reads and writes happen on the distro's own disk, with real symlinks and permissions. The old `"share"` option went through the slow Windows bridge and is now refused at startup |
+| | `substrate` | `agent` | how file operations reach the distro. Only one value remains: the in-distro agent, so reads and writes run on the distro's own filesystem, with native symlinks and permissions. The former `"share"` option used the 9p share and is rejected at startup |
 | `directory-picker-wsl` | `includeHostHome` | `true` | also list the Windows home directory in the picker |
 | `subprocess-wsl` | `distro` | `''` | which distro the GUI terminal opens in |
 
@@ -117,9 +117,9 @@ preset-wsl (the wsl agent preset; its settings are separate from the app's)
 
 **Why two levels.** The `wsl` preset holds `wsl-shell` and `wsl-fs`, the two things that differ per session. When a session opens a distro folder, `auto-preset` gives that session the preset; a Windows-folder session keeps the normal Windows tools. One environment per session, in one process. The GUI terminal is the exception: it reads its shell from the app level, which never sees a preset, so `subprocess-wsl` is mounted at the app level. The GUI file tree and the root filesystem have the same shape of problem — every session uses them, so no single preset can own them — and `workspace-files-wsl` and `fs-routing` sit at the app level for that reason. They replace two shipped rows; [docs/root-fs-routing.md](docs/root-fs-routing.md) has the routing design.
 
-**How a command runs.** A command normally goes to a small helper program that stays running inside the distro — one per distro. The helper runs it in your login shell, inside a bubblewrap sandbox, and sends the output back. If the helper is not available (or you set `agent: false`), the same command runs through a fresh `wsl.exe` process instead — same result, a little slower.
+**How a command runs.** A command normally runs on a resident agent process inside the distro — one per distro. The agent executes it in your login shell, inside a bubblewrap sandbox, and returns the output. If the agent is unavailable (or you set `agent: false`), the same command runs through a fresh `wsl.exe` process instead — same result, slightly slower.
 
-**How file operations run.** Reads, writes and searches also happen inside the distro, on its own disk, with its own tools. A search over a distro workspace runs the distro's `rg`, never the Windows copy over the slow bridge. File writes are checked against the same policy the command sandbox enforces.
+**How file operations run.** Reads, writes and searches also happen inside the distro, on its own filesystem, with the distro's own tools. A search over a distro workspace runs the distro's `rg`, never the Windows binary over the 9p share. File writes are checked against the same policy the command sandbox enforces.
 
 ## Sandbox
 
@@ -133,7 +133,7 @@ Commands run inside a `bubblewrap` sandbox in the distro, and file writes are ch
 
 **bubblewrap is required, and the plugin fails closed.** Without it, every confined command reports `SANDBOX_UNAVAILABLE` — the command does not run unsandboxed. To turn the sandbox off, set `sandbox: false` on the row that owns the operation: `wsl-shell` for commands, `wsl-fs` for file writes, and the top-level `fs-routing` row for writes to the app's own filesystem. (The two preset rows are reached through `preset-wsl` — see [Configure](#configure).) The model is then told that these operations have no sandbox.
 
-**The sandbox is honest about what it cannot do.** A command inside the distro can still start a Windows program (anything under `/mnt/c/.../*.exe`), and bubblewrap does not watch Windows programs. `pnpm run probe:sandbox` demonstrates this boundary on your machine. Setting `maskWindowsDrive: true` on the three rows narrows it: `/mnt` disappears from the command's view, so the drive's files cannot be read and its programs cannot be started. It does not close the hole completely — a command could still copy a Windows program into the workspace and run it — so the report stays `partial`. The only complete fix is in the distro itself: `[interop] enabled=false` in `wsl.conf` (see [docs/CONFIGURATION.md](docs/CONFIGURATION.md)).
+**Known limits.** A command inside the distro can still start a Windows program (anything under `/mnt/c/.../*.exe`), and bubblewrap does not watch Windows programs. `pnpm run probe:sandbox` demonstrates this boundary on your machine. Setting `maskWindowsDrive: true` on the three rows narrows it: `/mnt` disappears from the command's view, so the drive's files cannot be read and its programs cannot be started. It does not close the hole completely — a command could still copy a Windows program into the workspace and run it — so the report stays `partial`. The only complete fix is in the distro itself: `[interop] enabled=false` in `wsl.conf` (see [docs/CONFIGURATION.md](docs/CONFIGURATION.md)).
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#sandbox) for the design, and [docs/LIMITATIONS.md](docs/LIMITATIONS.md) for everything the plugin does not do.
 
@@ -149,7 +149,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#sandbox) for the design, and [do
 | changes to `lib/` have no effect | the app runs a Windows-side copy of the code, and a running process also caches modules | run `pnpm run sync:windows` to update the copy, then restart the app |
 | `link:\\wsl.localhost\...` leaves a broken symlink | pnpm cannot link a UNC path | link a Windows path instead; developing inside the distro needs the Windows-side copy, see [Development](#development) |
 | `glob` and `grep` are slow | searches inside the distro need `rg` installed in the distro; Windows-folder searches are unaffected | run `pnpm run bootstrap -- <distro> --install` (installs ripgrep); distro searches always run the distro's rg — they never cross the slow bridge |
-| the terminal reports `unknown` activity | only while the helper inside the distro is temporarily out — distro terminals are watched from inside the distro (a `DSH_TERMINAL_ID` marker scanned in `/proc`: a shell alone is `idle`, a shell running anything is `busy`) | check the distro is running; idle terminals are closed automatically after the controller's idle timeout (2 h by default), and `terminalIdleReclaim: false` turns the auto-close off |
+| the terminal reports `unknown` activity | only while the in-distro agent is temporarily unavailable — distro terminals are watched from inside the distro (a `DSH_TERMINAL_ID` marker scanned in `/proc`: a shell alone is `idle`, a shell running anything is `busy`) | check the distro is running; idle terminals are closed automatically after the controller's idle timeout (2 h by default), and `terminalIdleReclaim: false` turns the auto-close off |
 | a result names an `FS_*` code | the code says what refused it, and what clears it | see the error-code table in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#error-codes) |
 
 ## Development

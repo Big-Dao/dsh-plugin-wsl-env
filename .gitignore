@@ -27,3 +27,6 @@ test/probe/missing-wsl-report.txt
 test/probe/picker-report.txt
 test/probe/sandbox-off-report.txt
 test/probe/.scratch/
+
+# ZCode session scratch (plan-mode drafts live under plans/).
+.zcode/plans/

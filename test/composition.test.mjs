@@ -130,6 +130,12 @@ check("fs-routing is mounted as a real top-level row", () => {
   assert.ok(row?.config && typeof row?.config === "object", "the routed root fs carries its config");
 });
 
+check("wsl-preflight is mounted as a real top-level row", () => {
+  const row = byId.get("wsl-preflight");
+  assert.equal(row?.name, "dsh-plugin-wsl-env/preflight");
+  assert.equal(row?.disabled, undefined);
+});
+
 check("the established host-side disables still land", () => {
   assert.equal(byId.get("subprocess")?.disabled, true);
   assert.equal(byId.get("directory-picker")?.disabled, true);

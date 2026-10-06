@@ -162,6 +162,15 @@
     - id: auto-preset
       name: 'dsh-plugin-wsl-env/auto-preset'
 
+    # Session-start sandbox preflight: when a distro session opens, run the
+    # providers' own bwrap usability probe (shared cache, so the first confined
+    # command pays nothing) and surface a missing or broken bubblewrap as a
+    # warning with the full remedy — instead of the first command's fail-closed
+    # error being the discovery moment. Advisory only: it never installs and
+    # never changes the providers' fail-closed semantics.
+    - id: wsl-preflight
+      name: 'dsh-plugin-wsl-env/preflight'
+
 - insert:
     # ═════════════════════════════════════════════════════════════════════════════
     # preset-wsl — the WSL environment, scoped to agents that select this preset.

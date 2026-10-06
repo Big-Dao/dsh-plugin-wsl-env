@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "WSL sandbox preflight",
+    "description": "Probes bubblewrap when a distro session opens and surfaces a missing or unusable bwrap as a warning with the exact remedy — instead of the first command's fail-closed error being the discovery moment. Advisory only; never installs anything."
+  }
+}

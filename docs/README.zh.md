@@ -18,13 +18,13 @@
 在 Windows 终端里执行这四条命令：
 
 ```powershell
-dsh wsl --from-default-profile web --dump-config   # 1. 用 Web 模板创建 profile
+dsh wsl --from-default-profile web --dump-config   # 1. 创建 profile（dsh 的一套命名配置），模板用 Web
 dsh plugin --profile wsl add dsh-plugin-wsl-env    # 2. 安装插件，配置自动带上
-dsh --profile wsl --dump-config                    # 3. 快速检查：不启动，只看组合结果
+dsh --profile wsl --dump-config                    # 3. 快速检查：不启动，只看拼好的配置
 dsh --profile wsl                                  # 4. 启动
 ```
 
-第 3 步应该能看到一行 `# == dsh-plugin-wsl-env`——那就是插件的配置已经进了你的 profile。这个包是 DSH bundle，第 2 步会自动把配置接好，基本安装不需要手动改任何文件。
+第 3 步应该能看到一行 `# == dsh-plugin-wsl-env`——那就是插件的配置已经进了你的 profile。插件自带配置，第 2 步会自动接好，基本安装不需要手动改任何文件。
 
 **第一条命令之前，先给子系统装上 bubblewrap。** 每条命令都跑在 bubblewrap 沙箱里，而多数子系统不预装它。没有它，每条命令都会直接失败，而不是不带沙箱地运行：
 
@@ -87,19 +87,19 @@ Windows 上的编程工具要在 WSL 项目上干活，一共三条路。本插�
 | `directory-picker-wsl` | `includeHostHome` | `true` | 选择器里同时列出 Windows 家目录 |
 | `subprocess-wsl` | `distro` | `''` | GUI 终端开在哪个子系统 |
 
-`wsl-shell` 和 `wsl-fs` 这两行**按 id 覆盖不到**：它们嵌在 `wsl` preset 自己的配置里，在自己的层里写 `- id: wsl-shell` 不会生效——loader 只会警告 `patch: entry "wsl-shell" not found`，实际值不变。要改，就把整个 `preset-wsl` 行复制过去改写；配方见 [docs/CONFIGURATION.md](CONFIGURATION.md#overriding-the-rows-inside-preset-wsl)。
+`wsl-shell` 和 `wsl-fs` 这两行**按 id 覆盖不到**：它们嵌在 `wsl` preset 自己的配置里（preset 是 dsh 能发给会话的一套命名环境），在自己的覆盖文件里写 `- id: wsl-shell` 不会生效——loader 只会警告 `patch: entry "wsl-shell" not found`，实际值不变。要改，就把整个 `preset-wsl` 行复制过去改写；配方见 [docs/CONFIGURATION.md](CONFIGURATION.md#overriding-the-rows-inside-preset-wsl)。
 
 [`cordis.patch.yml`](../cordis.patch.yml) 是每个随包值的注释参考。[docs/CONFIGURATION.md](CONFIGURATION.md) 列出其余键（`shell`、`loginShell`、`cwd`、`timeoutMs`、`preferredDistro`、`maxEntries` 等）；[examples/profile.cordis.patch.yml](../examples/profile.cordis.patch.yml) 是一份可以照抄修改的本机配置。
 
 ## 配方
 
 - **让子系统里的 git 用 Windows 的已存凭据**：`git config --global credential.helper "/mnt/c/Program\ Files/Git/mingw64/bin/git-credential-manager.exe"`（路径按你 Windows 侧 Git 的安装位置调整）。设置后，子系统里 `git push` 用的就是 Windows 保存的那份凭据，不用再输密码。
-- **项目放在子系统的磁盘上。** 模型操作的是子系统自己磁盘上的 Linux 路径（`/home/...`），快。它也能通过 `/mnt/c` 访问 Windows 文件，但那条桥在大量小文件时明显慢。`pnpm run bootstrap <子系统>` 会告诉你 ripgrep、git、inotifywait（分别用于搜索、快照和文件监视）装没装。
+- **项目放在子系统的磁盘上。** 模型操作的是子系统自己磁盘上的 Linux 路径（`/home/...`），快。它也能通过 `/mnt/c` 访问 Windows 文件，但那条桥在大量小文件时明显慢。`pnpm run bootstrap <子系统>` 会告诉你 ripgrep、git、inotifywait（分别用于搜索和文件监视）装没装。
 - **环境变量**：WSL 只转发 `WSLENV` 里点名的变量。本插件转发自己的 `DSH_*` 值，其中两个装着 Windows 路径的（`DSH_HOME`、`DSH_PROFILE_DIR`）会被翻译成 Linux 路径。你的 `PATH` 永远不转发——转发了会盖住子系统自己的 PATH。
 
 ## 架构
 
-一个 DSH 进程可以同时服务两类会话：工作区在 Windows 目录的，和工作区在子系统里的。插件的部件分两层挂载，原因很简单——有的东西属于某一个会话，有的属于整个应用：
+一个 DSH 进程可以同时服务两类会话：工作区在 Windows 目录的，和工作区在子系统里的。插件的部件分两层放置，原因很简单——有的东西属于某一个会话，有的属于整个应用：
 
 ```text
 组合层（composition，每个进程一份）
@@ -132,7 +132,7 @@ preset-wsl（wsl agent preset；这个环境里的服务相互独立）
 | `workspace-write` | 上面全部，加上会话工作区可写，`/tmp` 是临时目录 |
 | `danger-full-access` | 不加沙箱；用于你批准的放宽权限请求 |
 
-**bubblewrap 是必需项，缺了就宁可不做。** 没有它，每条受限命令都报 `SANDBOX_UNAVAILABLE`——命令不会脱着沙箱运行。想关掉沙箱，在管这件事的行上设 `sandbox: false`：命令归 `wsl-shell`，文件写入归 `wsl-fs`，根级写入归顶层的 `fs-routing`。（前两行要经 `preset-wsl` 改，见[配置](#配置)。）关掉后，模型会如实收到"这些操作没有沙箱"的说明。
+**bubblewrap 是必需项，缺了就宁可不做。** 没有它，每条受限命令都报 `SANDBOX_UNAVAILABLE`——命令不会脱着沙箱运行。想关掉沙箱，在管这件事的行上设 `sandbox: false`：命令归 `wsl-shell`，文件写入归 `wsl-fs`，根级写入归顶层的 `fs-routing`（应用自己用的那套文件系统）。（前两行要经 `preset-wsl` 改，见[配置](#配置)。）关掉后，模型会如实收到"这些操作没有沙箱"的说明。
 
 **沙箱管不到的地方，文档照实写。** 子系统里的命令仍然可以启动 Windows 程序（`/mnt/c/.../*.exe`），bubblewrap 管不到 Windows 程序。`pnpm run probe:sandbox` 会在你的机器上演示这条边界。在三个行上设 `maskWindowsDrive: true` 能收窄它：`/mnt` 会从命令的视野里消失，Windows 磁盘的文件读不到、程序启动不了。但洞没有关死——命令仍可以把一个 Windows 程序复制进工作区再运行——所以上报仍是 `partial`。彻底关死的办法在子系统自己身上：`wsl.conf` 里设 `[interop] enabled=false`（见 [docs/CONFIGURATION.md](CONFIGURATION.md)）。
 

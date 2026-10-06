@@ -18,13 +18,13 @@ This plugin lets [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 Run these four commands in a Windows terminal:
 
 ```powershell
-dsh wsl --from-default-profile web --dump-config   # 1. create the profile from the Web template
+dsh wsl --from-default-profile web --dump-config   # 1. create a profile (a named set of dsh settings) from the Web template
 dsh plugin --profile wsl add dsh-plugin-wsl-env    # 2. install the plugin and its settings
-dsh --profile wsl --dump-config                    # 3. a quick check: no boot, just the composed settings
+dsh --profile wsl --dump-config                    # 3. a quick check: see the merged settings without starting the app
 dsh --profile wsl                                  # 4. run
 ```
 
-Step 3 should print a line `# == dsh-plugin-wsl-env`. That line is the plugin's settings arriving in your profile. The plugin is a DSH bundle, so step 2 wires everything in automatically — there is nothing to merge by hand.
+Step 3 should print a line `# == dsh-plugin-wsl-env`. That line is the plugin's settings arriving in your profile. The plugin ships its own settings, so step 2 wires everything in automatically — there is nothing to merge by hand.
 
 **Before the first command, give the distro bubblewrap.** Every command runs inside a bubblewrap sandbox, and most distros do not have bubblewrap preinstalled. Without it, every command fails instead of running unsandboxed:
 
@@ -38,7 +38,7 @@ Then open a folder like `\\wsl.localhost\<distro>\...` in the GUI. The folder pi
 
 Uninstall: `dsh plugin --profile wsl remove dsh-plugin-wsl-env`. Upgrade: run the same `add` command again.
 
-> **Changed anything under `lib/`? Sync the mirror, then restart the app.** The app loads the Windows-side copy of the code, so run `pnpm run sync:windows` first. A restart without the sync just reloads the old code, and a running process also caches modules. See [Development](#development).
+> **Changed anything under `lib/`? Sync the Windows-side copy, then restart the app.** The app loads the Windows-side copy of the code, so run `pnpm run sync:windows` first. A restart without the sync just reloads the old code, and a running process also caches modules. See [Development](#development).
 
 ## Using it
 
@@ -73,7 +73,7 @@ There are three ways for a Windows coding tool to work on a WSL project. This pl
 
 ## Configure
 
-Each setting lives on a named row. To change one, add a row with the same id to `$DSH_HOME/profiles/<name>/cordis.patch.yml`. The keys worth knowing:
+Each setting lives on a named row. To change one, add a row with the same id to `$DSH_HOME/profiles/<name>/cordis.patch.yml` (`$DSH_HOME` is DSH's settings folder). The keys worth knowing:
 
 | Row | Key | Default | Meaning |
 |---|---|---|---|
@@ -86,19 +86,19 @@ Each setting lives on a named row. To change one, add a row with the same id to 
 | `directory-picker-wsl` | `includeHostHome` | `true` | also list the Windows home directory in the picker |
 | `subprocess-wsl` | `distro` | `''` | which distro the GUI terminal opens in |
 
-`wsl-shell` and `wsl-fs` cannot be reached by adding `- id: wsl-shell` to your layer: they live inside the `wsl` preset's own settings, so the loader only warns `patch: entry "wsl-shell" not found` and the shipped value stays in force. To change them, copy and override the whole `preset-wsl` row — [docs/CONFIGURATION.md](docs/CONFIGURATION.md#overriding-the-rows-inside-preset-wsl) has the recipe.
+`wsl-shell` and `wsl-fs` cannot be reached by adding `- id: wsl-shell` to your override file: they live inside the `wsl` preset's own settings (a preset is a named environment DSH can give a session), so the loader only warns `patch: entry "wsl-shell" not found` and the shipped value stays in force. To change them, copy and override the whole `preset-wsl` row — [docs/CONFIGURATION.md](docs/CONFIGURATION.md#overriding-the-rows-inside-preset-wsl) has the recipe.
 
 [`cordis.patch.yml`](cordis.patch.yml) is the commented reference for every value the plugin ships. [docs/CONFIGURATION.md](docs/CONFIGURATION.md) lists the rest — `shell`, `loginShell`, `cwd`, `timeoutMs`, `preferredDistro`, `maxEntries` — and [examples/profile.cordis.patch.yml](examples/profile.cordis.patch.yml) is a settings file you can copy and edit.
 
 ## Recipes
 
 - **Use your Windows git credentials inside the distro**: `git config --global credential.helper "/mnt/c/Program\ Files/Git/mingw64/bin/git-credential-manager.exe"` (adjust the path to where your Windows Git is installed). After this, `git push` inside the distro uses the same saved credentials as Windows.
-- **Keep projects on the distro's own disk.** The model works on Linux paths (`/home/...`) on the distro's own disk, which is fast. It can still reach Windows files through `/mnt/c`, but that bridge is slow when many small files are involved. `pnpm run bootstrap -- <distro>` tells you whether ripgrep, git and inotifywait (used for search, snapshots and file watching) are installed.
+- **Keep projects on the distro's own disk.** The model works on Linux paths (`/home/...`) on the distro's own disk, which is fast. It can still reach Windows files through `/mnt/c`, but that bridge is slow when many small files are involved. `pnpm run bootstrap -- <distro>` tells you whether ripgrep, git and inotifywait — used for search and file watching — are installed.
 - **Environment variables**: WSL only forwards the variables named in `WSLENV`. This plugin forwards its own `DSH_*` values, and translates the two that hold Windows paths (`DSH_HOME`, `DSH_PROFILE_DIR`) into Linux paths. Your `PATH` is never forwarded — forwarding it would hide the distro's own PATH.
 
 ## Architecture
 
-One DSH process can serve both kinds of session at the same time: a session on a Windows folder, and a session inside the distro. The plugin's parts mount at two levels, because some things belong to one session and some belong to the whole app:
+One DSH process can serve both kinds of session at the same time: a session on a Windows folder, and a session inside the distro. The plugin's parts attach at two levels, because some things belong to one session and some belong to the whole app:
 
 ```text
 composition (app level, one per process)
@@ -112,7 +112,7 @@ composition (app level, one per process)
 ├─ wsl-shell-env         the DSH_WSL_DISTRO / _SHELL / _HOME / _PORTS facts the model sees
 └─ auto-preset           binds the wsl preset when a session opens a distro folder
 
-preset-wsl (the wsl agent preset; its services run in isolate realms)
+preset-wsl (the wsl agent preset; its settings are separate from the app's)
 ├─ wsl-shell   ctx.shell — wsl.exe --exec <login shell>, confined by bubblewrap inside the distro
 └─ wsl-fs      ctx.fs    — real distro files on the resident agent substrate (ext4)
 ```
@@ -131,7 +131,7 @@ Commands run inside a `bubblewrap` sandbox in the distro, and file writes are ch
 | `workspace-write` | all of the above, plus the session workspace is writable and `/tmp` is a temporary mount |
 | `danger-full-access` | no sandbox; used when you approve a wider-permission request |
 
-**bubblewrap is required, and the plugin fails closed.** Without it, every confined command reports `SANDBOX_UNAVAILABLE` — the command does not run unsandboxed. To turn the sandbox off, set `sandbox: false` on the row that owns the operation: `wsl-shell` for commands, `wsl-fs` for file writes, and the top-level `fs-routing` row for root-level writes. (The two preset rows are reached through `preset-wsl` — see [Configure](#configure).) The model is then told that these operations have no sandbox.
+**bubblewrap is required, and the plugin fails closed.** Without it, every confined command reports `SANDBOX_UNAVAILABLE` — the command does not run unsandboxed. To turn the sandbox off, set `sandbox: false` on the row that owns the operation: `wsl-shell` for commands, `wsl-fs` for file writes, and the top-level `fs-routing` row for writes to the app's own filesystem. (The two preset rows are reached through `preset-wsl` — see [Configure](#configure).) The model is then told that these operations have no sandbox.
 
 **The sandbox is honest about what it cannot do.** A command inside the distro can still start a Windows program (anything under `/mnt/c/.../*.exe`), and bubblewrap does not watch Windows programs. `pnpm run probe:sandbox` demonstrates this boundary on your machine. Setting `maskWindowsDrive: true` on the three rows narrows it: `/mnt` disappears from the command's view, so the drive's files cannot be read and its programs cannot be started. It does not close the hole completely — a command could still copy a Windows program into the workspace and run it — so the report stays `partial`. The only complete fix is in the distro itself: `[interop] enabled=false` in `wsl.conf` (see [docs/CONFIGURATION.md](docs/CONFIGURATION.md)).
 
@@ -144,10 +144,10 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#sandbox) for the design, and [do
 | every command reports `SANDBOX_UNAVAILABLE` | `bubblewrap` is missing from the distro, or present but broken — the error text tells you which one it is and what to do | follow the fix in the error, or set `sandbox: false` on `wsl-shell` (commands) and `wsl-fs` (writes) — see [Configure](#configure) for how to reach those rows |
 | a command or write is refused outside the session folder | expected: `workspace-write` only allows writes in the session folder | accept the wider-permission offer, or open the session on the folder you need |
 | writes are refused even inside the workspace | the session is in `read-only` mode | switch the Permissions selector |
-| `dsh plugin add` prints no confirmation that a layer was added | the plugin is already installed, so there is nothing new to report — this is success, not failure | nothing to do: the layer is already in place, and `dsh --profile wsl --dump-config` still shows `# == dsh-plugin-wsl-env` |
-| the terminal still opens `cmd.exe` | the `terminal-controller` row from the layer did not apply | check that `dsh --profile wsl --dump-config` shows `shell: { path: wsl.exe, name: WSL }` |
+| `dsh plugin add` prints no confirmation that anything was added | the plugin is already installed, so there is nothing new to report — this is success, not failure | nothing to do: the settings are already in place, and `dsh --profile wsl --dump-config` still shows `# == dsh-plugin-wsl-env` |
+| the terminal still opens `cmd.exe` | the `terminal-controller` row from the plugin's settings did not apply | check that `dsh --profile wsl --dump-config` shows `shell: { path: wsl.exe, name: WSL }` |
 | changes to `lib/` have no effect | the app runs a Windows-side copy of the code, and a running process also caches modules | run `pnpm run sync:windows` to update the copy, then restart the app |
-| `link:\\wsl.localhost\...` leaves a broken symlink | pnpm cannot link a UNC path | link a Windows path instead; developing inside the distro needs the mirror, see [Development](#development) |
+| `link:\\wsl.localhost\...` leaves a broken symlink | pnpm cannot link a UNC path | link a Windows path instead; developing inside the distro needs the Windows-side copy, see [Development](#development) |
 | `glob` and `grep` are slow | searches inside the distro need `rg` installed in the distro; Windows-folder searches are unaffected | run `pnpm run bootstrap -- <distro> --install` (installs ripgrep); distro searches always run the distro's rg — they never cross the slow bridge |
 | the terminal reports `unknown` activity | only while the helper inside the distro is temporarily out — distro terminals are watched from inside the distro (a `DSH_TERMINAL_ID` marker scanned in `/proc`: a shell alone is `idle`, a shell running anything is `busy`) | check the distro is running; idle terminals are closed automatically after the controller's idle timeout (2 h by default), and `terminalIdleReclaim: false` turns the auto-close off |
 | a result names an `FS_*` code | the code says what refused it, and what clears it | see the error-code table in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#error-codes) |
@@ -179,14 +179,14 @@ The app runs a Windows-side copy of the code, not your checkout. After changing 
 
 Run `pnpm install` once to get the development dependencies. The tests use the pinned `@deepseek-ai/*` packages; the plugin itself ships none. CI runs the tests on Node 22 and 24, on Linux and Windows, and coverage on Node 24.
 
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has the file layout, the mounting, and the sandbox design. [CONTRIBUTING.md](CONTRIBUTING.md) has the development loop, the mirror, the full gate list, and what has been verified.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has the file layout, how the parts attach, and the sandbox design. [CONTRIBUTING.md](CONTRIBUTING.md) has the development loop, the Windows-side copy, the full gate list, and what has been verified.
 
 ## Documentation
 
 | Document | What it covers |
 |---|---|
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | every configuration key, and how to override it |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | providers, mounting, path coordinates, sandbox, test layers, file layout |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | the plugin's parts and how they attach, path coordinates, the sandbox, testing, file layout |
 | [docs/LIMITATIONS.md](docs/LIMITATIONS.md) | what the plugin does not do, and why |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | the development loop, gates, conventions, verification |
 | [SECURITY.md](SECURITY.md) | reporting a vulnerability privately |

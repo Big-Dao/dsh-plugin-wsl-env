@@ -45,12 +45,18 @@ const distro = process.env.WSL_DISTRO_NAME || "ubuntu";
 const agent = new WslAgent({ distro, scriptPath: `${repo}/agent/wsl-agent.sh`, idleMs: 0 });
 
 let passed = 0;
+let skipped = 0;
 async function check(name, fn) {
   try {
     await fn();
     passed += 1;
     console.log(`PASS  ${name}`);
   } catch (error) {
+    if (error instanceof Skip) {
+      skipped += 1;
+      console.log(`SKIP  ${name}\n      ${error.message}`);
+      return;
+    }
     console.log(`FAIL  ${name}\n      ${error.message}`);
     process.exitCode = 1;
   }
@@ -117,11 +123,40 @@ const oneShot = (cdDir, script) => new Promise((resolve, reject) => {
   child.on("exit", (code) => resolve({ exitCode: code, stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr) }));
 });
 
+// Each one-shot leg is a NESTED wsl.exe — it runs here, inside the distro, and
+// reaches back to the WSL service. That hop is the one dependency this probe
+// does not control: WSL 3.0.x intermittently kills it with
+// `Wsl/Service/WSAETIMEDOUT` (exit 255, the service-connection timeout whose
+// sibling signature is `UtilAcceptVsock ... accept4 failed 110`). An
+// environment failure that prevents the comparison from happening is not a
+// parity violation — it SKIPs with the evidence, loudly. A comparison that
+// actually ran and disagreed still fails.
+class Skip extends Error {}
+
+/** Whether an outcome is wsl.exe failing to reach its own service. */
+const wslServiceTimeout = (outcome) =>
+  outcome.exitCode !== 0 &&
+  /WSAETIMEDOUT|UtilAcceptVsock|WSL_E_/.test(
+    (outcome.stdout.toString("utf8") + outcome.stderr.toString("utf8")).replace(/\0/g, ""),
+  );
+
+/** Abandon one check as an environment failure, with the evidence attached. */
+const skipEnv = (outcome) => {
+  throw new Skip(
+    `nested wsl.exe failed to reach the WSL service (WSAETIMEDOUT-class) — the comparison never ran, so this is the environment, not parity. ` +
+      `one-shot exit=${outcome.exitCode} output: ${JSON.stringify((outcome.stdout.toString("utf8") + outcome.stderr.toString("utf8")).replace(/\0/g, "").trim().slice(0, 200))}`,
+  );
+};
+
 await check("fallback parity: exit code and stdout match the one-shot path", async () => {
   const script = "printf '%s' 'a b $HOME x'; exit 3";
   const on = await agent.exec({ cwd: "/tmp", argv: ["sh", "-c", script], timeoutMs: 15000 });
   const off = await oneShot("/tmp", script);
-  assert.equal(on.exitCode, off.exitCode, "same exit code");
+  if (wslServiceTimeout(off)) skipEnv(off);
+  // A mismatch here is a wsl.exe-level failure more often than a path-semantics
+  // one (255 is wsl.exe's own code); show what it said, or the leg is a dead end.
+  const context = off.stderr.length > 0 ? ` one-shot stderr: ${JSON.stringify(off.stderr.toString("utf8").slice(0, 400))}` : ` one-shot stdout: ${JSON.stringify(off.stdout.toString("utf8").slice(0, 200))}`;
+  assert.equal(on.exitCode, off.exitCode, "same exit code —" + context);
   assert.deepEqual(on.stdout, off.stdout, "same stdout bytes");
 });
 
@@ -129,6 +164,7 @@ await check("fallback parity: stderr and working directory match the one-shot pa
   const script = "cd /etc && pwd && echo oops >&2";
   const on = await agent.exec({ cwd: "/etc", argv: ["sh", "-c", script], timeoutMs: 15000 });
   const off = await oneShot("/etc", script);
+  if (wslServiceTimeout(off)) skipEnv(off);
   assert.equal(on.exitCode, off.exitCode);
   assert.equal(on.stdout.toString("utf8"), off.stdout.toString("utf8"), "same working directory");
   assert.equal(on.stderr.toString("utf8"), off.stderr.toString("utf8"), "same stderr bytes");
@@ -137,10 +173,11 @@ await check("fallback parity: stderr and working directory match the one-shot pa
 await check("fallback parity: NUL and CRLF round-trip on both paths", async () => {
   const on = await agent.exec({ cwd: "/tmp", argv: ["printf", "a\\000b\\r\\nc"], timeoutMs: 15000 });
   const off = await oneShot("/tmp", "printf 'a\\000b\\r\\nc'");
+  if (wslServiceTimeout(off)) skipEnv(off);
   assert.deepEqual(on.stdout, off.stdout, "binary safety holds on both paths");
 });
 
 await agent.close();
-console.log(`\n${passed} agent probe checks pass`);
+console.log(`\n${passed} agent probe checks pass${skipped > 0 ? `, ${skipped} skipped (nested wsl.exe could not reach the WSL service)` : ""}`);
 process.exit(process.exitCode ?? 0);
 EOF

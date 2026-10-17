@@ -24,8 +24,8 @@ algorithm, and the boot test starts a row through the real Loader — so a fresh
 checkout needs one `pnpm install` before the gates pass.
 
 Those pins are deliberate, and they move with the harness rather than on their
-own: the `@deepseek-ai/dsh-*` peers sit at `0.2.0-rc.2`, `@deepseek-ai/cordis`
-at `~4.0.4` and `@deepseek-ai/schemastery` at `~3.18.4`. The plugin subclasses
+own: the `@deepseek-ai/dsh-*` peers sit at `0.2.1-rc.2`, `@deepseek-ai/cordis`
+at `~4.0.5` and `@deepseek-ai/schemastery` at `~3.18.5`. The plugin subclasses
 peer classes and mirrors peer protocol, so raising one pin alone is how the
 seams drift: bump them in the commit that matches a harness release, re-run the
 comparison `docs/PEER-PARITY.md` describes, and let the gate chain and the

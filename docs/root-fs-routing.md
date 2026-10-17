@@ -1,8 +1,8 @@
 # 根平面按坐标路由的 fs — 设计文档
 
-> 状态：已实现，随 0.7.2 发布（本仓当前 0.8.x）。源码是 `src/fs-routing.ts`，
+> 状态：已实现，随 0.7.2 发布（本仓当前 0.9.x）。源码是 `src/fs-routing.ts`，
 > `lib/fs-routing.js` 是其编译产物；对照的 peer 为 `package.json` 锁定的
-> 0.2.0-rc.2。
+> 0.2.1-rc.2。
 > 关联：promotion-map 附录 C（workspace-files 接管评审）、附录 B（剩余 9P
 > 消费者）、`docs/upstream/rfc-wsl-workspaces.md` 增补（根平面路由 fs 的
 > 上游 seam 提案）。

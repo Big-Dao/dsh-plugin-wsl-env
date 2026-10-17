@@ -16,6 +16,68 @@ were part of the record.
 
 ## [Unreleased]
 
+The peer line moves to DeepSeek Harness `0.2.1-rc.2`, which is the desktop
+app's own version line. No module under `src/` changed, and that is the
+finding, not an omission: every peer artifact this plugin subclasses or
+replicates is byte-identical to the one shipped for `0.2.0-rc.2`, except one
+added field in the `dsh-api-workspace-files` class that `WorkspaceFilesWsl`
+extends (and that package's regenerated typert artifacts), so the seams the
+code is built on did not move. What did move is the shipped composition — the
+standard agent preset — and the plugin's embedded `preset-wsl` is regenerated
+from it.
+
+### Changed
+
+- **The peer pins move to the `0.2.1-rc.2` line**: `@deepseek-ai/dsh-*` at
+  `0.2.1-rc.2`, `@deepseek-ai/cordis` at `~4.0.5`, `@deepseek-ai/schemastery`
+  at `~3.18.5`, with `pnpm-lock.yaml` refreshed. pnpm's release-age policy
+  records the exact closure it had to exempt in `pnpm-workspace.yaml`, the way
+  the harness repository does. The three seam packages were compared byte for
+  byte against the previous pin: `dsh-fs-local`'s `lib/index.js` (the fsio
+  dialect this plugin replicates), `dsh-fs`'s, and `dsh-bash-local`'s (the
+  spill machinery and the `spawnSpec` seam) are identical files, so every line
+  reference in `docs/PEER-PARITY.md` and `docs/UPSTREAM-SPAWN-SEAM.md` still
+  names the same code — only the tarballs' digests changed, and
+  `docs/PEER-PARITY.md` now carries the `0.2.1-rc.2` ones. `cordis@4.0.5` and
+  `schemastery@3.18.5` likewise publish the same bytes as `4.0.4` and
+  `3.18.4` except for their manifests. Elsewhere: `dsh-fs@0.2.1-rc.2` drops its
+  unpublished `./invariant` export subpath (nothing here imported it),
+  `dsh-subprocess-local`'s new code is Linux systemd scope selection (this
+  plugin spawns `wsl.exe` from a Windows host), `dsh-api-workspace-files` adds
+  one `resource` field to its own lookup registration, and the typert protocol
+  gained modules.
+- **`preset-wsl` is regenerated from the shipped standard preset.** The rows
+  that arrived are the clock-reading `time-context` row, `tool-schedule`, and
+  the disabled `tool-plugin-market/tools` row; the rows that left are
+  `tool-ralph` and the disabled `subagent_codex` / `subagent_claude_code`
+  entries, whose providers the preset no longer declares anywhere. The two
+  `tool-subagent` rows drop `backgroundMode`, the plan-mode section's first
+  sentence now says the plan is approved *through* `exit_plan_mode`, and
+  `persona.suffix` is gone: the host plane's new `working-directory` row
+  reports the Session's cwd, so the "Your working directory is …" suffix is no
+  longer the mechanism. The three deliberate deviations from the shipped copy
+  — the `wsl-env` realm wrapping every row, the fixed shell-tool choice, and
+  the preset's identity — are unchanged, and the transformation is now
+  [scripts/build-preset-wsl.mjs](scripts/build-preset-wsl.mjs) rather than the
+  machine-local generator the block used to name: it takes the shipped file and
+  prints the row, and its output is the committed block byte for byte.
+- `docs/UPSTREAM-TERMINAL-FONT.md` closes: the `0.2.1-rc.2` line made the
+  terminal font a user setting (`--dsh-font-family-terminal` /
+  `--dsh-terminal-font-size`), so the hardcoded stack it argued against is now
+  only the fallback appended after the user's list.
+  `docs/UPSTREAM-TERMINAL-TITLE.md` was re-checked against the new tag and is
+  unchanged, including after the terminal controller's 0.2.1 rework: the tab
+  title is still built from `shell.name` alone.
+
+### Notes
+
+- Gates on the new pins: style 9/9, syntax 7/7 members and 3/3 chain members
+  against `schemastery@3.18.5`, build freshness 74 artifacts, `tsc --noEmit`
+  clean, unit suite 30/30 files, coverage 97.43% lines / 84.02% branches /
+  91.76% functions. The real-machine probes were not re-run: they need
+  Windows and WSL, and their peer-verify legs are covered by the byte
+  comparison above.
+
 ## [0.9.0] - 2026-10-06
 
 A usability round over the sandbox failure path: the failure stops being a

@@ -25,8 +25,9 @@
  * `never started`, naming neither the member nor the file. `z.enum([...])` in
  * `WslFileSystem.Config` did exactly that: the pinned schemastery publishes no
  * `enum`, and the Desktop app reported those two rows and nothing else. The list
- * below is that peer's own surface, read from `@deepseek-ai/schemastery` 3.18.4
- * (the version every `@deepseek-ai/dsh-*` peer pins as `~3.18.4`):
+ * below is that peer's own surface, read from `@deepseek-ai/schemastery` 3.18.5
+ * (the version every `@deepseek-ai/dsh-*` peer pins as `~3.18.5`; the surface is
+ * unchanged from 3.18.4):
  *
  *     ValidationError any array arrayBuffer bitset boolean const date dict
  *     extend from function intersect is lazy natural never number object
@@ -39,7 +40,7 @@
  * `int` on any schema instance (`z.natural()` is the pinned spelling of
  * "integer >= 0"), and the Desktop app again reported `wsl-shell` and `wsl-fs`
  * and nothing else. The second list is that peer's instance prototype — every
- * factory's instance shares it — read from the same 3.18.4:
+ * factory's instance shares it — read from the same 3.18.5:
  *
  *     collapse comment default deprecated description disabled experimental
  *     extra hidden i18n link loose max min pattern push required role set

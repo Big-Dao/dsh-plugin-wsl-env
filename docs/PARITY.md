@@ -7,7 +7,9 @@ deviation, if any, still stands.
 
 Verified against: `dsh-plugin-wsl-env@0.8.0` / peer `0.2.0-rc.2` / agent
 protocol v4, 2026-10-06. Update this line when the peer pin or the agent
-protocol moves.
+protocol moves. The peer pin moved to `0.2.1-rc.2` on 2026-10-17 with every
+seam package's shipped artifact byte-identical to the ones these rows were
+measured against; the real-machine probes were not re-run in that move.
 
 ## What parity means here
 

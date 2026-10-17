@@ -187,9 +187,20 @@
     # Because a preset's plugins mount under a REGISTRY-owned scope (not this row's
     # ctx), the realm has to be declared here, inside config.plugins.
     #
-    # Generated from the shipped standard preset by build-preset-wsl.mjs so the
-    # embedded plan-mode section and every nested group survive byte-for-byte.
-    # Re-run it after an app update that changes the preset.
+    # Generated from the shipped standard preset so the embedded plan-mode
+    # section and every nested group survive byte-for-byte: this copy is
+    # `packages/bundle/web-app/presets/standard.patch.yml` of the
+    # `dsh-v0.2.1-rc.2` source tree, changed in exactly three ways —
+    #   1. every shipped row mounts inside `wsl-env`, so the preset's tools see
+    #      the distro's shell and fs (the realm is declared on the group);
+    #   2. `tool-bash` is enabled and `tool-pwsh` disabled outright, where the
+    #      shipped copy derives the choice from `process.platform`;
+    #   3. the identity: row `preset-wsl`, preset `wsl`, `order: 2`.
+    # Regenerate it when an app update changes the preset: take
+    # `packages/bundle/web-app/presets/standard.patch.yml` from the harness tree
+    # the peer pins track and run `node scripts/build-preset-wsl.mjs <that
+    # file>`, then replace this row to the end of the file. The script applies
+    # changes 1 and 2 itself, so only change 3 is yours.
     # ═════════════════════════════════════════════════════════════════════════════
     - id: preset-wsl
       name: '@deepseek-ai/dsh-agent-preset'
@@ -237,12 +248,13 @@
               - id: persona
                 name: '@deepseek-ai/dsh-persona'
                 config:
-                  suffix: Your working directory is {{cwd}}.
                   prefix: You are a coding agent powered by the {{model}} model.
               - id: agent-instructions
                 name: '@deepseek-ai/dsh-agent-instructions'
                 config:
                   maxBytes: 65536
+              - id: time-context
+                name: '@deepseek-ai/dsh-time-context'
               - id: tool-bash
                 name: '@deepseek-ai/dsh-tool-bash'
                 disabled: false
@@ -257,6 +269,8 @@
                   sampleOverCapGlobResults: false
               - id: tool-jobs
                 name: '@deepseek-ai/dsh-tool-jobs'
+              - id: tool-schedule
+                name: '@deepseek-ai/dsh-tool-schedule'
               - id: skill-filesystem
                 name: '@deepseek-ai/dsh-skill-filesystem'
               - id: tool-skill
@@ -275,7 +289,7 @@
                     name: '@deepseek-ai/dsh-plan-mode'
                     config:
                       section: |
-                        You are in plan mode. Stay in plan mode until exit_plan_mode succeeds or the user switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
+                        You are in plan mode. Stay in plan mode until the user approves your plan through exit_plan_mode or switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
 
                         Explore first. Use non-mutating reads, searches, static analysis, and checks to ground the plan in the actual repository. Do not edit or write files, change configuration, run formatters or code generation that rewrites tracked files, commit, or otherwise carry out the plan. Prefer existing functions and patterns over new machinery.
 
@@ -319,41 +333,17 @@
                       provider: spawn
                       toolName: subagent
                       modelSelectionSettings: true
-                      backgroundMode: continuable
                   - id: tool-subagent-fork
                     name: '@deepseek-ai/dsh-tool-subagent'
                     config:
                       provider: fork
                       toolName: subagent_fork
-                      backgroundMode: continuable
-                  - id: tool-subagent-codex
-                    name: '@deepseek-ai/dsh-tool-subagent'
-                    disabled: true
-                    config:
-                      provider: codex
-                      toolName: subagent_codex
-                      backgroundMode: one-shot
-                      maxDepth: provider-managed
-                  - id: tool-subagent-claude-code
-                    name: '@deepseek-ai/dsh-tool-subagent'
-                    disabled: true
-                    config:
-                      provider: claude-code
-                      toolName: subagent_claude_code
-                      backgroundMode: one-shot
-                      maxDepth: provider-managed
                   - id: workflow-ptc
                     name: '@deepseek-ai/dsh-workflow-ptc'
                     config:
                       provider: spawn
                   - id: tool-workflow
                     name: '@deepseek-ai/dsh-tool-workflow'
-                  - id: tool-ralph
-                    name: '@deepseek-ai/dsh-tool-ralph'
-                    disabled: true
-                    config:
-                      subagentProvider: spawn
-                      maxRounds: 64
               - id: tool-ask-user
                 name: '@deepseek-ai/dsh-tool-ask-user'
               - id: tool-todo
@@ -369,4 +359,7 @@
                 name: '@deepseek-ai/dsh-tool-present'
               - id: tool-plugin-manager
                 name: '@deepseek-ai/dsh-plugin-manager/tools'
+                disabled: true
+              - id: tool-plugin-market
+                name: '@deepseek-ai/dsh-plugin-market/tools'
                 disabled: true

@@ -8,7 +8,29 @@ Discussions 标题栏用「标题」一节；正文从「动机」开始整段�
 
 # Upstream proposal: a terminal font that follows the design system
 
-Status: draft — 待提交
+Status: closed upstream — implemented by the `0.2.1-rc.2` line before this
+draft was filed, in the terminal-specific form this document's 方案 B
+describes. The body below stays as the record of the gap it closed; do not
+submit it.
+
+What shipped (verified against the `dsh-v0.2.1-rc.2` source tree, 2026-10-17):
+
+- the theme snapshot carries font lists and sizes per role — `text`, `code`,
+  `terminal` (`@deepseek-ai/dsh-client-ui-theme` → `FontRole`), and
+  `packages/client/ui-layout/src/client/theme-presenter.ts` publishes them as
+  body variables: `--dsh-font-family-terminal`, `--dsh-terminal-font-size`,
+  next to the existing `--dsh-content-font-size`;
+- `packages/client/ui-sidebar-terminal/src/client/terminal.tsx` now builds the
+  xterm instance from `theme.fontFamilies.terminal` and
+  `theme.fontSizes.terminal`, appends the built-in
+  `ui-monospace, SFMono-Regular, Menlo, Consolas, monospace` stack after the
+  user's normalized list (`terminalFontFamily()`), and re-applies both on
+  change with a refit — so the literal is now a *fallback*, not the whole
+  value, and the user's JetBrains Mono (or any family) is what renders.
+
+The remaining caveat is the one this draft's 方案 A measured: the value must
+reach xterm as a literal string, not `var(--…)`, which the shipped code does —
+it reads the resolved list, not the CSS variable.
 
 ## 标题
 

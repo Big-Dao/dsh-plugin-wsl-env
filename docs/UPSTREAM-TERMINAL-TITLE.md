@@ -2,7 +2,11 @@
 
 Status: proposed upstream as
 [deepseek-ai/deepseek-harness#8769](https://github.com/deepseek-ai/deepseek-harness/discussions/8769)
-(targeting `packages/api/terminal-controller`, version line `0.2.0-rc.x`). The
+(targeting `packages/api/terminal-controller`, version line `0.2.1-rc.x`; the
+gap was re-checked against `dsh-v0.2.1-rc.2` on 2026-10-17 and is unchanged —
+`packages/api/terminal-controller/src/index.ts:327` still builds the terminal
+info with `title: shell.name`, and the spawn spec still carries no display-name
+field). The
 plugin worked around the execution half of this gap — a Windows-folder
 session's terminal runs a host shell (`subprocess-wsl.hostSessions`) — and
 could not work around the title half. This is the record: the GUI titles every
@@ -63,7 +67,10 @@ Three escape hatches were evaluated against `0.2.0-rc.2` and each is closed:
    @deepseek-ai/dsh-client-ui-sidebar-terminal: pending (waiting for service: webTerminals)
    ```
 
-   Verified live against `dsh-desktop 0.2.0-rc.2` (Electron 44.0.0).
+   Verified live against `dsh-desktop 0.2.0-rc.2` (Electron 44.0.0); the
+   row-id and `inject` facts the argument rests on are readable in the
+   `dsh-v0.2.1-rc.2` tree and did not change with the terminal controller's
+   0.2.1 rework (`attach`/`write` → sequenced `TerminalInput`).
 3. **Per-session config.** The `shell` profile is composition state; `!!js`
    expressions evaluate once at config resolution and reach no Session
    identity.

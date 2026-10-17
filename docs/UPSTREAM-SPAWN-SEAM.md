@@ -1,11 +1,13 @@
 # Upstream proposal: re-open `LocalBashExecutor.spawnSpec` to subclasses
 
 Status: draft, targeting `deepseek-harness` @ `packages/shell/bash-local`
-(version line `0.2.0-rc.x`; the declarations and the diff below were checked
-against `dsh-v0.2.0-rc.2`, the version the peer dependency pins, on
-2026-10-06). This is the record of a seam this plugin must override but cannot
-reach through the supported surface, and of the temporary bridge this
-repository carries until the seam opens.
+(version line `0.2.1-rc.x`; the declarations and the diff below were checked
+against `dsh-v0.2.1-rc.2`, the version the peer dependency pins, on
+2026-10-17 — the shipped `lib/index.js` is byte-identical to the
+`0.2.0-rc.2` one this seam was first measured on, so every line reference
+below still holds). This is the record of a seam this plugin must override
+but cannot reach through the supported surface, and of the temporary bridge
+this repository carries until the seam opens.
 
 ## The requirement
 
@@ -51,7 +53,7 @@ private spawnSpec;
 
 The implementation behind it is `lib/index.js:107`
 (`(spec, argv, stdoutMaxBytes, signal)`), and the source at the
-`dsh-v0.2.0-rc.2` tag declares `argv: readonly string[]`
+`dsh-v0.2.1-rc.2` tag declares `argv: readonly string[]`
 (`src/index.ts:151-156`). This plugin's bridge declares `argv: string[]`
 instead (`src/index.ts:216-225`); method parameters are checked bivariantly,
 so the widening compiles.

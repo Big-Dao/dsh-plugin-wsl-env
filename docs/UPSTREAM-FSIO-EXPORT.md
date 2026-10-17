@@ -2,8 +2,8 @@
 
 Status: draft, not yet filed upstream — no discussion link yet (the filing
 convention is [UPSTREAM-TERMINAL-TITLE.md](UPSTREAM-TERMINAL-TITLE.md)).
-Targeting `deepseek-harness` @ `packages/fs/fs-local`, the `0.2.0-rc.x` line
-this plugin pins exactly (`@deepseek-ai/dsh-fs-local@0.2.0-rc.2`, in both the
+Targeting `deepseek-harness` @ `packages/fs/fs-local`, the `0.2.1-rc.x` line
+this plugin pins exactly (`@deepseek-ai/dsh-fs-local@0.2.1-rc.2`, in both the
 dev and peer dependency blocks of `package.json`). This is the Shape-A
 upstream half of the in-distro I/O refactor: with the fsio text mechanics
 importable, `dsh-plugin-wsl-env` deletes its copies of them.
@@ -67,7 +67,7 @@ same surface.)
 Both files are generated; the change itself belongs in the sources that emit
 them (`src/index.ts` re-exporting from the fsio module, and that module
 exporting `detectLineEndings`). The artifact diffs are shown because they are
-what a consumer resolves — and they apply as-is to the published `0.2.0-rc.2`
+what a consumer resolves — and they apply as-is to the published `0.2.1-rc.2`
 files.
 
 `detectLineEndings` is the one genuinely new name: it is not in

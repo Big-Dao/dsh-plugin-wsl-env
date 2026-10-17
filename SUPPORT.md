@@ -6,7 +6,7 @@
 |---|---|
 | Operating system | Windows 10 and Windows 11 |
 | Linux side | WSL2 with at least one distro |
-| DSH packages | the `0.2.0-rc.2`-era packages listed in `peerDependencies` |
+| DSH packages | the `0.2.1-rc.2`-era packages listed in `peerDependencies` |
 | Plugin version | the latest published version only |
 | Node | 22.19+ (`^22.19.0`), or 24 and later (`>=24.0.0`) |
 
@@ -50,7 +50,7 @@ issue for one.
 ## Compatibility expectations
 
 The upstream packages are a release candidate, so the peer versions are pinned
-exactly. One example is `@deepseek-ai/dsh-fs: 0.2.0-rc.2`. An upstream change can
+exactly. One example is `@deepseek-ai/dsh-fs: 0.2.1-rc.2`. An upstream change can
 require a new release of this plugin. The exact pins are what make that break
 loudly instead of quietly.
 

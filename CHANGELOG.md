@@ -26,6 +26,16 @@ code is built on did not move. What did move is the shipped composition — the
 standard agent preset — and the plugin's embedded `preset-wsl` is regenerated
 from it.
 
+### Added
+
+- **`docs/VALUE.zh.md` states what the plugin is worth, in Chinese**, for a
+  reader deciding whether to install it: the three misalignments it removes,
+  six values each with its mechanism and the evidence that backs it, the
+  comparison against no integration / desktop remoting / putting the CLI in
+  WSL, the costs and limits stated before the sale, how the claims are
+  proven, and a rule for when not to use it. It is linked from both readme
+  indexes and sits beside the reference docs, never in place of them.
+
 ### Changed
 
 - **The peer pins move to the `0.2.1-rc.2` line**: `@deepseek-ai/dsh-*` at

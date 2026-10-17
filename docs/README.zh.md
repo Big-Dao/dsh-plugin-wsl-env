@@ -189,6 +189,7 @@ pnpm run probe:sandbox-off    # 验证 sandbox: false 确实关掉两侧沙箱�
 | [docs/CONFIGURATION.md](CONFIGURATION.md) | 每个配置键，以及如何覆盖 |
 | [docs/ARCHITECTURE.md](ARCHITECTURE.md) | provider、挂载方式、路径坐标、沙箱、测试分层、文件布局 |
 | [docs/LIMITATIONS.md](LIMITATIONS.md) | 插件不做的事情，以及原因 |
+| [docs/VALUE.zh.md](VALUE.zh.md) | 本插件的价值、代价，以及什么情况下不该用它 |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | 开发循环、质量门、约定、已验证内容 |
 | [SECURITY.md](../SECURITY.md) | 如何私下上报漏洞 |
 | [SUPPORT.md](../SUPPORT.md) | 支持范围，以及去哪里提问 |

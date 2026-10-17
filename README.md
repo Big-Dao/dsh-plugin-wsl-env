@@ -188,6 +188,7 @@ Run `pnpm install` once to get the development dependencies. The tests use the p
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | every configuration key, and how to override it |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | the plugin's parts and how they attach, path coordinates, the sandbox, testing, file layout |
 | [docs/LIMITATIONS.md](docs/LIMITATIONS.md) | what the plugin does not do, and why |
+| [docs/VALUE.zh.md](docs/VALUE.zh.md) | the plugin's value in Chinese: what it is worth, what it costs, and when not to use it |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | the development loop, gates, conventions, verification |
 | [SECURITY.md](SECURITY.md) | reporting a vulnerability privately |
 | [SUPPORT.md](SUPPORT.md) | supported versions, and where to ask |

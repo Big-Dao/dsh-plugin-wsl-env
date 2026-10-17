@@ -647,6 +647,41 @@ checkReg("the client lease rides the managed namespace and its WSLENV entry", ()
   assert.equal(off, pinned, "a disabled lease leaves the pinned environment untouched");
 });
 
+checkReg("a stale child's exit cannot tear down its replacement", async () => {
+  const first = new FakeAgentProcess({ noHello: true });
+  const second = new FakeAgentProcess();
+  const { transport, made } = scriptedTransport([first, second]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  const failed = agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }).then(
+    () => {
+      throw new Error("the first start should fail");
+    },
+    (error) => error,
+  );
+  // Fail the first handshake, then start a replacement and let the old
+  // child's exit land while the replacement is still starting.
+  first.emit("error", new Error("spawn failed"));
+  assert.ok((await failed) instanceof AgentUnavailableError);
+  const secondRun = agent.exec({ cwd: "/tmp", argv: ["echo", "hi"], timeoutMs: 0 });
+  first.emit("exit", 1, null);
+  const result = await secondRun;
+  assert.equal(result.exitCode, 0, "the replacement still answers");
+  assert.equal(result.stdout.toString("utf8"), "echo hi\n");
+  assert.equal(made.length, 2, "the stale exit did not force a third spawn");
+  await agent.close();
+});
+
+checkReg("close releases the host's ends of the child's stdio", async () => {
+  const child = new FakeAgentProcess();
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  await agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 });
+  await agent.close();
+  assert.equal(child.stdin.destroyed, true, "stdin is released");
+  assert.equal(child.stdout.destroyed, true, "stdout is released");
+  assert.equal(child.stderr.destroyed, true, "stderr is released");
+});
+
 for (const [name, fn] of checks) {
   await check(name, fn);
 }

@@ -210,6 +210,8 @@ export class WslAgent {
   declare state: "idle" | "starting" | "ready" | "dead";
   /** The in-flight start, shared by concurrent callers. */
   declare startPromise: Promise<void> | null;
+  /** The in-flight start's settler, so close() can fail a start it interrupts. */
+  declare startSettler: ((error?: unknown) => void) | null;
   /** The next request id. */
   declare nextRequestId: number;
   /** The requests in flight, keyed by their current id. */
@@ -266,6 +268,7 @@ export class WslAgent {
     this.process = null;
     this.state = "idle";
     this.startPromise = null;
+    this.startSettler = null;
     this.nextRequestId = 0;
     this.pending = new Map();
     this.rebuildUsed = false;
@@ -310,12 +313,19 @@ export class WslAgent {
         argvPrefix: this.argvPrefix,
         leaseMs: this.idleMs > 0 ? this.idleMs + LEASE_GRACE_MS : 0,
       })) as ChildProcessWithoutNullStreams;
+      // One generation, one owner: every closure below belongs to THIS child.
+      // A stale child's exit must not settle a newer start, null a newer
+      // transport, or answer a newer request.
+      const current = () => this.process === child;
       const handshakeTimer = setTimeout(() => {
+        if (!current()) return;
         this.lastError = `agent handshake timed out after ${HANDSHAKE_TIMEOUT_MS}ms`;
         child.kill();
       }, HANDSHAKE_TIMEOUT_MS);
       const settleStart = (error?: unknown) => {
         clearTimeout(handshakeTimer);
+        if (!current()) return;
+        if (this.startSettler === settleStart) this.startSettler = null;
         this.startPromise = null;
         if (error) {
           this.state = this.rebuildUsed ? "dead" : "idle";
@@ -326,16 +336,24 @@ export class WslAgent {
           resolve();
         }
       };
+      this.startSettler = settleStart;
       child.on("error", (error) => {
+        if (!current()) return;
         this.lastError = String(error);
         settleStart(error);
       });
       child.on("exit", (code, signalName) => {
+        if (!current()) {
+          // A stale child's exit: release its pipes, but never touch the
+          // generation that replaced it.
+          this.teardownStreams(child);
+          return;
+        }
         if (this.state === "starting") {
           this.lastError = `agent exited during handshake (code=${code} signal=${signalName ?? "none"})`;
           settleStart(new Error(this.lastError));
         }
-        this.handleProcessExit(code, signalName);
+        this.handleProcessExit(child, code, signalName);
       });
       // A bounded line splitter instead of readline: readline accumulates an
       // over-long line whole before anyone can object, which is exactly the
@@ -343,6 +361,7 @@ export class WslAgent {
       // (ids, numbers, base64), so chunk-boundary decoding is not a concern.
       let buffered = "";
       child.stdout.on("data", (chunk) => {
+        if (!current()) return;
         buffered += chunk.toString("utf8");
         for (;;) {
           const newline = buffered.indexOf("\n");
@@ -350,7 +369,7 @@ export class WslAgent {
             if (buffered.length > this.frameCapBytes) {
               this.lastError = `agent frame of ${buffered.length} bytes exceeded the ${this.frameCapBytes}-byte protocol cap`;
               buffered = "";
-              this.process?.kill();
+              child.kill();
             }
             return;
           }
@@ -359,13 +378,14 @@ export class WslAgent {
           if (line.length > this.frameCapBytes) {
             this.lastError = `agent frame of ${line.length} bytes exceeded the ${this.frameCapBytes}-byte protocol cap`;
             buffered = "";
-            this.process?.kill();
+            child.kill();
             return;
           }
           this.handleLine(line, settleStart, handshakeTimer);
         }
       });
       child.stderr?.on("data", (chunk) => {
+        if (!current()) return;
         // Diagnostics only; `wsl.exe` and the shell chatter here on failure.
         this.lastError = String(chunk).trim().slice(0, 2000) || this.lastError;
       });
@@ -452,11 +472,18 @@ export class WslAgent {
    * The process died. Requests in flight ride exactly one rebuild; a second
    * death is permanent.
    *
+   * @param child - the process that exited.
    * @param code - the exit code, null when killed by a signal.
    * @param signalName - the killing signal, null on a normal exit.
    */
-  private handleProcessExit(code: number | null, signalName: NodeJS.Signals | null): void {
+  private handleProcessExit(child: ChildProcess, code: number | null, signalName: NodeJS.Signals | null): void {
+    if (this.process !== child) {
+      // Stale generation: release its pipes and leave the live one alone.
+      this.teardownStreams(child);
+      return;
+    }
     this.process = null;
+    this.teardownStreams(child);
     if (this.pending.size === 0) {
       if (this.state !== "dead") this.state = "idle";
       return;
@@ -565,12 +592,17 @@ export class WslAgent {
         timeoutMs > 0
           ? () => {
               if (pending.watchdog) return;
+              // Bind the watchdog to the generation it was armed on: a rebuild
+              // must not let a stale timer kill the new transport.
+              const child = this.process;
+              if (!child) return;
               // The in-distro timeout does the killing; this only catches an
               // agent that accepted the request and then stopped answering
               // even to its own timer.
               pending.watchdog = setTimeout(() => {
+                if (this.process !== child) return;
                 this.lastError = `agent did not answer request ${pending.id} within ${timeoutMs + WATCHDOG_GRACE_MS}ms of its dispatch`;
-                this.process?.kill();
+                child.kill();
               }, timeoutMs + WATCHDOG_GRACE_MS);
             }
           : null,
@@ -719,8 +751,20 @@ export class WslAgent {
     this.idleTimer = null;
     const child = this.process;
     if (!child) return;
+    // A close during a start must settle that start: the handshake will never
+    // complete once the process is being shut down, and the caller would wait
+    // for it forever.
+    if (this.state === "starting") this.startSettler?.(new AgentUnavailableError("the agent was closed during start"));
     this.state = "idle";
     this.process = null;
+    if (this.pending.size > 0) {
+      const reason = new AgentUnavailableError("the agent was closed before this request answered");
+      for (const pending of this.pending.values()) {
+        this.clearPending(pending);
+        pending.reject(reason);
+      }
+      this.pending.clear();
+    }
     this.writeLinesSafe(child, ["SHUTDOWN"]);
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
@@ -732,6 +776,21 @@ export class WslAgent {
         resolve();
       });
     });
+    this.teardownStreams(child);
+  }
+
+  /**
+   * Release the host's ends of a dead child's stdio. A descendant that
+   * inherited a pipe's write end would otherwise keep the read side — and the
+   * fd — open until that descendant exits; the agent's own helpers are
+   * redirected at their spawn sites, but the host must not depend on it.
+   *
+   * @param child - the process whose streams are being released.
+   */
+  private teardownStreams(child: ChildProcess): void {
+    child.stdin?.destroy();
+    child.stdout?.destroy();
+    child.stderr?.destroy();
   }
 
   /**

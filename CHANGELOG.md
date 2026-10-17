@@ -121,6 +121,29 @@ from it.
   symlink out, symlink in, the root itself) and assert the refusal mapping in
   all three ops.
 
+- **The resident transport owns its generation and its pipes.** Three
+  lifecycle leaks shared one cause — state keyed by "the current process"
+  instead of by the process that actually emitted the event:
+  - Every spawn now owns a generation; its `error`, `exit`, `stdout` and
+    `stderr` handlers return unless `this.process` is still that child, so a
+    stale exit can no longer settle a newer start, null a newer transport, or
+    let a stale watchdog kill it. `handshakeTimer`, the ACK-armed watchdog and
+    the frame-cap kill all bind to their own child.
+  - `close()` settles the requests it interrupts, fails a start it interrupts,
+    and destroys the host's ends of `stdin`/`stdout`/`stderr` after the exit.
+    A descendant that inherited a pipe's write end can no longer keep the
+    read side — and the fd — open until it exits.
+  - The agent's lease and timeout watchdogs now spawn with `/dev/null` stdio,
+    so their `sleep` children do not hold the protocol pipes after the agent
+    exits. Without this, killing the watchdog subshell left the `sleep` as an
+    orphan holding the write ends for up to the full lease window (12 minutes
+    at the shipped 720 s), which is what kept a test process alive after every
+    check had already passed.
+
+  The fake transport covers the stale-exit and stdio-teardown checks; the real
+  `sh` agent is spawned with a 720 s lease and asserted to close its pipes
+  immediately after `SHUTDOWN`.
+
 ### Notes
 
 - Gates on the new pins: style 9/9, syntax 7/7 members and 3/3 chain members

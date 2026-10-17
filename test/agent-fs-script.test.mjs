@@ -422,5 +422,41 @@ checks.push(["a timed-out EXEC takes the command's descendants with it", async (
   }
 }]);
 
+checks.push(["the lease watchdog does not hold the protocol pipes after exit", async () => {
+  if (!POSIX) return;
+  const child = /** @type {import("node:child_process").ChildProcessWithoutNullStreams} */ (spawn("sh", [SCRIPT], {
+    env: { ...process.env, DSH_AGENT_LEASE_MS: "720000" },
+    stdio: ["pipe", "pipe", "pipe"],
+  }));
+  try {
+    const exited = new Promise((resolve) => child.once("exit", resolve));
+    const closed = new Promise((resolve) => child.once("close", () => resolve(true)));
+    const hello = await new Promise((resolve, reject) => {
+      let buffer = "";
+      child.stdout.on("data", (chunk) => {
+        buffer += chunk.toString("utf8");
+        if (buffer.includes("\n")) resolve(buffer.split("\n")[0] ?? "");
+      });
+      child.once("error", reject);
+    });
+    assert.match(hello, /^HELLO\|/);
+    child.stdin.write("SHUTDOWN\n");
+    await exited;
+    /** @type {ReturnType<typeof setTimeout> | undefined} */
+    let timer;
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(false), 2000);
+    });
+    const closedInTime = await Promise.race([closed, timeout]);
+    clearTimeout(timer);
+    assert.equal(closedInTime, true, "an orphaned lease sleep must not keep the pipes open");
+  } finally {
+    child.stdin.destroy();
+    child.stdout.destroy();
+    child.stderr.destroy();
+    child.kill("SIGKILL");
+  }
+}]);
+
 for (const [name, fn] of checks) await check(name, fn);
 console.log(`\n${passed} agent fs script checks pass${POSIX ? "" : " (skipped: not a POSIX shell host)"}`);

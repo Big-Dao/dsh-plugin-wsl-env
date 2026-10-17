@@ -141,6 +141,8 @@ export declare class WslAgent {
     state: "idle" | "starting" | "ready" | "dead";
     /** The in-flight start, shared by concurrent callers. */
     startPromise: Promise<void> | null;
+    /** The in-flight start's settler, so close() can fail a start it interrupts. */
+    startSettler: ((error?: unknown) => void) | null;
     /** The next request id. */
     nextRequestId: number;
     /** The requests in flight, keyed by their current id. */
@@ -217,6 +219,7 @@ export declare class WslAgent {
      * The process died. Requests in flight ride exactly one rebuild; a second
      * death is permanent.
      *
+     * @param child - the process that exited.
      * @param code - the exit code, null when killed by a signal.
      * @param signalName - the killing signal, null on a normal exit.
      */
@@ -317,6 +320,15 @@ export declare class WslAgent {
      * @returns resolved once the process is gone.
      */
     close(): Promise<void>;
+    /**
+     * Release the host's ends of a dead child's stdio. A descendant that
+     * inherited a pipe's write end would otherwise keep the read side — and the
+     * fd — open until that descendant exits; the agent's own helpers are
+     * redirected at their spawn sites, but the host must not depend on it.
+     *
+     * @param child - the process whose streams are being released.
+     */
+    private teardownStreams;
     /**
      * Write one frame to the live process.
      *

@@ -108,7 +108,7 @@ case ${DSH_AGENT_LEASE_MS:-} in
            kill -0 "$$" 2>/dev/null || exit 0
            [ -f "$TMPDIR_AGENT/inflight" ] || kill -s TERM "$$"
          done
-       ) &
+       ) </dev/null >/dev/null 2>&1 &
        WATCHDOG_PID=$!
      fi ;;
 esac
@@ -226,7 +226,7 @@ run_capture() {
   case $timeout_s in
     ''|0) ;;
     *)
-      timeout_watcher "$timeout_s" "$CURRENT_PID" 3 &
+      timeout_watcher "$timeout_s" "$CURRENT_PID" 3 </dev/null >/dev/null 2>&1 &
       watcher_pid=$!
       ;;
   esac

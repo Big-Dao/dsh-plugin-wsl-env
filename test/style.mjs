@@ -24,7 +24,7 @@
  *   node test/style.mjs
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -42,6 +42,10 @@ const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: ROOT, encoding: "
  * @returns {string|undefined} its text, or undefined for binary content.
  */
 function readText(file) {
+  // A tracked symlink is a path, not content: `.claude/skills/writing-beats`
+  // points at a directory in this checkout and has no bytes of its own, so
+  // reading it is EISDIR. None of the rules below has anything to say about it.
+  if (!lstatSync(join(ROOT, file)).isFile()) return undefined;
   const buffer = readFileSync(join(ROOT, file));
   if (buffer.includes(0)) return undefined;
   return buffer.toString("utf8");

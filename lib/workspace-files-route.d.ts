@@ -42,12 +42,14 @@ export declare function linuxJoin(linuxRoot: string, path: string): string;
 /**
  * The record invocation for one path: line 1 is the no-follow kind (the
  * upstream lstat gate), line 2 the follow-stat fields (the upstream final
- * stat), tab-joined.
+ * stat), tab-joined. The path is resolved and contained first — the GUI's
+ * workspace is a boundary for every read, not just for listings.
  *
  * @param file - absolute Linux path.
+ * @param root - the workspace root in Linux form (containment boundary).
  * @returns the agent argv.
  */
-export declare function statRecordArgv(file: string): string[];
+export declare function statRecordArgv(file: string, root: string): string[];
 /**
  * Parse one stat record (kind + follow fields, tab-joined).
  *
@@ -77,9 +79,10 @@ export declare function wireKind(kind: string): string;
  * @param file - absolute Linux path.
  * @param offset - first line to return (1-based).
  * @param limit - maximum lines to return.
+ * @param root - the workspace root in Linux form (containment boundary).
  * @returns the agent argv.
  */
-export declare function pageArgv(file: string, offset: number, limit: number): string[];
+export declare function pageArgv(file: string, offset: number, limit: number, root: string): string[];
 /**
  * The byte-window invocation: the stat record rides stderr, the window rides
  * stdout. `$1` is the file, `$2` the byte offset, `$3` the byte count.
@@ -87,9 +90,10 @@ export declare function pageArgv(file: string, offset: number, limit: number): s
  * @param file - absolute Linux path.
  * @param offset - byte offset (0-based).
  * @param length - byte count.
+ * @param root - the workspace root in Linux form (containment boundary).
  * @returns the agent argv.
  */
-export declare function bytesArgv(file: string, offset: number, length: number): string[];
+export declare function bytesArgv(file: string, offset: number, length: number, root: string): string[];
 /**
  * Parse the stat record a read or byte-window relayed on stderr.
  *

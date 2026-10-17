@@ -7,6 +7,10 @@
  *   node test/workspace-files-wsl.test.mjs
  */
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { RemoteError } from "@deepseek-ai/dsh-typert-protocol";
 import { Context } from "@deepseek-ai/cordis";
 import {
@@ -130,10 +134,72 @@ check("builders produce the argv shape the agent protocol carries", () => {
     'root=$1 dir=$2 max=$3\nreal=$(realpath -L -- "$dir") || exit 2\ncase "$real" in "$root") ;; "$root"/*) ;; *) echo "OUTSIDE:$real" >&2; exit 3;; esac\n[ -d "$real" ] || { echo "NOTDIR:$real" >&2; exit 4; }\nls -1ALp -- "$real" | head -n "$max"',
     "sh", "/root", "/root/src", "501",
   ]);
-  assert.deepEqual(statRecordArgv("/root/a.txt").slice(0, 2), ["sh", "-c"]);
-  assert.deepEqual(pageArgv("/root/a.txt", 3, 100).slice(3), ["sh", "/root/a.txt", "3", "100"]);
-  assert.deepEqual(bytesArgv("/root/a.txt", 0, 2048).slice(3), ["sh", "/root/a.txt", "0", "2048"]);
+  const statArgv = statRecordArgv("/root/a.txt", "/root");
+  assert.deepEqual(statArgv.slice(0, 2), ["sh", "-c"]);
+  const statScript = statArgv[2] ?? "";
+  assert.match(statScript, /realpath -L/, "the read resolves symlinks before deciding");
+  assert.match(statScript, /exit 3/, "an escaping target is the outside-workspace refusal");
+  assert.deepEqual(statArgv.slice(3), ["sh", "/root/a.txt", "/root"]);
+  assert.match(statScript, /contain "\$1" "\$2"/, "the stat guard takes file then root");
+  assert.deepEqual(pageArgv("/root/a.txt", 3, 100, "/root").slice(3), ["sh", "/root/a.txt", "3", "100", "/root"]);
+  assert.deepEqual(bytesArgv("/root/a.txt", 0, 2048, "/root").slice(3), ["sh", "/root/a.txt", "0", "2048", "/root"]);
 });
+
+check("stat, read and readBytes map the containment refusal", async () => {
+  const refused = () => fakeAgent([{ exitCode: 3, stdout: "", stderr: "OUTSIDE:/etc/passwd" }]);
+  const calls = [
+    () => distroStat({ runner: refused(), distro: "ubuntu", linuxRoot: ROOT, path: "/etc/passwd", distroWorkspaceRoot: "" }),
+    () => distroRead({ runner: refused(), distro: "ubuntu", linuxRoot: ROOT, path: "/etc/passwd", offset: 1, limit: 10, maxBytes: 65536, distroWorkspaceRoot: "" }),
+    () => distroReadBytes({ runner: refused(), distro: "ubuntu", linuxRoot: ROOT, path: "/etc/passwd", offset: undefined, length: undefined, maxFileBytes: 65536, distroWorkspaceRoot: "" }),
+  ];
+  for (const call of calls) {
+    await assert.rejects(
+      call,
+      (error) => error instanceof RemoteError && error.code === "workspace-file/outside-workspace",
+      "every read refuses a target outside the workspace root",
+    );
+  }
+});
+
+if (process.platform !== "win32") {
+  check("the containment guard refuses real escapes under sh", () => {
+    const base = mkdtempSync(join(tmpdir(), "wsl-workspace-"));
+    try {
+      const root = join(base, "root");
+      const outside = join(base, "outside.txt");
+      mkdirSync(root);
+      writeFileSync(join(root, "in.txt"), "inside");
+      writeFileSync(join(root, "link-target.txt"), "target");
+      writeFileSync(outside, "outside");
+      symlinkSync(outside, join(root, "escape.txt"));
+      symlinkSync(join(root, "link-target.txt"), join(root, "link.txt"));
+      /**
+       * Runs one built argv under the local `sh`.
+       * @param {string[]} argv - the builder's argv.
+       * @returns the spawn result.
+       */
+      const run = (argv) => spawnSync(argv[0] ?? "sh", argv.slice(1), { encoding: "utf8" });
+      const inside = run(statRecordArgv(join(root, "in.txt"), root));
+      assert.equal(inside.status, 0, String(inside.stderr));
+      assert.match(inside.stdout, /^regular file\t/);
+      assert.equal(run(statRecordArgv(root, root)).status, 0, "the root itself is inside");
+      assert.equal(run(statRecordArgv(outside, root)).status, 3, "an absolute sibling is refused");
+      assert.equal(run(statRecordArgv(`${root}/../outside.txt`, root)).status, 3, "a .. traversal is refused");
+      assert.equal(run(statRecordArgv(join(root, "escape.txt"), root)).status, 3, "a symlink leaving the root is refused");
+      assert.equal(run(statRecordArgv(join(root, "link.txt"), root)).status, 0, "a symlink staying inside is allowed");
+      for (const argv of [
+        pageArgv(outside, 1, 10, root),
+        pageArgv(join(root, "escape.txt"), 1, 10, root),
+        bytesArgv(outside, 0, 10, root),
+        bytesArgv(join(root, "escape.txt"), 0, 10, root),
+      ]) {
+        assert.equal(run(argv).status, 3, "page and byte reads share the guard");
+      }
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+}
 
 check("parseDirListing caps entries and distinguishes directories from files", () => {
   const { entries, truncated } = parseDirListing("src/\nREADME.md\nnotes/\n", 2);

@@ -227,11 +227,12 @@ export async function distroStat({ runner, distro, linuxRoot, path, distroWorksp
   const linuxFile = linuxJoin(linuxRoot, path);
   const result = await runner.exec({
     cwd: "/",
-    argv: statRecordArgv(linuxFile),
+    argv: statRecordArgv(linuxFile, linuxRoot),
     maxOutputBytes: 4096,
     timeoutMs: 30_000,
     signal,
   });
+  if (result.exitCode === 3) throw outsideWorkspace(path);
   if (result.exitCode !== 0) throw notFound(path);
   const record = parseStatRecord(result.stdout);
   const stat = { absolutePath: posixToUnc(distro, linuxFile), version: record.version };
@@ -270,11 +271,12 @@ export async function distroRead({ runner, distro, linuxRoot, path, offset, limi
   const linuxFile = linuxJoin(linuxRoot, path);
   const result = await runner.exec({
     cwd: "/",
-    argv: pageArgv(linuxFile, offset, limit),
+    argv: pageArgv(linuxFile, offset, limit, linuxRoot),
     maxOutputBytes: (maxBytes + 1) * 4,
     timeoutMs: 60_000,
     signal,
   });
+  if (result.exitCode === 3) throw outsideWorkspace(path);
   if (result.exitCode === 2) throw notFound(path);
   if (result.exitCode !== 0 && result.exitCode !== 1) {
     throw new Error(`reading "${linuxFile}" failed: ${String(result.stderr).trim() || `exit ${result.exitCode}`}`);
@@ -352,11 +354,12 @@ export async function distroReadBytes({ runner, distro, linuxRoot, path, offset,
   if (!whole && maxBytes !== undefined && window.length > maxBytes) throw windowTooLarge(path, window.length, maxBytes);
   const result = await runner.exec({
     cwd: "/",
-    argv: bytesArgv(linuxFile, window.offset, window.length),
+    argv: bytesArgv(linuxFile, window.offset, window.length, linuxRoot),
     maxOutputBytes: window.length + 1024,
     timeoutMs: 60_000,
     signal,
   });
+  if (result.exitCode === 3) throw outsideWorkspace(path);
   const record = parseStatRecordFromStderr(result.stderr);
   if (record === undefined) throw notFound(path);
   // Same wire reality as the text read above: the kind is the distro's own

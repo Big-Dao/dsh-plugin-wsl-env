@@ -67,20 +67,43 @@ export function linuxJoin(linuxRoot: string, path: string): string {
 }
 
 /**
+ * The containment guard every distro-side workspace read shares. `$1` is the
+ * requested file, `$2` the workspace root; both are canonicalized with
+ * `realpath -L`, and a target that is neither the root itself nor below it is
+ * refused with exit 3 (the `workspace-file/outside-workspace` refusal). The
+ * resolved file is left in `real` for the rest of the script.
+ *
+ * A root of `/` admits every absolute path: the workspace IS the distro. The
+ * `-L` spelling matches the listing guard's, so symlinked workspace roots and
+ * `..` segments resolve the same way on both sides.
+ */
+const CONTAIN_FN = [
+  'contain() {',
+  '  real=$(realpath -L -- "$1") || exit 2',
+  '  root=$(realpath -L -- "$2") || exit 2',
+  '  case "$root" in /) ;; *) case "$real" in "$root"|"$root"/*) ;; *) echo "OUTSIDE:$real" >&2; exit 3;; esac;; esac',
+  '}',
+].join("\n");
+
+/**
  * The record invocation for one path: line 1 is the no-follow kind (the
  * upstream lstat gate), line 2 the follow-stat fields (the upstream final
- * stat), tab-joined.
+ * stat), tab-joined. The path is resolved and contained first — the GUI's
+ * workspace is a boundary for every read, not just for listings.
  *
  * @param file - absolute Linux path.
+ * @param root - the workspace root in Linux form (containment boundary).
  * @returns the agent argv.
  */
-export function statRecordArgv(file: string): string[] {
+export function statRecordArgv(file: string, root: string): string[] {
   const script = [
-    'k=$(stat -c %F -- "$1") || exit 2',
-    's=$(stat -L -c %s\\t%D\\t%i\\t%Y\\t%Z -- "$1") || exit 2',
+    CONTAIN_FN,
+    'contain "$1" "$2"',
+    'k=$(stat -c %F -- "$real") || exit 2',
+    's=$(stat -L -c %s\\t%D\\t%i\\t%Y\\t%Z -- "$real") || exit 2',
     "printf '%s\\t%s\\n' \"$k\" \"$s\"",
   ].join("\n");
-  return ["sh", "-c", script, "sh", file];
+  return ["sh", "-c", script, "sh", file, root];
 }
 
 /**
@@ -120,16 +143,19 @@ export function wireKind(kind: string): string {
  * @param file - absolute Linux path.
  * @param offset - first line to return (1-based).
  * @param limit - maximum lines to return.
+ * @param root - the workspace root in Linux form (containment boundary).
  * @returns the agent argv.
  */
-export function pageArgv(file: string, offset: number, limit: number): string[] {
+export function pageArgv(file: string, offset: number, limit: number, root: string): string[] {
   const script = [
-    'k=$(stat -c %F -- "$1") || exit 2',
-    's=$(stat -L -c %s\\t%D\\t%i\\t%Y\\t%Z -- "$1") || exit 2',
+    CONTAIN_FN,
+    'contain "$1" "$4"',
+    'k=$(stat -c %F -- "$real") || exit 2',
+    's=$(stat -L -c %s\\t%D\\t%i\\t%Y\\t%Z -- "$real") || exit 2',
     "printf '%s\\t%s\\n' \"$k\" \"$s\" >&2",
-    'sed -n "${2},$(( $2 + $3 ))p" -- "$1"',
+    'sed -n "${2},$(( $2 + $3 ))p" -- "$real"',
   ].join("\n");
-  return ["sh", "-c", script, "sh", file, String(offset), String(limit)];
+  return ["sh", "-c", script, "sh", file, String(offset), String(limit), root];
 }
 
 /**
@@ -139,15 +165,18 @@ export function pageArgv(file: string, offset: number, limit: number): string[] 
  * @param file - absolute Linux path.
  * @param offset - byte offset (0-based).
  * @param length - byte count.
+ * @param root - the workspace root in Linux form (containment boundary).
  * @returns the agent argv.
  */
-export function bytesArgv(file: string, offset: number, length: number): string[] {
+export function bytesArgv(file: string, offset: number, length: number, root: string): string[] {
   const script = [
-    's=$(stat -L -c %s\\t%D\\t%i\\t%Y\\t%Z -- "$1") || exit 2',
+    CONTAIN_FN,
+    'contain "$1" "$4"',
+    's=$(stat -L -c %s\\t%D\\t%i\\t%Y\\t%Z -- "$real") || exit 2',
     "printf '%s\\n' \"$s\" >&2",
-    'tail -c "+$(( $2 + 1 ))" -- "$1" | head -c "$3"',
+    'tail -c "+$(( $2 + 1 ))" -- "$real" | head -c "$3"',
   ].join("\n");
-  return ["sh", "-c", script, "sh", file, String(offset), String(length)];
+  return ["sh", "-c", script, "sh", file, String(offset), String(length), root];
 }
 
 /**

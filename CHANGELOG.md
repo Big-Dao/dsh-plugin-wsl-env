@@ -109,6 +109,18 @@ from it.
   policy supplied from a sibling fiber as in the app — so all three defects
   fail the unit suite instead of a session.
 
+- **The GUI file service confines every read to the workspace, not just
+  listings.** `stat`, `read` and `readBytes` passed the joined Linux path
+  straight to `stat`/`sed`/`tail`, so an absolute path outside the workspace,
+  a `..` traversal, a symlink leaving it, or another distro's UNC name were
+  served — while `list` already resolved the real path and refused escapes
+  with `workspace-file/outside-workspace`. All four ops now share one guard:
+  `realpath -L` on the target and the root, then the same root/under-root
+  test, so an escape is the same refusal whichever op asks. The new checks
+  drive the real `sh` guard against a temp root (absolute sibling, `..`,
+  symlink out, symlink in, the root itself) and assert the refusal mapping in
+  all three ops.
+
 ### Notes
 
 - Gates on the new pins: style 9/9, syntax 7/7 members and 3/3 chain members

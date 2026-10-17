@@ -94,6 +94,14 @@ export function inputIsDistro(value: string | undefined): boolean {
  */
 export class WslRoutingFileSystem extends LocalFileSystem {
   static Config = LocalFileSystem.Config;
+  /**
+   * The routed backend's constructor reads the deployment default mode from
+   * `ctx.sandboxPolicy`, exactly as the shipped `fs-sandbox` row this class
+   * replaces does. The service is provided by a sibling row, not an ancestor,
+   * so the fiber must declare the dependency; without it the lazy backend
+   * construction fails with "cannot get property sandboxPolicy without inject".
+   */
+  static inject = ["sandboxPolicy"];
 
   /**
    * The lazy distro backend, built on first routed use, typed as the concrete
@@ -101,10 +109,24 @@ export class WslRoutingFileSystem extends LocalFileSystem {
    * `processPathFromHostPath` seam it once could not satisfy (async against the
    * peer interface's synchronous contract) is closed — the backend maps
    * synchronously now, from what it already knows.
+   *
+   * Plain fields on purpose: cordis invokes a service method with a shadow
+   * receiver (the traceable proxy `ReflectService` builds), and `#private`
+   * members do not cross it — every routed root call then fails with "Cannot
+   * read private member #distro from an object whose class did not declare it".
+   * The host backend this class extends keeps its own state plain (`config`,
+   * `locks`) for the same reason.
    */
-  #distro: WslFileSystem | undefined;
+  private distroBackend: WslFileSystem | undefined;
   /** The distro knobs, verbatim from the row config. */
-  #distroConfig: { distro: string, wslPath: string, cwd: string, diffBasisMaxBytes: number | undefined, sandbox: boolean, maskWindowsDrive: boolean, restrictToDistro: boolean, watchMaxDepth: number };
+  private distroConfig: { distro: string, wslPath: string, cwd: string, diffBasisMaxBytes: number | undefined, sandbox: boolean, maskWindowsDrive: boolean, restrictToDistro: boolean, watchMaxDepth: number };
+  /**
+   * The context this router was constructed with. `this.ctx` inside a method is
+   * the CALLER's context (cordis re-binds it for dependency tracing), so the
+   * backend's scope must not be derived from it: the first routed call may come
+   * from any consumer fiber.
+   */
+  private routeContext: Context;
 
   /**
    * @param ctx - the cordis context.
@@ -112,7 +134,8 @@ export class WslRoutingFileSystem extends LocalFileSystem {
    */
   constructor(ctx: Context, config: RoutingConfig) {
     super(ctx, config);
-    this.#distroConfig = {
+    this.routeContext = ctx;
+    this.distroConfig = {
       distro: config.distro ?? "",
       wslPath: config.wslPath ?? "wsl.exe",
       cwd: config.distroCwd ?? "",
@@ -126,7 +149,13 @@ export class WslRoutingFileSystem extends LocalFileSystem {
 
   /** The distro backend for routed targets, built on first use. */
   distro(): WslFileSystem {
-    return (this.#distro ??= new WslFileSystem(this.ctx, this.#distroConfig));
+    // The backend is a `Service` that registers itself as `fs`. Constructing it
+    // with this router's own context would collide with the router's
+    // registration ("service fs has been registered"), so it gets a scope of its
+    // own: the backend is used directly through this field, never resolved as
+    // the context's `fs`. Isolation re-keys only `fs`; `sandboxPolicy`, which
+    // the backend reads, still resolves from the parent scope.
+    return (this.distroBackend ??= new WslFileSystem(this.routeContext.isolate("fs"), this.distroConfig));
   }
 
   /**

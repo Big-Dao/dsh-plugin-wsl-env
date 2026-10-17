@@ -83,8 +83,39 @@ export declare function inputIsDistro(value: string | undefined): boolean;
  * mode the distro side reports through `sandboxMode`).
  */
 export declare class WslRoutingFileSystem extends LocalFileSystem {
-    #private;
     static Config: import("@deepseek-ai/schemastery").default<import("@deepseek-ai/dsh-fs-local").Config>;
+    /**
+     * The routed backend's constructor reads the deployment default mode from
+     * `ctx.sandboxPolicy`, exactly as the shipped `fs-sandbox` row this class
+     * replaces does. The service is provided by a sibling row, not an ancestor,
+     * so the fiber must declare the dependency; without it the lazy backend
+     * construction fails with "cannot get property sandboxPolicy without inject".
+     */
+    static inject: string[];
+    /**
+     * The lazy distro backend, built on first routed use, typed as the concrete
+     * class: these routing calls are that class's own surface, and the
+     * `processPathFromHostPath` seam it once could not satisfy (async against the
+     * peer interface's synchronous contract) is closed — the backend maps
+     * synchronously now, from what it already knows.
+     *
+     * Plain fields on purpose: cordis invokes a service method with a shadow
+     * receiver (the traceable proxy `ReflectService` builds), and `#private`
+     * members do not cross it — every routed root call then fails with "Cannot
+     * read private member #distro from an object whose class did not declare it".
+     * The host backend this class extends keeps its own state plain (`config`,
+     * `locks`) for the same reason.
+     */
+    private distroBackend;
+    /** The distro knobs, verbatim from the row config. */
+    private distroConfig;
+    /**
+     * The context this router was constructed with. `this.ctx` inside a method is
+     * the CALLER's context (cordis re-binds it for dependency tracing), so the
+     * backend's scope must not be derived from it: the first routed call may come
+     * from any consumer fiber.
+     */
+    private routeContext;
     /**
      * @param ctx - the cordis context.
      * @param config - the row config, host knobs plus distro knobs.

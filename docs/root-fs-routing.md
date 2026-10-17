@@ -92,6 +92,23 @@ distro 停止 → substrate 报 `FS_IO_ERROR`（fail-closed，不回 9P）；bwr
 缺失 → confined 写拒绝并给出 bootstrap 指引；`sandbox: false` 是文档化的
 退出项。
 
+构建后端有三个 cordis 约束，改这里时必须保留：
+
+- **状态不能用 `#private` 字段。** 服务方法由 cordis 以影子接收者调用
+  （traceable proxy 的 `createShadowMethod`），私有成员不跨代理；`this.#distro`
+  会抛 `Cannot read private member … from an object whose class did not
+  declare it`。宿主基类自己的 `config` / `locks` 就是普通字段。
+- **后端要在一个隔离了 `fs` 的子作用域里构造。** 它本身是 `Service`，构造时
+  会注册 `fs`；用路由自己的作用域会得到 `service "fs" has been registered`。
+  `isolate("fs")` 只重映射 `fs`，后端读取的 `sandboxPolicy` 仍从父作用域
+  解析。构造上下文要在构造函数里捕获：服务方法里的 `this.ctx` 是**调用方**
+  的上下文（cordis 用于依赖追踪），而首个路由调用可能来自任意消费者 fiber。
+- **路由类要声明 `static inject = ["sandboxPolicy"]`。** 被路由的后端在构造
+  时读取部署默认模式 `ctx.sandboxPolicy.defaultMode`；该服务由**兄弟行**
+  提供，不是祖先，fiber 不声明依赖就取不到，会报
+  `cannot get property "sandboxPolicy" without inject`。被本类替换的
+  `fs-sandbox` 行同样声明了这一依赖。
+
 ## 3. 挂载
 
 cordis.patch.yml：禁根 `fs-sandbox` 行 + 插入 `fs-routing` 行（本插件
@@ -118,14 +135,19 @@ export `./fs-routing`）。config 承载两侧旋钮：宿主侧 `cwd`/`diffBasi
 
 - `node test/composition.test.mjs`：把本插件的 `cordis.patch.yml` 过真实的
   `applyEntryPatches`，再让接管行真的经 Loader 启动，断言组合树里
-  `fs-routing` 是真实的顶层行（`test/composition.test.mjs:126-131`）、
-  `fs-sandbox` 按名禁用（`:113-117`），以及
-  `context.fs instanceof WslRoutingFileSystem`（`:161`，该检查自 `:138` 起）。
-  核对本文档时 9/9 通过。
+  `fs-routing` 是真实的顶层行、`fs-sandbox` 按名禁用，以及
+  `context.fs instanceof WslRoutingFileSystem`。同一检查随后**经 `ctx.fs`
+  服务代理**调用 `distro()`，断言后端只构建一次、根 `fs` 不被后端的服务
+  注册替换，并对整张路由表逐项断言坐标分派（distro 侧在 backend surface
+  打桩，宿主侧落到临时目录）。0.2.1 的 `working-directory` 行经根
+  `ctx.fs` 解析会话 cwd 时，正是这条路径第一次被真实消费者执行——
+  cordis 的影子接收者会让 `#private` 字段抛错，二次注册 `fs` 会让后端构造
+  抛错，缺 `sandboxPolicy` 注入会让构造抛错，三处回归都由该检查钉住。
+  10/10 通过。
 - `node test/fs-routing.test.mjs`：只覆盖纯谓词与路径助手（`targetIsDistro`/
-  `inputIsDistro`/`linuxJoin`）；类本体需要 DSH peers 与实机，不在其中
-  （`test/fs-routing.test.mjs:2-4`），且该文件尚未进 `test:unit`/`test:coverage`
-  清单（`docs/REQUIREMENTS.zh.md` 的 OI-7）。
+  `inputIsDistro`/`linuxJoin`）；类本体改由上一项的组合测试经服务代理覆盖，
+  本文件仍不在 `test:unit`/`test:coverage` 清单里
+  （`docs/REQUIREMENTS.zh.md` 的 OI-7）。
 - 真机探针全套（`test/probe/run-all-when-closed.sh --include-fs`，12 项）覆盖
   agent、watch、substrate 等底座，但没有一项针对本路由
   （`grep -rn "fs-routing" test/probe/*.sh` 无命中）。

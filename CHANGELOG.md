@@ -69,12 +69,42 @@ from it.
   unchanged, including after the terminal controller's 0.2.1 rework: the tab
   title is still built from `shell.name` alone.
 
+### Fixed
+
+- **The root-plane router survives its first distro target, and that path now
+  has a regression test.** Three defects sat behind the same runtime failure:
+  - `WslRoutingFileSystem` kept its state in ES `#private` fields. Cordis
+    invokes a service method with a shadow receiver (the traceable proxy
+    `ReflectService` builds), and private members do not cross it, so the first
+    routed call threw `Cannot read private member #distro from an object whose
+    class did not declare it`. The fields are plain now, exactly like the host
+    backend's own `config` and `locks`.
+  - Constructing the distro backend with the router's context re-registered
+    `fs` in the same scope (`service "fs" has been registered`). The backend
+    now receives an `fs`-isolated child scope, while `sandboxPolicy` still
+    resolves from the parent. The router captures its construction context,
+    because `this.ctx` inside a method is the *caller's* context, not its own.
+  - The row dropped the `static inject = ["sandboxPolicy"]` declaration the
+    shipped `fs-sandbox` row carries, although the backend it constructs reads
+    `ctx.sandboxPolicy.defaultMode`. That service is provided by a sibling row,
+    not an ancestor, so the fiber could not resolve it and construction failed
+    with `cannot get property "sandboxPolicy" without inject`. The declaration
+    is restored.
+
+  The `0.2.1-rc.2` line's new `working-directory` row resolves the session cwd
+  through the root `ctx.fs`, which is what first exercised the distro branch.
+  `test/composition.test.mjs` now boots the takeover row through the Loader
+  and drives the whole routing table through the service proxy — distro side
+  stubbed at the backend surface, host side over a temp workspace, with the
+  policy supplied from a sibling fiber as in the app — so all three defects
+  fail the unit suite instead of a session.
+
 ### Notes
 
 - Gates on the new pins: style 9/9, syntax 7/7 members and 3/3 chain members
   against `schemastery@3.18.5`, build freshness 74 artifacts, `tsc --noEmit`
-  clean, unit suite 30/30 files, coverage 97.43% lines / 84.02% branches /
-  91.76% functions. The real-machine probes were not re-run: they need
+  clean, unit suite 30/30 files, coverage 98.42% lines / 84.20% branches /
+  96.01% functions. The real-machine probes were not re-run: they need
   Windows and WSL, and their peer-verify legs are covered by the byte
   comparison above.
 

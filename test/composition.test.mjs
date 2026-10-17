@@ -14,13 +14,15 @@
  *   node test/composition.test.mjs
  */
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
-import { Context } from "@deepseek-ai/cordis";
+import { Context, symbols } from "@deepseek-ai/cordis";
 import Include from "@deepseek-ai/cordis-plugin-include";
 import Loader from "@deepseek-ai/cordis-plugin-loader";
 import { WslRoutingFileSystem } from "../lib/fs-routing.js";
+import { WslFileSystem } from "../lib/index.js";
+import { FsTargetKey } from "@deepseek-ai/dsh-fs";
 import { WorkspaceFilesWsl } from "../lib/workspace-files-wsl.js";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -50,6 +52,22 @@ const runCheck = async (name, fn) => {
   } catch (error) {
     console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
     process.exitCode = 1;
+  }
+};
+
+/**
+ * Unwraps the traceable proxies cordis puts around service values, so identity
+ * can be compared after a value crosses `ctx.<service>`.
+ * @param {unknown} value - a value read through a context or service proxy.
+ * @returns {unknown} the innermost value, no longer proxied.
+ */
+const rawService = (value) => {
+  /** @type {unknown} */
+  let current = value;
+  for (;;) {
+    const inner = /** @type {Record<PropertyKey, unknown> | undefined} */ (current)?.[symbols.original];
+    if (inner === undefined || inner === current) return current;
+    current = inner;
   }
 };
 
@@ -155,6 +173,17 @@ check("the takeover rows actually START through the Loader, not just compose", a
     await writeFile(configPath, JSON.stringify(rows));
     const context = new Context();
     context.baseUrl = pathToFileURL(root).href + "/";
+    // The routed backend is a real WslFileSystem: its constructor reads the
+    // deployment default mode from `sandboxPolicy`. In the app that service is
+    // provided by a SIBLING row, not an ancestor, so the router must declare
+    // the dependency; providing it from a plugin fiber here keeps that real
+    // (a root-level `provide` would resolve even without `inject`).
+    await context.plugin({
+      name: "sandbox-policy-stub",
+      apply(/** @type {Context} */ pluginCtx) {
+        pluginCtx.provide("sandboxPolicy", { defaultMode: "workspace-write", resolve: () => ({ mode: "workspace-write", workspaceRoot: "/" }) });
+      },
+    });
     await context.plugin(Loader);
     context.loader.builtins.include = Include;
     stubLoaderInternal(context.loader, async (specifier) => {
@@ -165,6 +194,85 @@ check("the takeover rows actually START through the Loader, not just compose", a
     await context.loader.create({ name: "cordis:include", config: { path: pathToFileURL(configPath).href } });
     await context.loader.await();
     assert.equal(context.fs instanceof WslRoutingFileSystem, true, "the routed root filesystem mounted");
+    // The root-plane consumer path: cordis hands `ctx.fs` callers a traceable
+    // proxy and invokes methods with a shadow receiver. Private (`#`) state and
+    // a backend that re-registers `fs` in this router's own scope fail on
+    // exactly that path, while direct-instance calls pass.
+    const router = /** @type {WslRoutingFileSystem} */ (/** @type {unknown} */ (context.fs));
+    const backend = rawService(router.distro());
+    assert.equal(backend instanceof WslFileSystem, true, "the distro backend is a WslFileSystem");
+    assert.equal(rawService(router.distro()), backend, "the backend is built once and cached");
+    assert.equal(context.fs instanceof WslRoutingFileSystem, true, "the backend's registration did not replace the router");
+    // The routing table, both sides. The distro side is stubbed at the backend
+    // surface (this suite owns no distro); the host side runs the real
+    // LocalFileSystem over the temp workspace this check already owns.
+    const distroTarget = (/** @type {string} */ linuxPath) => ({
+      targetKey: FsTargetKey(`\\\\wsl.localhost\\Ubuntu${linuxPath.replaceAll("/", "\\")}`),
+      displayPath: linuxPath,
+    });
+    const target = distroTarget("/home/andy/sample.txt");
+    const directory = distroTarget("/home/andy");
+    /** @type {Record<string, unknown>} */
+    const surface = /** @type {Record<string, unknown>} */ (backend);
+    surface.resolve = async (/** @type {string} */ path) => ({ targetKey: FsTargetKey(path), displayPath: path });
+    surface.lstat = async (/** @type {string} */ path) => ({ type: "file", displayPath: path });
+    surface.stat = async () => ({ type: "file", version: "v", size: 5 });
+    surface.readText = async () => "agent text";
+    surface.streamText = async function* () { yield "agent "; yield "stream"; };
+    surface.readBytes = async () => new Uint8Array([1, 2]);
+    surface.readByteRange = async () => new Uint8Array([1]);
+    surface.listDir = async () => [];
+    surface.writeText = async () => ({ operation: "update" });
+    surface.editText = async () => ({ version: "v", before: "", after: "" });
+    surface.watch = async () => async () => {};
+
+    const routed = await router.resolve("\\\\wsl.localhost\\Ubuntu\\home\\andy\\sample.txt");
+    assert.equal(routed.targetKey, "\\\\wsl.localhost\\Ubuntu\\home\\andy\\sample.txt", "resolve routes a UNC coordinate to the backend");
+    assert.equal((await router.lstat("\\\\wsl.localhost\\Ubuntu\\home\\andy\\sample.txt"))?.type, "file");
+    assert.equal((await router.stat(target))?.type, "file");
+    assert.equal(await router.readText(target), "agent text");
+    let streamed = "";
+    for await (const chunk of await router.streamText(target)) streamed += chunk;
+    assert.equal(streamed, "agent stream");
+    assert.deepEqual(Array.from(await router.readBytes(target, undefined, 8)), [1, 2]);
+    assert.deepEqual(Array.from(await router.readByteRange(target, { offset: 0, length: 1 })), [1]);
+    assert.deepEqual(await router.listDir(directory), []);
+    assert.equal((await router.writeText(target, "x"))?.operation, "update");
+    assert.equal((await router.editText(target, { oldString: "a", newString: "b", replaceAll: false }))?.version, "v");
+    const closeDistro = await router.watch(target, () => {}, new AbortController().signal);
+    assert.equal(typeof closeDistro, "function");
+    await closeDistro();
+
+    // The coordinate helpers on the same routed path are pure and need no
+    // distro: the distro branch of each must not fall through to the host.
+    assert.equal(router.processPath(directory), "/home/andy", "a distro target maps to its Linux path");
+    assert.equal(router.contains(directory, target), true, "distro containment uses POSIX semantics");
+    assert.equal(router.contains(directory, distroTarget("/etc/hosts")), false);
+
+    // Host side: an absolute drive/POSIX coordinate takes `super`, the real
+    // local backend, over the same temp workspace.
+    await writeFile(join(root, "sample.txt"), "hello\n");
+    await mkdir(join(root, "host-dir"));
+    await writeFile(join(root, "host-dir", "child.txt"), "child");
+    const hostFile = await router.resolve(join(root, "sample.txt"));
+    const hostDir = await router.resolve(join(root, "host-dir"));
+    assert.equal(hostFile.displayPath, join(root, "sample.txt"));
+    assert.equal((await router.lstat(join(root, "sample.txt")))?.type, "file");
+    assert.equal((await router.stat(hostFile))?.type, "file");
+    assert.equal(await router.readText(hostFile), "hello\n");
+    let hostStreamed = "";
+    for await (const chunk of await router.streamText(hostFile)) hostStreamed += chunk;
+    assert.equal(hostStreamed, "hello\n");
+    assert.equal(Buffer.from(await router.readBytes(hostFile, undefined, 64)).toString("utf8"), "hello\n");
+    assert.equal(Buffer.from(await router.readByteRange(hostFile, { offset: 0, length: 5 })).toString("utf8"), "hello");
+    assert.deepEqual((await router.listDir(hostDir)).map((entry) => entry.name), ["child.txt"]);
+    assert.equal((await router.writeText(hostFile, "reset\n"))?.operation, "update");
+    assert.equal((await router.editText(hostFile, { oldString: "reset", newString: "edited", replaceAll: false }))?.after, "edited\n");
+    assert.equal(router.processPath(hostFile), String(hostFile.targetKey));
+    assert.equal(router.contains(hostDir, hostFile), false);
+    assert.equal(router.contains(hostDir, await router.resolve(join(root, "host-dir", "child.txt"))), true);
+    const closeHost = await router.watch(hostDir, () => {}, AbortSignal.timeout(5000));
+    await closeHost();
     // The workspace-files variant's class constructed with its config: its
     // provider identity is the takeover, not the shipped base.
     assert.equal(WorkspaceFilesWsl.Config !== undefined, true);

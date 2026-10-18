@@ -25,6 +25,11 @@
  *     exited. Without it a vanished target would sit armed forever — `find`
  *     over a missing directory prints nothing, indistinguishable from "no
  *     changes" — so the loop says so and the host reports it.
+ *   - `H` — HEARTBEAT: liveness only, ignored by the host. It exists so the
+ *     loop notices a closed stdout pipe: the host's close kills `wsl.exe` but
+ *     cannot signal the distro-side shell, and without a write that shell
+ *     would sleep and poll forever. The `PIPE` trap turns that write's
+ *     SIGPIPE into a clean exit through the stamp-removing EXIT trap.
  *
  * Known blind spot, accepted and documented: a file created with an mtime
  * older than the stamp (`cp -p`, `tar -x`) is not seen until something else
@@ -72,7 +77,7 @@ export function watchLoopScript(intervalSeconds = 2, maxDepth = 0): string {
     // EXIT trap covers plain exits; a signal alone would end the shell WITHOUT
     // running it, so TERM/INT/HUP are trapped to a plain exit first.
     "trap 'rm -f \"$S\"' EXIT",
-    "trap 'exit 0' TERM INT HUP",
+    "trap 'exit 0' TERM INT HUP PIPE",
     'F=""',
     '[ -f "$D" ] && F=$(stat -c "%Y:%s" -- "$D" 2>/dev/null || :)',
     // The READY line is the activation barrier: everything changed BEFORE it
@@ -103,6 +108,8 @@ export function watchLoopScript(intervalSeconds = 2, maxDepth = 0): string {
     "    printf 'E\\n'",
     "    exit 1",
     "  fi",
+    // Liveness: the host ignores H; the write dies with the pipe.
+    "  printf 'H\\n'",
     `  sleep ${seconds}`,
     "done",
   ].join("\n");

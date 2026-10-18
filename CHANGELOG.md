@@ -242,6 +242,14 @@ from it.
   backend keeps the mode off because it is not session-owned. A failed
   preflight refuses the write with the systemd/linger remedy.
 
+- **A closed watcher no longer leaks its distro-side loop.** `close()` kills
+  `wsl.exe` but cannot signal the loop inside the distro, and a loop that only
+  writes on changes would sleep and poll forever. Each tick now writes an
+  ignored `H` heartbeat; a `PIPE` trap turns the closed pipe's SIGPIPE into a
+  clean exit through the stamp-removing EXIT trap. The host ignores `H`; the
+  real-`sh` check closes the pipe and asserts the loop exits and the stamp is
+  gone.
+
 - **A distro target contains only targets in the same distro.** `contains()`
   compared Linux path strings, so another distro's share (or a `..`-bearing
   key) could test as contained when the spelling lined up. It now compares the

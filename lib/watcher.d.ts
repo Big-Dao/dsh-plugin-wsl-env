@@ -25,6 +25,11 @@
  *     exited. Without it a vanished target would sit armed forever — `find`
  *     over a missing directory prints nothing, indistinguishable from "no
  *     changes" — so the loop says so and the host reports it.
+ *   - `H` — HEARTBEAT: liveness only, ignored by the host. It exists so the
+ *     loop notices a closed stdout pipe: the host's close kills `wsl.exe` but
+ *     cannot signal the distro-side shell, and without a write that shell
+ *     would sleep and poll forever. The `PIPE` trap turns that write's
+ *     SIGPIPE into a clean exit through the stamp-removing EXIT trap.
  *
  * Known blind spot, accepted and documented: a file created with an mtime
  * older than the stamp (`cp -p`, `tar -x`) is not seen until something else

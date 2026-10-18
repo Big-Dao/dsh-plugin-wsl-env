@@ -11,7 +11,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -51,7 +51,7 @@ checks.push(["the loop script scans the directory itself, so deletions are seen"
 checks.push(["the loop script removes its stamp on every way out", () => {
   const script = watchLoopScript(2);
   assert.match(script, /trap 'rm -f "\$S"' EXIT/, "the EXIT trap removes the stamp");
-  assert.match(script, /trap 'exit 0' TERM INT HUP/, "signals route through a plain exit so the EXIT trap runs");
+  assert.match(script, /trap 'exit 0' TERM INT HUP PIPE/, "signals route through a plain exit so the EXIT trap runs");
 }]);
 
 checks.push(["the loop script dies loudly when the watched path vanishes", () => {
@@ -59,6 +59,45 @@ checks.push(["the loop script dies loudly when the watched path vanishes", () =>
   assert.match(script, /elif \[ -f "\$D" \]/, "a file target gets its own branch");
   assert.match(script, /printf 'E\\n'/, "the E line tells the host, instead of silent never-firing");
   assert.match(script, /exit 1/, "the loop exits rather than spinning on a missing target");
+}]);
+
+
+checks.push(["closing the host pipe stops the loop and removes its stamp", async () => {
+  if (process.platform === "win32") return;
+  const dir = mkdtempSync(join(tmpdir(), "wsl-watch-close-"));
+  const file = join(dir, "a.txt");
+  writeFileSync(file, "one");
+  const child = spawn("sh", ["-c", watchLoopScript(1), "wsl-watch", file], { stdio: ["ignore", "pipe", "pipe"] });
+  const lines = createInterface({ input: child.stdout });
+  /** @type {string[]} */
+  const queue = [];
+  lines.on("line", (line) => queue.push(line));
+  const next = async () => {
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      const line = queue.shift();
+      if (line !== undefined) {
+        if (line === "H") continue;
+        return line;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error("the watcher did not answer in time");
+  };
+  try {
+    assert.equal(await next(), "R");
+    child.stdout.destroy();
+    const exited = await Promise.race([
+      new Promise((resolve) => child.once("exit", () => resolve(true))),
+      new Promise((resolve) => setTimeout(() => resolve(false), 5000)),
+    ]);
+    assert.equal(exited, true, "the heartbeat write on a closed pipe ends the loop");
+    assert.equal(existsSync(join(tmpdir(), `wsl-watch.${child.pid}.stamp`)), false, "the EXIT trap removed the stamp");
+  } finally {
+    child.kill();
+    lines.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
 }]);
 
 checks.push(["a file target is watched by its mtime:size fingerprint", async () => {
@@ -75,7 +114,10 @@ checks.push(["a file target is watched by its mtime:size fingerprint", async () 
     const deadline = Date.now() + 5000;
     while (Date.now() < deadline) {
       const line = queue.shift();
-      if (line !== undefined) return line;
+      if (line !== undefined) {
+        if (line === "H") continue;
+        return line;
+      }
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     throw new Error("the file watcher did not answer in time");

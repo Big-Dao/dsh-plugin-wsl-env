@@ -127,8 +127,9 @@ crosses the 9p share. What to know about the one substrate there is:
   leave a stale `dsh-wsl-*.scope` and its background processes behind; a
   graceful session end stops the scope (validated). The session preflight
   sweeps stale scopes when the next WSL session opens: it stops a
-  `dsh-wsl-*.scope` only when its cgroup has no `wsl-agent.sh`, so another
-  live session's runtime is never touched.
+  `dsh-wsl-*.scope` only when its cgroup has no agent process (`wsl-agent.sh`
+  or the native `dsh-wsl-agent`), so another live session's runtime is never
+  touched.
 - **The sandbox does not govern WSL interop.** A confined command can still run a
   Windows program, which escapes the Linux-side boundary. The plugin reports this as
   `enforcement: partial`. See [ARCHITECTURE.md](ARCHITECTURE.md#reported-enforcement).

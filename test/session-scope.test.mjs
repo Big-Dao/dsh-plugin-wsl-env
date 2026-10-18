@@ -105,7 +105,8 @@ check("the preflight verdict maps to a remedy", () => {
 check("the stale-scope sweep only stops scopes without a live agent", () => {
   const script = sessionScopeSweepScript();
   assert.match(script, /list-units 'dsh-wsl-\*\.scope'/);
-  assert.match(script, /wsl-agent\.sh/, "the live-agent marker is the safety check");
+  assert.match(script, /wsl-agent\.sh/, "the shell agent is a liveness marker");
+  assert.match(script, /dsh-wsl-agent/, "the native agent is a liveness marker too");
   assert.match(script, /systemctl --user stop "\$unit"/);
   assert.match(script, /exit 0/, "a missing user manager is a no-op, not a failure");
 });

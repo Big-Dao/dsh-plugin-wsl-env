@@ -139,7 +139,8 @@ remedy); the filesystem provider's unification is the next change.
 - **Resources:** one agent per (session, policy) instead of one per distro.
   Idle shutdown and the lease still apply; the scope is stopped at session
   end. A hard crash can leave the scope behind; the session preflight sweeps
-  `dsh-wsl-*.scope` units whose cgroup has no `wsl-agent.sh`.
+  `dsh-wsl-*.scope` units whose cgroup has no agent process (`wsl-agent.sh`
+  or the native `dsh-wsl-agent`).
 - **FS mutations:** with `wsl-fs` `sessionSandbox: true` (the shipped preset),
   a confined write acquires the SAME runtime as the shell executor for the
   same `(distro, workspace, policy)`: one agent, one mount profile, one real

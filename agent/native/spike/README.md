@@ -13,9 +13,16 @@ questions with real code before any production work:
 Implemented: `HELLO`, `PING`, `SHUTDOWN`, `SETENV`, `EXEC`, `KILL` — v5
 frames, per-request ids, `ACK`/`RES`, output caps, per-request process groups.
 
-**Not implemented:** `FS` frames (they are consumed and refused). The shell's
-FS record formats, atomic publication and expected-version guard are the next
-stage; this spike does not touch the shipped FS path.
+Also implemented: `FS` `stat`, `lstat`, `read` and `write` (mode, no-replace,
+replace, expected-version re-check, staging + fsync + atomic publication). A
+failed FS op writes the `dsh-fs|reason|base64` side channel as the first line
+of the **RES stderr**, which is where the host's `DistroFs` reads it. FS ops
+are serialized inside the agent (the v5 error channel is process-global);
+`EXEC`s run concurrently with them.
+
+**Not implemented:** `FS` `list` and `realpath`, and the full shell
+record/version differential for every corner. This spike does not touch the
+shipped FS path.
 
 ## Build and run
 
@@ -34,10 +41,12 @@ The test is not part of `pnpm test`: it needs the built binary.
 
 ## Result (2026-10-18, x86_64-unknown-linux-gnu, release)
 
-- 9/9 checks: HELLO, PING, EXEC (exit + both streams), SETENV (later commands
-  only), concurrent EXECs (the short one settles first), KILL (no second
-  `wsl.exe`, no full wait), timeout (group killed promptly), output cap (cut
-  and the pipe still drained), and a shell-agent differential for EXEC.
+- 12/12 checks: HELLO, PING, EXEC (exit + both streams), SETENV (later
+  commands only), concurrent EXECs (the short one settles first), KILL (no
+  second `wsl.exe`, no full wait), timeout (group killed promptly), output cap
+  (cut and the pipe still drained), FS stat/lstat/read matching the shell
+  agent, no-replace write + refusal, the missing-path side channel, and a
+  shell-agent differential for EXEC.
 - Release binary: 634 KB; the crate builds in ~2 s with no dependencies.
 - The shell agent remains the shipped peer; nothing here is wired into
   `agent-shared.ts`, the session runtime, or the CLI.

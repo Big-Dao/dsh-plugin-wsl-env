@@ -9,10 +9,12 @@
  */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
-import { decodeB64, encodeExecFrame, encodeKill, encodeSetEnv } from "../../../lib/agent-protocol.js";
+import { decodeB64, encodeExecFrame, encodeFsFrame, encodeKill, encodeSetEnv } from "../../../lib/agent-protocol.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, "..", "..", "..");
@@ -34,7 +36,8 @@ const check = async (name, fn) => {
 class Session {
   constructor(command, args) {
     this.child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
-    this.child.stderr.resume();
+    this.stderrText = "";
+    this.child.stderr.on("data", (chunk) => { this.stderrText += chunk.toString(); });
     this.next = 0;
     this.pong = new Promise((resolve) => {
       this.pongResolve = resolve;
@@ -91,6 +94,12 @@ class Session {
 
   setEnv(key, value) {
     this.send([encodeSetEnv(key, value)]);
+  }
+
+  fs({ op, args }) {
+    const id = `r${this.next += 1}`;
+    this.send(encodeFsFrame({ id, op, args }));
+    return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }));
   }
 
   kill(id) {
@@ -193,6 +202,97 @@ await check("the output cap cuts and still drains the pipe", async () => {
   assert.equal(result.stdout.length, 1024);
   assert.equal(result.truncated.stdout, true);
   await session.close();
+});
+
+
+const parseStat = (buffer) => {
+  const fields = buffer.toString().split("\t");
+  return {
+    type: fields[0],
+    mode: fields[1],
+    size: Number(fields[2]),
+    dev: fields[3],
+    ino: fields[4],
+    mtime: fields[5],
+    ctime: fields[6],
+  };
+};
+
+const ns = (time) => {
+  const [seconds, fraction = ""] = String(time).split(".");
+  return `${seconds}.${(fraction + "000000000").slice(0, 9)}`;
+};
+
+await check("FS stat/lstat/read match the shell agent", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spike-fs-"));
+  try {
+    const file = join(root, "a.txt");
+    const link = join(root, "link");
+    writeFileSync(file, "hello");
+    symlinkSync(file, link);
+    const results = {};
+    for (const [name, command, args] of [["native", binary, []], ["shell", "sh", [shellAgent]]]) {
+      const session = new Session(command, args);
+      await session.hello;
+      const fileStat = parseStat((await session.fs({ op: "stat", args: [file] })).stdout);
+      const linkStat = parseStat((await session.fs({ op: "lstat", args: [link] })).stdout);
+      const read = await session.fs({ op: "read", args: [file, "1", "3"] });
+      results[name] = {
+        file: { ...fileStat, mtime: ns(fileStat.mtime), ctime: ns(fileStat.ctime) },
+        link: { ...linkStat, mtime: ns(linkStat.mtime), ctime: ns(linkStat.ctime) },
+        read: read.stdout.toString(),
+      };
+      await session.close();
+    }
+    assert.equal(results.native.file.type, "f");
+    assert.equal(results.native.file.mode, results.shell.file.mode);
+    assert.equal(results.native.file.size, 5);
+    assert.equal(results.native.file.dev, results.shell.file.dev);
+    assert.equal(results.native.file.ino, results.shell.file.ino);
+    assert.equal(results.native.file.mtime, results.shell.file.mtime);
+    assert.equal(results.native.file.ctime, results.shell.file.ctime);
+    assert.equal(results.native.link.type, "l");
+    assert.equal(results.native.link.mode, results.shell.link.mode);
+    assert.equal(results.native.link.size, results.shell.link.size);
+    assert.equal(results.native.read, "ell");
+    assert.equal(results.shell.read, "ell");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+await check("FS write (no-replace) publishes and refuses a second create", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spike-fs-w-"));
+  try {
+    for (const [name, command, args] of [["native", binary, []], ["shell", "sh", [shellAgent]]]) {
+      const session = new Session(command, args);
+      await session.hello;
+      const target = join(root, `${name}.txt`);
+      const created = await session.fs({ op: "write", args: [target, "644", "no-replace", "-", "written"] });
+      assert.equal(created.exitCode, 0, `${name}: ${created.stderr}`);
+      assert.equal(readFileSync(target, "utf8"), "written");
+      const stat = parseStat((await session.fs({ op: "stat", args: [target] })).stdout);
+      assert.equal(stat.mode, "644");
+      const again = await session.fs({ op: "write", args: [target, "644", "no-replace", "-", "again"] });
+      assert.equal(again.exitCode, 1);
+      assert.match(again.stderr.toString(), /^dsh-fs\|exists\|/m);
+      assert.equal(readFileSync(target, "utf8"), "written");
+      await session.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+await check("FS stat of a missing path reports dsh-fs|notfound", async () => {
+  for (const [command, args] of [[binary, []], ["sh", [shellAgent]]]) {
+    const session = new Session(command, args);
+    await session.hello;
+    const result = await session.fs({ op: "stat", args: [join(tmpdir(), "spike-missing-does-not-exist")] });
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr.toString(), /^dsh-fs\|notfound\|/m);
+    await session.close();
+  }
 });
 
 await check("the shell agent answers the same EXEC shape (differential)", async () => {

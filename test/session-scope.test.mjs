@@ -11,6 +11,7 @@ import {
   sessionScopePrefix,
   sessionScopeProblem,
   sessionScopeProbeArgv,
+  sessionScopeSweepScript,
   sessionScopeProbeScript,
   sessionScopeStopArgv,
   sessionScopeUnit,
@@ -98,6 +99,15 @@ check("the preflight verdict maps to a remedy", () => {
   const failed = sessionScopeProblem({ output: { stdout: "", error: "wsl.exe failed: boom" }, distro: "ubuntu" }) ?? "";
   assert.match(failed, /preflight/);
   assert.match(failed, /boom/);
+});
+
+
+check("the stale-scope sweep only stops scopes without a live agent", () => {
+  const script = sessionScopeSweepScript();
+  assert.match(script, /list-units 'dsh-wsl-\*\.scope'/);
+  assert.match(script, /wsl-agent\.sh/, "the live-agent marker is the safety check");
+  assert.match(script, /systemctl --user stop "\$unit"/);
+  assert.match(script, /exit 0/, "a missing user manager is a no-op, not a failure");
 });
 
 for (const [name, fn] of checks) await runCheck(name, fn);

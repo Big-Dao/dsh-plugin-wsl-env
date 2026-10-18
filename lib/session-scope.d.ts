@@ -81,6 +81,17 @@ export declare function sessionScopeStopArgv({ wslPath, distro, unit }: {
  */
 export declare function sessionScopeProbeScript(): string;
 /**
+ * The script the session preflight runs to stop scopes a crashed app left
+ * behind. A scope is stale when its cgroup has no `wsl-agent.sh` process: a
+ * live agent means another session still owns it, so it must not be stopped.
+ * The script only lists `dsh-wsl-*.scope` units and only stops the ones it
+ * can prove stale; if there is no user manager it exits 0 (the session
+ * preflight reports that condition separately).
+ *
+ * @returns the shell script.
+ */
+export declare function sessionScopeSweepScript(): string;
+/**
  * Map the preflight's answer to a user-facing refusal, or `null` when the
  * platform can host a session runtime. The probe prints one word (it always
  * exits 0 so the host reads a verdict, not a spawn error); an empty or unknown

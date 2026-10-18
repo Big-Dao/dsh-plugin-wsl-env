@@ -234,6 +234,15 @@ from it.
   cover `yes` capped at 1 KiB (`truncated: true`) and `sleep & echo` answered
   without waiting for the background child.
 
+- **Stale session scopes are swept.** A hard kill of the app can leave a
+  `dsh-wsl-*.scope` and its background processes behind. The session preflight
+  now lists those units and stops one only when its cgroup has no
+  `wsl-agent.sh`; a live agent means another session still owns it. The sweep
+  runs once per distro per process (a failed spawn re-arms it) and is a no-op
+  without a user manager. Validated on a live user manager: two
+  `dsh-wsl-test-sweep*` scopes with only a `sleep` were stopped while the
+  session's own scope (with its live agent) stayed active.
+
 - **`watch()` accepts a file target.** The poll loop treated every
   non-directory as vanished, so `ctx.fs.watch` on a regular file failed
   immediately with "no longer exists". A file is now watched by its

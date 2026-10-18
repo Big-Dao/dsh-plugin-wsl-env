@@ -113,8 +113,10 @@ crosses the 9p share. What to know about the one substrate there is:
   first command with the remedy. Set `sessionSandbox: false` on the preset's
   `wsl-shell` to keep the per-command shape. A **hard crash** of the app can
   leave a stale `dsh-wsl-*.scope` and its background processes behind; a
-  graceful session end stops the scope (validated), but an automatic startup
-  sweep is not shipped yet.
+  graceful session end stops the scope (validated). The session preflight
+  sweeps stale scopes when the next WSL session opens: it stops a
+  `dsh-wsl-*.scope` only when its cgroup has no `wsl-agent.sh`, so another
+  live session's runtime is never touched.
 - **The sandbox does not govern WSL interop.** A confined command can still run a
   Windows program, which escapes the Linux-side boundary. The plugin reports this as
   `enforcement: partial`. See [ARCHITECTURE.md](ARCHITECTURE.md#reported-enforcement).

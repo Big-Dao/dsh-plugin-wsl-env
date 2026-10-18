@@ -1,7 +1,7 @@
 # ADR 0001 — Session-scoped execution world
 
 - **Status:** accepted; shipped on for the shell provider (the filesystem
-  provider's unification and the crash sweep remain open)
+  provider's unification remains open)
 - **Date:** 2026-10-18
 - **Supersedes:** the per-command bwrap model for commands; the per-command
   profile remains for `sessionSandbox: false` and the agent-unavailable
@@ -138,7 +138,8 @@ remedy); the filesystem provider's unification is the next change.
   isolation is not claimed.
 - **Resources:** one agent per (session, policy) instead of one per distro.
   Idle shutdown and the lease still apply; the scope is stopped at session
-  end.
+  end. A hard crash can leave the scope behind; the session preflight sweeps
+  `dsh-wsl-*.scope` units whose cgroup has no `wsl-agent.sh`.
 - **FS mutations:** the confined resident for writes remains a separate
   profile today. Unifying it with the session runtime is a follow-up; until
   then commands and file writes can see different mount views, which the

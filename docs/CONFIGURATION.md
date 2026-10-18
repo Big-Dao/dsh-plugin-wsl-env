@@ -228,4 +228,4 @@ behind the fail-closed choices above are in [LIMITATIONS.md](LIMITATIONS.md).
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `distro` | `''` | the distro the `DSH_WSL_*` facts describe |
-| `portsRefreshMs` | `10000` | how often the `DSH_WSL_PORTS` listening-port snapshot refreshes through the resident agent |
+| `portsRefreshMs` | `10000` | how often the `DSH_WSL_PORTS` listening-port snapshot refreshes through the resident agent. A failed scan keeps the last successful list (and a debug line), so a transient agent outage does not read as “no ports”; only a successful empty scan means none were listening |

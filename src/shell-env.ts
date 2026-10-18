@@ -32,7 +32,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import { isAnotherDistrosUnc, isWslUnc } from "./paths.js";
 import { defaultDistro, defaultShell, linuxHomePath } from "./wsl.js";
 import { sharedAgent } from "./agent-shared.js";
-import { listeningPorts } from "./ports.js";
+import { scanListeningPorts } from "./ports.js";
 
 export const name = "wsl-shell-env";
 
@@ -108,7 +108,7 @@ export async function apply(ctx: ShellEnvContext, config: ShellEnvConfig = {}): 
       description: `Home directory of the user model shell calls run as inside ${distro}.`,
     },
     DSH_WSL_PORTS: {
-      description: `Ports with a listener inside ${distro} (comma-separated, ascending), as of the last snapshot — refreshed every ${Math.round((config.portsRefreshMs as number) / 1000)}s, so a dev server started moments ago may not be listed yet. Empty means none were listening at the last scan.`,
+      description: `Ports with a listener inside ${distro} (comma-separated, ascending), as of the last snapshot — refreshed every ${Math.round((config.portsRefreshMs as number) / 1000)}s, so a dev server started moments ago may not be listed yet. Empty means none were listening at the last successful scan (or no scan has succeeded yet); a failed scan keeps the last successful list.`,
     },
   };
 
@@ -117,7 +117,16 @@ export async function apply(ctx: ShellEnvContext, config: ShellEnvConfig = {}): 
   // the timer bounds staleness instead (see lib/ports.js).
   let ports: number[] = [];
   const refreshPorts = async () => {
-    ports = await listeningPorts(sharedAgent(distro), 8000);
+    const next = await scanListeningPorts(sharedAgent(distro), 8000);
+    if (next === undefined) {
+      // A transient agent outage must not read as "no ports": keep the last
+      // successful snapshot and leave a debug breadcrumb.
+      (ctx as Context & { logger?: { debug?: (message: string) => void } }).logger?.debug?.(
+        "wsl-shell-env: port snapshot failed; keeping the last known list",
+      );
+      return;
+    }
+    ports = next;
   };
   void refreshPorts();
   const portsTimer = setInterval(() => void refreshPorts(), config.portsRefreshMs);

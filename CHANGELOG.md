@@ -257,6 +257,12 @@ from it.
   own argv rather than the `pgrep` wrapper. This is the fix the probe found
   when the heartbeat-only version was tried on the real transport.
 
+- **A failed port scan keeps the last successful snapshot.** The ports
+  environment fact was set to an empty list on any scan failure, which the
+  model reads as "nothing is listening". A failed scan (agent out, non-zero
+  exit) now leaves the previous list in place and logs a debug line; only a
+  successful empty scan produces an empty list.
+
 - **The inotify watcher is reaped promptly on close and on a vanished
   directory.** The blocking FIFO read is woken by a one-second marker, so the
   TERM trap runs and the target check reports `E` within a second of the

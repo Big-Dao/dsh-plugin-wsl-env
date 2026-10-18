@@ -5,7 +5,7 @@
  *   node test/ports.test.mjs
  */
 import assert from "node:assert/strict";
-import { listeningPorts, parseListeningPorts, procNetScript } from "../lib/ports.js";
+import { listeningPorts, parseListeningPorts, procNetScript, scanListeningPorts } from "../lib/ports.js";
 
 let passed = 0;
 /** @type {Array<[string, () => void | Promise<void>]>} */
@@ -42,6 +42,25 @@ const SAMPLE = [
 
 check("state 0A (LISTEN) is the only state collected", () => {
   assert.deepEqual(parseListeningPorts(SAMPLE), [53, 8080]);
+});
+
+
+check("a failed scan is undefined, while an empty successful scan is []", async () => {
+  assert.equal(
+    await scanListeningPorts({ exec: () => Promise.reject(new Error("agent down")) }),
+    undefined,
+    "an agent failure is not 'no ports'",
+  );
+  assert.equal(
+    await scanListeningPorts({ exec: async () => ({ exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }) }),
+    undefined,
+    "a non-zero scan is a failed scan",
+  );
+  assert.deepEqual(
+    await scanListeningPorts({ exec: async () => ({ exitCode: 0, stdout: Buffer.from("  sl  local_address rem_address   st\n"), stderr: Buffer.alloc(0) }) }),
+    [],
+    "a successful empty scan is an empty list",
+  );
 });
 
 check("ports come back ascending and deduplicated", () => {

@@ -38,7 +38,18 @@ export declare function procNetScript(): string;
  *
  * @param runner - the {@link WslAgent}-like runner.
  * @param timeoutMs - the exec budget.
- * @returns listening ports, ascending; [] on any failure — a snapshot is a
- *   convenience, never an error the session should see.
+ * @returns listening ports, ascending; undefined when the scan could not
+ *   answer (agent out, non-zero exit), so a caller can keep the last snapshot.
+ */
+export declare function scanListeningPorts(runner: AgentExecRunner, timeoutMs?: number): Promise<number[] | undefined>;
+/**
+ * Snapshot the distro's listening ports, collapsing a failed scan to an empty
+ * list. New callers that must distinguish "none listening" from "the scan
+ * failed" should use {@linkcode scanListeningPorts}; this wrapper exists for
+ * the probe/test shape that only needs the list.
+ *
+ * @param runner - the agent-like runner.
+ * @param timeoutMs - the exec budget.
+ * @returns listening ports, ascending; [] on a failed scan.
  */
 export declare function listeningPorts(runner: AgentExecRunner, timeoutMs?: number): Promise<number[]>;

@@ -230,6 +230,14 @@ from it.
   cover `yes` capped at 1 KiB (`truncated: true`) and `sleep & echo` answered
   without waiting for the background child.
 
+- **`watch()` accepts a file target.** The poll loop treated every
+  non-directory as vanished, so `ctx.fs.watch` on a regular file failed
+  immediately with "no longer exists". A file is now watched by its
+  `mtime:size` fingerprint — a rename-over or an in-place write fires — and a
+  removal reports the target as gone. Directory watching is unchanged. A
+  real-`sh` check runs the loop against a temp file (READY, a size change, a
+  removal).
+
 ### Notes
 
 - Gates on the new pins: style 9/9, syntax 7/7 members and 3/3 chain members

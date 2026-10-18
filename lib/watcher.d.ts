@@ -11,15 +11,17 @@
  * The watcher is a long-lived `wsl.exe` shell loop: periodically
  * `find <dir> -newer <stamp>` — the directory itself is in the scan, so
  * creations AND deletions (which bump the parent's mtime) are both seen — and
- * one `C` line per hit. No `inotifywait` dependency; the mtime walk is exact
- * for interactive-paced edits, which is the only pace a session watch serves.
+ * one `C` line per hit. A FILE target uses the same one-way question through
+ * its `mtime:size` fingerprint, so a rename-over or an in-place write is seen
+ * too. No `inotifywait` dependency; the mtime walk is exact for
+ * interactive-paced edits, which is the only pace a session watch serves.
  *
  * The loop speaks three one-letter lines, the watcher protocol:
  *
  *   - `R` — READY: the activation barrier; the host resolves the watch promise
  *     on it, never before.
- *   - `C` — CHANGED: something under the target may have changed.
- *   - `E` — ERROR: the watched directory no longer exists, and the loop has
+ *   - `C` — CHANGED: the target may have changed.
+ *   - `E` — ERROR: the watched path no longer exists, and the loop has
  *     exited. Without it a vanished target would sit armed forever — `find`
  *     over a missing directory prints nothing, indistinguishable from "no
  *     changes" — so the loop says so and the host reports it.
@@ -37,14 +39,14 @@
 import type { ChildProcess } from "node:child_process";
 /**
  * The shell loop the watcher runs, parameterised by argv so no path can break
- * quoting: `$1` is the Linux directory, `$2` the poll interval in seconds.
- * Pure text, so it is unit-testable.
+ * quoting: `$1` is the Linux path (a directory or a file), `$2` the poll
+ * interval in seconds. Pure text, so it is unit-testable.
  *
  * @param intervalSeconds - poll cadence; must be >= 1.
- * @param maxDepth - bound the scan's depth, 1 = the directory
- *   itself and its direct children; 0 (the default) scans the whole tree,
- *   which is the contract's semantics but a real cost over a tree with a
- *   `node_modules` in it.
+ * @param maxDepth - bound the scan's depth for a DIRECTORY target, 1 = the
+ *   directory itself and its direct children; 0 (the default) scans the whole
+ *   tree, which is the contract's semantics but a real cost over a tree with a
+ *   `node_modules` in it. A file target ignores it.
  * @returns the `sh -c` script body.
  */
 export declare function watchLoopScript(intervalSeconds?: number, maxDepth?: number): string;

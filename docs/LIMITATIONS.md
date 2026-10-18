@@ -71,7 +71,7 @@ crosses the 9p share. What to know about the one substrate there is:
   when `bubblewrap` itself is missing, so a distro that has bwrap but not rg
   needs the printed line run by hand. A search whose directory is a Windows
   folder keeps the host binary, which is native there.
-- **`watch()` is one poll loop** (a `find -newer` scan inside the distro), so
+- **`watch()` is one poll loop** (a `find -newer` scan inside the distro for a directory, a `stat` fingerprint for a file), so
   the coarse-invalidation caveats below apply. An inotify backend is planned,
   not shipped.
 - **A confined command's `/tmp` is not the write tool's `/tmp`.** `workspace-write`
@@ -95,7 +95,10 @@ crosses the 9p share. What to know about the one substrate there is:
   same way). What escapes the stamp is a change that leaves every scanned mtime
   older than it — an in-place `cp -p` onto an existing file (new content, a
   copied-back mtime), or a `tar -x` whose archive restores the containing
-  directory's own mtime. Watching a 9p share from the Windows side remains
+  directory's own mtime. A FILE target is watched by its `mtime:size`
+  fingerprint: a rename-over or an in-place write fires, a removal reports the
+  target as gone, and a change that preserves both mtime and size escapes it.
+  Watching a 9p share from the Windows side remains
   unsupported — the loop runs where the kernel can actually report change.
 - `editText` reads the whole file into memory before writing it back.
 

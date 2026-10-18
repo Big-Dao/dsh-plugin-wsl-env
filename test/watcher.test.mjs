@@ -9,7 +9,12 @@
  *   node test/watcher.test.mjs
  */
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createInterface } from "node:readline";
 import { PassThrough } from "node:stream";
 import { armDistroWatcher, watchLoopScript } from "../lib/watcher.js";
 
@@ -49,11 +54,43 @@ checks.push(["the loop script removes its stamp on every way out", () => {
   assert.match(script, /trap 'exit 0' TERM INT HUP/, "signals route through a plain exit so the EXIT trap runs");
 }]);
 
-checks.push(["the loop script dies loudly when the watched directory vanishes", () => {
+checks.push(["the loop script dies loudly when the watched path vanishes", () => {
   const script = watchLoopScript(2);
-  assert.match(script, /\[ ! -d "\$D" \]/, "each tick checks the target still exists");
+  assert.match(script, /elif \[ -f "\$D" \]/, "a file target gets its own branch");
   assert.match(script, /printf 'E\\n'/, "the E line tells the host, instead of silent never-firing");
-  assert.match(script, /exit 1/, "the loop exits rather than spinning on a missing directory");
+  assert.match(script, /exit 1/, "the loop exits rather than spinning on a missing target");
+}]);
+
+checks.push(["a file target is watched by its mtime:size fingerprint", async () => {
+  if (process.platform === "win32") return;
+  const dir = mkdtempSync(join(tmpdir(), "wsl-watch-"));
+  const file = join(dir, "a.txt");
+  writeFileSync(file, "one");
+  const child = spawn("sh", ["-c", watchLoopScript(1), "wsl-watch", file], { stdio: ["ignore", "pipe", "pipe"] });
+  const lines = createInterface({ input: child.stdout });
+  /** @type {string[]} */
+  const queue = [];
+  lines.on("line", (line) => queue.push(line));
+  const next = async () => {
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      const line = queue.shift();
+      if (line !== undefined) return line;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error("the file watcher did not answer in time");
+  };
+  try {
+    assert.equal(await next(), "R");
+    writeFileSync(file, "two!");
+    assert.equal(await next(), "C", "a size change fires the callback");
+    rmSync(file);
+    assert.equal(await next(), "E", "removing the file ends the watch loudly");
+  } finally {
+    child.kill();
+    lines.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
 }]);
 
 checks.push(["an E line reports the vanished target and survives the follow-up exit", async () => {

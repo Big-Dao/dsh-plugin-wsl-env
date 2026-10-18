@@ -242,6 +242,14 @@ from it.
   backend keeps the mode off because it is not session-owned. A failed
   preflight refuses the write with the systemd/linger remedy.
 
+- **A closed watcher signals its loop by PID.** The heartbeat alone cannot
+  rely on the pipe closing when the host kills `wsl.exe`, so the loop now
+  announces its shell PID (`P <pid>`) before READY and `close()` sends it
+  `TERM` through a second `wsl.exe`; the TERM trap removes the stamp. The
+  real-machine watch probe now asserts the loop is gone, matching the script's
+  own argv rather than the `pgrep` wrapper. This is the fix the probe found
+  when the heartbeat-only version was tried on the real transport.
+
 - **A closed watcher no longer leaks its distro-side loop.** `close()` kills
   `wsl.exe` but cannot signal the loop inside the distro, and a loop that only
   writes on changes would sleep and poll forever. Each tick now writes an

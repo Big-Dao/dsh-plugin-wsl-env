@@ -25,6 +25,9 @@
  *     exited. Without it a vanished target would sit armed forever — `find`
  *     over a missing directory prints nothing, indistinguishable from "no
  *     changes" — so the loop says so and the host reports it.
+ *   - `P <pid>` — the loop shell's PID, sent before READY. The host uses it to
+ *     stop the loop with a second `wsl.exe` on close: killing the transport
+ *     alone does not reliably close the distro-side pipe.
  *   - `H` — HEARTBEAT: liveness only, ignored by the host. It exists so the
  *     loop notices a closed stdout pipe: the host's close kills `wsl.exe` but
  *     cannot signal the distro-side shell, and without a write that shell
@@ -80,6 +83,9 @@ export function watchLoopScript(intervalSeconds = 2, maxDepth = 0): string {
     "trap 'exit 0' TERM INT HUP PIPE",
     'F=""',
     '[ -f "$D" ] && F=$(stat -c "%Y:%s" -- "$D" 2>/dev/null || :)',
+    // The PID precedes READY so a close can stop the loop even if the pipe
+    // stays open; killing wsl.exe alone does not close it reliably.
+    "printf 'P %s\\n' \"$$\"",
     // The READY line is the activation barrier: everything changed BEFORE it
     // predates the stamp, so the host must not resolve the watch promise until
     // it arrives — otherwise a write racing the first tick is invisible forever.
@@ -166,8 +172,14 @@ export function armDistroWatcher({ wslPath, distro, linuxPath, onChange, onError
       const detail = stderrTail.trim();
       return detail.length > 0 ? `${message}: ${detail}` : message;
     };
+    let loopPid: number | undefined;
     const lines = createInterface({ input: child.stdout });
     lines.on("line", (line) => {
+      if (line.startsWith("P ")) {
+        const pid = Number.parseInt(line.slice(2), 10);
+        if (Number.isInteger(pid) && pid > 0) loopPid = pid;
+        return;
+      }
       if (line === "R") {
         if (!settled && !signal?.aborted) {
           settled = true;
@@ -186,10 +198,24 @@ export function armDistroWatcher({ wslPath, distro, linuxPath, onChange, onError
     const close = async () => {
       if (closed) return;
       closed = true;
+      const pid = loopPid;
       child.removeAllListeners("exit");
       lines.close();
       child.stdout?.destroy();
       child.kill();
+      if (pid !== undefined) {
+        // A second wsl.exe reaches the same distro namespace; the loop's TERM
+        // trap exits through the EXIT cleanup, which removes the stamp.
+        try {
+          const stopper = doSpawn(wslPath, ["-d", distro, "--exec", "sh", "-c", 'kill -TERM "$1" 2>/dev/null', "sh", String(pid)]);
+          stopper.stdout?.destroy();
+          stopper.stderr?.destroy();
+          stopper.on("error", () => {});
+          stopper.unref?.();
+        } catch {
+          // Best effort: the transport kill already happened.
+        }
+      }
       await new Promise<void>((resolveClose) => {
         if (child.exitCode !== null || child.signalCode !== null) return resolveClose();
         child.once("exit", resolveClose);

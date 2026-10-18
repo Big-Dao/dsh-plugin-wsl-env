@@ -77,7 +77,7 @@ checks.push(["closing the host pipe stops the loop and removes its stamp", async
     while (Date.now() < deadline) {
       const line = queue.shift();
       if (line !== undefined) {
-        if (line === "H") continue;
+        if (line === "H" || line.startsWith("P ")) continue;
         return line;
       }
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -115,7 +115,7 @@ checks.push(["a file target is watched by its mtime:size fingerprint", async () 
     while (Date.now() < deadline) {
       const line = queue.shift();
       if (line !== undefined) {
-        if (line === "H") continue;
+        if (line === "H" || line.startsWith("P ")) continue;
         return line;
       }
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -350,8 +350,23 @@ const asChild = (child) => /** @type {ChildProcess} */ (/** @type {unknown} */ (
  * @param {FakeChild} child - the child to hand out.
  * @returns {{arm: () => ChildProcess}} the spawn hook.
  */
+/**
+ * @param {FakeChild} child - the main fake transport.
+ * @returns {{ arm: (wslPath: string, args: string[]) => ChildProcess, spawns: Array<{ wslPath: string, args: string[] }> }} the injectable spawn and its recorded calls.
+ */
 function fakeSpawn(child) {
-  return { arm: () => asChild(child) };
+  /** @type {Array<{ wslPath: string, args: string[] }>} */
+  const spawns = [];
+  /**
+   * @param {string} wslPath - the transport path.
+   * @param {string[]} args - the spawn arguments.
+   * @returns {ChildProcess} the scripted child.
+   */
+  const arm = (wslPath, args) => {
+    spawns.push({ wslPath, args });
+    return spawns.length === 1 ? asChild(child) : asChild(new FakeChild());
+  };
+  return { arm, spawns };
 }
 
 checks.push(["a child without stderr arms cleanly, and close after exit resolves without waiting", async () => {
@@ -369,6 +384,31 @@ checks.push(["a child without stderr arms cleanly, and close after exit resolves
   });
   await close();
   assert.equal(child.killed || child.exitCode !== null, true, "the already-exited child needs no kill");
+}]);
+
+
+checks.push(["close stops the loop by the PID it announced, not just by killing the transport", async () => {
+  const child = new FakeChild(false);
+  const { arm, spawns } = fakeSpawn(child);
+  const pending = armDistroWatcher({
+    wslPath: "wsl.exe",
+    distro: "ubuntu",
+    linuxPath: "/home/you/proj",
+    onChange: () => {},
+    signal: new AbortController().signal,
+    spawn: arm,
+  });
+  child.line("P 4242");
+  child.line("R");
+  const close = await pending;
+  await close();
+  assert.equal(spawns.length, 2, "the main transport and the stopper");
+  const stopper = spawns[1];
+  assert.ok(stopper !== undefined);
+  assert.deepEqual(stopper.args.slice(0, 3), ["-d", "ubuntu", "--exec"]);
+  assert.ok(stopper.args.includes("4242"), "the announced PID is the signal target");
+  assert.match(stopper.args.join(" "), /kill -TERM/);
+  assert.equal(child.killed, true, "the transport is killed too");
 }]);
 
 for (const [name, fn] of checks) await check(name, fn);

@@ -143,15 +143,22 @@ await check("closing the watcher stops the distro-side loop", async () => {
   const watch = arm(path);
   await watch.armed;
   await watch.close();
-  // close() kills wsl.exe; the loop notices the closed pipe on its next
-  // heartbeat (intervalSeconds 1) and exits through the PIPE trap.
-  await new Promise((resolve) => setTimeout(resolve, 2500));
+  // close() sends the loop's announced PID a TERM through a second wsl.exe
+  // (and kills the transport). Each probe is a fresh wsl.exe launch, so poll
+  // for the exit instead of trusting one sample.
   let out = "";
-  try {
-    out = execFileSync("wsl.exe", ["-d", distro, "--exec", "pgrep", "-f", path], { encoding: "utf8" }).trim();
-  } catch {
-    // pgrep exits 1 when nothing matches.
-  }
+  const deadline = Date.now() + 6000;
+  do {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    try {
+      // Match the loop's own argv (the script text names its stamp), not the
+      // pgrep wrapper whose argv contains this escaped pattern or the path.
+      out = execFileSync("wsl.exe", ["-d", distro, "--exec", "pgrep", "-f", "wsl-watch\\.\\$\\$\\.stamp"], { encoding: "utf8" }).trim();
+    } catch {
+      // pgrep exits 1 when nothing matches.
+      out = "";
+    }
+  } while (out !== "" && Date.now() < deadline);
   assert.equal(out, "", `the loop is still alive: ${out}`);
 });
 

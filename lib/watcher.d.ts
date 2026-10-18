@@ -25,6 +25,9 @@
  *     exited. Without it a vanished target would sit armed forever — `find`
  *     over a missing directory prints nothing, indistinguishable from "no
  *     changes" — so the loop says so and the host reports it.
+ *   - `P <pid>` — the loop shell's PID, sent before READY. The host uses it to
+ *     stop the loop with a second `wsl.exe` on close: killing the transport
+ *     alone does not reliably close the distro-side pipe.
  *   - `H` — HEARTBEAT: liveness only, ignored by the host. It exists so the
  *     loop notices a closed stdout pipe: the host's close kills `wsl.exe` but
  *     cannot signal the distro-side shell, and without a write that shell

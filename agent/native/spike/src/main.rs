@@ -187,6 +187,98 @@ fn version_of(path: &str) -> Option<String> {
     ))
 }
 
+
+fn list_records(directory: &str) -> Result<Vec<u8>, (String, String)> {
+    let resolved = fs::canonicalize(directory).map_err(|error| {
+        (reason_for(&error).to_string(), format!("cannot list \"{directory}\": {error}"))
+    })?;
+    let entries = fs::read_dir(&resolved).map_err(|error| {
+        (reason_for(&error).to_string(), format!("cannot list \"{directory}\": {error}"))
+    })?;
+    let mut output = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| (reason_for(&error).to_string(), format!("cannot list \"{directory}\": {error}")))?;
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path).map_err(|error| {
+            (reason_for(&error).to_string(), format!("cannot list \"{directory}\": {error}"))
+        })?;
+        let file_type = metadata.file_type();
+        let kind = if file_type.is_file() {
+            "f"
+        } else if file_type.is_dir() {
+            "d"
+        } else if file_type.is_symlink() {
+            "l"
+        } else if file_type.is_fifo() {
+            "p"
+        } else if file_type.is_socket() {
+            "s"
+        } else if file_type.is_block_device() {
+            "b"
+        } else if file_type.is_char_device() {
+            "c"
+        } else {
+            "o"
+        };
+        output.extend_from_slice(
+            format!(
+                "{}\t{}\t{}\t{}\t{}.{:09}\t{}.{:09}\t{}\0",
+                kind,
+                metadata.size(),
+                metadata.dev(),
+                metadata.ino(),
+                metadata.mtime(),
+                metadata.mtime_nsec(),
+                metadata.ctime(),
+                metadata.ctime_nsec(),
+                path.to_string_lossy()
+            )
+            .as_bytes(),
+        );
+    }
+    Ok(output)
+}
+
+fn resolve_path(path: &str) -> Result<String, (String, String)> {
+    if let Ok(resolved) = fs::canonicalize(path) {
+        return Ok(resolved.to_string_lossy().into_owned());
+    }
+    let mut current = Path::new(path).to_path_buf();
+    let mut missing: Vec<String> = Vec::new();
+    loop {
+        match fs::canonicalize(&current) {
+            Ok(resolved) => {
+                if missing.iter().any(|part| part == "..") {
+                    return Err((
+                        "notfound".to_string(),
+                        format!("cannot resolve \"{path}\": parent traversal crosses a missing directory"),
+                    ));
+                }
+                let mut result = resolved.to_string_lossy().into_owned();
+                for part in missing.iter().rev() {
+                    if !result.ends_with('/') {
+                        result.push('/');
+                    }
+                    result.push_str(part);
+                }
+                return Ok(result);
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                let Some(name) = current.file_name() else {
+                    return Err((reason_for(&error).to_string(), format!("cannot resolve \"{path}\": {error}")));
+                };
+                missing.push(name.to_string_lossy().into_owned());
+                if !current.pop() {
+                    return Err((reason_for(&error).to_string(), format!("cannot resolve \"{path}\": {error}")));
+                }
+            }
+            Err(error) => {
+                return Err((reason_for(&error).to_string(), format!("cannot resolve \"{path}\": {error}")));
+            }
+        }
+    }
+}
+
 fn handle_fs(
     id: String,
     op: String,
@@ -293,6 +385,20 @@ fn handle_fs(
             }
             let _ = fs::remove_dir_all(&staging);
             write_line(&out, &format!("RES|{id}|0|||0|0"));
+        }
+        "list" => {
+            let path = text(0);
+            match list_records(&path) {
+                Ok(records) => write_line(&out, &format!("RES|{id}|0|{}||0|0", b64_encode(&records))),
+                Err((reason, message)) => fs_fail(&out, &id, &reason, &message),
+            }
+        }
+        "realpath" => {
+            let path = text(0);
+            match resolve_path(&path) {
+                Ok(resolved) => write_line(&out, &format!("RES|{id}|0|{}||0|0", b64_encode(resolved.as_bytes()))),
+                Err((reason, message)) => fs_fail(&out, &id, &reason, &message),
+            }
         }
         _ => write_line(&out, &format!("ERR|{id}|protocol|{}", b64_encode(format!("FS op not in this spike: {op}").as_bytes()))),
     }

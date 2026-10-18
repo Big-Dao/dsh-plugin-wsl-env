@@ -218,6 +218,25 @@ const parseStat = (buffer) => {
   };
 };
 
+const parseList = (buffer) =>
+  buffer
+    .toString()
+    .split("\0")
+    .filter(Boolean)
+    .map((record) => {
+      const fields = record.split("\t");
+      return {
+        type: fields[0],
+        size: Number(fields[1]),
+        dev: fields[2],
+        ino: fields[3],
+        mtime: ns(fields[4]),
+        ctime: ns(fields[5]),
+        path: fields[6],
+      };
+    })
+    .sort((a, b) => a.path.localeCompare(b.path));
+
 const ns = (time) => {
   const [seconds, fraction = ""] = String(time).split(".");
   return `${seconds}.${(fraction + "000000000").slice(0, 9)}`;
@@ -292,6 +311,58 @@ await check("FS stat of a missing path reports dsh-fs|notfound", async () => {
     assert.equal(result.exitCode, 1);
     assert.match(result.stderr.toString(), /^dsh-fs\|notfound\|/m);
     await session.close();
+  }
+});
+
+
+await check("FS list and realpath match the shell agent", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spike-fs-l-"));
+  try {
+    const file = join(root, "a.txt");
+    const sub = join(root, "sub");
+    const link = join(root, "link");
+    writeFileSync(file, "hello");
+    mkdirSync(sub);
+    symlinkSync(file, link);
+    const results = {};
+    for (const [name, command, args] of [["native", binary, []], ["shell", "sh", [shellAgent]]]) {
+      const session = new Session(command, args);
+      await session.hello;
+      const list = parseList((await session.fs({ op: "list", args: [root] })).stdout);
+      const realFile = (await session.fs({ op: "realpath", args: [file] })).stdout.toString();
+      const realLink = (await session.fs({ op: "realpath", args: [link] })).stdout.toString();
+      const realDir = (await session.fs({ op: "realpath", args: [sub] })).stdout.toString();
+      const missingTarget = join(root, "missing", "child");
+      const missing = (await session.fs({ op: "realpath", args: [missingTarget] })).stdout.toString();
+      results[name] = { list, realFile, realLink, realDir, missing };
+      await session.close();
+    }
+    assert.deepEqual(results.native.list, results.shell.list, "list records match");
+    assert.equal(results.native.realFile, results.shell.realFile);
+    assert.equal(results.native.realLink, results.shell.realLink);
+    assert.equal(results.native.realDir, results.shell.realDir);
+    assert.equal(results.native.missing, results.shell.missing);
+    assert.equal(results.native.realLink, results.native.realFile);
+    assert.ok(results.native.missing.endsWith("/missing/child"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+await check("FS realpath refuses a missing suffix containing ..", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spike-fs-r-"));
+  try {
+    const target = `${root}/missing/../x`;
+    for (const [command, args] of [[binary, []], ["sh", [shellAgent]]]) {
+      const session = new Session(command, args);
+      await session.hello;
+      const result = await session.fs({ op: "realpath", args: [target] });
+      assert.equal(result.exitCode, 1);
+      assert.match(result.stderr.toString(), /^dsh-fs\|notfound\|/m);
+      await session.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

@@ -57,6 +57,8 @@ import { sharedAgent } from "./agent-shared.js";
 import { AgentSubstrate } from "./fs-substrate.js";
 import { FsCodedError } from "./fsio-text.js";
 import { confinedAgent } from "./agent-confined.js";
+import { SessionRuntimes, sessionRuntimes } from "./session-runtime.js";
+import type { SessionRuntimeEntry } from "./session-runtime.js";
 // `runCapture` and distro discovery live in ./wsl.js so the directory picker
 // can use them without pulling this file's executor and filesystem peers in.
 import { defaultDistro, defaultShell, linuxHomePath, shellArgs, workdirFailure, wslErrorCode } from "./wsl.js";
@@ -207,6 +209,8 @@ export interface WslShellExecutorConfig {
   graceMs: { get(): number };
   /** Whether execution prefers the resident agent. */
   agent: boolean;
+  /** Whether commands run in one persistent session scope (ADR 0001). */
+  sessionSandbox: boolean;
 }
 
 /**
@@ -321,6 +325,16 @@ export class WslShellExecutor
      * decoration are identical on both paths.
      */
     agent: z.boolean().default(true),
+    /**
+     * Run this session's commands in one persistent systemd user scope (ADR
+     * 0001): background processes survive the command that started them, `/tmp`
+     * is the distro's real `/tmp` under workspace-write, and `ps` sees the
+     * session. The executor holds the runtime until the session's scope
+     * disposes, then stops it. Requires systemd, a reachable user manager and
+     * `Linger`; the preflight is not wired yet, so a platform that cannot honor
+     * it surfaces systemd's own error. Off by default; requires `agent: true`.
+     */
+    sessionSandbox: z.boolean().default(false),
   });
 
   /** Cached default distro, resolved once from `wsl.exe -l -q`. */
@@ -333,6 +347,10 @@ export class WslShellExecutor
   declare mode: SandboxMode | undefined;
   /** The distro-side confinement, or nothing when the operator opted out. */
   declare sandbox: InstanceType<typeof WslSandbox> | undefined;
+  /** The session-runtime registry; tests substitute it. */
+  declare sessionRuntimes: SessionRuntimes;
+  /** The runtimes this executor holds, by registry key. */
+  declare sessionRuntimeEntries: Map<string, SessionRuntimeEntry>;
   /**
    * Per-process confinement facts retained until settlement. Overlapping calls
    * can carry different policies, so a shared latest-wrap value would classify
@@ -352,6 +370,11 @@ export class WslShellExecutor
     this.mode = config.sandbox ? ctx.sandboxPolicy.defaultMode : undefined;
     this.sandbox = config.sandbox ? new WslSandbox({ wslPath: config.wslPath }) : undefined;
     this.processFacts = new Map();
+    this.sessionRuntimes = sessionRuntimes;
+    this.sessionRuntimeEntries = new Map();
+    // The preset realm disposes when the session ends; the scope must go with
+    // it, or a dev server outlives the session that started it.
+    ctx.effect(() => () => this.disposeSessionRuntimes().catch(() => {}), "wsl session runtimes");
   }
 
   /**
@@ -431,6 +454,52 @@ export class WslShellExecutor
    */
   executionAgent(distro: string): WslAgent {
     return sharedAgent(distro);
+  }
+
+  /**
+   * The persistent session runtime for one policy, when `sessionSandbox` is
+   * on. The executor holds one reference per `(distro, workspace, policy)` and
+   * releases them when the session's scope disposes.
+   *
+   * @param policy - the resolved file-effect policy, when the executor has one.
+   * @param resolved - the resolved spec, for the fallback workspace.
+   * @param distro - the resolved distro name.
+   * @returns the runtime entry, or undefined when the mode is off.
+   */
+  sessionRuntimeFor(
+    policy: { mode: string, workspaceRoot: string } | undefined,
+    resolved: WslExecSpec,
+    distro: string,
+  ): SessionRuntimeEntry | undefined {
+    const config = this.config as unknown as WslShellExecutorConfig;
+    if (!config.sessionSandbox) return undefined;
+    const mode = policy?.mode ?? "danger-full-access";
+    const workspaceRoot = policy?.workspaceRoot ?? (configuredCwd(this.config) || resolved.workdir);
+    const key = SessionRuntimes.key({ distro, workspaceRoot, mode, maskWindowsDrive: config.maskWindowsDrive });
+    const held = this.sessionRuntimeEntries.get(key);
+    if (held !== undefined) return held;
+    const entry = this.sessionRuntimes.acquire({
+      distro,
+      wslPath: config.wslPath,
+      workspaceRoot,
+      mode,
+      maskWindowsDrive: config.maskWindowsDrive,
+    });
+    this.sessionRuntimeEntries.set(key, entry);
+    return entry;
+  }
+
+  /**
+   * Release every runtime this executor holds, stopping each scope. Called
+   * from the session's dispose hook; public so tests and shutdown paths can
+   * await it.
+   *
+   * @returns resolved once every runtime is torn down.
+   */
+  async disposeSessionRuntimes(): Promise<void> {
+    const entries = [...this.sessionRuntimeEntries.values()];
+    this.sessionRuntimeEntries.clear();
+    for (const entry of entries) await this.sessionRuntimes.release(entry.key);
   }
 
   /**
@@ -747,14 +816,23 @@ export class WslShellExecutor
       ? await this.sandbox.confine(this.distroArgv(resolved, shell), { ...policy, mode: policy.mode }, { distro, signal: resolved.signal })
       : undefined;
     const mode = policy?.mode;
+    const runtime = this.sessionRuntimeFor(policy, resolved, distro);
+    const agent = runtime !== undefined ? runtime.agent : await this.executionAgent(distro);
+    // A session runtime's own bwrap profile applies the mounts, so the
+    // command must NOT be wrapped a second time: the per-command probe still
+    // runs (it is the bwrap availability check and the denial facts), but its
+    // argv is discarded.
+    const argv = runtime !== undefined
+      ? this.distroArgv(resolved, shell)
+      : confined !== undefined ? confined.argv : this.distroArgv(resolved, shell);
     const execution = agentExecutionHandle({
-      agent: await this.executionAgent(distro),
+      agent,
       // The one-shot path converts the spec's workdir into the distro's
       // coordinate system inside argv(); the agent carries the cwd as a frame
       // field, so the SAME conversion happens here — a raw UNC must never
       // reach `chdir` (that is the bug this line fixes).
       cwd: toLinuxPath(resolved.workdir, { distro }),
-      argv: confined !== undefined ? confined.argv : this.distroArgv(resolved, shell),
+      argv,
       timeoutMs: resolved.timeoutMs,
       // The agent enforces the collect budget distro-side (the EXEC frame
       // carries it); `maxSpillBytes` stays one-shot-only — the agent path has

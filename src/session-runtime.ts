@@ -79,6 +79,8 @@ export interface SessionRuntimeOptions {
     idleMs: number;
     /** The explicit client lease. */
     leaseMs: number;
+    /** The prefix has no PID namespace, so USR1 can reach the agent. */
+    signalable: boolean;
   }) => WslAgent;
   /** Stop the scope; tests record it. */
   stopScope?: (options: { wslPath: string, distro: string, unit: string }) => void;
@@ -87,7 +89,7 @@ export interface SessionRuntimeOptions {
 }
 
 /** The default agent factory: the same script/digest the shared resident pins. */
-const spawnSessionAgent = (options: { distro: string, wslPath: string, argvPrefix: string[], idleMs: number, leaseMs: number }): WslAgent =>
+const spawnSessionAgent = (options: { distro: string, wslPath: string, argvPrefix: string[], idleMs: number, leaseMs: number, signalable: boolean }): WslAgent =>
   new WslAgent({
     distro: options.distro,
     wslPath: options.wslPath,
@@ -96,6 +98,7 @@ const spawnSessionAgent = (options: { distro: string, wslPath: string, argvPrefi
     argvPrefix: options.argvPrefix,
     idleMs: options.idleMs,
     leaseMs: options.leaseMs,
+    signalable: options.signalable,
   });
 
 /** The default stop: a second `wsl.exe` asks the user manager to stop the unit. */
@@ -177,6 +180,7 @@ export class SessionRuntimes {
       argvPrefix: prefix,
       idleMs: 0,
       leaseMs: request.leaseMs ?? 0,
+      signalable: true,
     });
     const entry: SessionRuntimeEntry = { key, unit, agent, distro: request.distro, wslPath, refs: 1 };
     this.runtimes.set(key, entry);

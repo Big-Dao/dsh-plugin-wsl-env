@@ -112,8 +112,9 @@ and session end cannot stop the scope without killing the others; it is kept
 as a fallback if the per-session cost proves unacceptable.
 
 The launcher builders and the refcounted registry have landed
-(`src/session-scope.ts`, `src/session-runtime.ts`, with unit tests); the
-provider wiring and preflight are the next change.
+(`src/session-scope.ts`, `src/session-runtime.ts`, with unit tests), and the
+shell executor is wired behind the `sessionSandbox` flag (off by default).
+The preflight and the filesystem provider's unification are the next change.
 
 ## Consequences
 
@@ -145,9 +146,9 @@ provider wiring and preflight are the next change.
 
 1. **Spike (this ADR + probe).** Run the systemd leg in a real WSL terminal;
    record `/tmp`, background-process and `ps` results.
-2. **Launcher.** Add the scope argv/stop builder and the unit-name generator,
-   with pure tests; wire it behind a `sessionSandbox` config flag (default
-   off).
+2. **Launcher (done).** The scope argv/stop builder, the unit-name generator
+   and the refcounted registry are in place; the shell executor is wired
+   behind a `sessionSandbox` config flag (default off).
 3. **Preflight.** Detect systemd, the user manager, `Linger`, and
    `systemd-run --user`; refuse with the remedy when the flag is on and the
    platform cannot honor it.

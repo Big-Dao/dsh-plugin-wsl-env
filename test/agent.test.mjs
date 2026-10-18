@@ -839,6 +839,32 @@ checkReg("a PID-namespaced resident is never signalled by its HELLO pid", async 
   await agent.close();
 });
 
+checkReg("a prefixed but PID-shared session runtime is signalable", async () => {
+  /** @type {Array<{ wslPath: string, distro: string, pid: number, signal: NodeJS.Signals }>} */
+  const signals = [];
+  const child = new FakeAgentProcess({ helloPid: 11, hangOnExec: true });
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({
+    ...CONFIG,
+    argvPrefix: ["systemd-run", "--user", "--scope", "--"],
+    signalable: true,
+    spawnTransport: transport,
+    signalTransport: (options) => signals.push(options),
+  });
+  const controller = new AbortController();
+  const run = agent.exec({ cwd: "/", argv: ["sleep", "30"], timeoutMs: 0, signal: controller.signal }).then(
+    () => {
+      throw new Error("should not have completed");
+    },
+    (error) => error,
+  );
+  await flush();
+  controller.abort(new Error("stop"));
+  await run;
+  assert.deepEqual(signals, [{ wslPath: "wsl.exe", distro: "ubuntu", pid: 11, signal: "SIGUSR1" }]);
+  await agent.close();
+});
+
 checkReg("the default signal path runs a second wsl.exe with the cancel argv", async () => {
   if (process.platform === "win32") return;
   const dir = mkdtempSync(join(tmpdir(), "wsl-signal-"));

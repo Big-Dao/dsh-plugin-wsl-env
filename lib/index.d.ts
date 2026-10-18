@@ -46,6 +46,8 @@ import { FsError } from "@deepseek-ai/dsh-fs";
 import { WslSandbox } from "./sandbox.js";
 import type { WslAgent } from "./agent.js";
 import { AgentSubstrate } from "./fs-substrate.js";
+import { SessionRuntimes } from "./session-runtime.js";
+import type { SessionRuntimeEntry } from "./session-runtime.js";
 import type { Context } from "@deepseek-ai/cordis";
 import type { FsDirEntry, FsEditOutcome, FsEditRequest, FsInfo, FsPathInfo, FsTarget, FsVersion, FsWriteIntent, FsWriteOutcome } from "@deepseek-ai/dsh-fs";
 import type { SandboxExecutionPolicy, SandboxMode } from "@deepseek-ai/dsh-sandbox";
@@ -125,6 +127,8 @@ export interface WslShellExecutorConfig {
     };
     /** Whether execution prefers the resident agent. */
     agent: boolean;
+    /** Whether commands run in one persistent session scope (ADR 0001). */
+    sessionSandbox: boolean;
 }
 /**
  * The upstream executor's spawn-spec builder, re-opened for this subclass —
@@ -230,6 +234,16 @@ export declare class WslShellExecutor extends LocalBashExecutor {
          * decoration are identical on both paths.
          */
         agent: z<boolean, boolean, "defined">;
+        /**
+         * Run this session's commands in one persistent systemd user scope (ADR
+         * 0001): background processes survive the command that started them, `/tmp`
+         * is the distro's real `/tmp` under workspace-write, and `ps` sees the
+         * session. The executor holds the runtime until the session's scope
+         * disposes, then stops it. Requires systemd, a reachable user manager and
+         * `Linger`; the preflight is not wired yet, so a platform that cannot honor
+         * it surfaces systemd's own error. Off by default; requires `agent: true`.
+         */
+        sessionSandbox: z<boolean, boolean, "defined">;
     }>>, Schemastery.ObjectT<NoInfer<{
         /** Distro name; empty means WSL's own default distro. */
         distro: z<string, string, "defined">;
@@ -294,6 +308,16 @@ export declare class WslShellExecutor extends LocalBashExecutor {
          * decoration are identical on both paths.
          */
         agent: z<boolean, boolean, "defined">;
+        /**
+         * Run this session's commands in one persistent systemd user scope (ADR
+         * 0001): background processes survive the command that started them, `/tmp`
+         * is the distro's real `/tmp` under workspace-write, and `ps` sees the
+         * session. The executor holds the runtime until the session's scope
+         * disposes, then stops it. Requires systemd, a reachable user manager and
+         * `Linger`; the preflight is not wired yet, so a platform that cannot honor
+         * it surfaces systemd's own error. Off by default; requires `agent: true`.
+         */
+        sessionSandbox: z<boolean, boolean, "defined">;
     }>>, "plain">;
     /** Cached default distro, resolved once from `wsl.exe -l -q`. */
     resolvedDistro: string;
@@ -305,6 +329,10 @@ export declare class WslShellExecutor extends LocalBashExecutor {
     mode: SandboxMode | undefined;
     /** The distro-side confinement, or nothing when the operator opted out. */
     sandbox: InstanceType<typeof WslSandbox> | undefined;
+    /** The session-runtime registry; tests substitute it. */
+    sessionRuntimes: SessionRuntimes;
+    /** The runtimes this executor holds, by registry key. */
+    sessionRuntimeEntries: Map<string, SessionRuntimeEntry>;
     /**
      * Per-process confinement facts retained until settlement. Overlapping calls
      * can carry different policies, so a shared latest-wrap value would classify
@@ -358,6 +386,28 @@ export declare class WslShellExecutor extends LocalBashExecutor {
      * @returns the shared agent.
      */
     executionAgent(distro: string): WslAgent;
+    /**
+     * The persistent session runtime for one policy, when `sessionSandbox` is
+     * on. The executor holds one reference per `(distro, workspace, policy)` and
+     * releases them when the session's scope disposes.
+     *
+     * @param policy - the resolved file-effect policy, when the executor has one.
+     * @param resolved - the resolved spec, for the fallback workspace.
+     * @param distro - the resolved distro name.
+     * @returns the runtime entry, or undefined when the mode is off.
+     */
+    sessionRuntimeFor(policy: {
+        mode: string;
+        workspaceRoot: string;
+    } | undefined, resolved: WslExecSpec, distro: string): SessionRuntimeEntry | undefined;
+    /**
+     * Release every runtime this executor holds, stopping each scope. Called
+     * from the session's dispose hook; public so tests and shutdown paths can
+     * await it.
+     *
+     * @returns resolved once every runtime is torn down.
+     */
+    disposeSessionRuntimes(): Promise<void>;
     /**
      * The argv that runs INSIDE the distro for one spec: the resolved shell, its
      * login/command flags, and the command string. This is the argv a

@@ -36,10 +36,10 @@ const runCheck = async (name, fn) => {
 
 /**
  * A registry over recording fakes.
- * @returns {{ registry: SessionRuntimes, spawns: Array<{ distro: string, wslPath: string, argvPrefix: string[], idleMs: number, leaseMs: number }>, stops: Array<{ wslPath: string, distro: string, unit: string }>, closes: number, events: string[] }} the wiring.
+ * @returns {{ registry: SessionRuntimes, spawns: Array<{ distro: string, wslPath: string, argvPrefix: string[], idleMs: number, leaseMs: number, signalable: boolean }>, stops: Array<{ wslPath: string, distro: string, unit: string }>, closes: number, events: string[] }} the wiring.
  */
 const harness = () => {
-  /** @type {Array<{ distro: string, wslPath: string, argvPrefix: string[], idleMs: number, leaseMs: number }>} */
+  /** @type {Array<{ distro: string, wslPath: string, argvPrefix: string[], idleMs: number, leaseMs: number, signalable: boolean }>} */
   const spawns = [];
   /** @type {Array<{ wslPath: string, distro: string, unit: string }>} */
   const stops = [];
@@ -87,6 +87,7 @@ check("the same key is one runtime, refcounted, with the scope + mount prefix", 
   ]);
   assert.equal(spawns[0]?.idleMs, 0, "the runtime lives for the session, not an idle window");
   assert.equal(spawns[0]?.leaseMs, 0);
+  assert.equal(spawns[0]?.signalable, true, "no PID namespace, so the agent stays cancellable");
   const prefix = spawns[0]?.argvPrefix ?? [];
   const bwrap = prefix.indexOf("bwrap");
   assert.ok(bwrap > 0, "the mount profile follows the scope prefix");

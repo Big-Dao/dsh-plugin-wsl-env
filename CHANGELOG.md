@@ -28,6 +28,15 @@ from it.
 
 ### Added
 
+- **`sessionSandbox` runs one session's commands in one scope.** With the key
+  on, the shell executor acquires the runtime for `(distro, workspace,
+  policy)` on the first command, reuses it for the session, runs the command
+  WITHOUT the per-command bwrap wrap (the runtime's own mounts confine it),
+  and releases it from the preset scope's disposer — closing the agent and
+  stopping the unit, whose cgroup reaps the session's leftovers. Off by
+  default; requires `agent: true`, systemd, a reachable user manager and
+  `Linger`; the preflight is not wired yet.
+
 - **The session-runtime registry.** `src/session-runtime.ts` refcounts one
   agent per `(distro, workspace, policy)`, composes the systemd user scope
   prefix with a bwrap mount profile that avoids a PID namespace (and binds the
@@ -35,8 +44,9 @@ from it.
   agent and then stopping the scope. `--unshare-pid` is now a profile option
   (default true), and the agent accepts an explicit lease independent of the
   idle close. Tests cover the refcount, the mode-specific mounts, the mask in
-  the key, the explicit lease, and the close-then-stop order. Not wired into
-  the providers yet.
+  the key, the explicit lease, and the close-then-stop order. It is wired into
+  the shell executor behind `sessionSandbox`; the preflight and the filesystem
+  provider's unification are next.
 
 - **The session-scoped sandbox's launcher primitives.** `src/session-scope.ts`
   builds the systemd user unit name, the `systemd-run --user --scope` prefix,

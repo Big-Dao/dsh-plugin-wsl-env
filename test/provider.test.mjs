@@ -162,10 +162,10 @@ function makeFs({ sandbox = true, restrictToDistro = true, policy } = {}) {
 
 /**
  * An executor whose agent and confinement are fakes at the seam.
- * @param {{ sandbox?: boolean }} [options] - the executor switch.
+ * @param {{ sandbox?: boolean, sessionSandbox?: boolean }} [options] - the executor switches.
  * @returns {{ executor: WslShellExecutor, agent: ScriptedAgent, agentCalls: AgentFrame[] }} the executor, its scripted frame-runner, and every frame it saw.
  */
-function makeExecutor({ sandbox = true } = {}) {
+function makeExecutor({ sandbox = true, sessionSandbox = false } = {}) {
   const policy = { mode: "workspace-write", workspaceRoot: WORKSPACE };
   const ctx = new Context();
   ctx.provide("sandboxPolicy", { defaultMode: policy.mode, resolve: () => policy });
@@ -174,6 +174,7 @@ function makeExecutor({ sandbox = true } = {}) {
     shell: "/bin/zsh",
     sandbox,
     agent: true,
+    sessionSandbox,
   }));
   /** @type {AgentFrame[]} */
   const agentCalls = [];
@@ -546,6 +547,47 @@ check("a confined agent command runs the confined argv in the distro coordinate"
   assert.equal(frame.cwd, "/home/andy/proj", "the UNC never reaches chdir — the agent carries the Linux path");
   assert.equal(frame.argv[0], "/usr/bin/bwrap", "the confined argv runs, not the raw shell line");
   assert.deepEqual(factsOf(result), { mode: "workspace-write", denied: false, enforcement: "full", windowsDrive: "visible" });
+});
+
+check("with sessionSandbox, the command runs on the session runtime without the per-command wrap", async () => {
+  const { executor, agentCalls } = makeExecutor({ sessionSandbox: true });
+  /** @type {Array<{ distro: string, wslPath: string, workspaceRoot: string, mode: string, maskWindowsDrive?: boolean }>} */
+  const acquired = [];
+  /** @type {string[]} */
+  const released = [];
+  /** @type {AgentFrame[]} */
+  const runtimeCalls = [];
+  const runtimeAgent = asAgent({
+    exec: async ({ cwd, argv, timeoutMs, maxOutputBytes }) => {
+      runtimeCalls.push({ cwd, argv, timeoutMs, maxOutputBytes });
+      return { exitCode: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), truncated: { stdout: false, stderr: false } };
+    },
+  });
+  executor.sessionRuntimes = /** @type {WslShellExecutor["sessionRuntimes"]} */ (/** @type {unknown} */ ({
+    /** @param {{ distro: string, wslPath: string, workspaceRoot: string, mode: string, maskWindowsDrive?: boolean }} request - the runtime request. */
+    acquire: (request) => {
+      acquired.push(request);
+      return { key: "k", unit: "u", agent: runtimeAgent, distro: request.distro, wslPath: "wsl.exe", refs: 1 };
+    },
+    /** @param {string} key - the registry key. */
+    release: async (key) => {
+      released.push(key);
+    },
+  }));
+  const request = spec({ command: "echo hi", workdir: WORKSPACE, timeoutMs: 5000, sandboxPolicy: { mode: "workspace-write", workspaceRoot: WORKSPACE } });
+  const first = await executor.execute(request);
+  await first.result();
+  assert.equal(agentCalls.length, 0, "the shared agent is not used");
+  assert.equal(runtimeCalls.length, 1, "the session runtime ran the command");
+  assert.equal(runtimeCalls[0]?.argv[0], "/bin/zsh", "the runtime's own mounts confine; no per-command bwrap");
+  assert.equal(acquired.length, 1);
+  assert.equal(acquired[0]?.mode, "workspace-write");
+  assert.equal(acquired[0]?.workspaceRoot, WORKSPACE);
+  const second = await executor.execute(request);
+  await second.result();
+  assert.equal(acquired.length, 1, "one runtime per session key");
+  await executor.disposeSessionRuntimes();
+  assert.deepEqual(released, ["k"], "disposing the executor releases the runtime");
 });
 
 check("the agent frame carries the resolved maxOutputBytes, not the volatile wrapper", async () => {

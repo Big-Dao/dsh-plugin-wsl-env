@@ -69,6 +69,8 @@ export interface SessionRuntimeOptions {
         idleMs: number;
         /** The explicit client lease. */
         leaseMs: number;
+        /** The prefix has no PID namespace, so USR1 can reach the agent. */
+        signalable: boolean;
     }) => WslAgent;
     /** Stop the scope; tests record it. */
     stopScope?: (options: {

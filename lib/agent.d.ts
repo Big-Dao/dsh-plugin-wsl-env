@@ -153,6 +153,13 @@ export declare class WslAgent {
     }) => void) | undefined;
     /** The agent shell's PID from its HELLO, when a second wsl.exe can address it. */
     agentPid: number | undefined;
+    /**
+     * Whether a second `wsl.exe` can deliver `USR1` to the agent's HELLO pid.
+     * True for the plain agent; false for a resident inside a PID namespace. A
+     * session runtime has a prefix (scope + mounts) but no PID namespace, so it
+     * opts in explicitly.
+     */
+    signalable: boolean;
     /** The maximum requests allowed in flight on this resident. */
     maxPending: number;
     /** The live resident process, when any. */
@@ -209,6 +216,13 @@ export declare class WslAgent {
          * Empty for the plain agent.
          */
         argvPrefix?: string[];
+        /**
+         * Whether a second `wsl.exe` can signal the agent's pid. Defaults to
+         * "true when the argv prefix is empty": the plain agent shares the distro's
+         * PID namespace, a confined resident does not, and a session runtime has a
+         * prefix but no PID namespace and must opt in.
+         */
+        signalable?: boolean;
         /** Hard ceiling in bytes on one stdout protocol line; defaults to {@link MAX_FRAME_BYTES}. */
         frameCapBytes?: number;
         /** Injectable process factory for tests. */
@@ -362,10 +376,11 @@ export declare class WslAgent {
      * a second `wsl.exe` is the only channel that reaches the agent while it is
      * blocked in `wait`.
      *
-     * Only the plain agent is addressable: a confined resident runs inside a PID
-     * namespace whose PIDs do not exist in the distro, so signalling its HELLO
-     * PID could hit an unrelated process. There the KILL frame remains the
-     * (delayed) fallback.
+     * Only an agent that shares the distro's PID namespace is addressable: the
+     * plain agent, or a session runtime (its prefix is a scope plus mounts, but
+     * no PID namespace). A confined resident runs inside a PID namespace whose
+     * PIDs do not exist in the distro, so signalling its HELLO PID could hit an
+     * unrelated process; there the KILL frame remains the (delayed) fallback.
      *
      * @param signal - the signal to deliver (`SIGUSR1` is the cancel trap).
      */

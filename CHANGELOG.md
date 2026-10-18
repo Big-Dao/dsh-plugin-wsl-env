@@ -309,6 +309,13 @@ from it.
 
 ### Notes
 
+- Added the **native agent spike** (ADR 0002 stage 2) under
+  `agent/native/spike`: a std-only Rust event loop for HELLO/PING/SHUTDOWN/
+  SETENV/EXEC/KILL with per-request process groups. Its manual check passes 9/9
+  (concurrent EXECs, KILL without a second `wsl.exe`, timeout group kill,
+  output cut with the pipe still drained, shell differential). FS frames are
+  refused; the host is not wired; the shell agent remains the shipped peer.
+
 - Added **ADR 0002 — native in-distro agent (design)**: goals and non-goals,
   language/distribution options (Rust static binaries, copied to the user's
   cache), the v5-compatible spike and v6 concurrency protocol, the event-loop

@@ -1,7 +1,8 @@
 # ADR 0002 — Native in-distro agent (design)
 
-- **Status:** proposed — design only; implementation deferred until a trigger in
-  [When to build it](#when-to-build-it) fires
+- **Status:** proposed — design + stage-2 spike (EXEC/KILL/concurrency done;
+  FS and host wiring pending); implementation still deferred until a trigger
+  in [When to build it](#when-to-build-it) fires
 - **Date:** 2026-10-18
 - **Related:** [ADR 0001](0001-session-scoped-sandbox.md) (session runtime),
   `agent/wsl-agent.sh`, `src/agent.ts`, `src/agent-protocol.ts`
@@ -204,14 +205,37 @@ One process per agent, an event loop over stdin plus child pipes and timers:
 ## Migration
 
 1. **Design (this ADR).** No code.
-2. **Spike.** HELLO/EXEC/KILL/FS `stat`+`read`+`write` in a static Rust binary;
-   run a subset of `agent.test.mjs`; measure binary size and startup.
+2. **Spike (partial).** HELLO/PING/SETENV/EXEC/KILL and per-request process
+   groups are done in `agent/native/spike` (9/9 manual checks, 634 KB release
+   binary). FS `stat`/`read`/`write` and the host wiring remain.
 3. **Differential + concurrency.** Full matrix; v6 error/env framing; the
    concurrent write acceptance test.
 4. **Host integration.** Binary copy/verify, backend selection, `agentBackend`
    flag default `auto`; ship the binaries; probes.
 5. **Enable by default** on x64 (aarch64 after a CI build leg); keep the shell
    fallback and the flag. Only then consider retiring the shell.
+
+## Spike result (stage 2, partial)
+
+`agent/native/spike/` is a std-only Rust crate that implements `HELLO`,
+`PING`, `SHUTDOWN`, `SETENV`, `EXEC` and `KILL` with per-request process
+groups and bounded capture. `FS` frames are consumed and refused; the shell's
+stat/list/realpath record formats and the staging/expected-version write path
+are deliberately next.
+
+`agent/native/spike/test.mjs` (run manually against the built binary) passes
+9/9: HELLO; PING; EXEC exit/streams; SETENV; two concurrent EXECs with the
+short one settling first; KILL without a second `wsl.exe`; a 200 ms timeout
+killing the group promptly; a capped output that is cut while the pipe is
+still drained; and a shell-agent differential for the EXEC shape. The release
+binary is 634 KB on x86_64-unknown-linux-gnu and builds in ~2 s with no
+dependencies.
+
+What this proves: the event loop removes the shell's serial-request stall and
+the `USR1`/second-transport cancellation shape is unnecessary. What it does
+not prove: the FS substrate (the largest compatibility surface), musl/cross-
+arch builds, v6 concurrency/env framing, or the host copy/verify/backend
+integration. None of this is wired into the shipped plugin.
 
 ## When to build it
 

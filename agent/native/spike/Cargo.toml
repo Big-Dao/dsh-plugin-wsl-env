@@ -1,0 +1,9 @@
+[package]
+name = "dsh-wsl-agent-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "dsh-wsl-agent-spike"
+path = "src/main.rs"

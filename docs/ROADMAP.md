@@ -50,7 +50,7 @@ the result in the ADR.
 
 ### A9 — maintenance
 
-- Release A7 as a minor (0.11.0) through the tag workflow;
+- Release A7 as a minor (0.11.0) through the tag workflow — done;
 - `pnpm run sync:windows` after each release, then restart the app;
 - keep the probes and the documentation current.
 

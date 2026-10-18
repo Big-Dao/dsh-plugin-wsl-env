@@ -16,41 +16,44 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-18
+
+The shared read agent is the native binary (A7): unconfined reads now use the
+packaged static-musl agent with the shell as the fallback, cutting 16
+concurrent reads from 342-614 ms to 2.4-8.2 ms. The A6 FS measurement and
+metrics ship with it.
+
 ### Added
 
 - **The shared read agent is native (A7).** `WslAgent` gained an async
   `prepare()` hook; `sharedAgent` uses it to select the packaged native binary
   through `agentBackend` (`auto`/`native`), with the shell as the fallback
   (`shell`, a failed preparation, or a native HELLO/runtime failure; the reads
-  never fail closed). The A6 probe now measures 16 concurrent shared reads at
-  2.4-4.1 ms, down from 342-614 ms on the shell. The native shared agent also
+  never fail closed). The A6 probe measures 16 concurrent shared reads at
+  2.4-8.2 ms, down from 342-614 ms on the shell. The native shared agent also
   serves the picker, the subprocess activity probes and the non-session
   command path, so those inherit EXEC concurrency.
-
-### Changed
-
-- `test/probe/fs-queue.mjs` and the README/LIMITATIONS/ROADMAP describe the
-  native shared reads; `test/agent-shared.test.mjs` covers the shell selection.
-
-### Added
 
 - **`WslAgent.metrics()`.** Per-kind queue wait (sent -> ACK), execution time
   (ACK -> settle), in-flight peak, rejected and cancelled counters; the
   47-check lifecycle suite covers the counters and the reset.
 
-- **`test/probe/fs-queue.mjs`.** A live measurement of the shared shell read
-  agent and the native session-runtime agent. It shows the shared reads are
-  the batch bottleneck (16 concurrent `stat`/`read`/`list` at 342-614 ms, queue
-  up to 583 ms) while native FS ops execute in 0.2-0.3 ms. v6's lock removal
-  only takes 16 native writes from 7.7 ms to ~5 ms, so the native shared read
-  agent (v5, ~30x on batch reads) is the high-value follow-up, not v6.
+- **`test/probe/fs-queue.mjs`.** A live measurement of both FS agents. The A6
+  run showed the shared shell reads were the batch bottleneck (16 concurrent
+  `stat`/`read`/`list` at 342-614 ms, queue up to 583 ms) while native FS ops
+  execute in 0.2-0.3 ms; the A7 run measures the native shared reads at
+  2.4-8.2 ms. v6's lock removal only takes 16 native writes from 7.7 ms to
+  ~5 ms, so it stays deferred.
 
 ### Changed
 
-- **The plan after the A6 measurement: A7 (native shared reads) next, v6
+- **The plan after the A6 measurement: A7 (native shared reads) landed, v6
   deferred.** [`docs/ROADMAP.md`](docs/ROADMAP.md) records the done, next and
-  deferred steps; ADR 0002, LIMITATIONS and the READMEs point the shared-read
-  bottleneck at A7 and make the v6 deferral explicit.
+  deferred steps; ADR 0002, LIMITATIONS and the READMEs describe the native
+  shared reads and the v6 deferral.
+
+- `test/probe/fs-queue.mjs` and the README/LIMITATIONS/ROADMAP describe the
+  native shared reads; `test/agent-shared.test.mjs` covers the shell selection.
 
 ## [0.10.0] - 2026-10-18
 

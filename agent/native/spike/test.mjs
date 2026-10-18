@@ -366,6 +366,57 @@ await check("FS realpath refuses a missing suffix containing ..", async () => {
   }
 });
 
+
+const nsNoDot = (time) => {
+  const [seconds, fraction = ""] = String(time).split(".");
+  return `${seconds}${(fraction + "000000000").slice(0, 9)}`;
+};
+const versionOf = (stat) => `${stat.dev}:${stat.ino}:${stat.size}:${nsNoDot(stat.mtime)}:${nsNoDot(stat.ctime)}`;
+
+await check("FS replace re-checks the expected version and reports stale", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spike-fs-v-"));
+  try {
+    for (const [name, command, args] of [["native", binary, []], ["shell", "sh", [shellAgent]]]) {
+      const session = new Session(command, args);
+      await session.hello;
+      const file = join(root, `${name}-v.txt`);
+      const created = await session.fs({ op: "write", args: [file, "644", "no-replace", "-", "one"] });
+      assert.equal(created.exitCode, 0, `${name}: ${created.stderr}`);
+      const stat = parseStat((await session.fs({ op: "stat", args: [file] })).stdout);
+      const version = versionOf(stat);
+      const replaced = await session.fs({ op: "write", args: [file, "644", "replace", version, "two"] });
+      assert.equal(replaced.exitCode, 0, `${name} replace: ${replaced.stderr}`);
+      assert.equal(readFileSync(file, "utf8"), "two");
+      writeFileSync(file, "externally");
+      const stale = await session.fs({ op: "write", args: [file, "644", "replace", version, "three"] });
+      assert.equal(stale.exitCode, 1);
+      assert.match(stale.stderr.toString(), /^dsh-fs\|stale\|/m);
+      assert.equal(readFileSync(file, "utf8"), "externally");
+      await session.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+await check("FS write publishes a setuid mode and stat reports it", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spike-fs-m-"));
+  try {
+    for (const [command, args] of [[binary, []], ["sh", [shellAgent]]]) {
+      const session = new Session(command, args);
+      await session.hello;
+      const file = join(root, `mode-${Math.random().toString(16).slice(2)}.txt`);
+      const created = await session.fs({ op: "write", args: [file, "4755", "no-replace", "-", "mode"] });
+      assert.equal(created.exitCode, 0, created.stderr);
+      const stat = parseStat((await session.fs({ op: "stat", args: [file] })).stdout);
+      assert.equal(stat.mode, "4755");
+      await session.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 await check("the shell agent answers the same EXEC shape (differential)", async () => {
   const session = new Session("sh", [shellAgent]);
   const hello = await session.hello;

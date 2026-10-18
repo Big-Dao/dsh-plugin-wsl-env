@@ -176,7 +176,7 @@ fn stat_record(path: &str, follow: bool) -> Result<String, (String, String)> {
 fn version_of(path: &str) -> Option<String> {
     let m = fs::symlink_metadata(path).ok()?;
     Some(format!(
-        "{}:{}:{}:{}.{:09}:{}.{:09}",
+        "{}:{}:{}:{}{:09}:{}{:09}",
         m.dev(),
         m.ino(),
         m.size(),

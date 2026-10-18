@@ -1,9 +1,9 @@
 # ADR 0002 — Native in-distro agent (design)
 
-- **Status:** proposed — design + stage-2 spike (EXEC/KILL/concurrency and
-  the FS stat/lstat/read/write/list/realpath surface done; the version corner
-  matrix and host wiring pending); implementation still deferred until a
-  trigger in [When to build it](#when-to-build-it) fires
+- **Status:** proposed — design + stage-2 spike (EXEC/KILL/concurrency, the
+  FS stat/lstat/read/write/list/realpath surface and the main version/permission
+  matrix done; host wiring and musl builds pending); implementation still
+  deferred until a trigger in [When to build it](#when-to-build-it) fires
 - **Date:** 2026-10-18
 - **Related:** [ADR 0001](0001-session-scoped-sandbox.md) (session runtime),
   `agent/wsl-agent.sh`, `src/agent.ts`, `src/agent-protocol.ts`
@@ -207,9 +207,9 @@ One process per agent, an event loop over stdin plus child pipes and timers:
 
 1. **Design (this ADR).** No code.
 2. **Spike (partial).** HELLO/PING/SETENV/EXEC/KILL, per-request process
-   groups and the FS stat/lstat/read/write/list/realpath surface are done in
-   `agent/native/spike` (14/14 manual checks, 634 KB release binary). The full
-   version/permission matrix and the host wiring remain.
+   groups, the FS surface and the expected-version/mode matrix are done in
+   `agent/native/spike` (16/16 manual checks, 634 KB release binary). The host
+   wiring and musl/cross-arch builds remain.
 3. **Differential + concurrency.** Full matrix; v6 error/env framing; the
    concurrent write acceptance test.
 4. **Host integration.** Binary copy/verify, backend selection, `agentBackend`
@@ -229,7 +229,7 @@ serialized inside the agent for the v5 error channel; EXECs run concurrently
 with them.
 
 `agent/native/spike/test.mjs` (run manually against the built binary) passes
-14/14: HELLO; PING; EXEC exit/streams; SETENV; two concurrent EXECs with the
+16/16: HELLO; PING; EXEC exit/streams; SETENV; two concurrent EXECs with the
 short one settling first; KILL without a second `wsl.exe`; a 200 ms timeout
 killing the group promptly; a capped output that is cut while the pipe is
 still drained; FS stat/lstat/read matching the shell agent; a no-replace write
@@ -239,11 +239,10 @@ x86_64-unknown-linux-gnu and builds in ~2 s with no dependencies.
 
 What this proves: the event loop removes the shell's serial-request stall and
 the `USR1`/second-transport cancellation shape is unnecessary, and the core
-FS surface (stat/lstat/read/write/list/realpath) can be reproduced in the
-native process. What it does not prove: the full shell version/permission
-corner matrix, musl/cross-arch builds, v6 concurrency/env framing, or the host
-copy/verify/backend integration. None of this is wired into the shipped
-plugin.
+FS surface (stat/lstat/read/write/list/realpath, version re-check, modes) can
+be reproduced in the native process. What it does not prove: musl/cross-arch
+builds, v6 concurrency/env framing, or the host copy/verify/backend
+integration. None of this is wired into the shipped plugin.
 
 ## When to build it
 

@@ -314,11 +314,12 @@ from it.
   SETENV/EXEC/KILL with per-request process groups, plus the FS
   `stat`/`lstat`/`read`/`write`/`list`/`realpath` surface (mode, no-replace,
   expected version, staging + fsync + atomic publication; the `dsh-fs` side
-  channel in the RES stderr). Its manual check passes 14/14 (concurrent EXECs,
+  channel in the RES stderr). Its manual check passes 16/16 (concurrent EXECs,
   KILL without a second `wsl.exe`, timeout group kill, output cut with the pipe
   still drained, FS stat/lstat/read/list/realpath matching the shell,
-  write/refusal, side channel, dot-dot refusal, EXEC differential). The host
-  wiring remains; the shell agent stays the shipped peer.
+  write/refusal, side channel, dot-dot refusal, expected-version stale replace,
+  setuid mode, EXEC differential). The host wiring remains; the shell agent
+  stays the shipped peer.
 
 - Added **ADR 0002 — native in-distro agent (design)**: goals and non-goals,
   language/distribution options (Rust static binaries, copied to the user's

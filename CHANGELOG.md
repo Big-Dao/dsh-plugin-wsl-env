@@ -321,6 +321,15 @@ from it.
 
 ### Notes
 
+- **Static musl packages for x86_64 and aarch64.** The package now ships
+  `agent/native/linux-x86_64/dsh-wsl-agent` (static-pie musl, 635,752 bytes,
+  sha256 `5920bdd5…`) and `agent/native/linux-aarch64/dsh-wsl-agent` (static
+  musl, 535,136 bytes, sha256 `cf7dd150…`), both stripped. One static binary
+  runs on glibc and musl distros, so Alpine no longer depends on the shell
+  fallback. A CI job builds both (x86_64 via musl-gcc, aarch64 via
+  cargo-zigbuild), tests the x86_64 build and uploads the `native-package`
+  artifact; the committed binaries are the reviewed result.
+
 - **The native HELLO binds the process to the binary.** The native agent
   hashes `/proc/self/exe` and puts the sha256 in its HELLO digest; the host
   passes the digest it copied into the cache as `expectedDigest`, so a binary

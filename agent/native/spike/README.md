@@ -44,9 +44,10 @@ The test is not part of `pnpm test`: it needs the built binary.
 
 `wsl-shell.agentBackend: auto` (the shipped default) selects the native agent
 when a verified source exists; `native` requires it; `shell` forces the shell
-agent. The source is the packaged binary at
-`agent/native/linux-<arch>/dsh-wsl-agent` (x86_64 today; the musl and aarch64
-builds are next), or the `DSH_WSL_AGENT_NATIVE` development override. The host
+agent. The source is the packaged static-musl binary at
+`agent/native/linux-<arch>/dsh-wsl-agent` (x86_64 and aarch64; one static binary
+runs on glibc and musl distros), or the `DSH_WSL_AGENT_NATIVE` development
+override. The host
 reads the binary for the distro's `uname -m`, sha256s it, copies it into
 `~/.cache/dsh-wsl/agent/<sha>/`, verifies the digest, and executes it once under
 `</dev/null` to catch a libc mismatch before selecting it. The host sha256s the file, checks the distro architecture,
@@ -80,7 +81,8 @@ next stage.
   agent, no-replace write + refusal, the missing-path side channel, FS list
   and realpath matching the shell, the dot-dot refusal, the expected-version
   replace/stale path, a setuid mode, and a shell-agent differential for EXEC.
-- Release binary: ~673 KB; the crate builds in ~2 s with no dependencies.
+- Release binaries: static musl, ~621 KB (x86_64) and ~523 KB (aarch64);
+  the crate builds in ~2 s with no dependencies.
 - The shell agent remains the shipped peer. The host wiring above is opt-in;
   packaging (per-arch binaries), musl/cross-arch builds and the default
   rollout are still pending.

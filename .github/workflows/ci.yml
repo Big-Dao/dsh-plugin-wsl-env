@@ -115,6 +115,8 @@ jobs:
           sudo apt-get install -y musl-tools python3-pip
       - name: Build x86_64 musl
         run: cargo build --release --target x86_64-unknown-linux-musl --manifest-path agent/native/spike/Cargo.toml
+      - name: Strip the x86_64 binary
+        run: strip --strip-all agent/native/spike/target/x86_64-unknown-linux-musl/release/dsh-wsl-agent-spike
       - name: Install zigbuild
         run: |
           export PATH="$HOME/.local/bin:$PATH"

@@ -257,6 +257,31 @@ concurrency/env framing, or the event stream. The host copy/verify, the
 session-runtime factory, the packaged binaries and the default are in place;
 the shell agent remains the fallback and the shipped peer.
 
+## FS queue measurement (A6, 2026-10-18)
+
+`test/probe/fs-queue.mjs` measures both FS agents on the live machine
+(x86_64, 16 concurrent requests per row):
+
+| path | wall | queue max | per-op exec |
+|---|---|---|---|
+| shared shell `stat` | 342 ms | 324 ms | ~20 ms |
+| shared shell `read` | 418 ms | 387 ms | ~25 ms |
+| shared shell `list` | 614 ms | 583 ms | ~37 ms |
+| native `write` | 7.7 ms | 6.6 ms | 0.3 ms |
+| native `read` | 12.2 ms | 9.4 ms | 0.2 ms |
+| native `EXEC` (50 ms each) | 88 ms | 7.5 ms | 5.5 ms |
+
+The **shared shell read agent is the batch-read bottleneck**: its serial loop
+turns 16 concurrent reads into 342-614 ms with queue waits up to 583 ms. Native
+FS execution is 0.2-0.3 ms; the sequential per-op is dominated by the ~22 ms
+host round trip (the shell's sequential stat is 37.5 ms, the native's 22 ms).
+
+**v6's lock removal is marginal**: it would take 16 native writes from 7.7 ms
+to roughly 5 ms and 16 reads from 12.2 ms to roughly 8 ms. The high-value next
+step is the **native shared read agent (v5)** — same packaged binary and
+protocol, the shell as fallback, roughly 30x on batch reads — not v6. The
+single-op latency (~22 ms) is the transport, not the FS backend.
+
 ## Why it was built
 
 Built in 0.10.0. The triggers that fired were the long-build/FS-serialization

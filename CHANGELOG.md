@@ -16,6 +16,19 @@ were part of the record.
 
 ## [Unreleased]
 
+### Added
+
+- **`WslAgent.metrics()`.** Per-kind queue wait (sent -> ACK), execution time
+  (ACK -> settle), in-flight peak, rejected and cancelled counters; the
+  47-check lifecycle suite covers the counters and the reset.
+
+- **`test/probe/fs-queue.mjs`.** A live measurement of the shared shell read
+  agent and the native session-runtime agent. It shows the shared reads are
+  the batch bottleneck (16 concurrent `stat`/`read`/`list` at 342-614 ms, queue
+  up to 583 ms) while native FS ops execute in 0.2-0.3 ms. v6's lock removal
+  only takes 16 native writes from 7.7 ms to ~5 ms, so the native shared read
+  agent (v5, ~30x on batch reads) is the high-value follow-up, not v6.
+
 ## [0.10.0] - 2026-10-18
 
 The native in-distro agent is the default session-runtime backend: `agentBackend: auto`

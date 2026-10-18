@@ -59,6 +59,14 @@ export interface ExecResult {
 export interface PendingRequest {
     /** The request id, as the agent echoes it. */
     id: string;
+    /** Which metric bucket this request belongs to. */
+    kind: "fs" | "exec";
+    /** When the frame was written, for the queue measurement. */
+    sentAt: number;
+    /** When the agent ACKed it, for the execution measurement. */
+    ackedAt?: number;
+    /** Whether the metrics recorded this request's settle. */
+    measured: boolean;
     /** The frame lines (kept so a rebuild can re-send). */
     lines: string[];
     /** Settles a RES. */
@@ -79,6 +87,34 @@ export interface PendingRequest {
     cancelled: boolean;
     /** The caller was already settled; a late answer only cleans up. */
     settled: boolean;
+}
+/** Per-kind request metrics. */
+export interface RequestMetrics {
+    /** Requests that settled (successful, failed or cancelled). */
+    requests: number;
+    /** Total queue wait (sent -> ACK), ms. */
+    queueMs: number;
+    /** Largest single queue wait, ms. */
+    queueMaxMs: number;
+    /** Total execution time (ACK -> settle), ms. */
+    execMs: number;
+    /** Largest single execution time, ms. */
+    execMaxMs: number;
+    /** Settled with an error (not cancellation). */
+    failed: number;
+    /** Cancelled by the caller. */
+    cancelled: number;
+    /** Rejected before tracking: queue full, already aborted, or send failed. */
+    rejected: number;
+}
+/** The agent's cumulative request metrics. */
+export interface AgentMetrics {
+    /** FS frames. */
+    fs: RequestMetrics;
+    /** EXEC frames (commands, ping). */
+    exec: RequestMetrics;
+    /** Peak number of pending requests. */
+    inFlightMax: number;
 }
 /**
  * The Windows environment the transport starts from, pinned.
@@ -180,6 +216,8 @@ export declare class WslAgent {
     idleTimer: NodeJS.Timeout | null;
     /** The last failure, for `unavailableReason` and log messages. */
     lastError: string;
+    /** Cumulative request metrics; see {@link metrics}. */
+    requestMetrics: AgentMetrics;
     /**
      * @param config - the agent configuration.
      */
@@ -384,6 +422,38 @@ export declare class WslAgent {
      *
      * @param signal - the signal to deliver (`SIGUSR1` is the cancel trap).
      */
+    /**
+     * The cumulative request metrics: queue wait (sent -> ACK) and execution
+     * time (ACK -> settle) per request kind, plus the peak in-flight count.
+     *
+     * @returns a snapshot the caller can keep.
+     */
+    metrics(): AgentMetrics;
+    /** Reset the cumulative metrics (diagnostics/probes). */
+    resetMetrics(): void;
+    /**
+     * The metric bucket for a request kind.
+     * @param kind - fs or exec.
+     * @returns the bucket.
+     */
+    private kindMetrics;
+    /**
+     * Record a request that never entered the pending map.
+     * @param kind - the bucket.
+     */
+    private noteRejected;
+    /**
+     * Record the dequeue ACK: the request's queue wait.
+     * @param pending - the request.
+     */
+    private recordAck;
+    /**
+     * Record a settle: the requests count, the execution time (or the queue wait
+     * for a request that never ACKed), and the outcome.
+     * @param pending - the request.
+     * @param error - the failure, when any.
+     */
+    private recordSettle;
     private signalAgent;
     /**
      * Shut the agent down: SHUTDOWN first, then kill after a short grace. The

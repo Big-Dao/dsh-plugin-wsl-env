@@ -987,6 +987,43 @@ checkReg("the pending queue refuses a submission past its cap", async () => {
   await first;
 });
 
+await check("the agent records per-kind queue/exec metrics and resets them", async () => {
+  const child = new FakeAgentProcess();
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, maxPending: 1, spawnTransport: transport });
+  await agent.exec({ cwd: "/tmp", argv: ["echo", "hi"], timeoutMs: 0 });
+  await agent.fs({ op: "read", args: ["/tmp/x", "0", "16"] });
+  const metrics = agent.metrics();
+  assert.equal(metrics.exec.requests, 1);
+  assert.equal(metrics.fs.requests, 1);
+  assert.equal(metrics.inFlightMax, 1);
+  assert.ok(metrics.exec.execMs >= 0 && metrics.fs.execMs >= 0);
+  assert.ok(metrics.exec.queueMs >= 0 && metrics.fs.queueMs >= 0);
+  agent.resetMetrics();
+  assert.deepEqual(agent.metrics(), {
+    fs: { requests: 0, queueMs: 0, queueMaxMs: 0, execMs: 0, execMaxMs: 0, failed: 0, cancelled: 0, rejected: 0 },
+    exec: { requests: 0, queueMs: 0, queueMaxMs: 0, execMs: 0, execMaxMs: 0, failed: 0, cancelled: 0, rejected: 0 },
+    inFlightMax: 0,
+  });
+  await agent.close();
+});
+
+await check("rejected and cancelled requests are counted separately", async () => {
+  const child = new FakeAgentProcess({ hangOnExec: true });
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, maxPending: 1, spawnTransport: transport });
+  const controller = new AbortController();
+  const running = agent.exec({ cwd: "/tmp", argv: ["sleep", "9"], timeoutMs: 0, signal: controller.signal });
+  await flush();
+  await assert.rejects(agent.exec({ cwd: "/tmp", argv: ["true"], timeoutMs: 0 }), /max 1/u);
+  controller.abort();
+  await assert.rejects(running);
+  const metrics = agent.metrics();
+  assert.equal(metrics.exec.rejected, 1);
+  assert.equal(metrics.exec.cancelled, 1);
+  await agent.close();
+});
+
 for (const [name, fn] of checks) {
   await check(name, fn);
 }

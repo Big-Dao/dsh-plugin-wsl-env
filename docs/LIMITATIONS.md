@@ -119,6 +119,12 @@ crosses the 9p share. What to know about the one substrate there is:
   call. The session runtime path — the shipped default — is cleaned by its
   scope. A systemd-scoped one-shot (with explicit environment pass-through) is
   not shipped; prefer `agent: true` and the session runtime for long commands.
+- **Batch file reads serialize on the shared shell read agent.** Reads are
+  unconfined and go through one shell agent per distro, whose serial loop
+  turns 16 concurrent `stat`/`read`/`list` calls into 342-614 ms with queue
+  waits up to 583 ms (A6 measurement). Native FS execution is 0.2-0.3 ms; a
+  native shared read agent is the planned follow-up. v6's FS concurrency would
+  only shave the native runtime's 7.7 ms/16 writes, so it is not the fix.
 - **The native backend is the default; aarch64 is build-tested only.** The
   packaged x86_64 musl binary runs the 18-check suite in CI. The same job
   builds the aarch64 binary, but the runner cannot execute it, so its

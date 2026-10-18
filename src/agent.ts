@@ -63,6 +63,14 @@ export interface ExecResult {
 export interface PendingRequest {
   /** The request id, as the agent echoes it. */
   id: string;
+  /** Which metric bucket this request belongs to. */
+  kind: "fs" | "exec";
+  /** When the frame was written, for the queue measurement. */
+  sentAt: number;
+  /** When the agent ACKed it, for the execution measurement. */
+  ackedAt?: number;
+  /** Whether the metrics recorded this request's settle. */
+  measured: boolean;
   /** The frame lines (kept so a rebuild can re-send). */
   lines: string[];
   /** Settles a RES. */
@@ -83,6 +91,52 @@ export interface PendingRequest {
   cancelled: boolean;
   /** The caller was already settled; a late answer only cleans up. */
   settled: boolean;
+}
+
+/** Per-kind request metrics. */
+export interface RequestMetrics {
+  /** Requests that settled (successful, failed or cancelled). */
+  requests: number;
+  /** Total queue wait (sent -> ACK), ms. */
+  queueMs: number;
+  /** Largest single queue wait, ms. */
+  queueMaxMs: number;
+  /** Total execution time (ACK -> settle), ms. */
+  execMs: number;
+  /** Largest single execution time, ms. */
+  execMaxMs: number;
+  /** Settled with an error (not cancellation). */
+  failed: number;
+  /** Cancelled by the caller. */
+  cancelled: number;
+  /** Rejected before tracking: queue full, already aborted, or send failed. */
+  rejected: number;
+}
+
+/** The agent's cumulative request metrics. */
+export interface AgentMetrics {
+  /** FS frames. */
+  fs: RequestMetrics;
+  /** EXEC frames (commands, ping). */
+  exec: RequestMetrics;
+  /** Peak number of pending requests. */
+  inFlightMax: number;
+}
+
+/**
+ * A zeroed per-kind metrics record.
+ * @returns the record.
+ */
+function emptyRequestMetrics(): RequestMetrics {
+  return { requests: 0, queueMs: 0, queueMaxMs: 0, execMs: 0, execMaxMs: 0, failed: 0, cancelled: 0, rejected: 0 };
+}
+
+/**
+ * A zeroed metrics snapshot.
+ * @returns the snapshot.
+ */
+function emptyAgentMetrics(): AgentMetrics {
+  return { fs: emptyRequestMetrics(), exec: emptyRequestMetrics(), inFlightMax: 0 };
 }
 
 /** How long a rebuilt agent has to re-answer the handshake before giving up. */
@@ -251,6 +305,8 @@ export class WslAgent {
   declare idleTimer: NodeJS.Timeout | null;
   /** The last failure, for `unavailableReason` and log messages. */
   declare lastError: string;
+  /** Cumulative request metrics; see {@link metrics}. */
+  declare requestMetrics: AgentMetrics;
 
   /**
    * @param config - the agent configuration.
@@ -332,6 +388,7 @@ export class WslAgent {
     this.rebuildUsed = false;
     this.idleTimer = null;
     this.lastError = "";
+    this.requestMetrics = emptyAgentMetrics();
   }
 
   /**
@@ -501,6 +558,7 @@ export class WslAgent {
         const pending = this.pending.get(message.id);
         if (pending) {
           pending.started = true;
+          this.recordAck(pending);
           if (pending.cancelled) this.signalAgent("SIGUSR1");
           pending.armWatchdog?.();
         }
@@ -647,9 +705,11 @@ export class WslAgent {
    *
    * @param request - the request to register.
    */
-  private track({ id, lines, resolve, reject, timeoutMs, signal }: {
+  private track({ id, kind = "exec", lines, resolve, reject, timeoutMs, signal }: {
     /** The request's id. */
     id: string,
+    /** The metric bucket. */
+    kind?: "fs" | "exec",
     /** The frame lines to write. */
     lines: string[],
     /** Settles a RES. */
@@ -662,14 +722,24 @@ export class WslAgent {
     signal?: AbortSignal,
   }): void {
     if (this.pending.size >= this.maxPending) {
+      this.noteRejected(kind);
       reject(new Error(`the resident agent has ${this.pending.size} requests in flight (max ${this.maxPending}); retry when the queue drains`));
       return;
     }
     const pending: PendingRequest = {
       id,
+      kind,
+      sentAt: performance.now(),
+      measured: false,
       lines,
-      resolve,
-      reject,
+      resolve: (result) => {
+        this.recordSettle(pending, undefined);
+        resolve(result);
+      },
+      reject: (error) => {
+        this.recordSettle(pending, error);
+        reject(error);
+      },
       watchdog: null,
       signal: signal ?? null,
       onAbort: null,
@@ -696,9 +766,11 @@ export class WslAgent {
           : null,
     };
     this.pending.set(id, pending);
+    this.requestMetrics.inFlightMax = Math.max(this.requestMetrics.inFlightMax, this.pending.size);
     if (signal) {
       if (signal.aborted) {
         this.pending.delete(id);
+        this.noteRejected(kind);
         reject(signal.reason instanceof Error ? signal.reason : new Error("aborted"));
         return;
       }
@@ -726,6 +798,7 @@ export class WslAgent {
     if (!this.writeLines(lines)) {
       this.clearPending(pending);
       this.pending.delete(pending.id);
+      this.noteRejected(kind);
       reject(new AgentUnavailableError("the agent exited before the request could be sent; it never ran"));
       return;
     }
@@ -774,7 +847,7 @@ export class WslAgent {
       ...encodeExecFrame({ id, cwd, argv, timeoutMs, maxOutputBytes }),
     ];
     return new Promise((resolve, reject) => {
-      this.track({ id, lines, resolve, reject, timeoutMs, signal });
+      this.track({ id, kind: "exec", lines, resolve, reject, timeoutMs, signal });
     });
   }
 
@@ -812,7 +885,7 @@ export class WslAgent {
     const id = `r${this.nextRequestId++}`;
     const lines = encodeFsFrame({ id, op, args, timeoutMs });
     return new Promise((resolve, reject) => {
-      this.track({ id, lines, resolve, reject, timeoutMs, signal });
+      this.track({ id, kind: "fs", lines, resolve, reject, timeoutMs, signal });
     });
   }
 
@@ -829,7 +902,7 @@ export class WslAgent {
     return new Promise((resolve, reject) => {
       const id = `r${this.nextRequestId++}`;
       const lines = encodeExecFrame({ id, cwd: "/", argv: ["true"], timeoutMs: 0 });
-      this.track({ id, lines, resolve: () => resolve(), reject, timeoutMs: HANDSHAKE_TIMEOUT_MS, signal });
+      this.track({ id, kind: "exec", lines, resolve: () => resolve(), reject, timeoutMs: HANDSHAKE_TIMEOUT_MS, signal });
     });
   }
 
@@ -847,6 +920,81 @@ export class WslAgent {
    *
    * @param signal - the signal to deliver (`SIGUSR1` is the cancel trap).
    */
+  /**
+   * The cumulative request metrics: queue wait (sent -> ACK) and execution
+   * time (ACK -> settle) per request kind, plus the peak in-flight count.
+   *
+   * @returns a snapshot the caller can keep.
+   */
+  metrics(): AgentMetrics {
+    return {
+      fs: { ...this.requestMetrics.fs },
+      exec: { ...this.requestMetrics.exec },
+      inFlightMax: this.requestMetrics.inFlightMax,
+    };
+  }
+
+  /** Reset the cumulative metrics (diagnostics/probes). */
+  resetMetrics(): void {
+    this.requestMetrics = emptyAgentMetrics();
+  }
+
+  /**
+   * The metric bucket for a request kind.
+   * @param kind - fs or exec.
+   * @returns the bucket.
+   */
+  private kindMetrics(kind: "fs" | "exec"): RequestMetrics {
+    return kind === "fs" ? this.requestMetrics.fs : this.requestMetrics.exec;
+  }
+
+  /**
+   * Record a request that never entered the pending map.
+   * @param kind - the bucket.
+   */
+  private noteRejected(kind: "fs" | "exec"): void {
+    this.kindMetrics(kind).rejected += 1;
+  }
+
+  /**
+   * Record the dequeue ACK: the request's queue wait.
+   * @param pending - the request.
+   */
+  private recordAck(pending: PendingRequest): void {
+    if (pending.ackedAt !== undefined) return;
+    const now = performance.now();
+    pending.ackedAt = now;
+    const stats = this.kindMetrics(pending.kind);
+    const wait = now - pending.sentAt;
+    stats.queueMs += wait;
+    stats.queueMaxMs = Math.max(stats.queueMaxMs, wait);
+  }
+
+  /**
+   * Record a settle: the requests count, the execution time (or the queue wait
+   * for a request that never ACKed), and the outcome.
+   * @param pending - the request.
+   * @param error - the failure, when any.
+   */
+  private recordSettle(pending: PendingRequest, error?: Error): void {
+    if (pending.measured) return;
+    pending.measured = true;
+    const now = performance.now();
+    const stats = this.kindMetrics(pending.kind);
+    stats.requests += 1;
+    if (pending.ackedAt !== undefined) {
+      const exec = now - pending.ackedAt;
+      stats.execMs += exec;
+      stats.execMaxMs = Math.max(stats.execMaxMs, exec);
+    } else {
+      const wait = now - pending.sentAt;
+      stats.queueMs += wait;
+      stats.queueMaxMs = Math.max(stats.queueMaxMs, wait);
+    }
+    if (pending.cancelled) stats.cancelled += 1;
+    else if (error !== undefined) stats.failed += 1;
+  }
+
   private signalAgent(signal: NodeJS.Signals): void {
     const pid = this.agentPid;
     if (pid === undefined || !this.signalable) return;

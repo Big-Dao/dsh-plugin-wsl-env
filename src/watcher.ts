@@ -108,7 +108,17 @@ export function watchLoopScript(intervalSeconds = 2, maxDepth = 0): string {
     // invalidation, while the first event is immediate. A quiet tree blocks
     // in read; the close stops the shell through the P line, not the pipe.
     'if [ -n "$IW" ]; then',
-    '  while read -r _ <&3; do',
+    // A one-second marker on the same FIFO wakes the blocking read so the
+    // TERM trap and the vanished-target check run even on a quiet tree. The
+    // marker is not an event: it is skipped, and only checked against the
+    // target's existence.
+    '  ( while :; do sleep 1; printf \'H\\n\' >"$FIFO" 2>/dev/null; done ) &',
+    '  while read -r ev <&3; do',
+    '    if [ "$ev" = "H" ]; then',
+    '      [ -d "$D" ] || { printf \'E\\n\'; exit 1; }',
+    '      continue',
+    '    fi',
+    '    [ -d "$D" ] || { printf \'E\\n\'; exit 1; }',
     "    printf 'C\\n'",
     '    sleep 0.5',
     '  done',

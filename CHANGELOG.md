@@ -257,6 +257,14 @@ from it.
   own argv rather than the `pgrep` wrapper. This is the fix the probe found
   when the heartbeat-only version was tried on the real transport.
 
+- **The inotify watcher is reaped promptly on close and on a vanished
+  directory.** The blocking FIFO read is woken by a one-second marker, so the
+  TERM trap runs and the target check reports `E` within a second of the
+  directory disappearing. The real-machine probe's close and vanished-target
+  checks now pass with `inotify-tools` installed; the pre-watch creation check
+  was also corrected (a file created before the watch is not the polling
+  mtime blind spot).
+
 - **A closed watcher no longer leaks its distro-side loop.** `close()` kills
   `wsl.exe` but cannot signal the loop inside the distro, and a loop that only
   writes on changes would sleep and poll forever. Each tick now writes an

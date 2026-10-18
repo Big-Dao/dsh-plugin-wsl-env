@@ -55,7 +55,7 @@ checks.push(["the loop prefers inotify for a directory and keeps the polling fal
   assert.match(script, /command -v inotifywait/, "availability is probed in the distro");
   assert.match(script, /inotifywait -m -q -r/, "the directory watch is recursive");
   assert.match(script, /mkfifo "\$FIFO"/);
-  assert.match(script, /read -r _ <&3/);
+  assert.match(script, /read -r ev <&3/);
   assert.match(script, /find "\$D" -newer "\$S"/, "the polling fallback stays");
   const bounded = watchLoopScript(2, 4);
   assert.match(bounded, /\[ 4 -eq 0 \]/, "a bounded scan never starts inotify");

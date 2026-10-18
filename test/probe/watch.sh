@@ -38,13 +38,6 @@ const { armDistroWatcher } = await import(`${process.env.DSH_WSL_ENV_WATCH_REPO}
 
 const distro = process.env.WSL_DISTRO_NAME || "ubuntu";
 const dir = process.env.DSH_WSL_ENV_WATCH_DIR;
-let hasInotify = false;
-try {
-  execFileSync("wsl.exe", ["-d", distro, "--exec", "sh", "-c", "command -v inotifywait >/dev/null 2>&1"], { stdio: "ignore" });
-  hasInotify = true;
-} catch {
-  // polling fallback
-}
 
 let passed = 0;
 async function check(name, fn) {
@@ -124,18 +117,16 @@ await check("a deletion fires the invalidation callback (parent mtime)", async (
   await watch.close();
 });
 
-await check("an mtime-older-than-stamp creation: polling blind spot, inotify sees it", async () => {
+await check("a file created before the watch is not reported", async () => {
   const path = freshDir();
   execFileSync("wsl.exe", ["-d", distro, "--exec", "sh", "-c",
     "printf stale > \"$1\" && touch -d \'1 year ago\' \"$1\"", "w", join(path, "old.txt")]);
   const watch = arm(path);
   await watch.armed;
-  if (hasInotify) {
-    await watch.waitForChange();
-  } else {
-    // waitForChange rejects on its own timeout when nothing fires.
-    await assert.rejects(() => watch.waitForChange(2500), /no change within/);
-  }
+  // The file predates the watch; neither backend reports it. The polling
+  // mtime-old blind spot (a change that leaves every scanned mtime older) is
+  // documented in LIMITATIONS and is not simulated by this pre-watch file.
+  await assert.rejects(() => watch.waitForChange(2500), /no change within/);
   await watch.close();
 });
 

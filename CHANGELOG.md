@@ -28,6 +28,13 @@ from it.
 
 ### Added
 
+- **The session-scoped sandbox's launcher primitives.** `src/session-scope.ts`
+  builds the systemd user unit name, the `systemd-run --user --scope` prefix,
+  the stop argv and the preflight probe argv; unit tests pin the shapes and the
+  sanitization. ADR 0001 records the runtime-ownership decision the wiring
+  still has to make (the agent is a per-distro singleton today). No behavior
+  change yet.
+
 - **`docs/VALUE.zh.md` states what the plugin is worth, in Chinese**, for a
   reader deciding whether to install it: the three misalignments it removes,
   six values each with its mechanism and the evidence that backs it, the

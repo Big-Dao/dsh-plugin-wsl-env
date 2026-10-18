@@ -84,6 +84,36 @@ wsl.exe --exec systemd-run --user --scope --quiet --unit=dsh-wsl-<session>
   namespace it no longer kills the agent's descendants, which is the point:
   the scope owns them.
 
+## Runtime ownership
+
+The agent is a process-global singleton per distro today (`src/agent-shared.ts`):
+the shell executor, the filesystem provider and the port snapshot share one
+resident, deliberately, so startup is paid once. A **session** scope forces a
+decision this ADR cannot defer:
+
+- The scope's lifetime must be the session's, not the idle timer's — an idle
+  agent closes after ten minutes, which would kill a dev server the user
+  started.
+- A scope is per runtime, so the runtime must be keyed by something that
+  identifies the session; the shared per-distro map cannot serve unchanged.
+- The shell executor and the filesystem provider are separate providers in the
+  same session; they must agree on the runtime key and share its refcount, or
+  one will stop a scope the other is still using.
+
+Recommended shape: a refcounted session-runtime registry keyed by
+`(distro, workspaceRoot, policy)`, created on first use by either provider and
+closed when the last user releases it (session end). The idle timer remains a
+safety net only while the runtime has no live users. The cost is one agent per
+live session instead of one per distro; the trade is fidelity (persistent
+processes, shared `/tmp`, `ps`) and cleanup (stopping the scope) for processes
+and startup. The alternative — a single distro scope shared by all sessions —
+is simpler, but it makes one session's background processes every session's,
+and session end cannot stop the scope without killing the others; it is kept
+as a fallback if the per-session cost proves unacceptable.
+
+The launcher builders landed first (`src/session-scope.ts`, with unit tests);
+the registry and preflight wiring are the next change.
+
 ## Consequences
 
 - **Setup:** systemd must be PID 1 in the distro (`/etc/wsl.conf`

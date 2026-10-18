@@ -137,6 +137,22 @@ class Harness {
 /** A distro-independent assertion: agent times arrive as `seconds.frac`. */
 const TIME_SHAPE = /^\d+(\.\d+)?$/;
 
+/**
+ * Runs one EXEC frame through the harness and returns its RES.
+ * @param {Harness} agent - the live harness.
+ * @param {string[]} argv - the command to run.
+ * @param {{ timeoutMs?: number, maxOutputBytes?: number }} [options] - the frame knobs.
+ * @returns {Promise<ResultMessage>} the RES line.
+ */
+const runExec = async (agent, argv, { timeoutMs = 0, maxOutputBytes = 0 } = {}) => {
+  const id = `x${agent.n++}`;
+  for (const line of encodeExecFrame({ id, cwd: "/", argv, timeoutMs, maxOutputBytes })) agent.child.stdin.write(`${line}\n`);
+  for (;;) {
+    const message = /** @type {AgentMessage} */ (parseAgentLine(await agent.nextLine()));
+    if (message.type === "result" && message.id === id) return message;
+  }
+};
+
 checks.push(["HELLO opens the protocol at the host's version", async () => {
   const agent = new Harness();
   try {
@@ -455,6 +471,33 @@ checks.push(["USR1 cancels the running command where it lives", async () => {
     }
     clearTimeout(timer);
     assert.ok(Date.now() - startedAt < 8000, "the signal ended the command promptly");
+  } finally {
+    await agent.close();
+  }
+}]);
+
+checks.push(["a chatty command's capture is bounded at the budget", async () => {
+  if (!POSIX) return;
+  const agent = new Harness();
+  try {
+    await agent.hello();
+    const result = await runExec(agent, ["sh", "-c", "yes cap"], { timeoutMs: 2000, maxOutputBytes: 1024 });
+    assert.equal(result.stdout.length, 1024, "the capture stops at the budget");
+    assert.equal(result.truncated.stdout, true, "the cut is reported");
+  } finally {
+    await agent.close();
+  }
+}]);
+
+checks.push(["a background descendant does not delay the answer", async () => {
+  if (!POSIX) return;
+  const agent = new Harness();
+  try {
+    await agent.hello();
+    const startedAt = Date.now();
+    const result = await runExec(agent, ["sh", "-c", "sleep 5 & echo done"], { maxOutputBytes: 1024 });
+    assert.equal(result.stdout.toString(), "done\n");
+    assert.ok(Date.now() - startedAt < 4000, "the capture ends with the command, not the background sleep");
   } finally {
     await agent.close();
   }

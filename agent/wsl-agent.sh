@@ -214,6 +214,7 @@ timeout_watcher() {
 # functions, not executables — run.
 run_capture() {
   local req_id timeout_s maxout mode rc watcher_pid out_cut err_cut
+  local out_fifo err_fifo out_reader err_reader spawn_out spawn_err
   req_id=$1
   timeout_s=$2
   maxout=$3
@@ -224,17 +225,45 @@ run_capture() {
   esac
   : >"$OUT_FILE"
   : >"$ERR_FILE"
+  # With an output budget, capture through a FIFO drained by a bounded reader:
+  # the first maxout+1 bytes land in the file, the rest is discarded, so a
+  # chatty command cannot fill the distro's /tmp. The extra byte is what makes
+  # "exactly at the cap" tell itself apart from "cut". A piped capture is
+  # still not a TTY, and the reader drains rather than closing the pipe, so
+  # the command does not see SIGPIPE. Without a budget (FS frames) the files
+  # are used directly, as before.
+  out_fifo=
+  err_fifo=
+  out_reader=
+  err_reader=
+  spawn_out=$OUT_FILE
+  spawn_err=$ERR_FILE
+  if [ "$maxout" -gt 0 ]; then
+    out_fifo="$TMPDIR_AGENT/out.fifo"
+    err_fifo="$TMPDIR_AGENT/err.fifo"
+    rm -f -- "$out_fifo" "$err_fifo"
+    if mkfifo -- "$out_fifo" "$err_fifo" 2>/dev/null; then
+      ( head -c "$((maxout + 1))" >"$OUT_FILE"; cat >/dev/null ) <"$out_fifo" 2>/dev/null &
+      out_reader=$!
+      ( head -c "$((maxout + 1))" >"$ERR_FILE"; cat >/dev/null ) <"$err_fifo" 2>/dev/null &
+      err_reader=$!
+      spawn_out=$out_fifo
+      spawn_err=$err_fifo
+    else
+      rm -f -- "$out_fifo" "$err_fifo"
+    fi
+  fi
   CURRENT_ID=$req_id
   # The inflight marker pauses the lease watchdog for this request and
   # refreshes the temp dir's mtime for the boot sweep; removing it after the
   # answer re-arms both.
   : >"$TMPDIR_AGENT/inflight"
   if [ "$mode" = subshell ]; then
-    ( "$@" ) >"$OUT_FILE" 2>"$ERR_FILE" &
+    ( "$@" ) >"$spawn_out" 2>"$spawn_err" &
   elif [ -n "$SETSID" ]; then
-    ( exec setsid "$@" ) >"$OUT_FILE" 2>"$ERR_FILE" &
+    ( exec setsid "$@" ) >"$spawn_out" 2>"$spawn_err" &
   else
-    "$@" >"$OUT_FILE" 2>"$ERR_FILE" &
+    "$@" >"$spawn_out" 2>"$spawn_err" &
   fi
   CURRENT_PID=$!
   # Dispatched: the child exists now, so the host may arm its execution
@@ -257,10 +286,22 @@ run_capture() {
     kill "$watcher_pid" 2>/dev/null
     wait "$watcher_pid" 2>/dev/null
   fi
+  # Stop the bounded readers once the request's own process is gone. A
+  # background descendant may still hold the FIFO's write end; waiting for the
+  # drain here would delay the answer until that descendant exits.
+  if [ -n "$out_reader" ]; then
+    kill "$out_reader" 2>/dev/null
+    wait "$out_reader" 2>/dev/null
+  fi
+  if [ -n "$err_reader" ]; then
+    kill "$err_reader" 2>/dev/null
+    wait "$err_reader" 2>/dev/null
+  fi
   # The cap is what keeps a chatty command from becoming a multi-gigabyte
   # base64 blob inside THIS shell's command substitution: only the first
   # $maxout bytes of each stream are encoded, and the flags tell the host
-  # which streams were cut. FS frames pass 0 — their payloads are the host's
+  # which streams were cut. The bounded reader kept the file at maxout+1, so
+  # the size check is exact. FS frames pass 0 — their payloads are the host's
   # own read windows, already bounded by the protocol.
   out_cut=0
   err_cut=0

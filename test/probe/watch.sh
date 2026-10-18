@@ -138,6 +138,23 @@ await check("close stops the loop: no callbacks afterwards", async () => {
   assert.equal(watch.changes.length, 0);
 });
 
+await check("closing the watcher stops the distro-side loop", async () => {
+  const path = freshDir();
+  const watch = arm(path);
+  await watch.armed;
+  await watch.close();
+  // close() kills wsl.exe; the loop notices the closed pipe on its next
+  // heartbeat (intervalSeconds 1) and exits through the PIPE trap.
+  await new Promise((resolve) => setTimeout(resolve, 2500));
+  let out = "";
+  try {
+    out = execFileSync("wsl.exe", ["-d", distro, "--exec", "pgrep", "-f", path], { encoding: "utf8" }).trim();
+  } catch {
+    // pgrep exits 1 when nothing matches.
+  }
+  assert.equal(out, "", `the loop is still alive: ${out}`);
+});
+
 await check("a vanished target reports through onError instead of arming silently", async () => {
   const path = freshDir();
   const watch = arm(path);

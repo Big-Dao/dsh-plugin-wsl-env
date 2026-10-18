@@ -140,7 +140,7 @@ above. They all keep their defaults:
 |---|---|---|---|
 | `wsl-shell` (in `preset-wsl`) | `wslPath` | `wsl.exe` | path to `wsl.exe`, for an installation that is not on `PATH` |
 | | `hostCwd` | unset → `%SystemRoot%` | the Windows directory the `wsl.exe` process itself starts in |
-| | `forwardEnv` | `[]` | extra host environment variable names to forward into the distro through `WSLENV`. This is the one key here that widens what crosses the boundary: `NO_COLOR`, `TERM`, `PAGER`, `GIT_PAGER`, `LANG`, `LC_ALL` and every managed `DSH_*` name ride along without it, and `PATH` is deliberately never forwarded |
+| | `forwardEnv` | `[]` | extra host environment variable names to forward into the distro through `WSLENV`. This is the one key here that widens what crosses the boundary: `NO_COLOR`, `TERM`, `PAGER`, `GIT_PAGER`, `LANG`, `LC_ALL` and every managed `DSH_*` name ride along without it, and `PATH` is deliberately never forwarded. It applies to the **one-shot `wsl.exe` path**; the resident agent's environment stays pinned to the managed `DSH_*` namespace and deliberately does not forward these names, so a secret listed here does not widen every model command in the session |
 | `wsl-fs` (in `preset-wsl`) | `wslPath` | `wsl.exe` | as above; used only to resolve the default distro |
 | | `diffBasisMaxBytes` | `10485760` | UTF-8 byte limit per side of an overwrite diff; a larger file publishes without a diff |
 | `fs-routing` | `cwd`, `diffBasisMaxBytes` | `process.cwd()`, `10485760` | `cwd` configures the host side only (the distro side reads `distroCwd`); `diffBasisMaxBytes` is shared by both — it also bounds the routed backend's overwrite diff |

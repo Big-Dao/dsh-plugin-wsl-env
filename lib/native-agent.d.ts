@@ -72,6 +72,20 @@ export declare function ensureNativeBackend({ wslPath, distro, source, packageRo
  * Forget the cache; tests only.
  */
 export declare function clearNativeBackendCache(): void;
+/**
+ * Stream the binary to the distro on stdin, run the copy/verify script and
+ * return its stdout (the cache path).
+ *
+ * Exported for its regression check; the copy path is injectable in
+ * {@link ensureNativeBackend}.
+ *
+ * @param wslPath - the `wsl.exe` path.
+ * @param distro - the distro.
+ * @param script - the copy/verify script.
+ * @param binary - the binary bytes.
+ * @returns the Linux path printed by the script.
+ */
+export declare function copyBinary(wslPath: string, distro: string, script: string, binary: Buffer): Promise<string>;
 /** The session runtime's agent backend, from `wsl-shell.agentBackend`. */
 export type AgentBackend = "auto" | "native" | "shell";
 /**

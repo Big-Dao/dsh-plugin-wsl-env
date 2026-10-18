@@ -3,7 +3,10 @@
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { ensureNativeBackend, nativeCacheScript, clearNativeBackendCache, configureAgentBackend, ensureNativeSessionAgent, NATIVE_AGENT_ENV } from "../lib/native-agent.js";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { copyBinary, ensureNativeBackend, nativeCacheScript, clearNativeBackendCache, configureAgentBackend, ensureNativeSessionAgent, NATIVE_AGENT_ENV } from "../lib/native-agent.js";
 
 let passed = 0;
 /**
@@ -200,5 +203,24 @@ await check("agentBackend native fails when preparation fails", async () => {
     configureAgentBackend("auto");
   }
 });
+
+if (process.platform !== "win32") {
+  await check("a copy script that exits without reading stdin does not crash the host", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "dsh-native-copy-"));
+    try {
+      const fixture = join(dir, "cached.sh");
+      const cachePath = "/home/u/.cache/dsh-wsl/agent/x/dsh-wsl-agent";
+      // Exactly the warm-cache shape: print the path and exit without reading
+      // stdin. The payload is larger than any pipe buffer, so the write is
+      // still in flight when the script exits — the ordering that produced the
+      // unhandled `write EOF` on Windows.
+      writeFileSync(fixture, `#!/bin/sh\nprintf '%s' "${cachePath}"\nexit 0\n`, { mode: 0o755 });
+      const result = await copyBinary(fixture, "ubuntu", "ignored", Buffer.alloc(4 * 1024 * 1024, 1));
+      assert.equal(result, cachePath);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}
 
 console.log(`\n${passed} native-agent checks pass`);

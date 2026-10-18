@@ -120,6 +120,29 @@ from it.
 
 ### Fixed
 
+- **The GUI file service loads again from a linked install** (`workspace-files-wsl`
+  failed to import, and the Desktop host then died on a `write EOF`). The module
+  imports `@deepseek-ai/dsh-api-workspace-files` and
+  `@deepseek-ai/dsh-typert-protocol` at runtime, but both were declared only as
+  dev dependencies. The runtime's linked-plugin resolver routes a bare import
+  to the installation package only when the plugin's own manifest lists that
+  name under `peerDependencies` (`dsh-app-boot`'s `readPeerNames` /
+  `routeLinked`), so the import missed, the entry never activated, and Desktop
+  exited 1; the fatal `write EOF` is the shell writing to that already-exited
+  host. Both names are peers now, and `test/peers.test.mjs` scans every
+  `lib/*.js` import so an undeclared runtime package fails the check chain
+  instead of the app.
+
+- **A warm native-agent cache no longer kills the Host on startup.** The
+  in-distro copy script prints the cache path and exits *without reading stdin*
+  when the digest already matches. `copyBinary` still streamed the packaged
+  binary into that closed pipe and left stdin's `error` event unhandled; on
+  Windows the write surfaced as `write EOF` and took the Host down before the
+  UI could load, so the first run (cold cache) worked and every later start
+  crashed. The write error is absorbed now — the exit code and stdout already
+  decide the result — and a POSIX regression check runs an early-exit script
+  against a payload larger than any pipe buffer.
+
 - **The root-plane router survives its first distro target, and that path now
   has a regression test.** Three defects sat behind the same runtime failure:
   - `WslRoutingFileSystem` kept its state in ES `#private` fields. Cordis

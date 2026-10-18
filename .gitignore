@@ -30,3 +30,5 @@ test/probe/.scratch/
 
 # ZCode session scratch (plan-mode drafts live under plans/).
 .zcode/plans/
+# Cargo's home for the native spike's local builds (never shipped).
+.cargo-home/

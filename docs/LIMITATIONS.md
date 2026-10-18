@@ -107,6 +107,13 @@ crosses the 9p share. What to know about the one substrate there is:
 
 ## The sandbox
 
+- **The one-shot fallback has only the host deadline.** With `agent: false`, or
+  when the resident is out of service, a command runs through a fresh
+  `wsl.exe`. The host kills `wsl.exe` at the timeout, but WSL does not relay
+  that kill into the distro, so the Linux-side process tree can outlive the
+  call. The session runtime path — the shipped default — is cleaned by its
+  scope. A systemd-scoped one-shot (with explicit environment pass-through) is
+  not shipped; prefer `agent: true` and the session runtime for long commands.
 - **The session runtime needs systemd and a lingering user manager.** The
   shipped preset sets `sessionSandbox: true`; a distro without systemd as PID 1,
   a reachable `systemd --user`, `systemd-run`, or `Linger` is refused on the

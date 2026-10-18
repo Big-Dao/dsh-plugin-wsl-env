@@ -288,6 +288,11 @@ from it.
 
 ### Notes
 
+- Documented the one-shot fallback's timeout boundary: the host deadline kills
+  `wsl.exe`, not the distro-side tree; the session runtime's scope is the
+  cleanup path, and a systemd-scoped one-shot is not shipped.
+
+
 - Gates on the new pins: style 9/9, syntax 7/7 members and 3/3 chain members
   against `schemastery@3.18.5`, build freshness 74 artifacts, `tsc --noEmit`
   clean, unit suite 30/30 files, coverage 98.42% lines / 84.20% branches /

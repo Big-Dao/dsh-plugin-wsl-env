@@ -140,7 +140,10 @@ export declare class WslAgent {
         distro: string;
         scriptPath: string;
         argvPrefix: string[];
+        leaseMs: number;
     }) => ChildProcess) | undefined;
+    /** The explicit lease, when the caller supplied one (independent of idleMs). */
+    configuredLease: number | undefined;
     /** The injectable signal sender, when the caller supplied one. */
     configuredSignal: ((options: {
         wslPath: string;
@@ -186,6 +189,13 @@ export declare class WslAgent {
         /** Idle shutdown delay; 0 disables. */
         idleMs?: number;
         /**
+         * The client lease in ms, independent of `idleMs`. A session runtime holds
+         * the agent for the session's lifetime (no idle close) but still wants the
+         * lease's last-resort self-termination; a positive value here overrides the
+         * idle-derived lease.
+         */
+        leaseMs?: number;
+        /**
          * The sha256 of the agent script as this package shipped it; a HELLO whose
          * digest differs is refused the same way a version mismatch is (the script
          * is read in place, so a stale or half-synced runtime copy is the failure
@@ -207,6 +217,7 @@ export declare class WslAgent {
             distro: string;
             scriptPath: string;
             argvPrefix: string[];
+            leaseMs: number;
         }) => ChildProcess;
         /**
          * Injectable out-of-band signal delivery for tests. The real path spawns a

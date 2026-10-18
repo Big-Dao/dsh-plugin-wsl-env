@@ -217,7 +217,9 @@ export class WslAgent {
    */
   declare frameCapBytes: number;
   /** The injectable process factory, when the caller supplied one. */
-  declare configuredSpawn: ((options: { wslPath: string, distro: string, scriptPath: string, argvPrefix: string[] }) => ChildProcess) | undefined;
+  declare configuredSpawn: ((options: { wslPath: string, distro: string, scriptPath: string, argvPrefix: string[], leaseMs: number }) => ChildProcess) | undefined;
+  /** The explicit lease, when the caller supplied one (independent of idleMs). */
+  declare configuredLease: number | undefined;
   /** The injectable signal sender, when the caller supplied one. */
   declare configuredSignal: ((options: { wslPath: string, distro: string, pid: number, signal: NodeJS.Signals }) => void) | undefined;
   /** The agent shell's PID from its HELLO, when a second wsl.exe can address it. */
@@ -259,6 +261,13 @@ export class WslAgent {
     /** Idle shutdown delay; 0 disables. */
     idleMs?: number,
     /**
+     * The client lease in ms, independent of `idleMs`. A session runtime holds
+     * the agent for the session's lifetime (no idle close) but still wants the
+     * lease's last-resort self-termination; a positive value here overrides the
+     * idle-derived lease.
+     */
+    leaseMs?: number,
+    /**
      * The sha256 of the agent script as this package shipped it; a HELLO whose
      * digest differs is refused the same way a version mismatch is (the script
      * is read in place, so a stale or half-synced runtime copy is the failure
@@ -275,7 +284,7 @@ export class WslAgent {
     /** Hard ceiling in bytes on one stdout protocol line; defaults to {@link MAX_FRAME_BYTES}. */
     frameCapBytes?: number,
     /** Injectable process factory for tests. */
-    spawnTransport?: (options: { wslPath: string, distro: string, scriptPath: string, argvPrefix: string[] }) => ChildProcess,
+    spawnTransport?: (options: { wslPath: string, distro: string, scriptPath: string, argvPrefix: string[], leaseMs: number }) => ChildProcess,
     /**
      * Injectable out-of-band signal delivery for tests. The real path spawns a
      * second `wsl.exe` to send USR1 to the agent's PID.
@@ -296,6 +305,7 @@ export class WslAgent {
     this.frameCapBytes = config.frameCapBytes ?? MAX_FRAME_BYTES;
     this.configuredSpawn = config.spawnTransport;
     this.configuredSignal = config.signalTransport;
+    this.configuredLease = config.leaseMs;
     this.maxPending = config.maxPending ?? MAX_PENDING_REQUESTS;
     this.agentPid = undefined;
     this.process = null;
@@ -345,7 +355,7 @@ export class WslAgent {
         distro: this.distro,
         scriptPath: this.scriptPath,
         argvPrefix: this.argvPrefix,
-        leaseMs: this.idleMs > 0 ? this.idleMs + LEASE_GRACE_MS : 0,
+        leaseMs: this.configuredLease ?? (this.idleMs > 0 ? this.idleMs + LEASE_GRACE_MS : 0),
       })) as ChildProcessWithoutNullStreams;
       // One generation, one owner: every closure below belongs to THIS child.
       // A stale child's exit must not settle a newer start, null a newer

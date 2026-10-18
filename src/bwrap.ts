@@ -33,6 +33,14 @@ export interface BwrapProfileOptions {
    * ephemeral tmpfs over it.
    */
   realTmp?: boolean;
+  /**
+   * Create a PID namespace (`--unshare-pid`). Defaults to true: a COMMAND's
+   * background descendants die with it, which is the per-command shape. A
+   * session runtime sets this to false so a background dev server survives the
+   * command that started it — the systemd scope's cgroup, not the namespace,
+   * is then the cleanup boundary (ADR 0001).
+   */
+  pidNamespace?: boolean;
 }
 
 /**
@@ -71,7 +79,9 @@ export interface BwrapProfileOptions {
  * @returns profile arguments, before the `--` separator and the command argv.
  */
 export function bwrapProfileArgs(policy: { mode: string, workspaceRoot: string }, options: BwrapProfileOptions = {}): string[] {
-  const args = ["--ro-bind", "/", "/", "--dev", "/dev", "--unshare-pid", "--proc", "/proc", "--die-with-parent"];
+  const args = ["--ro-bind", "/", "/", "--dev", "/dev"];
+  if (options.pidNamespace !== false) args.push("--unshare-pid");
+  args.push("--proc", "/proc", "--die-with-parent");
   if (policy.mode === "workspace-write") {
     if (options.realTmp) {
       args.push("--bind", "/tmp", "/tmp");

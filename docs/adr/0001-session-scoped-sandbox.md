@@ -111,8 +111,9 @@ is simpler, but it makes one session's background processes every session's,
 and session end cannot stop the scope without killing the others; it is kept
 as a fallback if the per-session cost proves unacceptable.
 
-The launcher builders landed first (`src/session-scope.ts`, with unit tests);
-the registry and preflight wiring are the next change.
+The launcher builders and the refcounted registry have landed
+(`src/session-scope.ts`, `src/session-runtime.ts`, with unit tests); the
+provider wiring and preflight are the next change.
 
 ## Consequences
 

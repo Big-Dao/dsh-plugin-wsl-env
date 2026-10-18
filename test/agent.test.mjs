@@ -453,6 +453,15 @@ checkReg("realTmp binds the real /tmp the fence grants, instead of an ephemeral 
   assert.equal(readOnly.includes("/tmp"), false, "realTmp is inert under read-only: no /tmp mount exists to change");
 });
 
+checkReg("pidNamespace: false keeps the mounts and lets background processes survive", () => {
+  const session = bwrapProfileArgs({ mode: "workspace-write", workspaceRoot: "/w" }, { pidNamespace: false, realTmp: true });
+  assert.equal(session.includes("--unshare-pid"), false, "the session runtime has no PID namespace");
+  assert.ok(session.includes("--proc"), "the /proc mount stays");
+  assert.deepEqual(session.slice(-6), ["--bind", "/tmp", "/tmp", "--bind", "/w", "/w"]);
+  const perCommand = bwrapProfileArgs({ mode: "workspace-write", workspaceRoot: "/w" });
+  assert.equal(perCommand.includes("--unshare-pid"), true, "the default stays the per-command shape");
+});
+
 checkReg("the confined factory keys the mask into the resident's identity", async () => {
   resetConfinedAgents();
   const policy = { mode: "workspace-write", workspaceRoot: "/home/u/ws" };
@@ -663,6 +672,25 @@ checkReg("the client lease rides the managed namespace and its WSLENV entry", ()
   assert.equal(bare.WSLENV, "DSH_AGENT_LEASE_MS", "an empty parent WSLENV gains no leading separator");
   const off = agentLeaseEnv(pinned, 0);
   assert.equal(off, pinned, "a disabled lease leaves the pinned environment untouched");
+});
+
+checkReg("an explicit lease rides the spawn without an idle close", async () => {
+  const child = new FakeAgentProcess();
+  /** @type {{ leaseMs: number } | undefined} */
+  let seen;
+  /**
+   * A transport that records the spawn options.
+   * @param {{ wslPath: string, distro: string, scriptPath: string, argvPrefix: string[], leaseMs: number }} options - the spawn options.
+   * @returns {import("node:child_process").ChildProcess} the fake child.
+   */
+  const transport = (options) => {
+    seen = options;
+    return /** @type {import("node:child_process").ChildProcess} */ (/** @type {unknown} */ (child));
+  };
+  const agent = new WslAgent({ ...CONFIG, idleMs: 0, leaseMs: 12345, spawnTransport: transport });
+  await agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 });
+  assert.equal(seen?.leaseMs, 12345, "the explicit lease reaches the spawn");
+  await agent.close();
 });
 
 checkReg("a stale child's exit cannot tear down its replacement", async () => {

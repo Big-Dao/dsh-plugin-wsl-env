@@ -28,6 +28,16 @@ from it.
 
 ### Added
 
+- **The session-runtime registry.** `src/session-runtime.ts` refcounts one
+  agent per `(distro, workspace, policy)`, composes the systemd user scope
+  prefix with a bwrap mount profile that avoids a PID namespace (and binds the
+  real `/tmp` under `workspace-write`), and tears a runtime down by closing the
+  agent and then stopping the scope. `--unshare-pid` is now a profile option
+  (default true), and the agent accepts an explicit lease independent of the
+  idle close. Tests cover the refcount, the mode-specific mounts, the mask in
+  the key, the explicit lease, and the close-then-stop order. Not wired into
+  the providers yet.
+
 - **The session-scoped sandbox's launcher primitives.** `src/session-scope.ts`
   builds the systemd user unit name, the `systemd-run --user --scope` prefix,
   the stop argv and the preflight probe argv; unit tests pin the shapes and the

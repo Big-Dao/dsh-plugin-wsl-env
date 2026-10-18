@@ -52,15 +52,22 @@ export interface NativeBackendOptions {
     /** Copy the binary and return the Linux path (tests substitute). */
     copy?: (script: string, binary: Buffer) => Promise<string>;
 }
+/** A prepared native binary: its in-distro path and the sha256 of its bytes. */
+export interface NativeBackendResult {
+    /** The Linux path the session runtime spawns. */
+    path: string;
+    /** Lowercase hex sha256; the agent's HELLO digest must match it. */
+    digest: string;
+}
 /**
  * Copy the binary into the distro and verify it. The result is cached per
  * `(wslPath, distro, source)`; a failure is cached as `undefined` for this
  * process (the caller falls back to the shell agent).
  *
  * @param options - the transport, distro, source and injectables.
- * @returns the Linux binary path, or undefined when the backend cannot be used.
+ * @returns the Linux binary path and digest, or undefined when unusable.
  */
-export declare function ensureNativeBackend({ wslPath, distro, source, packageRoot, readSource, run, copy, }: NativeBackendOptions): Promise<string | undefined>;
+export declare function ensureNativeBackend({ wslPath, distro, source, packageRoot, readSource, run, copy, }: NativeBackendOptions): Promise<NativeBackendResult | undefined>;
 /**
  * Forget the cache; tests only.
  */
@@ -97,7 +104,7 @@ export declare function ensureNativeSessionAgent({ wslPath, distro, setNative, e
     /** The resolved distro. */
     distro: string;
     /** Store (or clear, with an empty path) the distro's native entrypoint. */
-    setNative: (distro: string, path: string) => void;
+    setNative: (distro: string, path: string, digest: string) => void;
     /** Prepare the binary; tests substitute. */
-    ensure?: (options: NativeBackendOptions) => Promise<string | undefined>;
+    ensure?: (options: NativeBackendOptions) => Promise<NativeBackendResult | undefined>;
 }): Promise<void>;

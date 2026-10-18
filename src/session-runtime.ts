@@ -114,8 +114,8 @@ export interface SessionRuntimeOptions {
   token?: () => string;
 }
 
-/** The native binary path per distro, when the host opted in (ADR 0002). */
-const NATIVE_AGENTS = new Map<string, string>();
+/** The native binary path and HELLO digest per distro, when opted in. */
+const NATIVE_AGENTS = new Map<string, { path: string, digest: string }>();
 
 /**
  * Set (or clear) the native binary the session runtime should spawn for one
@@ -124,10 +124,11 @@ const NATIVE_AGENTS = new Map<string, string>();
  *
  * @param distro - the distro.
  * @param path - the Linux binary path, or empty to clear.
+ * @param digest - the binary's sha256, which the HELLO must present.
  */
-export function setSessionNativeAgent(distro: string, path: string): void {
+export function setSessionNativeAgent(distro: string, path: string, digest = ""): void {
   if (path.length === 0) NATIVE_AGENTS.delete(distro);
-  else NATIVE_AGENTS.set(distro, path);
+  else NATIVE_AGENTS.set(distro, { path, digest });
 }
 
 /** The default agent factory: the same script/digest the shared resident pins. */
@@ -136,18 +137,18 @@ const spawnSessionAgent = (options: { distro: string, wslPath: string, argvPrefi
   if (native !== undefined) {
     // The native agent reads its own KILL frame while a command runs, so USR1
     // is both unnecessary and fatal (it has no handler); cancellation is the
-    // frame path. The HELLO digest is empty in the spike, so no expectedDigest.
+    // frame path. The HELLO digest binds the process to the copied binary.
     return new WslAgent({
       distro: options.distro,
       wslPath: options.wslPath,
-      scriptPath: native,
-      expectedDigest: undefined,
+      scriptPath: native.path,
+      expectedDigest: native.digest,
       argvPrefix: options.argvPrefix,
       idleMs: options.idleMs,
       leaseMs: options.leaseMs,
       signalable: false,
       spawnTransport: ({ wslPath, distro, argvPrefix }) =>
-        spawn(wslPath, ["-d", distro, "--exec", ...argvPrefix, native], {
+        spawn(wslPath, ["-d", distro, "--exec", ...argvPrefix, native.path], {
           stdio: ["pipe", "pipe", "pipe"],
           windowsHide: true,
           env: pinnedWindowsEnv(process.env),

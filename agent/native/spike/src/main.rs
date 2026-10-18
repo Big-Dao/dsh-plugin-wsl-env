@@ -18,6 +18,8 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
+
+mod sha256;
 use std::time::{Duration, Instant};
 
 const SIGTERM: i32 = 15;
@@ -480,7 +482,10 @@ fn main() {
     let fs_lock: Arc<Mutex<()>> = Arc::new(Mutex::new(()));
     let active: Arc<Mutex<HashMap<String, i32>>> = Arc::new(Mutex::new(HashMap::new()));
     let envs: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
-    write_line(&out, &format!("HELLO|wsl-agent|5||{}", std::process::id()));
+    // The host binds the running process to the binary it copied: the digest
+    // is the sha256 of this executable, read through `/proc/self/exe`.
+    let hello_digest = fs::read("/proc/self/exe").map(|bytes| sha256::sha256_hex(&bytes)).unwrap_or_default();
+    write_line(&out, &format!("HELLO|wsl-agent|5|{}|{}", hello_digest, std::process::id()));
     let stdin = io::stdin();
     let mut lines = stdin.lock().lines();
     while let Some(Ok(line)) = lines.next() {

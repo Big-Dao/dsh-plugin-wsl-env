@@ -88,13 +88,21 @@ export interface NativeBackendOptions {
   copy?: (script: string, binary: Buffer) => Promise<string>;
 }
 
+/** A prepared native binary: its in-distro path and the sha256 of its bytes. */
+export interface NativeBackendResult {
+  /** The Linux path the session runtime spawns. */
+  path: string;
+  /** Lowercase hex sha256; the agent's HELLO digest must match it. */
+  digest: string;
+}
+
 /**
  * Copy the binary into the distro and verify it. The result is cached per
  * `(wslPath, distro, source)`; a failure is cached as `undefined` for this
  * process (the caller falls back to the shell agent).
  *
  * @param options - the transport, distro, source and injectables.
- * @returns the Linux binary path, or undefined when the backend cannot be used.
+ * @returns the Linux binary path and digest, or undefined when unusable.
  */
 export async function ensureNativeBackend({
   wslPath,
@@ -104,7 +112,7 @@ export async function ensureNativeBackend({
   readSource = readFile,
   run = (argv) => runCapture(argv),
   copy,
-}: NativeBackendOptions): Promise<string | undefined> {
+}: NativeBackendOptions): Promise<NativeBackendResult | undefined> {
   const key = `${wslPath}\u0000${distro}\u0000${source}\u0000${packageRoot}`;
   const cached = NATIVE_CACHE.get(key);
   if (cached !== undefined) return cached;
@@ -117,14 +125,14 @@ export async function ensureNativeBackend({
     const digest = createHash("sha256").update(binary).digest("hex");
     const install = copy ?? ((script, bytes) => copyBinary(wslPath, distro, script, bytes));
     const path = await install(nativeCacheScript(digest), binary);
-    return path.length > 0 ? path : undefined;
+    return path.length > 0 ? { path, digest } : undefined;
   })().catch(() => undefined);
   NATIVE_CACHE.set(key, pending);
   return pending;
 }
 
 /** The per-process cache; a failure is remembered as undefined. */
-const NATIVE_CACHE = new Map<string, Promise<string | undefined>>();
+const NATIVE_CACHE = new Map<string, Promise<NativeBackendResult | undefined>>();
 
 /**
  * Forget the cache; tests only.
@@ -216,20 +224,20 @@ export async function ensureNativeSessionAgent({
   /** The resolved distro. */
   distro: string;
   /** Store (or clear, with an empty path) the distro's native entrypoint. */
-  setNative: (distro: string, path: string) => void;
+  setNative: (distro: string, path: string, digest: string) => void;
   /** Prepare the binary; tests substitute. */
-  ensure?: (options: NativeBackendOptions) => Promise<string | undefined>;
+  ensure?: (options: NativeBackendOptions) => Promise<NativeBackendResult | undefined>;
 }): Promise<void> {
   if (backend === "shell") {
-    setNative(distro, "");
+    setNative(distro, "", "");
     return;
   }
-  const path = await ensure({ wslPath, distro, source: process.env[NATIVE_AGENT_ENV] ?? "" });
-  if (path === undefined) {
+  const result = await ensure({ wslPath, distro, source: process.env[NATIVE_AGENT_ENV] ?? "" });
+  if (result === undefined) {
     if (backend === "native") {
       throw new Error(`agentBackend: "native" could not prepare a native binary: the packaged binary for this architecture is missing or failed the copy/digest/execute check, and ${NATIVE_AGENT_ENV} is unset or unusable; set a valid ${NATIVE_AGENT_ENV}, or use "auto"/"shell".`);
     }
     return;
   }
-  setNative(distro, path);
+  setNative(distro, result.path, result.digest);
 }

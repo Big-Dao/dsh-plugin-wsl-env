@@ -17,13 +17,13 @@ const source = process.env[NATIVE_AGENT_ENV] ?? new URL("../agent/native/linux-x
 const wslPath = process.env.DSH_WSL_AGENT_WSL ?? "wsl.exe";
 const distro = process.env.WSL_DISTRO_NAME ?? "ubuntu";
 
-const path = await ensureNativeBackend({ wslPath, distro, source });
-if (path === undefined) {
+const prepared = await ensureNativeBackend({ wslPath, distro, source });
+if (prepared === undefined) {
   console.error(`native backend unavailable (source: ${source})`);
   process.exit(1);
 }
-console.log(`native binary: ${path}`);
-setSessionNativeAgent(distro, path);
+console.log(`native binary: ${prepared.path} (sha256 ${prepared.digest})`);
+setSessionNativeAgent(distro, prepared.path, prepared.digest);
 const registry = new SessionRuntimes();
 const entry = registry.acquire({ distro, wslPath, workspaceRoot: process.cwd(), mode: "workspace-write" });
 try {

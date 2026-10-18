@@ -9,6 +9,7 @@
  */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -51,7 +52,7 @@ class Session {
     this.lines.on("line", (line) => {
       const f = line.split("|");
       if (f[0] === "HELLO") {
-        this.helloResolve({ name: f[1], version: Number(f[2]) });
+        this.helloResolve({ name: f[1], version: Number(f[2]), digest: f[3] });
         return;
       }
       if (f[0] === "PONG") {
@@ -112,6 +113,14 @@ class Session {
     this.lines.close();
   }
 }
+
+await check("HELLO digest is the running binary's sha256", async () => {
+  const expected = createHash("sha256").update(readFileSync(binary)).digest("hex");
+  const session = new Session(binary, []);
+  const hello = await session.hello;
+  assert.equal(hello.digest, expected, "the handshake binds the process to the copied binary");
+  await session.close();
+});
 
 await check("HELLO names wsl-agent/v5", async () => {
   const session = new Session(binary, []);

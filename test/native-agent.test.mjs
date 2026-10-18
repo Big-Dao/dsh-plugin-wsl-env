@@ -2,6 +2,7 @@
  * Checks for the native agent's host-side copy/verify plumbing (ADR 0002).
  */
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { ensureNativeBackend, nativeCacheScript, clearNativeBackendCache, configureAgentBackend, ensureNativeSessionAgent, NATIVE_AGENT_ENV } from "../lib/native-agent.js";
 
 let passed = 0;
@@ -50,15 +51,16 @@ await check("the backend reads, hashes, checks the arch and copies once", async 
     calls.push({ script, bytes });
     return "/home/u/.cache/dsh-wsl/agent/x/dsh-wsl-agent";
   };
-  const path = await ensureNativeBackend({ wslPath: "wsl.exe", distro: "ubuntu", source: "C:\\native", readSource: read, run, copy });
-  assert.equal(path, "/home/u/.cache/dsh-wsl/agent/x/dsh-wsl-agent");
+  const result = await ensureNativeBackend({ wslPath: "wsl.exe", distro: "ubuntu", source: "C:\\native", readSource: read, run, copy });
+  assert.equal(result?.path, "/home/u/.cache/dsh-wsl/agent/x/dsh-wsl-agent");
+  assert.equal(result?.digest, createHash("sha256").update(binary).digest("hex"));
   assert.equal(calls.length, 2);
   assert.deepEqual(calls[0]?.argv, ["wsl.exe", "-d", "ubuntu", "--exec", "uname", "-m"]);
   assert.equal(calls[1]?.bytes, binary);
   assert.match(calls[1]?.script ?? "", /sha256sum/);
   // A second call is served from the process cache: the fakes must not run.
   const again = await ensureNativeBackend({ wslPath: "wsl.exe", distro: "ubuntu", source: "C:\\native", readSource: read, run: () => { throw new Error("should not run"); }, copy: () => { throw new Error("should not copy"); } });
-  assert.equal(again, path);
+  assert.equal(again?.path, result?.path);
 });
 
 await check("an unsupported architecture is refused", async () => {
@@ -105,14 +107,15 @@ await check("an empty source resolves the packaged binary for the architecture",
   clearNativeBackendCache();
   /** @type {{ script?: string, bytes?: Buffer }} */
   let seen = {};
-  const path = await ensureNativeBackend({
+  const result = await ensureNativeBackend({
     wslPath: "wsl.exe",
     distro: "ubuntu",
     source: "",
     run: async () => "x86_64\n",
     copy: async (script, bytes) => { seen = { script, bytes }; return "/cache/pkg"; },
   });
-  assert.equal(path, "/cache/pkg");
+  assert.equal(result?.path, "/cache/pkg");
+  assert.equal(result?.digest, createHash("sha256").update(seen.bytes ?? Buffer.alloc(0)).digest("hex"));
   assert.ok((seen.bytes?.length ?? 0) > 100000, "the committed package binary is read");
   assert.match(seen.script ?? "", /cannot-execute/);
 });
@@ -120,15 +123,15 @@ await check("an empty source resolves the packaged binary for the architecture",
 
 await check("agentBackend shell clears the native entry without preparing", async () => {
   configureAgentBackend("shell");
-  /** @type {Array<[string, string]>} */
+  /** @type {Array<[string, string, string]>} */
   const calls = [];
   await ensureNativeSessionAgent({
     wslPath: "wsl.exe",
     distro: "ubuntu",
-    setNative: (distro, path) => { calls.push([distro, path]); },
+    setNative: (distro, path, digest) => { calls.push([distro, path, digest]); },
     ensure: async () => { throw new Error("must not prepare"); },
   });
-  assert.deepEqual(calls, [["ubuntu", ""]]);
+  assert.deepEqual(calls, [["ubuntu", "", ""]]);
 });
 
 await check("agentBackend native without a usable source rejects with the remedy", async () => {
@@ -164,17 +167,17 @@ await check("agentBackend auto uses a verified source", async () => {
   process.env[NATIVE_AGENT_ENV] = "C:\\native";
   /** @type {string[]} */
   const sources = [];
-  /** @type {Array<[string, string]>} */
+  /** @type {Array<[string, string, string]>} */
   const calls = [];
   try {
     await ensureNativeSessionAgent({
       wslPath: "wsl.exe",
       distro: "ubuntu",
-      setNative: (distro, path) => { calls.push([distro, path]); },
-      ensure: async (options) => { sources.push(options.source); return "/cache/dsh-wsl-agent"; },
+      setNative: (distro, path, digest) => { calls.push([distro, path, digest]); },
+      ensure: async (options) => { sources.push(options.source); return { path: "/cache/dsh-wsl-agent", digest: "b".repeat(64) }; },
     });
     assert.deepEqual(sources, ["C:\\native"]);
-    assert.deepEqual(calls, [["ubuntu", "/cache/dsh-wsl-agent"]]);
+    assert.deepEqual(calls, [["ubuntu", "/cache/dsh-wsl-agent", "b".repeat(64)]]);
   } finally {
     if (saved === undefined) delete process.env[NATIVE_AGENT_ENV];
     else process.env[NATIVE_AGENT_ENV] = saved;

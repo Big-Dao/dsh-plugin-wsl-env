@@ -53,8 +53,9 @@ reads the binary for the distro's `uname -m`, sha256s it, copies it into
 streams it into `~/.cache/dsh-wsl/agent/<sha>/dsh-wsl-agent` (never executes
 from `/mnt/c`), verifies the distro-side digest, and hands the Linux path to
 the session-runtime factory. The factory spawns the binary instead of
-`sh wsl-agent.sh`, with USR1 disabled (the native reads KILL frames) and no
-expected digest (the spike's HELLO digest is empty).
+`sh wsl-agent.sh`, with USR1 disabled (the native reads KILL frames). The
+native's HELLO carries the sha256 of `/proc/self/exe`, and the host passes the
+digest it copied as `expectedDigest`, so a swapped binary fails the handshake.
 
 The shared per-distro agent (unconfined FS reads), the one-shot fallback and
 the `agent: false` path stay on the shell agent; an unset variable or a failed
@@ -71,7 +72,7 @@ next stage.
 
 ## Result (2026-10-18, x86_64-unknown-linux-gnu, release)
 
-- 17/17 checks: HELLO, PING, EXEC (exit + both streams), SETENV (later
+- 18/18 checks: HELLO (including the binary's sha256 digest), PING, EXEC (exit + both streams), SETENV (later
   commands only), concurrent EXECs (the short one settles first), KILL (no
   second `wsl.exe`, no full wait), timeout (group killed promptly), the EXEC
   timeout unit (a 2 s budget does not kill a 300 ms command), output cap

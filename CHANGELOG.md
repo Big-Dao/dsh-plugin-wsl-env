@@ -321,6 +321,13 @@ from it.
 
 ### Notes
 
+- **The native HELLO binds the process to the binary.** The native agent
+  hashes `/proc/self/exe` and puts the sha256 in its HELLO digest; the host
+  passes the digest it copied into the cache as `expectedDigest`, so a binary
+  swapped after the copy check fails the handshake before accepting a request.
+  The spike is 18/18 (the new check compares the handshake to the file's
+  sha256). The shell agent's script digest is unchanged.
+
 - **The packaged native binary.** `agent/native/linux-x86_64/dsh-wsl-agent`
   ships in the npm `files`; `agentBackend: auto` resolves it for a distro whose
   `uname -m` is x86_64/amd64 (aarch64 is mapped but has no binary yet), with

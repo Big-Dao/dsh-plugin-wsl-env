@@ -476,7 +476,7 @@ export class WslAgent {
           // deployed layout a /mnt/c mirror — so a digest that differs from
           // the copy this package shipped means the runtime copy is stale,
           // half-synced, or edited. Fail closed with the fix in the message.
-          this.lastError = `agent script digest mismatch: the file the distro read at ${this.scriptPath} hashes to ${message.digest || "(nothing)"}, but this package shipped ${this.expectedDigest} — resync the runtime copy (npm run sync:windows) or reinstall the plugin`;
+          this.lastError = `agent digest mismatch: the file the distro read at ${this.scriptPath} hashes to ${message.digest || "(nothing)"}, but this package shipped ${this.expectedDigest} — resync the runtime copy (npm run sync:windows) or reinstall the plugin`;
           settleStart(new Error(this.lastError));
           this.process?.kill();
           return;

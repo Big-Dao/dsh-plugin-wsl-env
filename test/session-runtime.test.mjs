@@ -157,12 +157,13 @@ check("disposeAll tears down every runtime, and an unknown release is a no-op", 
 
 check("a distro with a native entry spawns it without sh and with USR1 off", async () => {
   const native = "/home/u/.cache/dsh-wsl/agent/abc/dsh-wsl-agent";
-  setSessionNativeAgent("ubuntu", native);
+  const digest = "c".repeat(64);
+  setSessionNativeAgent("ubuntu", native, digest);
   try {
     const registry = new SessionRuntimes({ stopScope: () => {} });
     const entry = registry.acquire({ distro: "ubuntu", wslPath: "wsl.exe", workspaceRoot: "/home/u/proj", mode: "workspace-write" });
     assert.equal(entry.agent.scriptPath, native, "the native binary is the entrypoint");
-    assert.equal(entry.agent.expectedDigest, undefined, "the spike HELLO has no digest");
+    assert.equal(entry.agent.expectedDigest, digest, "the HELLO must present the copied binary's sha256");
     assert.equal(entry.agent.signalable, false, "the native reads KILL frames; USR1 would kill it");
     await registry.release(entry.key);
   } finally {

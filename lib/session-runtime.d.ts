@@ -104,8 +104,9 @@ export interface SessionRuntimeOptions {
  *
  * @param distro - the distro.
  * @param path - the Linux binary path, or empty to clear.
+ * @param digest - the binary's sha256, which the HELLO must present.
  */
-export declare function setSessionNativeAgent(distro: string, path: string): void;
+export declare function setSessionNativeAgent(distro: string, path: string, digest?: string): void;
 /**
  * The refcounted registry. One instance lives for the process; providers share
  * it so the shell and filesystem sides address the same runtime for a session.

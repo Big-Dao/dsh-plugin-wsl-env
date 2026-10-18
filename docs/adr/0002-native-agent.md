@@ -209,15 +209,15 @@ One process per agent, an event loop over stdin plus child pipes and timers:
 1. **Design (this ADR).** No code.
 2. **Spike (partial).** HELLO/PING/SETENV/EXEC/KILL, per-request process
    groups, the FS surface and the expected-version/mode matrix are done in
-   `agent/native/spike` (17/17 manual checks, ~673 KB release binary). The
+   `agent/native/spike` (18/18 manual checks, ~673 KB release binary). The
    host wiring is in (opt-in); packaging and musl/cross-arch builds remain.
 3. **Differential + concurrency.** Full matrix; v6 error/env framing; the
    concurrent write acceptance test.
 4. **Host integration (partial).** The copy/verify, the session-runtime factory,
-   the `wsl-shell.agentBackend` selection and the packaged x86_64 binary
+   the `wsl-shell.agentBackend` selection, the packaged x86_64 binary
    (`agent/native/linux-x86_64/dsh-wsl-agent`, selected by the distro's
-   `uname -m`) are in place. The musl/aarch64 builds, the HELLO digest and the
-   probes remain.
+   `uname -m`) and the running-binary HELLO digest are in place. The
+   musl/aarch64 builds and the probes remain.
 5. **Enable by default** on x64 (aarch64 after a CI build leg); keep the shell
    fallback and the flag. Only then consider retiring the shell.
 
@@ -233,7 +233,7 @@ serialized inside the agent for the v5 error channel; EXECs run concurrently
 with them.
 
 `agent/native/spike/test.mjs` (run manually against the built binary) passes
-17/17: HELLO; PING; EXEC exit/streams; SETENV; two concurrent EXECs with the
+18/18: HELLO with the running binary's sha256; PING; EXEC exit/streams; SETENV; two concurrent EXECs with the
 short one settling first; KILL without a second `wsl.exe`; a 200 ms timeout
 killing the group promptly; the EXEC timeout unit (a 2 s budget does not kill
 a 300 ms command — an earlier millisecond reading killed every longer

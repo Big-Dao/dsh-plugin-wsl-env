@@ -237,6 +237,10 @@ run_capture() {
     "$@" >"$OUT_FILE" 2>"$ERR_FILE" &
   fi
   CURRENT_PID=$!
+  # Dispatched: the child exists now, so the host may arm its execution
+  # watchdog AND deliver USR1 to cancel it. Announcing earlier would race a
+  # signal against CURRENT_PID and lose the cancellation.
+  printf 'ACK|%s\n' "$req_id"
   watcher_pid=
   case $timeout_s in
     ''|0) ;;
@@ -651,9 +655,8 @@ while IFS= read -r line; do
         printf 'ERR|%s|protocol|%s\n' "$req_id" "$(printf '%s' "an argv payload failed to decode" | base64 | tr -d '\n')"
         continue
       fi
-      # Dispatched: tell the host now, so its watchdog measures execution and
-      # not the queue wait this request just went through.
-      printf 'ACK|%s\n' "$req_id"
+      # Dispatched: run_capture prints the ACK once the child exists, so the
+      # host's watchdog and USR1 cancel both target a real process.
       run_capture "$req_id" "$timeout_s" "$maxout" exec "$@"
       ;;
     FS\|*)
@@ -675,10 +678,9 @@ while IFS= read -r line; do
         n=$((n + 1))
         set -- "$@" "$arg_b64"
       done
-      # Same dispatch signal as EXEC: the FS budget starts at the op, not at
-      # the queue position. No capture cap — the payloads are the host's own
-      # read windows, bounded by the protocol.
-      printf 'ACK|%s\n' "$req_id"
+      # Same dispatch signal as EXEC: run_capture ACKs after the child exists.
+      # No capture cap — the payloads are the host's own read windows, bounded
+      # by the protocol.
       run_capture "$req_id" "$timeout_s" 0 subshell fs_dispatch "$op" "$@"
       ;;
     *)

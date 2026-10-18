@@ -164,6 +164,14 @@ from it.
   `sh` agent is asked to run `sleep 30`, receives `USR1` after its ACK, and is
   asserted to answer with a non-zero exit well before the sleep ends.
 
+- **The agent's ACK is emitted only once the request's child exists.** It used
+  to be printed just before `run_capture`, i.e. before `CURRENT_PID` was set.
+  The host arms its execution watchdog and delivers `USR1` on the ACK, so both
+  could race the spawn: a cancellation right after the ACK found an empty
+  `CURRENT_PID`, dropped the signal, and the command ran to its own timeout.
+  `run_capture` now prints the ACK after `CURRENT_PID=$!`, which is what the
+  host's comment always claimed it meant.
+
 ### Notes
 
 - Gates on the new pins: style 9/9, syntax 7/7 members and 3/3 chain members

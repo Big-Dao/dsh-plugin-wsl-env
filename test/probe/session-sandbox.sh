@@ -63,7 +63,7 @@ else
       else
         bad "the background process did not outlive the command"
       fi
-      if systemctl --user stop "$unit" >/dev/null 2>&1; then
+      if systemctl --user stop "$unit.scope" >/dev/null 2>&1; then
         sleep 0.5
         if pgrep -f -- "$marker" >/dev/null 2>&1; then
           bad "stopping the scope left its processes behind"
@@ -71,7 +71,7 @@ else
           ok "stopping the scope clears its process tree"
         fi
       else
-        bad "systemctl --user stop $unit failed"
+        bad "systemctl --user stop $unit.scope failed"
       fi
     else
       bad "systemd-run --user --scope failed"

@@ -1,10 +1,11 @@
 # ADR 0001 — Session-scoped execution world
 
-- **Status:** proposed (spike done; implementation pending)
+- **Status:** accepted; shipped on for the shell provider (the filesystem
+  provider's unification and the crash sweep remain open)
 - **Date:** 2026-10-18
-- **Supersedes:** the per-command bwrap model for *unconfined-policy* sessions
-  only in the sense described below; the per-command profile remains the
-  fallback until the session runtime ships.
+- **Supersedes:** the per-command bwrap model for commands; the per-command
+  profile remains for `sessionSandbox: false` and the agent-unavailable
+  fallback.
 
 ## Context
 
@@ -27,10 +28,12 @@ the plugin when a policy denies something. The current execution unit is one
    started in the GUI terminal is invisible to a confined `pgrep`, and a
    confined `pkill` cannot stop it — even though both run as the same user.
 
-The spike is `test/probe/session-sandbox.sh`. Its bwrap legs pass here; its
-systemd leg must run from a real WSL terminal (the app's own shell runs under
-bwrap with an unshared PID namespace, so the user manager's bus is
-unreachable there), and is the remaining manual verification.
+The spike is `test/probe/session-sandbox.sh`. Its bwrap legs pass; the systemd
+leg has since been validated through a live session runtime (not only a
+terminal): `ps -p 1` is `systemd`, the command's cgroup is the session's
+`dsh-wsl-*.scope`, a background process started by one command is visible to
+the next, `/tmp` is shared across commands, and the scope disappears after the
+session ends (`systemctl --user list-units 'dsh-wsl-*' --all` → 0 units).
 
 ## Options
 
@@ -113,18 +116,19 @@ as a fallback if the per-session cost proves unacceptable.
 
 The launcher builders and the refcounted registry have landed
 (`src/session-scope.ts`, `src/session-runtime.ts`, with unit tests), and the
-shell executor is wired behind the `sessionSandbox` flag (off by default).
+shell executor is wired behind `sessionSandbox`, on in the shipped preset.
 The preflight is wired (a success is cached, a failure is refused with a
 remedy); the filesystem provider's unification is the next change.
 
 ## Consequences
 
 - **Setup:** systemd must be PID 1 in the distro (`/etc/wsl.conf`
-  `[boot] systemd=true`), the user manager must be reachable, and `Linger`
-  must be enabled for a headless `wsl.exe --exec` (`loginctl enable-linger
-  $USER`). This machine satisfies the first two (`systemd=true`, 259) but has
-  `Linger=no`; the probe reports it. Preflight must gate the session runtime
-  with those remediations, per the plugin's existing refusal pattern.
+  `[boot] systemd=true`), the user manager must be reachable, `systemd-run`
+  must exist, and `Linger` must be enabled for a headless `wsl.exe --exec`
+  (`loginctl enable-linger $USER`). The preflight checks all four and refuses
+  with the remedy; the shipped preset turns the runtime on, so a machine
+  without them sees that refusal on the first command, not a silent
+  per-command fallback.
 - **Isolation:** mount isolation is unchanged (ro-bind, workspace bind,
   `/mnt` masking). The PID namespace is gone for commands, so a command can
   signal other processes of the same distro user. That is what a real
@@ -149,17 +153,19 @@ remedy); the filesystem provider's unification is the next change.
    record `/tmp`, background-process and `ps` results.
 2. **Launcher (done).** The scope argv/stop builder, the unit-name generator
    and the refcounted registry are in place; the shell executor is wired
-   behind a `sessionSandbox` config flag (default off).
+   behind `sessionSandbox`, on in the shipped preset.
 3. **Preflight (done).** Detect systemd, the user manager, `Linger`, and
    `systemd-run --user`; refuse with the remedy when the flag is on and the
    platform cannot honor it. Only success is cached.
-4. **Probes.** Extend `session-sandbox.sh` and the real-machine suite:
-   background dev server across two commands, `/tmp` across a command and a
-   file-tool write, `ps`/`pkill` across the terminal and a command, scope
-   cleanup after session end.
-5. **Default on** for sessions whose preflight passes; keep the per-command
-   profile for the fallback. Update `docs/LIMITATIONS.md` (the two `/tmp`s and
-   the background-process note) and the sandbox enforcement wording.
+4. **Probes (live-validated; suite extension pending).** The live session
+   showed a background process across two commands, `/tmp` across commands,
+   `ps` visibility, and scope cleanup after session end. Extending
+   `session-sandbox.sh` and the real-machine suite to cover the file-tool
+   `/tmp` case is still open.
+5. **Default on (done).** The shipped preset sets `sessionSandbox: true`;
+   the per-command profile remains for `sessionSandbox: false` and the
+   agent-unavailable fallback. `docs/LIMITATIONS.md` scope the two-`/tmp`
+   note to the off case and records the crash caveat.
 
 ## Open questions
 

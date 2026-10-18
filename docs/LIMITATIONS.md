@@ -74,11 +74,14 @@ crosses the 9p share. What to know about the one substrate there is:
 - **`watch()` is one poll loop** (a `find -newer` scan inside the distro for a directory, a `stat` fingerprint for a file), so
   the coarse-invalidation caveats below apply. An inotify backend is planned,
   not shipped.
-- **A confined command's `/tmp` is not the write tool's `/tmp`.** `workspace-write`
-  mounts a fresh tmpfs at `/tmp` for the command — that is what makes it ephemeral —
-  while the file tools' fence grants the distro's *real* `/tmp`. Both are writable, so
-  neither side is refused, but a file the write tool puts in `/tmp` is invisible to
-  `bash` and vice versa. Hand a file between them through the session workspace.
+- **With `sessionSandbox: false`, a confined command's `/tmp` is not the write
+  tool's `/tmp`.** `workspace-write` mounts a fresh tmpfs at `/tmp` for the
+  command — that is what makes it ephemeral — while the file tools' fence grants
+  the distro's *real* `/tmp`. Both are writable, so neither side is refused, but a
+  file the write tool puts in `/tmp` is invisible to `bash` and vice versa. Hand
+  a file between them through the session workspace. The shipped preset turns
+  the session runtime on, where commands bind the distro's real `/tmp` and the
+  two agree.
 - A distro that is stopped or unregistered while the app runs takes the file
   tools' substrate with it: reads and writes report the substrate-unavailable
   error naming the cause. A death with nothing in flight costs nothing — the
@@ -104,6 +107,14 @@ crosses the 9p share. What to know about the one substrate there is:
 
 ## The sandbox
 
+- **The session runtime needs systemd and a lingering user manager.** The
+  shipped preset sets `sessionSandbox: true`; a distro without systemd as PID 1,
+  a reachable `systemd --user`, `systemd-run`, or `Linger` is refused on the
+  first command with the remedy. Set `sessionSandbox: false` on the preset's
+  `wsl-shell` to keep the per-command shape. A **hard crash** of the app can
+  leave a stale `dsh-wsl-*.scope` and its background processes behind; a
+  graceful session end stops the scope (validated), but an automatic startup
+  sweep is not shipped yet.
 - **The sandbox does not govern WSL interop.** A confined command can still run a
   Windows program, which escapes the Linux-side boundary. The plugin reports this as
   `enforcement: partial`. See [ARCHITECTURE.md](ARCHITECTURE.md#reported-enforcement).

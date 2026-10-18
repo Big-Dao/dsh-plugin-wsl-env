@@ -26,13 +26,15 @@ dsh --profile wsl                                  # 4. 启动
 
 第 3 步应该能看到一行 `# == dsh-plugin-wsl-env`——那就是插件的配置已经进了你的 profile。插件自带配置，第 2 步会自动接好，基本安装不需要手动改任何文件。
 
-**第一条命令之前，先给子系统安装 bubblewrap。** 每条命令都运行在 bubblewrap 沙箱内，而多数子系统不预装它。缺失时，命令直接失败，不会脱箱运行：
+**第一条命令之前，先给子系统安装 bubblewrap。** 每条命令都运行在 bubblewrap 沙箱内（默认还包在会话级 systemd scope 里），而多数子系统不预装它。缺失时，命令直接失败，不会脱箱运行：
 
 ```powershell
 wsl.exe -d <子系统> -u root -- apt-get install -y bubblewrap    # Debian/Ubuntu
 ```
 
 在插件检出目录里，`pnpm run bootstrap -- <子系统>` 检查插件用到的四个工具（bubblewrap、ripgrep、git、inotify-tools），并按子系统的包管理器打印安装命令；加 `--install` 直接执行。若跳过此步，会话打开时会报告缺失的包及确切的安装命令。
+
+**默认 preset 还要求 systemd。** 命令在会话级的 systemd user scope 内执行（后台 dev server 存活、`/tmp` 共享、`ps` 能看到整个会话）。在 `/etc/wsl.conf` 里设 `[boot] systemd=true`，重启 WSL，并执行一次 `loginctl enable-linger "$USER"`。缺任何一项，会话会带修复命令拒绝；在 preset 的 `wsl-shell` 上设 `sessionSandbox: false` 可回到每命令沙箱。
 
 然后在 GUI 里打开一个 `\\wsl.localhost\<子系统>\...` 下的文件夹。选择器会列出每个已安装的子系统，**New terminal** 开的也是子系统里的 shell。
 
@@ -63,7 +65,7 @@ Windows 上的编程工具要在 WSL 项目上干活，一共三条路：
 |---|---|---|
 | 往子系统里装了什么 | 一个服务目录 | 什么都不装 |
 | 是否监听端口 | 是 | 否 |
-| 命令沙箱 | 无 | bubblewrap |
+| 命令沙箱 | 无 | bubblewrap + systemd 会话 scope |
 | 卸载之后 | 手动删除服务目录 | 无残留 |
 | WSL 升级出了问题 | 服务可能需要修复 | 下一条命令自动恢复 |
 
@@ -77,6 +79,7 @@ Windows 上的编程工具要在 WSL 项目上干活，一共三条路：
 |---|---|---|---|
 | `wsl-shell` | `distro` | `''` | 用哪个子系统；空表示 WSL 的默认子系统 |
 | | `sandbox` | `true` | 命令跑在 `bubblewrap` 沙箱里；`false` 关掉沙箱 |
+| | `sessionSandbox` | `true` | 会话内的命令跑在同一个常驻 systemd user scope 里：后台 dev server 跨命令存活、`/tmp` 共享、`ps` 能看到整个会话。需要 systemd 为 PID 1、user manager 可达、`Linger` 打开；预检失败会带修复命令拒绝。设 `false` 回到每命令沙箱 |
 | | `maskWindowsDrive` | `false` | 让沙箱里的命令看不到 `/mnt`，收窄互操作这个洞（只是收窄，关不死，见[沙箱](#沙箱)） |
 | `wsl-fs` | `distro` | `''` | 同上 |
 | | `restrictToDistro` | `true` | 拒绝属于**别的子系统**的路径（`/mnt/c` 属于本子系统，不受影响）。拒绝码是 `FS_OUTSIDE_DISTRO`，放宽权限也解不开 |
@@ -118,7 +121,7 @@ preset-wsl（wsl agent preset；这个环境里的服务相互独立）
 
 **为什么分两层。** `wsl-shell` 和 `wsl-fs` 是随会话变化的两件事，所以放在 `wsl` preset 里：会话打开子系统目录时，`auto-preset` 给它绑上这个 preset；打开 Windows 目录的会话继续用原生 Windows 工具。一个进程，每个会话各有各的环境。GUI 终端是例外：它读的是应用层的配置，永远看不到 preset，所以 `subprocess-wsl` 挂在应用层。GUI 文件树和根级文件系统正好反过来——每个会话都用它们，单个 preset 拥有不了——所以 `workspace-files-wsl` 和 `fs-routing` 也挂在应用层。它们替换了随包的两行；根级路由的设计见 [docs/root-fs-routing.md](root-fs-routing.md)。
 
-**命令的执行路径。** 命令通常由一个常驻子系统内的 agent 进程执行（每个子系统一个）。agent 在你的登录 shell 中、bubblewrap 沙箱内运行命令并回传输出。agent 不可用时（或设了 `agent: false`），同一条命令改由新开的 `wsl.exe` 进程执行——结果一致，开销略高。
+**命令的执行路径。** 一个会话有一个常驻 agent，运行在 systemd user scope 内；agent 在你的登录 shell 中、bubblewrap mount profile 内执行每条命令。scope 比命令活得久，所以后台 dev server 存活、`/tmp` 是子系统真实 `/tmp`、`ps` 能看到整个会话。设 `sessionSandbox: false` 时，agent 仍是每子系统一个、每条命令一套 bwrap profile（`--unshare-pid`、临时 `/tmp`），后台进程不存活。agent 不可用时（或 `agent: false`），改走一次性 `wsl.exe`——结果一致、略慢、仍是每命令隔离。
 
 **文件操作的执行路径。** 读、写、搜索同样发生在子系统内部：使用子系统自己的磁盘与工具。子系统工作区的搜索运行子系统内的 `rg`，不使用 Windows 侧副本走 9p 共享。文件写入与命令沙箱使用同一份策略检查。
 
@@ -129,7 +132,7 @@ preset-wsl（wsl agent preset；这个环境里的服务相互独立）
 | 模式 | 子系统里的命令可以做什么 |
 |---|---|
 | `read-only` | 整个子系统只读；会挂一个新建的 `/dev`，`/dev/null` 和 `/dev/shm` 可用，其余不可写 |
-| `workspace-write` | 上面全部，加上会话工作区可写，`/tmp` 是临时目录 |
+| `workspace-write` | 上面全部，加上会话工作区可写；`/tmp` 在会话 runtime 里是子系统真实 `/tmp`（`sessionSandbox: false` 时每命令 profile 挂临时 tmpfs） |
 | `danger-full-access` | 不加沙箱；用于你批准的放宽权限请求 |
 
 **bubblewrap 是必需项，缺了就宁可不做。** 没有它，每条受限命令都报 `SANDBOX_UNAVAILABLE`——命令不会脱着沙箱运行。想关掉沙箱，在管这件事的行上设 `sandbox: false`：命令归 `wsl-shell`，文件写入归 `wsl-fs`，根级写入归顶层的 `fs-routing`（应用自己用的那套文件系统）。（前两行要经 `preset-wsl` 改，见[配置](#配置)。）关掉后，模型会如实收到"这些操作没有沙箱"的说明。

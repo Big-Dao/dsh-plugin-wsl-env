@@ -34,6 +34,8 @@ wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap    # Debian/Ubuntu
 
 From a plugin checkout, `pnpm run bootstrap -- <distro>` checks the four tools the plugin uses (bubblewrap, ripgrep, git, inotify-tools) and prints the install command for the distro's package manager; `--install` runs it. If this step is skipped, the session reports the missing package with the exact install command when it opens.
 
+**The shipped preset also needs systemd.** Commands run in one systemd user scope per session (background dev servers survive, `/tmp` is shared, `ps` sees the session). Set `[boot] systemd=true` in `/etc/wsl.conf`, restart WSL, and enable lingering once: `loginctl enable-linger "$USER"`. The session refuses with those remedies if any piece is missing; `sessionSandbox: false` on the preset's `wsl-shell` restores the per-command sandbox.
+
 Then open a folder like `\\wsl.localhost\<distro>\...` in the GUI. The folder picker lists every installed distro, and **New terminal** opens a shell inside the distro.
 
 Uninstall: `dsh plugin --profile wsl remove dsh-plugin-wsl-env`. Upgrade: run the same `add` command again.
@@ -63,7 +65,7 @@ Three ways for a Windows coding tool to work on a WSL project:
 |---|---|---|
 | installed in the distro | a server folder | nothing |
 | opens a port | yes | no |
-| command sandbox | none | bubblewrap |
+| command sandbox | none | bubblewrap + systemd session scope |
 | after uninstall | remove the server manually | nothing left |
 | after a WSL upgrade | server may need repair | the next command recovers automatically |
 
@@ -77,6 +79,7 @@ Each setting lives on a named row. To change one, add a row with the same id to 
 |---|---|---|---|
 | `wsl-shell` | `distro` | `''` | which distro to use; empty means WSL's default distro |
 | | `sandbox` | `true` | run commands inside the `bubblewrap` sandbox; `false` turns it off |
+| | `sessionSandbox` | `true` | run the session's commands in one persistent systemd user scope: background dev servers survive, `/tmp` is shared, `ps` sees the session. Needs systemd as PID 1, a reachable user manager and `Linger`; the preflight refuses with the remedy. `false` restores the per-command sandbox |
 | `wsl-fs` | `distro` | `''` | same as above |
 | | `restrictToDistro` | `true` | refuse paths that belong to a **different** distro. (`/mnt/c` belongs to this distro, so it is not affected.) The refusal is `FS_OUTSIDE_DISTRO`; wider permissions cannot lift it |
 | | `sandbox` | `true` | check file writes against the same policy |
@@ -117,7 +120,7 @@ preset-wsl (the wsl agent preset; its settings are separate from the app's)
 
 **Why two levels.** The `wsl` preset holds `wsl-shell` and `wsl-fs`, the two things that differ per session. When a session opens a distro folder, `auto-preset` gives that session the preset; a Windows-folder session keeps the normal Windows tools. One environment per session, in one process. The GUI terminal is the exception: it reads its shell from the app level, which never sees a preset, so `subprocess-wsl` is mounted at the app level. The GUI file tree and the root filesystem have the same shape of problem — every session uses them, so no single preset can own them — and `workspace-files-wsl` and `fs-routing` sit at the app level for that reason. They replace two shipped rows; [docs/root-fs-routing.md](docs/root-fs-routing.md) has the routing design.
 
-**How a command runs.** A command normally runs on a resident agent process inside the distro — one per distro. The agent executes it in your login shell, inside a bubblewrap sandbox, and returns the output. If the agent is unavailable (or you set `agent: false`), the same command runs through a fresh `wsl.exe` process instead — same result, slightly slower.
+**How a command runs.** A session gets one resident agent inside a systemd user scope; the agent executes each command in your login shell under a bubblewrap mount profile. Because the scope outlives the command, a background dev server survives, `/tmp` is the distro's real `/tmp`, and `ps` sees the whole session. With `sessionSandbox: false`, the agent stays per distro and each command gets its own bwrap profile (`--unshare-pid`, a fresh `/tmp`), so background processes do not survive. If the agent is unavailable (or you set `agent: false`), the one-shot `wsl.exe` path runs the command instead — same result, slightly slower, and per-command isolation.
 
 **How file operations run.** Reads, writes and searches also happen inside the distro, on its own filesystem, with the distro's own tools. A search over a distro workspace runs the distro's `rg`, never the Windows binary over the 9p share. File writes are checked against the same policy the command sandbox enforces.
 
@@ -128,7 +131,7 @@ Commands run inside a `bubblewrap` sandbox in the distro, and file writes are ch
 | Mode | What a command inside the distro can do |
 |---|---|
 | `read-only` | read the whole distro. A fresh `/dev` is mounted so `/dev/null` and `/dev/shm` work; nothing else is writable |
-| `workspace-write` | all of the above, plus the session workspace is writable and `/tmp` is a temporary mount |
+| `workspace-write` | all of the above, plus the session workspace is writable and `/tmp` is the distro's real `/tmp` (with `sessionSandbox: false`, the per-command profile mounts a fresh tmpfs there instead) |
 | `danger-full-access` | no sandbox; used when you approve a wider-permission request |
 
 **bubblewrap is required, and the plugin fails closed.** Without it, every confined command reports `SANDBOX_UNAVAILABLE` — the command does not run unsandboxed. To turn the sandbox off, set `sandbox: false` on the row that owns the operation: `wsl-shell` for commands, `wsl-fs` for file writes, and the top-level `fs-routing` row for writes to the app's own filesystem. (The two preset rows are reached through `preset-wsl` — see [Configure](#configure).) The model is then told that these operations have no sandbox.

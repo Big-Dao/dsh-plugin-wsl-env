@@ -40,7 +40,7 @@ DSH 是 Windows 桌面应用，项目在 WSL 的 ext4 里。不做集成，三�
 
 ### 价值三：沙箱是默认，失败是响亮的
 
-**机制。** 每条受限命令在发行版内经 `bubblewrap` 执行，参数与 DSH 的 Linux runner 相同；三档权限（`read-only` / `workspace-write` / `danger-full-access`）逐档生效；文件写入按同一份策略检查，受限策略下的写入还由内核在 bwrap 配置内二次拒绝。没有可用的 bwrap 时，命令报 `SANDBOX_UNAVAILABLE` 而不是脱箱运行。
+**机制。** 一个会话的受限命令在同一个 systemd user scope 内经 `bubblewrap` mount profile 执行（后台进程、真实 `/tmp`、`ps` 可见），scope 随会话结束停止；三档权限（`read-only` / `workspace-write` / `danger-full-access`）逐档生效；文件写入按同一份策略检查，受限策略下的写入还由内核在 bwrap 配置内二次拒绝。没有可用的 bwrap 时，命令报 `SANDBOX_UNAVAILABLE` 而不是脱箱运行。
 
 **可感知的差别。** 可以把一个会自己跑命令的 agent 放进真实仓库，同时知道它写不出工作区。被拒绝时，模型收到一次「用刚好够用的权限重试」的提议，而不是直接要 `danger-full-access`。审计时能拿到当时实际执行的模式和拒绝原因；文件工具遇到跨发行版路径时由 `FS_OUTSIDE_DISTRO` 拒绝，且放宽权限也解不开。
 
@@ -62,7 +62,7 @@ DSH 是 Windows 桌面应用，项目在 WSL 的 ext4 里。不做集成，三�
 
 **可感知的差别。** 不会多出 `~/.vscode-server` 这类目录，不会和本机端口冲突，卸载后发行版里没有需要手动清理的服务端目录。WSL 升级或发行版重启后，下一次调用重建传输；只有 agent 在「有请求在飞」时死亡才可能耗尽它的一次重建额度（见 [LIMITATIONS](LIMITATIONS.md)），这是已声明的边界，不是日常路径。
 
-**注意区分。** 「不装服务」不等于「零依赖」：bubblewrap 是默认路径的硬依赖，ripgrep、git、inotify-tools 由 `pnpm run bootstrap` 体检。插件不把这些工具打包进来，也不在发行版里安装常驻服务。
+**注意区分。** 「不装服务」不等于「零依赖」：bubblewrap 是默认路径的硬依赖；会话 runtime 还需要 systemd 为 PID 1 且 user manager 已 `enable-linger`（临时 scope，不是安装的常驻服务）。ripgrep、git、inotify-tools 由 `pnpm run bootstrap` 体检。插件不把这些工具打包进来，也不在发行版里安装常驻服务。
 
 **证据。** [README「How it compares」](../README.md#how-it-compares)；`agent/wsl-agent.sh`、`test/agent.test.mjs`；`scripts/bootstrap.sh`。
 
@@ -80,7 +80,7 @@ DSH 是 Windows 桌面应用，项目在 WSL 的 ext4 里。不做集成，三�
 |---|---|---|---|---|
 | 命令环境 | Windows | 发行版 | 发行版 | 发行版 |
 | 文件语义 | 9p 共享，慢且丢 POSIX 细节 | 发行版内，原生 | 发行版内，原生 | 发行版内，原生（ext4） |
-| 命令沙箱 | Windows 沙箱到不了 WSL | 无 | 取决于 CLI | 发行版内 bubblewrap |
+| 命令沙箱 | Windows 沙箱到不了 WSL | 无 | 取决于 CLI | 发行版内 bubblewrap + systemd 会话 scope |
 | 发行版内安装 | 无 | 一个服务目录 | 整个工具 | 无自有服务（依赖系统工具） |
 | 端口 | 无 | 监听一个端口 | 无 | 无 |
 | 卸载残留 | 无 | 手动删服务目录 | 删工具 | 无 |
@@ -92,7 +92,7 @@ DSH 是 Windows 桌面应用，项目在 WSL 的 ext4 里。不做集成，三�
 
 价值是收益减代价。下面这些是安装前就该知道的：
 
-- **bubblewrap 是硬依赖。** 默认路径没有它，每条受限命令都失败（这是有意的 fail-closed）；受限的文件写入同样需要它。`pnpm run bootstrap -- <distro>` 会体检并给出安装命令。
+- **bubblewrap 是硬依赖。** 默认路径没有它，每条受限命令都失败（这是有意的 fail-closed）；受限的文件写入同样需要它。会话 runtime 还要求 systemd 为 PID 1、user manager 已 `enable-linger`；预检失败会带修复命令拒绝。`pnpm run bootstrap -- <distro>` 会体检并给出安装命令。
 - **enforcement 是 partial。** interop 让发行版内的进程仍能启动 Windows 程序。`maskWindowsDrive` 只是收窄；完全关闭要靠 `wsl.conf` 的 `[interop] enabled=false`。需要「对 Windows 侧也绝对隔离」的场景，本插件给不了。
 - **两套 `/tmp`。** `workspace-write` 下命令看到的是临时 tmpfs，文件工具写的是发行版真实的 `/tmp`；两边都成功，但互相看不见。跨边界的文件要走会话工作区。
 - **watch 是轮询，不是 inotify 事件流。** 事件粗粒度、按轮询节奏到达；原地 `cp -p`、恢复目录 mtime 的解包等极端情形可能漏报。

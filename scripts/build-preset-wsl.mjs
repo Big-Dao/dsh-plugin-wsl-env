@@ -18,6 +18,9 @@
  *      shipped copy derives the choice from `process.platform`;
  *   3. the identity: row `preset-wsl`, preset `wsl`, `order: 2`.
  *
+ * The realm block also pins the WSL providers' config, including
+ * `sessionSandbox: true` (the session runtime, ADR 0001).
+ *
  * With no output path the block goes to stdout, which is what a diff against
  * the committed copy wants:
  *
@@ -51,12 +54,15 @@ const realm = `          - id: wsl-env
               # asked of the distro itself. Pin a directory here to override it —
               # a value that is right on one machine is wrong on every other.
               #
-              # Each command is confined inside the distro by bubblewrap, in the
-              # policy's mode, and the file tools are fenced by the same policy.
-              # Install bubblewrap there (\`sudo apt install bubblewrap\`); without
-              # it the providers fail closed rather than run unconfined. Add
-              # \`sandbox: false\` to either provider for the old, unconfined
-              # posture.
+              # Commands run in one persistent systemd user scope per session
+              # (ADR 0001): a background dev server survives the command that
+              # started it, \`/tmp\` is the distro's real \`/tmp\`, and \`ps\` sees the
+              # session. This needs systemd as PID 1 (\`[boot] systemd=true\` in
+              # /etc/wsl.conf) and a lingering user manager (\`loginctl
+              # enable-linger <user>\`); the preflight refuses with those remedies
+              # when one is missing. Set \`sessionSandbox: false\` for the old
+              # per-command shape. Bubblewrap is still required for the mount
+              # profile; without it the providers fail closed.
               - id: wsl-shell
                 name: 'dsh-plugin-wsl-env'
                 config:
@@ -64,6 +70,7 @@ const realm = `          - id: wsl-env
                   loginShell: true
                   timeoutMs: 120000
                   maxTimeoutMs: 600000
+                  sessionSandbox: true
               - id: wsl-fs
                 name: 'dsh-plugin-wsl-env/fs'
                 config:

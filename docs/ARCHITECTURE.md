@@ -198,6 +198,14 @@ wsl.exe -d <distro> --cd <linux dir> --exec bwrap \
   [--tmpfs /tmp --bind <workspace> <workspace>]  [--tmpfs /mnt]  --  <shell> -lc <cmd>
 ```
 
+By default the profile wraps the session's resident agent ONCE, under
+`systemd-run --user --scope`, and the command argv is the shell line itself:
+`bwrap … --die-with-parent --bind /tmp /tmp --bind <workspace> <workspace> -- sh agent.sh`.
+There is no `--unshare-pid` and no per-command tmpfs, so background processes
+survive, `/tmp` is the distro's real `/tmp`, and `ps` sees the session. The
+per-command argv above is what `sessionSandbox: false` (and the one-shot
+fallback) still runs.
+
 These are the same arguments DSH's Linux runner uses (`dsh-sandbox-local`), so the
 behaviour and the error messages match a Linux host. The function
 `bwrapProfileArgs` in [`lib/bwrap.js`](../lib/bwrap.js) builds them — the
@@ -211,7 +219,7 @@ the row keys, and `lib/sandbox-core.js` states its honest ceiling.
 | Mode | What a command inside the distro can do |
 |---|---|
 | `read-only` | read the whole distro; a fresh `/dev` is mounted writable, so `/dev/null` and `/dev/shm` work, and nothing else does |
-| `workspace-write` | the above, plus the session workspace is writable and `/tmp` is a temporary mount |
+| `workspace-write` | the above, plus the session workspace is writable; `/tmp` is the distro's real `/tmp` in the session runtime, and a fresh tmpfs in the per-command profile (`sessionSandbox: false`) |
 | `danger-full-access` | no sandbox; used for an approved wider-permission request |
 
 `WslFileSystem` checks writes against the same policy and the same writable list,

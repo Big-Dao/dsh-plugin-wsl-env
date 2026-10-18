@@ -33,10 +33,14 @@ from it.
   policy)` on the first command, reuses it for the session, runs the command
   WITHOUT the per-command bwrap wrap (the runtime's own mounts confine it),
   and releases it from the preset scope's disposer — closing the agent and
-  stopping the unit, whose cgroup reaps the session's leftovers. Off by
-  default; requires `agent: true`, systemd, a reachable user manager and
-  `Linger`. The preflight refuses with the remedy when one is missing (only a
-  success is cached, so following the remedy needs no app restart).
+  stopping the unit, whose cgroup reaps the session's leftovers. On in the
+  shipped preset; requires `agent: true`, systemd as PID 1, a reachable user
+  manager, `systemd-run` and `Linger`. The preflight refuses with the remedy
+  when one is missing (only a success is cached, so following the remedy
+  needs no app restart); set `sessionSandbox: false` for the per-command
+  shape. Validated on a live session: `ps -p 1` is systemd, the command's
+  cgroup is the `dsh-wsl-*.scope`, a background process and `/tmp` survive
+  across commands, and the unit disappears after the session ends.
 
 - **The session-runtime registry.** `src/session-runtime.ts` refcounts one
   agent per `(distro, workspace, policy)`, composes the systemd user scope

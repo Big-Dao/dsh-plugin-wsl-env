@@ -192,14 +192,15 @@ from it.
   `maxOutputBytes` only while encoding the `RES`, so a chatty command could
   fill the distro's `/tmp` — and a huge answer could exceed the 256 MiB frame
   cap and kill the shared agent. With a budget, both streams are captured
-  through FIFOs drained by `head -c budget+1`; the rest is discarded, so the
-  files stay at one byte over the budget. The readers are given a one-second
-  grace once the request's own process is gone and then stopped, so a
-  background descendant holding the FIFO cannot delay the answer — and the
+  through FIFOs drained by a bounded `dd` reader; the rest is discarded, so
+  the files stay within a block or two of the budget. The readers are given a
+  one-second grace once the request's own process is gone and then stopped, so
+  a background descendant holding the FIFO cannot delay the answer — and the
   grace lets a just-exited command's output reach the file before the reader
-  is stopped. The extra byte is what distinguishes "exactly at the cap" from
-  "cut". The unbounded path (`FS` frames) still writes files directly. Tests cover `yes` capped at 1 KiB (`truncated: true`) and
-  `sleep & echo` answered without waiting for the background child.
+  is stopped. The block slack is what distinguishes "exactly at the cap" from
+  "cut". The unbounded path (`FS` frames) still writes files directly. Tests
+  cover `yes` capped at 1 KiB (`truncated: true`) and `sleep & echo` answered
+  without waiting for the background child.
 
 ### Notes
 

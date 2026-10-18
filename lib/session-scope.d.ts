@@ -81,6 +81,24 @@ export declare function sessionScopeStopArgv({ wslPath, distro, unit }: {
  */
 export declare function sessionScopeProbeScript(): string;
 /**
+ * Map the preflight's answer to a user-facing refusal, or `null` when the
+ * platform can host a session runtime. The probe prints one word (it always
+ * exits 0 so the host reads a verdict, not a spawn error); an empty or unknown
+ * answer is reported with whatever diagnostic the host captured.
+ *
+ * @param options - the probe output and the distro it ran in.
+ * @returns the refusal with a remedy, or null.
+ */
+export declare function sessionScopeProblem({ output, distro }: {
+    /** The probe's stdout, or the host error when it could not run. */
+    output: {
+        stdout: string;
+        error?: string;
+    };
+    /** The distro the probe ran in. */
+    distro: string;
+}): string | null;
+/**
  * The host argv for the preflight probe.
  *
  * @param options - the transport path and distro.

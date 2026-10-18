@@ -9,6 +9,7 @@
 import assert from "node:assert/strict";
 import {
   sessionScopePrefix,
+  sessionScopeProblem,
   sessionScopeProbeArgv,
   sessionScopeProbeScript,
   sessionScopeStopArgv,
@@ -85,6 +86,18 @@ check("the preflight argv runs that script through the distro's sh", () => {
   assert.equal(argv[6], sessionScopeProbeScript());
   const bare = sessionScopeProbeArgv({ wslPath: "wsl.exe", distro: "" });
   assert.deepEqual(bare.slice(0, 4), ["wsl.exe", "--exec", "sh", "-c"]);
+});
+
+
+check("the preflight verdict maps to a remedy", () => {
+  assert.equal(sessionScopeProblem({ output: { stdout: "ok\n" }, distro: "ubuntu" }), null);
+  assert.match(sessionScopeProblem({ output: { stdout: "no-systemd" }, distro: "ubuntu" }) ?? "", /wsl\.conf/);
+  assert.match(sessionScopeProblem({ output: { stdout: "no-user-manager" }, distro: "ubuntu" }) ?? "", /user manager/);
+  assert.match(sessionScopeProblem({ output: { stdout: "no-systemd-run" }, distro: "ubuntu" }) ?? "", /systemd-run/);
+  assert.match(sessionScopeProblem({ output: { stdout: "no-linger" }, distro: "ubuntu" }) ?? "", /loginctl enable-linger/);
+  const failed = sessionScopeProblem({ output: { stdout: "", error: "wsl.exe failed: boom" }, distro: "ubuntu" }) ?? "";
+  assert.match(failed, /preflight/);
+  assert.match(failed, /boom/);
 });
 
 for (const [name, fn] of checks) await runCheck(name, fn);

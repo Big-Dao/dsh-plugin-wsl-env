@@ -35,7 +35,8 @@ from it.
   and releases it from the preset scope's disposer — closing the agent and
   stopping the unit, whose cgroup reaps the session's leftovers. Off by
   default; requires `agent: true`, systemd, a reachable user manager and
-  `Linger`; the preflight is not wired yet.
+  `Linger`. The preflight refuses with the remedy when one is missing (only a
+  success is cached, so following the remedy needs no app restart).
 
 - **The session-runtime registry.** `src/session-runtime.ts` refcounts one
   agent per `(distro, workspace, policy)`, composes the systemd user scope
@@ -45,8 +46,8 @@ from it.
   (default true), and the agent accepts an explicit lease independent of the
   idle close. Tests cover the refcount, the mode-specific mounts, the mask in
   the key, the explicit lease, and the close-then-stop order. It is wired into
-  the shell executor behind `sessionSandbox`; the preflight and the filesystem
-  provider's unification are next.
+  the shell executor behind `sessionSandbox`, with a preflight that refuses
+  with a remedy; the filesystem provider's unification is next.
 
 - **The session-scoped sandbox's launcher primitives.** `src/session-scope.ts`
   builds the systemd user unit name, the `systemd-run --user --scope` prefix,

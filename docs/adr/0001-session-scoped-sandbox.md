@@ -114,7 +114,8 @@ as a fallback if the per-session cost proves unacceptable.
 The launcher builders and the refcounted registry have landed
 (`src/session-scope.ts`, `src/session-runtime.ts`, with unit tests), and the
 shell executor is wired behind the `sessionSandbox` flag (off by default).
-The preflight and the filesystem provider's unification are the next change.
+The preflight is wired (a success is cached, a failure is refused with a
+remedy); the filesystem provider's unification is the next change.
 
 ## Consequences
 
@@ -149,9 +150,9 @@ The preflight and the filesystem provider's unification are the next change.
 2. **Launcher (done).** The scope argv/stop builder, the unit-name generator
    and the refcounted registry are in place; the shell executor is wired
    behind a `sessionSandbox` config flag (default off).
-3. **Preflight.** Detect systemd, the user manager, `Linger`, and
+3. **Preflight (done).** Detect systemd, the user manager, `Linger`, and
    `systemd-run --user`; refuse with the remedy when the flag is on and the
-   platform cannot honor it.
+   platform cannot honor it. Only success is cached.
 4. **Probes.** Extend `session-sandbox.sh` and the real-machine suite:
    background dev server across two commands, `/tmp` across a command and a
    file-tool write, `ps`/`pkill` across the terminal and a command, scope

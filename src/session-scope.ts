@@ -122,13 +122,45 @@ export function sessionScopeStopArgv({ wslPath, distro, unit }: {
  */
 export function sessionScopeProbeScript(): string {
   return [
-    '[ -d /run/systemd/system ] || { echo no-systemd; exit 1; }',
+    '[ -d /run/systemd/system ] || { echo no-systemd; exit 0; }',
     'state=$(systemctl --user is-system-running 2>/dev/null || true)',
-    'case "$state" in running|degraded) ;; *) echo no-user-manager; exit 2;; esac',
-    'command -v systemd-run >/dev/null 2>&1 || { echo no-systemd-run; exit 3; }',
-    'loginctl show-user "$(id -un)" -p Linger 2>/dev/null | grep -q "^Linger=yes$" || { echo no-linger; exit 4; }',
+    'case "$state" in running|degraded) ;; *) echo no-user-manager; exit 0;; esac',
+    'command -v systemd-run >/dev/null 2>&1 || { echo no-systemd-run; exit 0; }',
+    'loginctl show-user "$(id -un)" -p Linger 2>/dev/null | grep -q "^Linger=yes$" || { echo no-linger; exit 0; }',
     "echo ok",
   ].join("\n");
+}
+
+/**
+ * Map the preflight's answer to a user-facing refusal, or `null` when the
+ * platform can host a session runtime. The probe prints one word (it always
+ * exits 0 so the host reads a verdict, not a spawn error); an empty or unknown
+ * answer is reported with whatever diagnostic the host captured.
+ *
+ * @param options - the probe output and the distro it ran in.
+ * @returns the refusal with a remedy, or null.
+ */
+export function sessionScopeProblem({ output, distro }: {
+  /** The probe's stdout, or the host error when it could not run. */
+  output: { stdout: string, error?: string };
+  /** The distro the probe ran in. */
+  distro: string;
+}): string | null {
+  const word = output.stdout.trim().split(/\r?\n/u)[0]?.trim() ?? "";
+  switch (word) {
+    case "ok":
+      return null;
+    case "no-systemd":
+      return `sessionSandbox needs systemd as PID 1 in "${distro}": set [boot] systemd=true in /etc/wsl.conf, run "wsl --shutdown", and reopen the session.`;
+    case "no-user-manager":
+      return `sessionSandbox needs a reachable systemd user manager in "${distro}": log in to the distro once, or enable lingering (see the next refusal).`;
+    case "no-systemd-run":
+      return `sessionSandbox needs "systemd-run" in "${distro}"; the distro's systemd package is incomplete or missing.`;
+    case "no-linger":
+      return `sessionSandbox needs the user manager to outlive a login session: run "loginctl enable-linger $USER" in "${distro}" and retry.`;
+    default:
+      return `the sessionSandbox preflight in "${distro}" answered ${word === "" ? "(nothing)" : `"${word}"`}${output.error === undefined ? "" : `: ${output.error}`}; see docs/adr/0001-session-scoped-sandbox.md.`;
+  }
 }
 
 /**

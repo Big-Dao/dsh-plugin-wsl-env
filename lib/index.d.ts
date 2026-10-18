@@ -240,8 +240,8 @@ export declare class WslShellExecutor extends LocalBashExecutor {
          * is the distro's real `/tmp` under workspace-write, and `ps` sees the
          * session. The executor holds the runtime until the session's scope
          * disposes, then stops it. Requires systemd, a reachable user manager and
-         * `Linger`; the preflight is not wired yet, so a platform that cannot honor
-         * it surfaces systemd's own error. Off by default; requires `agent: true`.
+         * `Linger`; the preflight refuses with the remedy when one is missing, and
+         * only a success is cached. Off by default; requires `agent: true`.
          */
         sessionSandbox: z<boolean, boolean, "defined">;
     }>>, Schemastery.ObjectT<NoInfer<{
@@ -314,8 +314,8 @@ export declare class WslShellExecutor extends LocalBashExecutor {
          * is the distro's real `/tmp` under workspace-write, and `ps` sees the
          * session. The executor holds the runtime until the session's scope
          * disposes, then stops it. Requires systemd, a reachable user manager and
-         * `Linger`; the preflight is not wired yet, so a platform that cannot honor
-         * it surfaces systemd's own error. Off by default; requires `agent: true`.
+         * `Linger`; the preflight refuses with the remedy when one is missing, and
+         * only a success is cached. Off by default; requires `agent: true`.
          */
         sessionSandbox: z<boolean, boolean, "defined">;
     }>>, "plain">;
@@ -333,6 +333,10 @@ export declare class WslShellExecutor extends LocalBashExecutor {
     sessionRuntimes: SessionRuntimes;
     /** The runtimes this executor holds, by registry key. */
     sessionRuntimeEntries: Map<string, SessionRuntimeEntry>;
+    /** The preflight's host runner; tests substitute it. */
+    sessionScopeProbe: (argv: string[]) => Promise<string>;
+    /** The last preflight verdict; only a success is cached. */
+    sessionRuntimePreflight: "unknown" | "ready";
     /**
      * Per-process confinement facts retained until settlement. Overlapping calls
      * can carry different policies, so a shared latest-wrap value would classify
@@ -400,6 +404,19 @@ export declare class WslShellExecutor extends LocalBashExecutor {
         mode: string;
         workspaceRoot: string;
     } | undefined, resolved: WslExecSpec, distro: string): SessionRuntimeEntry | undefined;
+    /**
+     * Run the session runtime's preflight once per executor. A failure is a
+     * configuration verdict, not an agent outage: it is raised as an Error with
+     * the remedy, so the command fails closed instead of falling back to the
+     * per-command sandbox. Only success is cached, so a user who follows the
+     * remedy (`loginctl enable-linger`, `[boot] systemd=true`) does not need to
+     * restart the app.
+     *
+     * @param distro - the resolved distro name.
+     * @returns resolved once the platform can host a session runtime.
+     * @throws {Error} with the remedy when it cannot.
+     */
+    ensureSessionRuntimeUsable(distro: string): Promise<void>;
     /**
      * Release every runtime this executor holds, stopping each scope. Called
      * from the session's dispose hook; public so tests and shutdown paths can

@@ -58,10 +58,11 @@ import { AgentSubstrate } from "./fs-substrate.js";
 import { FsCodedError } from "./fsio-text.js";
 import { confinedAgent } from "./agent-confined.js";
 import { SessionRuntimes, sessionRuntimes } from "./session-runtime.js";
+import { sessionScopeProblem, sessionScopeProbeArgv } from "./session-scope.js";
 import type { SessionRuntimeEntry } from "./session-runtime.js";
 // `runCapture` and distro discovery live in ./wsl.js so the directory picker
 // can use them without pulling this file's executor and filesystem peers in.
-import { defaultDistro, defaultShell, linuxHomePath, shellArgs, workdirFailure, wslErrorCode } from "./wsl.js";
+import { defaultDistro, defaultShell, linuxHomePath, runCapture, shellArgs, workdirFailure, wslErrorCode } from "./wsl.js";
 import type { Context } from "@deepseek-ai/cordis";
 import type { FsDirEntry, FsEditOutcome, FsEditRequest, FsErrorCode, FsInfo, FsPathInfo, FsTarget, FsVersion, FsWriteIntent, FsWriteOutcome } from "@deepseek-ai/dsh-fs";
 import type { ConfinedSandboxMode, SandboxExecutionPolicy, SandboxMode } from "@deepseek-ai/dsh-sandbox";
@@ -331,8 +332,8 @@ export class WslShellExecutor
      * is the distro's real `/tmp` under workspace-write, and `ps` sees the
      * session. The executor holds the runtime until the session's scope
      * disposes, then stops it. Requires systemd, a reachable user manager and
-     * `Linger`; the preflight is not wired yet, so a platform that cannot honor
-     * it surfaces systemd's own error. Off by default; requires `agent: true`.
+     * `Linger`; the preflight refuses with the remedy when one is missing, and
+     * only a success is cached. Off by default; requires `agent: true`.
      */
     sessionSandbox: z.boolean().default(false),
   });
@@ -351,6 +352,10 @@ export class WslShellExecutor
   declare sessionRuntimes: SessionRuntimes;
   /** The runtimes this executor holds, by registry key. */
   declare sessionRuntimeEntries: Map<string, SessionRuntimeEntry>;
+  /** The preflight's host runner; tests substitute it. */
+  declare sessionScopeProbe: (argv: string[]) => Promise<string>;
+  /** The last preflight verdict; only a success is cached. */
+  declare sessionRuntimePreflight: "unknown" | "ready";
   /**
    * Per-process confinement facts retained until settlement. Overlapping calls
    * can carry different policies, so a shared latest-wrap value would classify
@@ -372,6 +377,8 @@ export class WslShellExecutor
     this.processFacts = new Map();
     this.sessionRuntimes = sessionRuntimes;
     this.sessionRuntimeEntries = new Map();
+    this.sessionScopeProbe = (argv) => runCapture(argv);
+    this.sessionRuntimePreflight = "unknown";
     // The preset realm disposes when the session ends; the scope must go with
     // it, or a dev server outlives the session that started it.
     ctx.effect(() => () => this.disposeSessionRuntimes().catch(() => {}), "wsl session runtimes");
@@ -487,6 +494,33 @@ export class WslShellExecutor
     });
     this.sessionRuntimeEntries.set(key, entry);
     return entry;
+  }
+
+  /**
+   * Run the session runtime's preflight once per executor. A failure is a
+   * configuration verdict, not an agent outage: it is raised as an Error with
+   * the remedy, so the command fails closed instead of falling back to the
+   * per-command sandbox. Only success is cached, so a user who follows the
+   * remedy (`loginctl enable-linger`, `[boot] systemd=true`) does not need to
+   * restart the app.
+   *
+   * @param distro - the resolved distro name.
+   * @returns resolved once the platform can host a session runtime.
+   * @throws {Error} with the remedy when it cannot.
+   */
+  async ensureSessionRuntimeUsable(distro: string): Promise<void> {
+    if (this.sessionRuntimePreflight === "ready") return;
+    const config = this.config as unknown as WslShellExecutorConfig;
+    /** @type {{ stdout: string, error?: string }} */
+    let output;
+    try {
+      output = { stdout: await this.sessionScopeProbe(sessionScopeProbeArgv({ wslPath: config.wslPath, distro })) };
+    } catch (error) {
+      output = { stdout: "", error: String(error) };
+    }
+    const problem = sessionScopeProblem({ output, distro });
+    if (problem !== null) throw new Error(problem);
+    this.sessionRuntimePreflight = "ready";
   }
 
   /**
@@ -816,6 +850,7 @@ export class WslShellExecutor
       ? await this.sandbox.confine(this.distroArgv(resolved, shell), { ...policy, mode: policy.mode }, { distro, signal: resolved.signal })
       : undefined;
     const mode = policy?.mode;
+    if (config.sessionSandbox) await this.ensureSessionRuntimeUsable(distro);
     const runtime = this.sessionRuntimeFor(policy, resolved, distro);
     const agent = runtime !== undefined ? runtime.agent : await this.executionAgent(distro);
     // A session runtime's own bwrap profile applies the mounts, so the

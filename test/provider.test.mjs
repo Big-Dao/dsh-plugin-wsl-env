@@ -549,8 +549,19 @@ check("a confined agent command runs the confined argv in the distro coordinate"
   assert.deepEqual(factsOf(result), { mode: "workspace-write", denied: false, enforcement: "full", windowsDrive: "visible" });
 });
 
+
+check("sessionSandbox refuses with the preflight remedy before acquiring", async () => {
+  const { executor } = makeExecutor({ sessionSandbox: true });
+  executor.sessionScopeProbe = async () => "no-linger";
+  await assert.rejects(
+    () => executor.execute(spec({ command: "echo hi", workdir: WORKSPACE, timeoutMs: 5000, sandboxPolicy: { mode: "workspace-write", workspaceRoot: WORKSPACE } })),
+    /loginctl enable-linger/,
+  );
+});
+
 check("with sessionSandbox, the command runs on the session runtime without the per-command wrap", async () => {
   const { executor, agentCalls } = makeExecutor({ sessionSandbox: true });
+  executor.sessionScopeProbe = async () => "ok";
   /** @type {Array<{ distro: string, wslPath: string, workspaceRoot: string, mode: string, maskWindowsDrive?: boolean }>} */
   const acquired = [];
   /** @type {string[]} */

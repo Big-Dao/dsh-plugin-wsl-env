@@ -100,7 +100,7 @@ export function parseStatRecord(stdout: Buffer): { type: string, mode: number, s
 
 const REASON_CODES: Record<string, string> = {
   notfound: "FS_NOT_FOUND",
-  notdir: "FS_NOT_FOUND",
+  notdir: "FS_NOT_DIRECTORY",
   perm: "FS_IO_ERROR",
   loop: "FS_IO_ERROR",
   exists: "FS_NOT_OBSERVED",

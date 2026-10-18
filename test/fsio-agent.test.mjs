@@ -596,6 +596,18 @@ checks.push(["a malformed listing record is a coded failure, not a garbage row",
   await assert.rejects(() => fs.listChildren(target), (error) => /** @type {{code?: string}} */ (error).code === "FS_IO_ERROR");
 }]);
 
+checks.push(["a notdir wire reason is FS_NOT_DIRECTORY, not FS_NOT_FOUND", async () => {
+  const fs = new DistroFs({
+    agent: asAgent(cannedAgent({ exitCode: 1, stdout: Buffer.alloc(0), stderr: fsLine("notdir", "Not a directory") })),
+    distro: DISTRO,
+  });
+  const target = { displayPath: "/doc/file/child", targetKey: FsTargetKey("\\\\wsl.localhost\\ubuntu\\doc\\file\\child") };
+  await assert.rejects(
+    () => fs.readWholeText(target),
+    (error) => codeOf(error) === "FS_NOT_DIRECTORY",
+  );
+}]);
+
 checks.push(["a kernel read-only denial on a WRITE is the sandbox refusal, not an I/O error", async () => {
   // The head-teacher claim of the confined substrate: a write the mount table
   // refused carries FS_SANDBOX_DISABLED's sibling — the code the tool layer

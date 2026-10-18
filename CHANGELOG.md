@@ -242,6 +242,11 @@ from it.
   backend keeps the mode off because it is not session-owned. A failed
   preflight refuses the write with the systemd/linger remedy.
 
+- **A `notdir` failure reports `FS_NOT_DIRECTORY`.** The wire reason was
+  mapped to `FS_NOT_FOUND`, so a path whose parent is a regular file looked
+  like a missing path. It now carries the specific code the tool layer already
+  knows, so the model gets the right remedy.
+
 - **Stale session scopes are swept.** A hard kill of the app can leave a
   `dsh-wsl-*.scope` and its background processes behind. The session preflight
   now lists those units and stops one only when its cgroup has no

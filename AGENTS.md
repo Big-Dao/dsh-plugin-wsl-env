@@ -27,7 +27,7 @@ DeepSeek Harness 的 WSL 集成插件：把一个 WSL 发行版配置为会话�
 ## 架构边界
 
 - 组合层按路径坐标路由：根级 fs 是 `WslRoutingFileSystem`（distro UNC → agent 实现，盘符路径 → 宿主后端）；GUI 文件服务 `WorkspaceFilesWsl` 的宿主路径走父类实现。服务装配在 `cordis.patch.yml`。
-- 默认命令路径与受限写入走 session runtime 的 native agent（`agent/native/linux-<arch>/dsh-wsl-agent`，由 `agentBackend: auto` 按 distro `uname -m` 选择）；shell agent（`agent/wsl-agent.sh` + `lib/agent.ts`）是回退与 `agentBackend: shell` 的强制路径。两者共用 v5 协议：stderr 侧信道（`dsh-fs|reason|base64`、退出码约定）与 `lib/agent-protocol.ts` 的帧编解码必须同步修改。无约束 FS 读仍走 `lib/agent-shared.ts` 的共享 shell agent（native 共享读在 A7 计划中，它也是 A6 实测的批量读瓶颈）；命令执行另有一条并行的回退路径：agent 失效（`AgentUnavailableError`）或配置 `agent: false` 时改走一次性 `wsl.exe`（`src/index.ts` 的 `executeOneShot`）——两条路径的隔离、输出预算与结果装饰一致，真机探针逐项对拍，改命令执行时两条都要同步。文件操作没有回退：agent 失效即 fail closed（`FS_IO_ERROR`）。
+- 默认命令路径与受限写入走 session runtime 的 native agent（`agent/native/linux-<arch>/dsh-wsl-agent`，由 `agentBackend: auto` 按 distro `uname -m` 选择）；shell agent（`agent/wsl-agent.sh` + `lib/agent.ts`）是回退与 `agentBackend: shell` 的强制路径。两者共用 v5 协议：stderr 侧信道（`dsh-fs|reason|base64`、退出码约定）与 `lib/agent-protocol.ts` 的帧编解码必须同步修改。无约束 FS 读走 `lib/agent-shared.ts` 的共享 agent（A7 起默认 native，`agentBackend: shell` 或 native 失败时回退 shell；它也是 A6 实测的批量读瓶颈）；命令执行另有一条并行的回退路径：agent 失效（`AgentUnavailableError`）或配置 `agent: false` 时改走一次性 `wsl.exe`（`src/index.ts` 的 `executeOneShot`）——两条路径的隔离、输出预算与结果装饰一致，真机探针逐项对拍，改命令执行时两条都要同步。文件操作没有回退：agent 失效即 fail closed（`FS_IO_ERROR`）。
 - agent 实例按 distro 缓存为全局单例（`lib/agent-shared.ts`），有意不注册为 ctx 服务——根上下文与会话级隔离上下文必须共享同一常驻进程。
 - 命令隔离在 distro 内由 `bwrap` 执行（`lib/sandbox-core.ts`）。`enforcement: "partial"` 与如实上报的 `sandboxMode` 是对外契约，不得声称未执行的隔离。
 

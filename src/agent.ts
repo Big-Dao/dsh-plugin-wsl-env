@@ -139,6 +139,18 @@ function emptyAgentMetrics(): AgentMetrics {
   return { fs: emptyRequestMetrics(), exec: emptyRequestMetrics(), inFlightMax: 0 };
 }
 
+/** The entry an async preparation may select before the first spawn. */
+export interface WslAgentPrepared {
+  /** The agent entrypoint (the shell script or the native cache path). */
+  scriptPath: string;
+  /** The HELLO digest to verify. */
+  expectedDigest?: string;
+  /** Whether USR1 can reach the agent (false for the native KILL-frame path). */
+  signalable?: boolean;
+  /** The process factory for this entry. */
+  spawnTransport?: (options: { wslPath: string, distro: string, scriptPath: string, argvPrefix: string[], leaseMs: number }) => ChildProcess;
+}
+
 /** How long a rebuilt agent has to re-answer the handshake before giving up. */
 const HANDSHAKE_TIMEOUT_MS = 15000;
 
@@ -307,6 +319,8 @@ export class WslAgent {
   declare lastError: string;
   /** Cumulative request metrics; see {@link metrics}. */
   declare requestMetrics: AgentMetrics;
+  /** The optional async preparation hook. */
+  declare prepare: (() => Promise<WslAgentPrepared | undefined>) | undefined;
 
   /**
    * @param config - the agent configuration.
@@ -365,6 +379,8 @@ export class WslAgent {
      * refused instead of growing the request map without bound.
      */
     maxPending?: number,
+    /** Optional async preparation selecting the entry before the first spawn. */
+    prepare?: () => Promise<WslAgentPrepared | undefined>,
   }) {
     this.distro = config.distro;
     this.scriptPath = config.scriptPath;
@@ -389,6 +405,7 @@ export class WslAgent {
     this.idleTimer = null;
     this.lastError = "";
     this.requestMetrics = emptyAgentMetrics();
+    this.prepare = config.prepare;
   }
 
   /**
@@ -417,9 +434,41 @@ export class WslAgent {
     }
     if (this.state === "ready") return Promise.resolve();
     if (this.startPromise) return this.startPromise;
+    const prepared = this.prepare?.();
+    if (prepared === undefined) {
+      const started = this.beginStart();
+      this.startPromise = started;
+      return started;
+    }
+    const started = prepared.then((entry) => {
+      if (entry !== undefined) this.applyPrepared(entry);
+      return this.beginStart();
+    });
+    this.startPromise = started;
+    return started;
+  }
+
+  /**
+   * Apply an async preparation entry to this agent before the first spawn.
+   *
+   * @param entry - the selected entry.
+   */
+  private applyPrepared(entry: WslAgentPrepared): void {
+    this.scriptPath = entry.scriptPath;
+    this.expectedDigest = entry.expectedDigest;
+    if (entry.signalable !== undefined) this.signalable = entry.signalable;
+    if (entry.spawnTransport !== undefined) this.configuredSpawn = entry.spawnTransport;
+  }
+
+  /**
+   * Spawn the process and run the handshake.
+   *
+   * @returns resolved once the state is `ready`.
+   */
+  private beginStart(): Promise<void> {
     this.state = "starting";
     this.agentPid = undefined;
-    this.startPromise = new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       // stdio is all-pipe (the spawn options above), so every standard stream
       // exists; the broad ChildProcess type models them as nullable.
       const child = (this.process = (this.configuredSpawn ?? spawnDefault)({
@@ -510,7 +559,6 @@ export class WslAgent {
         this.lastError = String(chunk).trim().slice(0, 2000) || this.lastError;
       });
     });
-    return this.startPromise;
   }
 
   /**

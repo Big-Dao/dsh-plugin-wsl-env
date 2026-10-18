@@ -116,6 +116,23 @@ export interface AgentMetrics {
     /** Peak number of pending requests. */
     inFlightMax: number;
 }
+/** The entry an async preparation may select before the first spawn. */
+export interface WslAgentPrepared {
+    /** The agent entrypoint (the shell script or the native cache path). */
+    scriptPath: string;
+    /** The HELLO digest to verify. */
+    expectedDigest?: string;
+    /** Whether USR1 can reach the agent (false for the native KILL-frame path). */
+    signalable?: boolean;
+    /** The process factory for this entry. */
+    spawnTransport?: (options: {
+        wslPath: string;
+        distro: string;
+        scriptPath: string;
+        argvPrefix: string[];
+        leaseMs: number;
+    }) => ChildProcess;
+}
 /**
  * The Windows environment the transport starts from, pinned.
  *
@@ -218,6 +235,8 @@ export declare class WslAgent {
     lastError: string;
     /** Cumulative request metrics; see {@link metrics}. */
     requestMetrics: AgentMetrics;
+    /** The optional async preparation hook. */
+    prepare: (() => Promise<WslAgentPrepared | undefined>) | undefined;
     /**
      * @param config - the agent configuration.
      */
@@ -286,6 +305,8 @@ export declare class WslAgent {
          * refused instead of growing the request map without bound.
          */
         maxPending?: number;
+        /** Optional async preparation selecting the entry before the first spawn. */
+        prepare?: () => Promise<WslAgentPrepared | undefined>;
     });
     /**
      * Whether the agent is permanently out — the executor's fallback cue.
@@ -302,6 +323,18 @@ export declare class WslAgent {
      * @returns resolved once the state is `ready`.
      */
     start(): Promise<void>;
+    /**
+     * Apply an async preparation entry to this agent before the first spawn.
+     *
+     * @param entry - the selected entry.
+     */
+    private applyPrepared;
+    /**
+     * Spawn the process and run the handshake.
+     *
+     * @returns resolved once the state is `ready`.
+     */
+    private beginStart;
     /**
      * One stdout line from the agent. The first must be a matching HELLO.
      *

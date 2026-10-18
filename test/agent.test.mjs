@@ -1024,6 +1024,23 @@ await check("rejected and cancelled requests are counted separately", async () =
   await agent.close();
 });
 
+await check("an async prepare selects the entry before the first spawn", async () => {
+  const child = new FakeAgentProcess();
+  const { transport, made } = scriptedTransport([child]);
+  const agent = new WslAgent({
+    ...CONFIG,
+    signalable: true,
+    spawnTransport: transport,
+    prepare: async () => ({ scriptPath: "/native/agent", expectedDigest: TEST_DIGEST, signalable: false, spawnTransport: transport }),
+  });
+  await agent.exec({ cwd: "/tmp", argv: ["echo", "hi"], timeoutMs: 0 });
+  assert.equal(agent.scriptPath, "/native/agent");
+  assert.equal(agent.expectedDigest, TEST_DIGEST);
+  assert.equal(agent.signalable, false);
+  assert.equal(made.length, 1);
+  await agent.close();
+});
+
 for (const [name, fn] of checks) {
   await check(name, fn);
 }

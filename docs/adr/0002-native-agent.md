@@ -5,8 +5,8 @@
   distro's architecture), with the shipped shell agent as the fallback and the
   `native`/`shell` overrides. The concurrency/KILL/FS surface, the copy/verify,
   the HELLO digest, the packaged x86_64/aarch64 binaries and the real-machine
-  probe are in place. **Plan after A6:** A7 (native shared read agent) and A8
-  (aarch64 functional validation); **v6 is deferred** — the measured
+  probe are in place. **A7 is in place** (the shared reads are native); **A8**
+  (aarch64 functional validation) remains; **v6 is deferred** — the measured
   lock-removal gain is marginal, and the shared shell read agent is the real
   batch bottleneck
 - **Date:** 2026-10-18

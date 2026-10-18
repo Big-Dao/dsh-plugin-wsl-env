@@ -19,9 +19,9 @@ section.
 
 ## Next
 
-### A7 — native shared read agent (v5)
+### A7 — native shared read agent (v5) — done
 
-The shared unconfined read agent is the only remaining measured bottleneck
+The shared unconfined read agent was the only remaining measured bottleneck
 (16 concurrent reads 342-614 ms, queue up to 583 ms, versus native FS execution
 0.2-0.3 ms). A7 swaps its shell for the native binary (v5) while keeping the
 shell as the fallback:
@@ -36,9 +36,11 @@ shell as the fallback:
 - **surface:** the same six v5 FS ops and `dsh-fs` side channel; the
   `fs-substrate`/`DistroFs` parse is unchanged; the A2 differential covers the
   records;
-- **acceptance:** `test/probe/fs-queue.mjs` shows 16 concurrent reads in
-  ~12-20 ms (from 342-614 ms) and the single op ~22 ms (from 37.5 ms); with the
-  native source removed the shell fallback still passes.
+- **result:** `WslAgent` gained a `prepare()` hook and the shared agent now
+  selects the native entry through it. `test/probe/fs-queue.mjs` measures 16
+  concurrent shared reads at **2.4-4.1 ms** (from 342-614 ms); the first start
+  pays the ensure/cache cost (~70 ms once). The shell still serves the reads
+  under `agentBackend: shell` and after a native failure.
 
 ### A8 — aarch64 functional validation
 

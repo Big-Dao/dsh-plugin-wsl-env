@@ -15,10 +15,12 @@
  */
 
 import { createHash } from "node:crypto";
+import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { toLinuxPath } from "./paths.js";
-import { WslAgent } from "./agent.js";
+import { pinnedWindowsEnv, WslAgent } from "./agent.js";
+import { configuredAgentBackend, ensureNativeBackend, NATIVE_AGENT_ENV } from "./native-agent.js";
 
 const AGENT_SCRIPT_PATH = fileURLToPath(new URL("../agent/wsl-agent.sh", import.meta.url));
 // The script the distro reads must be byte-identical to the copy this
@@ -27,6 +29,9 @@ const AGENT_SCRIPT_PATH = fileURLToPath(new URL("../agent/wsl-agent.sh", import.
 // Both resident factories (plain and confined) pin it.
 const AGENT_SCRIPT_DIGEST = createHash("sha256").update(readFileSync(AGENT_SCRIPT_PATH)).digest("hex");
 const sharedAgents = new Map<string, WslAgent>();
+// Distros where the native shared agent failed at runtime; the reads fail open
+// to the shell instead of retrying the same broken binary on every call.
+const nativeFailed = new Set<string>();
 
 /** The agent script as a host-side path, for factories that need both spellings. */
 export const agentScriptPath = AGENT_SCRIPT_PATH;
@@ -42,9 +47,29 @@ export const agentScriptDigest = AGENT_SCRIPT_DIGEST;
  */
 export function sharedAgent(distro: string): WslAgent {
   let agent = sharedAgents.get(distro);
-  if (agent === undefined) {
-    agent = new WslAgent({ distro, scriptPath: toLinuxPath(AGENT_SCRIPT_PATH), expectedDigest: AGENT_SCRIPT_DIGEST });
-    sharedAgents.set(distro, agent);
-  }
+  if (agent !== undefined && !agent.unavailable) return agent;
+  if (agent !== undefined) nativeFailed.add(distro);
+  agent = new WslAgent({
+    distro,
+    scriptPath: toLinuxPath(AGENT_SCRIPT_PATH),
+    expectedDigest: AGENT_SCRIPT_DIGEST,
+    prepare: async () => {
+      if (configuredAgentBackend() === "shell" || nativeFailed.has(distro)) return undefined;
+      const prepared = await ensureNativeBackend({ wslPath: "wsl.exe", distro, source: process.env[NATIVE_AGENT_ENV] ?? "" });
+      if (prepared === undefined) return undefined;
+      return {
+        scriptPath: prepared.path,
+        expectedDigest: prepared.digest,
+        signalable: false,
+        spawnTransport: ({ wslPath, distro: target, argvPrefix }) =>
+          spawn(wslPath, ["-d", target, "--exec", ...argvPrefix, prepared.path], {
+            stdio: ["pipe", "pipe", "pipe"],
+            windowsHide: true,
+            env: pinnedWindowsEnv(process.env),
+          }),
+      };
+    },
+  });
+  sharedAgents.set(distro, agent);
   return agent;
 }

@@ -18,6 +18,22 @@ were part of the record.
 
 ### Added
 
+- **The shared read agent is native (A7).** `WslAgent` gained an async
+  `prepare()` hook; `sharedAgent` uses it to select the packaged native binary
+  through `agentBackend` (`auto`/`native`), with the shell as the fallback
+  (`shell`, a failed preparation, or a native HELLO/runtime failure; the reads
+  never fail closed). The A6 probe now measures 16 concurrent shared reads at
+  2.4-4.1 ms, down from 342-614 ms on the shell. The native shared agent also
+  serves the picker, the subprocess activity probes and the non-session
+  command path, so those inherit EXEC concurrency.
+
+### Changed
+
+- `test/probe/fs-queue.mjs` and the README/LIMITATIONS/ROADMAP describe the
+  native shared reads; `test/agent-shared.test.mjs` covers the shell selection.
+
+### Added
+
 - **`WslAgent.metrics()`.** Per-kind queue wait (sent -> ACK), execution time
   (ACK -> settle), in-flight peak, rejected and cancelled counters; the
   47-check lifecycle suite covers the counters and the reset.

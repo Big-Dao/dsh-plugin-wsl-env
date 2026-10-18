@@ -915,6 +915,24 @@ checkReg("a crash while a cancelled request is pending drops it, not the rebuild
   await agent.close();
 });
 
+checkReg("the pending queue refuses a submission past its cap", async () => {
+  const child = new FakeAgentProcess();
+  child.silent = true; // the first request never answers
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport, maxPending: 1 });
+  const first = agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }).then(
+    () => "settled",
+    (error) => error,
+  );
+  await flush();
+  await assert.rejects(
+    () => agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }),
+    /requests in flight \(max 1\)/,
+  );
+  await agent.close();
+  await first;
+});
+
 for (const [name, fn] of checks) {
   await check(name, fn);
 }

@@ -182,6 +182,11 @@ from it.
   is the page's own UTF-8 length. Tests cover truncation, exact EOF, and the
   byte cap.
 
+- **The resident's pending queue is bounded.** One resident refuses a request
+  past `maxPending` (64 by default) with a clear "requests in flight" error
+  instead of growing its map — and the retained frame lines — without bound.
+  A single frame's size is still the caller's.
+
 ### Notes
 
 - Gates on the new pins: style 9/9, syntax 7/7 members and 3/3 chain members

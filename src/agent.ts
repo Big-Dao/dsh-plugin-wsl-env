@@ -91,6 +91,14 @@ const HANDSHAKE_TIMEOUT_MS = 15000;
 /** Extra time the host watchdog waits past the request's own in-distro timeout. */
 const WATCHDOG_GRACE_MS = 13000;
 
+/**
+ * How many requests one resident may hold in flight before refusing more. The
+ * agent is serial, so a large queue only delays every entry; the cap keeps a
+ * burst from growing the pending map (and the retained frame lines) without
+ * bound.
+ */
+const MAX_PENDING_REQUESTS = 64;
+
 /** How far past its host's idle shutdown the agent's own lease runs. The
  * lease fires only when the host is gone in every way that matters (a wedged
  * relay that never delivers EOF); the host's close() normally wins the race. */
@@ -214,6 +222,8 @@ export class WslAgent {
   declare configuredSignal: ((options: { wslPath: string, distro: string, pid: number, signal: NodeJS.Signals }) => void) | undefined;
   /** The agent shell's PID from its HELLO, when a second wsl.exe can address it. */
   declare agentPid: number | undefined;
+  /** The maximum requests allowed in flight on this resident. */
+  declare maxPending: number;
   /** The live resident process, when any. */
   declare process: ChildProcess | null;
   /** The lifecycle state. */
@@ -271,6 +281,11 @@ export class WslAgent {
      * second `wsl.exe` to send USR1 to the agent's PID.
      */
     signalTransport?: (options: { wslPath: string, distro: string, pid: number, signal: NodeJS.Signals }) => void,
+    /**
+     * Maximum requests in flight on one resident; a submission past it is
+     * refused instead of growing the request map without bound.
+     */
+    maxPending?: number,
   }) {
     this.distro = config.distro;
     this.scriptPath = config.scriptPath;
@@ -281,6 +296,7 @@ export class WslAgent {
     this.frameCapBytes = config.frameCapBytes ?? MAX_FRAME_BYTES;
     this.configuredSpawn = config.spawnTransport;
     this.configuredSignal = config.signalTransport;
+    this.maxPending = config.maxPending ?? MAX_PENDING_REQUESTS;
     this.agentPid = undefined;
     this.process = null;
     this.state = "idle";
@@ -615,6 +631,10 @@ export class WslAgent {
     /** The caller's cancellation. */
     signal?: AbortSignal,
   }): void {
+    if (this.pending.size >= this.maxPending) {
+      reject(new Error(`the resident agent has ${this.pending.size} requests in flight (max ${this.maxPending}); retry when the queue drains`));
+      return;
+    }
     const pending: PendingRequest = {
       id,
       lines,

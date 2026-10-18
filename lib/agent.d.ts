@@ -150,6 +150,8 @@ export declare class WslAgent {
     }) => void) | undefined;
     /** The agent shell's PID from its HELLO, when a second wsl.exe can address it. */
     agentPid: number | undefined;
+    /** The maximum requests allowed in flight on this resident. */
+    maxPending: number;
     /** The live resident process, when any. */
     process: ChildProcess | null;
     /** The lifecycle state. */
@@ -216,6 +218,11 @@ export declare class WslAgent {
             pid: number;
             signal: NodeJS.Signals;
         }) => void;
+        /**
+         * Maximum requests in flight on one resident; a submission past it is
+         * refused instead of growing the request map without bound.
+         */
+        maxPending?: number;
     });
     /**
      * Whether the agent is permanently out — the executor's fallback cue.

@@ -40,6 +40,29 @@ node agent/native/spike/test.mjs
 
 The test is not part of `pnpm test`: it needs the built binary.
 
+## Host wiring (opt-in, session runtime only)
+
+`DSH_WSL_AGENT_NATIVE=<host path of the binary>` opts the session runtime into
+the native agent. The host sha256s the file, checks the distro architecture,
+streams it into `~/.cache/dsh-wsl/agent/<sha>/dsh-wsl-agent` (never executes
+from `/mnt/c`), verifies the distro-side digest, and hands the Linux path to
+the session-runtime factory. The factory spawns the binary instead of
+`sh wsl-agent.sh`, with USR1 disabled (the native reads KILL frames) and no
+expected digest (the spike's HELLO digest is empty).
+
+The shared per-distro agent (unconfined FS reads), the one-shot fallback and
+the `agent: false` path stay on the shell agent; an unset variable or a failed
+copy keeps the shell session runtime. Only x86_64 is accepted today.
+
+```sh
+node scripts/native-wiring-check.mjs
+```
+
+The check copies the built spike, acquires a real session runtime, runs one
+EXEC and one FS stat through the native entry, and releases the scope. The
+shipped default remains the shell agent; packaging/musl/default rollout is the
+next stage.
+
 ## Result (2026-10-18, x86_64-unknown-linux-gnu, release)
 
 - 16/16 checks: HELLO, PING, EXEC (exit + both streams), SETENV (later

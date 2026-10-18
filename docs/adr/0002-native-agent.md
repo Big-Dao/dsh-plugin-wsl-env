@@ -1,9 +1,10 @@
 # ADR 0002 — Native in-distro agent (design)
 
 - **Status:** proposed — design + stage-2 spike (EXEC/KILL/concurrency, the
-  FS stat/lstat/read/write/list/realpath surface and the main version/permission
-  matrix done; host wiring and musl builds pending); implementation still
-  deferred until a trigger in [When to build it](#when-to-build-it) fires
+  FS surface, the version/permission matrix, and the opt-in host
+  copy/verify + session-runtime factory done; packaging/musl/default rollout
+  pending); implementation still deferred until a trigger in
+  [When to build it](#when-to-build-it) fires
 - **Date:** 2026-10-18
 - **Related:** [ADR 0001](0001-session-scoped-sandbox.md) (session runtime),
   `agent/wsl-agent.sh`, `src/agent.ts`, `src/agent-protocol.ts`
@@ -212,8 +213,9 @@ One process per agent, an event loop over stdin plus child pipes and timers:
    wiring and musl/cross-arch builds remain.
 3. **Differential + concurrency.** Full matrix; v6 error/env framing; the
    concurrent write acceptance test.
-4. **Host integration.** Binary copy/verify, backend selection, `agentBackend`
-   flag default `auto`; ship the binaries; probes.
+4. **Host integration (partial).** The `DSH_WSL_AGENT_NATIVE` copy/verify and
+   session-runtime factory are in place. Packaging the per-arch binaries, the
+   `agentBackend` flag and the probes remain.
 5. **Enable by default** on x64 (aarch64 after a CI build leg); keep the shell
    fallback and the flag. Only then consider retiring the shell.
 

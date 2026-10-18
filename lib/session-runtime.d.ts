@@ -98,6 +98,15 @@ export interface SessionRuntimeOptions {
     token?: () => string;
 }
 /**
+ * Set (or clear) the native binary the session runtime should spawn for one
+ * distro. The host calls this after the copy/verify step; an empty path
+ * clears it and restores the shell agent.
+ *
+ * @param distro - the distro.
+ * @param path - the Linux binary path, or empty to clear.
+ */
+export declare function setSessionNativeAgent(distro: string, path: string): void;
+/**
  * The refcounted registry. One instance lives for the process; providers share
  * it so the shell and filesystem sides address the same runtime for a session.
  */

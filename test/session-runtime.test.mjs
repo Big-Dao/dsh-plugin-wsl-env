@@ -7,7 +7,7 @@
  *   node test/session-runtime.test.mjs
  */
 import assert from "node:assert/strict";
-import { SessionRuntimes } from "../lib/session-runtime.js";
+import { SessionRuntimes, setSessionNativeAgent } from "../lib/session-runtime.js";
 
 let passed = 0;
 /** @type {Array<[string, () => void | Promise<void>]>} */
@@ -152,6 +152,22 @@ check("disposeAll tears down every runtime, and an unknown release is a no-op", 
   assert.deepEqual(events, ["close", "stop", "close", "stop"]);
   await registry.release("not-a-key");
   assert.equal(stops.length, 2, "releasing an unknown key changes nothing");
+});
+
+
+check("a distro with a native entry spawns it without sh and with USR1 off", async () => {
+  const native = "/home/u/.cache/dsh-wsl/agent/abc/dsh-wsl-agent";
+  setSessionNativeAgent("ubuntu", native);
+  try {
+    const registry = new SessionRuntimes({ stopScope: () => {} });
+    const entry = registry.acquire({ distro: "ubuntu", wslPath: "wsl.exe", workspaceRoot: "/home/u/proj", mode: "workspace-write" });
+    assert.equal(entry.agent.scriptPath, native, "the native binary is the entrypoint");
+    assert.equal(entry.agent.expectedDigest, undefined, "the spike HELLO has no digest");
+    assert.equal(entry.agent.signalable, false, "the native reads KILL frames; USR1 would kill it");
+    await registry.release(entry.key);
+  } finally {
+    setSessionNativeAgent("ubuntu", "");
+  }
 });
 
 for (const [name, fn] of checks) await runCheck(name, fn);

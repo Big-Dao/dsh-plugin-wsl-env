@@ -309,6 +309,15 @@ from it.
 
 ### Notes
 
+- Added the opt-in **native agent host wiring**: `DSH_WSL_AGENT_NATIVE=<host
+  path>` makes the session runtime sha256 the binary into
+  `~/.cache/dsh-wsl/agent/<sha>/dsh-wsl-agent` (never from `/mnt/c`), verify
+  the distro-side digest, and spawn it under the session scope/bwrap with USR1
+  off (the native reads KILL frames). The shared FS-read agent, the one-shot
+  fallback and the default remain the shell agent; only x86_64 is accepted.
+  `scripts/native-wiring-check.mjs` verifies the copy + real runtime + EXEC/FS
+  end to end. Packaging/musl/default rollout is still pending.
+
 - Added the **native agent spike** (ADR 0002 stage 2) under
   `agent/native/spike`: a std-only Rust event loop for HELLO/PING/SHUTDOWN/
   SETENV/EXEC/KILL with per-request process groups, plus the FS

@@ -114,9 +114,47 @@ export interface SessionRuntimeOptions {
   token?: () => string;
 }
 
+/** The native binary path per distro, when the host opted in (ADR 0002). */
+const NATIVE_AGENTS = new Map<string, string>();
+
+/**
+ * Set (or clear) the native binary the session runtime should spawn for one
+ * distro. The host calls this after the copy/verify step; an empty path
+ * clears it and restores the shell agent.
+ *
+ * @param distro - the distro.
+ * @param path - the Linux binary path, or empty to clear.
+ */
+export function setSessionNativeAgent(distro: string, path: string): void {
+  if (path.length === 0) NATIVE_AGENTS.delete(distro);
+  else NATIVE_AGENTS.set(distro, path);
+}
+
 /** The default agent factory: the same script/digest the shared resident pins. */
-const spawnSessionAgent = (options: { distro: string, wslPath: string, argvPrefix: string[], idleMs: number, leaseMs: number, signalable: boolean }): WslAgent =>
-  new WslAgent({
+const spawnSessionAgent = (options: { distro: string, wslPath: string, argvPrefix: string[], idleMs: number, leaseMs: number, signalable: boolean }): WslAgent => {
+  const native = NATIVE_AGENTS.get(options.distro);
+  if (native !== undefined) {
+    // The native agent reads its own KILL frame while a command runs, so USR1
+    // is both unnecessary and fatal (it has no handler); cancellation is the
+    // frame path. The HELLO digest is empty in the spike, so no expectedDigest.
+    return new WslAgent({
+      distro: options.distro,
+      wslPath: options.wslPath,
+      scriptPath: native,
+      expectedDigest: undefined,
+      argvPrefix: options.argvPrefix,
+      idleMs: options.idleMs,
+      leaseMs: options.leaseMs,
+      signalable: false,
+      spawnTransport: ({ wslPath, distro, argvPrefix }) =>
+        spawn(wslPath, ["-d", distro, "--exec", ...argvPrefix, native], {
+          stdio: ["pipe", "pipe", "pipe"],
+          windowsHide: true,
+          env: pinnedWindowsEnv(process.env),
+        }),
+    });
+  }
+  return new WslAgent({
     distro: options.distro,
     wslPath: options.wslPath,
     scriptPath: toLinuxPath(agentScriptPath),
@@ -126,6 +164,7 @@ const spawnSessionAgent = (options: { distro: string, wslPath: string, argvPrefi
     leaseMs: options.leaseMs,
     signalable: options.signalable,
   });
+};
 
 /** The default stop: a second `wsl.exe` asks the user manager to stop the unit. */
 const stopSessionScope = ({ wslPath, distro, unit }: { wslPath: string, distro: string, unit: string }): void => {

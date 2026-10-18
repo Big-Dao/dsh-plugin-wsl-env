@@ -57,7 +57,8 @@ import { sharedAgent } from "./agent-shared.js";
 import { AgentSubstrate } from "./fs-substrate.js";
 import { FsCodedError } from "./fsio-text.js";
 import { confinedAgent } from "./agent-confined.js";
-import { SessionRuntimes, probeSessionRuntime, sessionRuntimes } from "./session-runtime.js";
+import { SessionRuntimes, probeSessionRuntime, sessionRuntimes, setSessionNativeAgent } from "./session-runtime.js";
+import { NATIVE_AGENT_ENV, ensureNativeBackend } from "./native-agent.js";
 import type { SessionRuntimeEntry } from "./session-runtime.js";
 // `runCapture` and distro discovery live in ./wsl.js so the directory picker
 // can use them without pulling this file's executor and filesystem peers in.
@@ -117,6 +118,21 @@ const SAFE_FORWARD = ["NO_COLOR", "TERM", "PAGER", "GIT_PAGER", "LANG", "LC_ALL"
  * @param config - a provider's config.
  * @returns the configured directory, trimmed, or `""`.
  */
+/**
+ * Opt into the native agent for one distro when `DSH_WSL_AGENT_NATIVE` names a
+ * host binary. The copy/verify is cached in `native-agent.ts`; a failure (or
+ * an unset variable) leaves the shell agent in place.
+ *
+ * @param wslPath - the `wsl.exe` path.
+ * @param distro - the resolved distro.
+ */
+async function ensureNativeSessionAgent(wslPath: string, distro: string): Promise<void> {
+  const source = process.env[NATIVE_AGENT_ENV] ?? "";
+  if (source.length === 0) return;
+  const path = await ensureNativeBackend({ wslPath, distro, source });
+  if (path !== undefined) setSessionNativeAgent(distro, path);
+}
+
 function configuredCwd(config: { cwd?: { get(): string | undefined } }): string {
   return String(config.cwd?.get?.() ?? "").trim();
 }
@@ -512,6 +528,7 @@ export class WslShellExecutor
     const config = this.config as unknown as WslShellExecutorConfig;
     const problem = await probeSessionRuntime({ wslPath: config.wslPath, distro, run: this.sessionScopeProbe });
     if (problem !== null) throw new Error(problem);
+    await ensureNativeSessionAgent(config.wslPath, distro);
     this.sessionRuntimePreflight = "ready";
   }
 
@@ -1288,6 +1305,7 @@ export class WslFileSystem extends LocalFileSystem {
     const config = this.config as unknown as WslFileSystemConfig;
     const problem = await probeSessionRuntime({ wslPath: config.wslPath, distro, run: this.sessionScopeProbe });
     if (problem !== null) throw new Error(problem);
+    await ensureNativeSessionAgent(config.wslPath, distro);
     this.sessionRuntimePreflight = "ready";
   }
 

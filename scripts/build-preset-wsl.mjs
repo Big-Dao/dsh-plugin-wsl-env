@@ -71,6 +71,7 @@ const realm = `          - id: wsl-env
                   timeoutMs: 120000
                   maxTimeoutMs: 600000
                   sessionSandbox: true
+                  agentBackend: auto
               - id: wsl-fs
                 name: 'dsh-plugin-wsl-env/fs'
                 config:

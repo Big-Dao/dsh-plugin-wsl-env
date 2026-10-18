@@ -321,6 +321,14 @@ from it.
 
 ### Notes
 
+- Added **`wsl-shell.agentBackend`**: `auto` (the default) uses the native
+  in-distro agent when a verified source is available — the development
+  override `DSH_WSL_AGENT_NATIVE`, and later the packaged per-arch binary —
+  else the shipped shell agent; `native` fails the first command instead of
+  falling back; `shell` forces the shell agent. Commands and confined writes
+  share the session runtime, so both follow the selection. With no source and
+  the default, behavior is unchanged (shell).
+
 - Added the opt-in **native agent host wiring**: `DSH_WSL_AGENT_NATIVE=<host
   path>` makes the session runtime sha256 the binary into
   `~/.cache/dsh-wsl/agent/<sha>/dsh-wsl-agent` (never from `/mnt/c`), verify

@@ -80,6 +80,7 @@ Each setting lives on a named row. To change one, add a row with the same id to 
 | `wsl-shell` | `distro` | `''` | which distro to use; empty means WSL's default distro |
 | | `sandbox` | `true` | run commands inside the `bubblewrap` sandbox; `false` turns it off |
 | | `sessionSandbox` | `true` | run the session's commands in one persistent systemd user scope: background dev servers survive, `/tmp` is shared, `ps` sees the session. Needs systemd as PID 1, a reachable user manager and `Linger`; the preflight refuses with the remedy. `false` restores the per-command sandbox |
+| | `agentBackend` | `auto` | the session runtime's agent: `auto` uses the native in-distro agent when a verified source exists (packaged binary or the `DSH_WSL_AGENT_NATIVE` override), else the shell agent; `native` refuses instead of falling back; `shell` forces the shell agent. Covers commands and confined writes. Native is opt-in and x86_64-only today |
 | `wsl-fs` | `distro` | `''` | same as above |
 | | `restrictToDistro` | `true` | refuse paths that belong to a **different** distro. (`/mnt/c` belongs to this distro, so it is not affected.) The refusal is `FS_OUTSIDE_DISTRO`; wider permissions cannot lift it |
 | | `sandbox` | `true` | check file writes against the same policy |

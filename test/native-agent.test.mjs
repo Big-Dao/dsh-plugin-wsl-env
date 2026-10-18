@@ -2,7 +2,7 @@
  * Checks for the native agent's host-side copy/verify plumbing (ADR 0002).
  */
 import assert from "node:assert/strict";
-import { ensureNativeBackend, nativeCacheScript, clearNativeBackendCache } from "../lib/native-agent.js";
+import { ensureNativeBackend, nativeCacheScript, clearNativeBackendCache, configureAgentBackend, ensureNativeSessionAgent, NATIVE_AGENT_ENV } from "../lib/native-agent.js";
 
 let passed = 0;
 /**
@@ -89,6 +89,92 @@ await check("a failed copy falls back to undefined", async () => {
 await check("an empty source disables the backend without any I/O", async () => {
   clearNativeBackendCache();
   assert.equal(await ensureNativeBackend({ wslPath: "wsl.exe", distro: "ubuntu", source: "" }), undefined);
+});
+
+
+await check("agentBackend shell clears the native entry without preparing", async () => {
+  configureAgentBackend("shell");
+  /** @type {Array<[string, string]>} */
+  const calls = [];
+  await ensureNativeSessionAgent({
+    wslPath: "wsl.exe",
+    distro: "ubuntu",
+    setNative: (distro, path) => { calls.push([distro, path]); },
+    ensure: async () => { throw new Error("must not prepare"); },
+  });
+  assert.deepEqual(calls, [["ubuntu", ""]]);
+});
+
+await check("agentBackend native without a source rejects with the remedy", async () => {
+  configureAgentBackend("native");
+  const saved = process.env[NATIVE_AGENT_ENV];
+  delete process.env[NATIVE_AGENT_ENV];
+  try {
+    await assert.rejects(
+      ensureNativeSessionAgent({ wslPath: "wsl.exe", distro: "ubuntu", setNative: () => {}, ensure: async () => "/x" }),
+      /no native binary is available/u,
+    );
+  } finally {
+    if (saved !== undefined) process.env[NATIVE_AGENT_ENV] = saved;
+    configureAgentBackend("auto");
+  }
+});
+
+await check("agentBackend auto without a source leaves the shell agent alone", async () => {
+  configureAgentBackend("auto");
+  const saved = process.env[NATIVE_AGENT_ENV];
+  delete process.env[NATIVE_AGENT_ENV];
+  let prepared = false;
+  try {
+    await ensureNativeSessionAgent({
+      wslPath: "wsl.exe",
+      distro: "ubuntu",
+      setNative: () => {},
+      ensure: async () => { prepared = true; return "/x"; },
+    });
+    assert.equal(prepared, false, "auto must not prepare without a source");
+  } finally {
+    if (saved !== undefined) process.env[NATIVE_AGENT_ENV] = saved;
+  }
+});
+
+await check("agentBackend auto uses a verified source", async () => {
+  configureAgentBackend("auto");
+  const saved = process.env[NATIVE_AGENT_ENV];
+  process.env[NATIVE_AGENT_ENV] = "C:\\native";
+  /** @type {string[]} */
+  const sources = [];
+  /** @type {Array<[string, string]>} */
+  const calls = [];
+  try {
+    await ensureNativeSessionAgent({
+      wslPath: "wsl.exe",
+      distro: "ubuntu",
+      setNative: (distro, path) => { calls.push([distro, path]); },
+      ensure: async (options) => { sources.push(options.source); return "/cache/dsh-wsl-agent"; },
+    });
+    assert.deepEqual(sources, ["C:\\native"]);
+    assert.deepEqual(calls, [["ubuntu", "/cache/dsh-wsl-agent"]]);
+  } finally {
+    if (saved === undefined) delete process.env[NATIVE_AGENT_ENV];
+    else process.env[NATIVE_AGENT_ENV] = saved;
+  }
+});
+
+await check("agentBackend native fails when preparation fails", async () => {
+  configureAgentBackend("native");
+  const saved = process.env[NATIVE_AGENT_ENV];
+  process.env[NATIVE_AGENT_ENV] = "C:\\native";
+  try {
+    await assert.rejects(
+      ensureNativeSessionAgent({ wslPath: "wsl.exe", distro: "ubuntu", setNative: () => {}, ensure: async () => undefined }),
+      /could not prepare the native agent/u,
+    );
+  } finally {
+    if (saved === undefined) delete process.env[NATIVE_AGENT_ENV];
+    else process.env[NATIVE_AGENT_ENV] = saved;
+    configureAgentBackend("auto");
+  }
 });
 
 console.log(`\n${passed} native-agent checks pass`);

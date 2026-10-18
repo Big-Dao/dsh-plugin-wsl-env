@@ -42,8 +42,11 @@ The test is not part of `pnpm test`: it needs the built binary.
 
 ## Host wiring (opt-in, session runtime only)
 
-`DSH_WSL_AGENT_NATIVE=<host path of the binary>` opts the session runtime into
-the native agent. The host sha256s the file, checks the distro architecture,
+`wsl-shell.agentBackend: auto` (the shipped default) selects the native agent
+when a verified source exists; `native` requires it; `shell` forces the shell
+agent. The source is `DSH_WSL_AGENT_NATIVE=<host path of the binary>` today (the
+development override; the packaged per-arch binary comes with the packaging
+task). With the variable set, the session runtime uses the native agent. The host sha256s the file, checks the distro architecture,
 streams it into `~/.cache/dsh-wsl/agent/<sha>/dsh-wsl-agent` (never executes
 from `/mnt/c`), verifies the distro-side digest, and hands the Linux path to
 the session-runtime factory. The factory spawns the binary instead of

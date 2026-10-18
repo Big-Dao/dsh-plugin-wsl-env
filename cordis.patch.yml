@@ -237,6 +237,12 @@
                   timeoutMs: 120000
                   maxTimeoutMs: 600000
                   sessionSandbox: true
+                  # auto: the native session-runtime agent when a verified
+                  # source is available (packaged binary, or the
+                  # DSH_WSL_AGENT_NATIVE development override); otherwise the
+                  # shipped shell agent. native fails the first command instead
+                  # of falling back; shell forces the shell agent.
+                  agentBackend: auto
               - id: wsl-fs
                 name: 'dsh-plugin-wsl-env/fs'
                 config:

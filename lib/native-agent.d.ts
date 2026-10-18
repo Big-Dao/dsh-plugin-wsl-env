@@ -60,3 +60,39 @@ export declare function ensureNativeBackend({ wslPath, distro, source, readSourc
  * Forget the cache; tests only.
  */
 export declare function clearNativeBackendCache(): void;
+/** The session runtime's agent backend, from `wsl-shell.agentBackend`. */
+export type AgentBackend = "auto" | "native" | "shell";
+/**
+ * Record the selected backend. The session runtime is shared by the shell and
+ * filesystem providers, so this one process-wide value is what both read when
+ * they prepare their runtime; it is set from the `wsl-shell` config.
+ *
+ * @param mode - the selected backend.
+ */
+export declare function configureAgentBackend(mode: AgentBackend): void;
+/** @returns the configured backend (for diagnostics and tests). */
+export declare function configuredAgentBackend(): AgentBackend;
+/**
+ * Select the native binary for a distro when the backend allows it.
+ *
+ * - `shell`: clear any native entry and use the shipped shell agent.
+ * - `auto`: use the native binary when a source exists and copy/verify
+ *   succeeds; otherwise stay on the shell agent.
+ * - `native`: same preparation, but a missing source or a failed preparation
+ *   throws a remedy instead of silently falling back.
+ *
+ * The source is the development override `DSH_WSL_AGENT_NATIVE`; the packaged
+ * per-arch binary will be added by the packaging task and preferred over it.
+ *
+ * @param options - the transport, distro, setter and injectable prepare step.
+ */
+export declare function ensureNativeSessionAgent({ wslPath, distro, setNative, ensure, }: {
+    /** The `wsl.exe` path. */
+    wslPath: string;
+    /** The resolved distro. */
+    distro: string;
+    /** Store (or clear, with an empty path) the distro's native entrypoint. */
+    setNative: (distro: string, path: string) => void;
+    /** Prepare the binary; tests substitute. */
+    ensure?: (options: NativeBackendOptions) => Promise<string | undefined>;
+}): Promise<void>;

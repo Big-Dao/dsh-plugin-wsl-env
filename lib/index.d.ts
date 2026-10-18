@@ -47,6 +47,7 @@ import { WslSandbox } from "./sandbox.js";
 import type { WslAgent } from "./agent.js";
 import { AgentSubstrate } from "./fs-substrate.js";
 import { SessionRuntimes } from "./session-runtime.js";
+import type { AgentBackend } from "./native-agent.js";
 import type { SessionRuntimeEntry } from "./session-runtime.js";
 import type { Context } from "@deepseek-ai/cordis";
 import type { FsDirEntry, FsEditOutcome, FsEditRequest, FsInfo, FsPathInfo, FsTarget, FsVersion, FsWriteIntent, FsWriteOutcome } from "@deepseek-ai/dsh-fs";
@@ -129,6 +130,8 @@ export interface WslShellExecutorConfig {
     agent: boolean;
     /** Whether commands run in one persistent session scope (ADR 0001). */
     sessionSandbox: boolean;
+    /** The session runtime's agent backend; `auto` when omitted. */
+    agentBackend?: AgentBackend;
 }
 /**
  * The upstream executor's spawn-spec builder, re-opened for this subclass —
@@ -234,6 +237,7 @@ export declare class WslShellExecutor extends LocalBashExecutor {
          * decoration are identical on both paths.
          */
         agent: z<boolean, boolean, "defined">;
+        agentBackend: z<"auto" | "native" | "shell", "auto" | "native" | "shell", "defined">;
         /**
          * Run this session's commands in one persistent systemd user scope (ADR
          * 0001): background processes survive the command that started them, `/tmp`
@@ -308,6 +312,7 @@ export declare class WslShellExecutor extends LocalBashExecutor {
          * decoration are identical on both paths.
          */
         agent: z<boolean, boolean, "defined">;
+        agentBackend: z<"auto" | "native" | "shell", "auto" | "native" | "shell", "defined">;
         /**
          * Run this session's commands in one persistent systemd user scope (ADR
          * 0001): background processes survive the command that started them, `/tmp`

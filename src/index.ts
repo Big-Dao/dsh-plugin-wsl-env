@@ -58,7 +58,8 @@ import { AgentSubstrate } from "./fs-substrate.js";
 import { FsCodedError } from "./fsio-text.js";
 import { confinedAgent } from "./agent-confined.js";
 import { SessionRuntimes, probeSessionRuntime, sessionRuntimes, setSessionNativeAgent } from "./session-runtime.js";
-import { NATIVE_AGENT_ENV, ensureNativeBackend } from "./native-agent.js";
+import { configureAgentBackend, ensureNativeSessionAgent } from "./native-agent.js";
+import type { AgentBackend } from "./native-agent.js";
 import type { SessionRuntimeEntry } from "./session-runtime.js";
 // `runCapture` and distro discovery live in ./wsl.js so the directory picker
 // can use them without pulling this file's executor and filesystem peers in.
@@ -126,12 +127,6 @@ const SAFE_FORWARD = ["NO_COLOR", "TERM", "PAGER", "GIT_PAGER", "LANG", "LC_ALL"
  * @param wslPath - the `wsl.exe` path.
  * @param distro - the resolved distro.
  */
-async function ensureNativeSessionAgent(wslPath: string, distro: string): Promise<void> {
-  const source = process.env[NATIVE_AGENT_ENV] ?? "";
-  if (source.length === 0) return;
-  const path = await ensureNativeBackend({ wslPath, distro, source });
-  if (path !== undefined) setSessionNativeAgent(distro, path);
-}
 
 function configuredCwd(config: { cwd?: { get(): string | undefined } }): string {
   return String(config.cwd?.get?.() ?? "").trim();
@@ -227,6 +222,8 @@ export interface WslShellExecutorConfig {
   agent: boolean;
   /** Whether commands run in one persistent session scope (ADR 0001). */
   sessionSandbox: boolean;
+  /** The session runtime's agent backend; `auto` when omitted. */
+  agentBackend?: AgentBackend;
 }
 
 /**
@@ -341,6 +338,7 @@ export class WslShellExecutor
      * decoration are identical on both paths.
      */
     agent: z.boolean().default(true),
+    agentBackend: z.union(["auto", "native", "shell"]).default("auto"),
     /**
      * Run this session's commands in one persistent systemd user scope (ADR
      * 0001): background processes survive the command that started them, `/tmp`
@@ -384,6 +382,7 @@ export class WslShellExecutor
    */
   constructor(ctx: Context, config: WslShellExecutorConfig) {
     super(ctx, config);
+    configureAgentBackend(config.agentBackend ?? "auto");
     this.resolvedDistro = config.distro;
     this.resolvedShell = config.shell;
     this.resolvedHome = undefined;
@@ -528,7 +527,7 @@ export class WslShellExecutor
     const config = this.config as unknown as WslShellExecutorConfig;
     const problem = await probeSessionRuntime({ wslPath: config.wslPath, distro, run: this.sessionScopeProbe });
     if (problem !== null) throw new Error(problem);
-    await ensureNativeSessionAgent(config.wslPath, distro);
+    await ensureNativeSessionAgent({ wslPath: config.wslPath, distro, setNative: setSessionNativeAgent });
     this.sessionRuntimePreflight = "ready";
   }
 
@@ -1305,7 +1304,7 @@ export class WslFileSystem extends LocalFileSystem {
     const config = this.config as unknown as WslFileSystemConfig;
     const problem = await probeSessionRuntime({ wslPath: config.wslPath, distro, run: this.sessionScopeProbe });
     if (problem !== null) throw new Error(problem);
-    await ensureNativeSessionAgent(config.wslPath, distro);
+    await ensureNativeSessionAgent({ wslPath: config.wslPath, distro, setNative: setSessionNativeAgent });
     this.sessionRuntimePreflight = "ready";
   }
 

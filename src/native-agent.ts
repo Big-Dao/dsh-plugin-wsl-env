@@ -150,3 +150,85 @@ function copyBinary(wslPath: string, distro: string, script: string, binary: Buf
     child.stdin?.end(binary);
   });
 }
+
+/** The session runtime's agent backend, from `wsl-shell.agentBackend`. */
+export type AgentBackend = "auto" | "native" | "shell";
+
+/** The process-wide mode; the shell executor's constructor owns it. */
+let backend: AgentBackend = "auto";
+
+/**
+ * Record the selected backend. The session runtime is shared by the shell and
+ * filesystem providers, so this one process-wide value is what both read when
+ * they prepare their runtime; it is set from the `wsl-shell` config.
+ *
+ * @param mode - the selected backend.
+ */
+export function configureAgentBackend(mode: AgentBackend): void {
+  backend = mode;
+}
+
+/** @returns the configured backend (for diagnostics and tests). */
+export function configuredAgentBackend(): AgentBackend {
+  return backend;
+}
+
+/**
+ * Select the native binary for a distro when the backend allows it.
+ *
+ * - `shell`: clear any native entry and use the shipped shell agent.
+ * - `auto`: use the native binary when a source exists and copy/verify
+ *   succeeds; otherwise stay on the shell agent.
+ * - `native`: same preparation, but a missing source or a failed preparation
+ *   throws a remedy instead of silently falling back.
+ *
+ * The source is the development override `DSH_WSL_AGENT_NATIVE`; the packaged
+ * per-arch binary will be added by the packaging task and preferred over it.
+ *
+ * @param options - the transport, distro, setter and injectable prepare step.
+ */
+export async function ensureNativeSessionAgent({
+  wslPath,
+  distro,
+  setNative,
+  ensure = ensureNativeBackend,
+}: {
+  /** The `wsl.exe` path. */
+  wslPath: string;
+  /** The resolved distro. */
+  distro: string;
+  /** Store (or clear, with an empty path) the distro's native entrypoint. */
+  setNative: (distro: string, path: string) => void;
+  /** Prepare the binary; tests substitute. */
+  ensure?: (options: NativeBackendOptions) => Promise<string | undefined>;
+}): Promise<void> {
+  if (backend === "shell") {
+    setNative(distro, "");
+    return;
+  }
+  const source = nativeAgentSource();
+  if (source.length === 0) {
+    if (backend === "native") {
+      throw new Error(`agentBackend: "native" is set, but no native binary is available: set ${NATIVE_AGENT_ENV} to a host path (or use "auto"/"shell").`);
+    }
+    return;
+  }
+  const path = await ensure({ wslPath, distro, source });
+  if (path === undefined) {
+    if (backend === "native") {
+      throw new Error(`agentBackend: "native" could not prepare the native agent from "${source}" (architecture, copy or digest check failed); check ${NATIVE_AGENT_ENV}, or use "auto"/"shell".`);
+    }
+    return;
+  }
+  setNative(distro, path);
+}
+
+/**
+ * The host binary source. The development override comes first; the packaged
+ * per-arch binaries are the next stage, so this stays env-only for now.
+ *
+ * @returns the host path, or an empty string when no source is configured.
+ */
+function nativeAgentSource(): string {
+  return process.env[NATIVE_AGENT_ENV] ?? "";
+}

@@ -70,6 +70,44 @@ export interface RoutingConfig {
  * @param targetKey - the target's identity (a UNC for distro paths).
  * @returns true when the target lives inside a WSL distro.
  */
+/**
+ * Lexically normalize a Linux path (`/a/./b/../c` → `/a/c`). The resolver
+ * canonicalizes real paths, so this is a guard for target keys that did not
+ * come through it; it cannot follow symlinks, and does not pretend to.
+ *
+ * @param path - the Linux path.
+ * @returns the normalized absolute path.
+ */
+function normalizeLinuxPath(path: string): string {
+  const segments: string[] = [];
+  for (const segment of path.split("/")) {
+    if (segment === "" || segment === ".") continue;
+    if (segment === "..") segments.pop();
+    else segments.push(segment);
+  }
+  return `/${segments.join("/")}`;
+}
+
+/**
+ * Whether a distro target contains another, comparing BOTH the distro
+ * coordinate and the normalized Linux path. A child in another distro's
+ * share is never contained, even when its Linux spelling is a prefix match —
+ * the textual check this replaces said yes there.
+ *
+ * @param parentKey - the parent's UNC identity.
+ * @param childKey - the child's UNC identity.
+ * @returns true when the child is the parent or lies under it in the same distro.
+ */
+export function distroContains(parentKey: string, childKey: string): boolean {
+  const parent = uncToPosix(parentKey);
+  const child = uncToPosix(childKey);
+  if (parent === undefined || child === undefined) return false;
+  if (parent.distro.toLowerCase() !== child.distro.toLowerCase()) return false;
+  const base = normalizeLinuxPath(parent.linuxPath);
+  const full = normalizeLinuxPath(child.linuxPath);
+  return full === base || full.startsWith(base.endsWith("/") ? base : `${base}/`);
+}
+
 export function targetIsDistro(targetKey: string): boolean {
   return isWslUnc(targetKey);
 }
@@ -282,14 +320,7 @@ export class WslRoutingFileSystem extends LocalFileSystem {
    * @param child - the contained candidate.
    */
   contains(parent: FsTarget, child: FsTarget): boolean {
-    if (targetIsDistro(parent.targetKey)) {
-      // Both targets came from this router's distro resolve, so the plain
-      // POSIX containment over their process paths is the same check the
-      // distro substrate performs for its own guarded writes.
-      const base = this.processPath(parent);
-      const full = this.processPath(child);
-      return full === base || full.startsWith(base.endsWith("/") ? base : `${base}/`);
-    }
+    if (targetIsDistro(parent.targetKey)) return distroContains(parent.targetKey, child.targetKey);
     return super.contains(parent, child);
   }
 

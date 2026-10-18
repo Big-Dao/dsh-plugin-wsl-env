@@ -61,11 +61,16 @@ export interface RoutingConfig {
     watchMaxDepth?: number;
 }
 /**
- * Whether a resolved target identity belongs to the distro.
+ * Whether a distro target contains another, comparing BOTH the distro
+ * coordinate and the normalized Linux path. A child in another distro's
+ * share is never contained, even when its Linux spelling is a prefix match —
+ * the textual check this replaces said yes there.
  *
- * @param targetKey - the target's identity (a UNC for distro paths).
- * @returns true when the target lives inside a WSL distro.
+ * @param parentKey - the parent's UNC identity.
+ * @param childKey - the child's UNC identity.
+ * @returns true when the child is the parent or lies under it in the same distro.
  */
+export declare function distroContains(parentKey: string, childKey: string): boolean;
 export declare function targetIsDistro(targetKey: string): boolean;
 /**
  * Whether a raw path-or-cwd input names the distro (used by the operations

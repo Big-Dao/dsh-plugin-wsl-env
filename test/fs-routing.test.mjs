@@ -6,7 +6,7 @@
  *   node test/fs-routing.test.mjs
  */
 import assert from "node:assert/strict";
-import { targetIsDistro, inputIsDistro } from "../lib/fs-routing.js";
+import { distroContains, targetIsDistro, inputIsDistro } from "../lib/fs-routing.js";
 import { linuxJoin } from "../lib/workspace-files-route.js";
 
 let passed = 0;
@@ -39,6 +39,19 @@ check("targetIsDistro reads the target identity", () => {
   assert.equal(targetIsDistro("\\\\wsl$\\debian\\srv"), true);
   assert.equal(targetIsDistro("C:\\proj\\a.ts"), false);
   assert.equal(targetIsDistro("/home/x"), false);
+});
+
+
+check("distroContains checks the distro coordinate and normalizes segments", () => {
+  const parent = "\\\\wsl.localhost\\ubuntu\\home\\you\\proj";
+  assert.equal(distroContains(parent, "\\\\wsl.localhost\\ubuntu\\home\\you\\proj\\a.ts"), true);
+  assert.equal(distroContains(parent, parent), true, "a target contains itself");
+  assert.equal(distroContains(parent, "\\\\wsl.localhost\\ubuntu\\home\\you\\proj2\\a.ts"), false, "a sibling prefix is not contained");
+  assert.equal(distroContains(parent, "\\\\wsl.localhost\\debian\\home\\you\\proj\\a.ts"), false, "another distro is never contained");
+  assert.equal(distroContains(parent, "C:\\proj\\a.ts"), false, "a host path is not in the distro");
+  assert.equal(distroContains(parent, "\\\\wsl.localhost\\ubuntu\\home\\you\\proj\\..\\other"), false, "dot-dot segments escape");
+  assert.equal(distroContains("\\\\wsl.localhost\\ubuntu\\", "\\\\wsl.localhost\\ubuntu\\etc\\hosts"), true, "the distro root contains");
+  assert.equal(distroContains("\\\\wsl.localhost\\Ubuntu\\home", "\\\\wsl.localhost\\ubuntu\\home\\x"), true, "the distro name is case-insensitive");
 });
 
 check("inputIsDistro names the distro for UNC inputs only", () => {

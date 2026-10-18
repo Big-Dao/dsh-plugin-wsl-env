@@ -242,6 +242,12 @@ from it.
   backend keeps the mode off because it is not session-owned. A failed
   preflight refuses the write with the systemd/linger remedy.
 
+- **A distro target contains only targets in the same distro.** `contains()`
+  compared Linux path strings, so another distro's share (or a `..`-bearing
+  key) could test as contained when the spelling lined up. It now compares the
+  distro coordinate and lexically normalizes the paths; the resolver remains
+  the canonicalizer for symlinks.
+
 - **A `notdir` failure reports `FS_NOT_DIRECTORY`.** The wire reason was
   mapped to `FS_NOT_FOUND`, so a path whose parent is a regular file looked
   like a missing path. It now carries the specific code the tool layer already

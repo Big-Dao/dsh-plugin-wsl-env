@@ -664,6 +664,9 @@ checkReg("a stale child's exit cannot tear down its replacement", async () => {
   assert.ok((await failed) instanceof AgentUnavailableError);
   const secondRun = agent.exec({ cwd: "/tmp", argv: ["echo", "hi"], timeoutMs: 0 });
   first.emit("exit", 1, null);
+  // Late events from the dead generation are ignored, not applied to the live
+  // one (the emit with a listener is how the fake reports them).
+  first.emit("error", new Error("late spawn error"));
   const result = await secondRun;
   assert.equal(result.exitCode, 0, "the replacement still answers");
   assert.equal(result.stdout.toString("utf8"), "echo hi\n");
@@ -677,9 +680,45 @@ checkReg("close releases the host's ends of the child's stdio", async () => {
   const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
   await agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 });
   await agent.close();
+  await agent.close(); // an idle close on an already-closed agent is a no-op
   assert.equal(child.stdin.destroyed, true, "stdin is released");
   assert.equal(child.stdout.destroyed, true, "stdout is released");
   assert.equal(child.stderr.destroyed, true, "stderr is released");
+});
+
+checkReg("close fails a start it interrupts", async () => {
+  const child = new FakeAgentProcess({ noHello: true });
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  const run = agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }).then(
+    () => {
+      throw new Error("should not have started");
+    },
+    (error) => error,
+  );
+  await flush();
+  await agent.close();
+  const error = await run;
+  assert.ok(error instanceof AgentUnavailableError, "the interrupted start rejects as unavailable");
+  assert.match(error.message, /closed during start/);
+});
+
+checkReg("close settles requests it interrupts", async () => {
+  const child = new FakeAgentProcess();
+  child.silent = true; // the handshake answers, nothing after it
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  const run = agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }).then(
+    () => {
+      throw new Error("should not have completed");
+    },
+    (error) => error,
+  );
+  await flush();
+  await agent.close();
+  const error = await run;
+  assert.ok(error instanceof AgentUnavailableError, "the interrupted request rejects as unavailable");
+  assert.match(error.message, /closed before this request answered/);
 });
 
 for (const [name, fn] of checks) {

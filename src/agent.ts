@@ -324,8 +324,7 @@ export class WslAgent {
       }, HANDSHAKE_TIMEOUT_MS);
       const settleStart = (error?: unknown) => {
         clearTimeout(handshakeTimer);
-        if (!current()) return;
-        if (this.startSettler === settleStart) this.startSettler = null;
+        this.startSettler = null;
         this.startPromise = null;
         if (error) {
           this.state = this.rebuildUsed ? "dead" : "idle";
@@ -476,12 +475,9 @@ export class WslAgent {
    * @param code - the exit code, null when killed by a signal.
    * @param signalName - the killing signal, null on a normal exit.
    */
-  private handleProcessExit(child: ChildProcess, code: number | null, signalName: NodeJS.Signals | null): void {
-    if (this.process !== child) {
-      // Stale generation: release its pipes and leave the live one alone.
-      this.teardownStreams(child);
-      return;
-    }
+  private handleProcessExit(child: ChildProcessWithoutNullStreams, code: number | null, signalName: NodeJS.Signals | null): void {
+    // The exit handler has already proved this child is the current generation;
+    // that check is the one place a stale exit can be rejected.
     this.process = null;
     this.teardownStreams(child);
     if (this.pending.size === 0) {
@@ -776,7 +772,9 @@ export class WslAgent {
         resolve();
       });
     });
-    this.teardownStreams(child);
+    // The transport is always spawned with pipes, so the streams exist; the
+    // field's broader type is Node's, not the spawn's.
+    this.teardownStreams(child as ChildProcessWithoutNullStreams);
   }
 
   /**
@@ -787,9 +785,9 @@ export class WslAgent {
    *
    * @param child - the process whose streams are being released.
    */
-  private teardownStreams(child: ChildProcess): void {
-    child.stdin?.destroy();
-    child.stdout?.destroy();
+  private teardownStreams(child: ChildProcessWithoutNullStreams): void {
+    child.stdin.destroy();
+    child.stdout.destroy();
     child.stderr?.destroy();
   }
 

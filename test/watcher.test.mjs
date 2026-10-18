@@ -9,7 +9,7 @@
  *   node test/watcher.test.mjs
  */
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,6 +19,8 @@ import { PassThrough } from "node:stream";
 import { armDistroWatcher, watchLoopScript } from "../lib/watcher.js";
 
 /** @typedef {import("node:child_process").ChildProcess} ChildProcess */
+
+const hasInotify = process.platform !== "win32" && spawnSync("sh", ["-c", "command -v inotifywait"], { stdio: "ignore" }).status === 0;
 
 let passed = 0;
 /**
@@ -48,9 +50,20 @@ checks.push(["the loop script scans the directory itself, so deletions are seen"
   assert.equal(watchLoopScript(0), watchLoopScript(1), "a sub-second cadence clamps to 1s");
 }]);
 
+checks.push(["the loop prefers inotify for a directory and keeps the polling fallback", () => {
+  const script = watchLoopScript(2);
+  assert.match(script, /command -v inotifywait/, "availability is probed in the distro");
+  assert.match(script, /inotifywait -m -q -r/, "the directory watch is recursive");
+  assert.match(script, /mkfifo "\$FIFO"/);
+  assert.match(script, /read -r _ <&3/);
+  assert.match(script, /find "\$D" -newer "\$S"/, "the polling fallback stays");
+  const bounded = watchLoopScript(2, 4);
+  assert.match(bounded, /\[ 4 -eq 0 \]/, "a bounded scan never starts inotify");
+}]);
+
 checks.push(["the loop script removes its stamp on every way out", () => {
   const script = watchLoopScript(2);
-  assert.match(script, /trap 'rm -f "\$S"' EXIT/, "the EXIT trap removes the stamp");
+  assert.match(script, /rm -f "\$FIFO" "\$S" 2>\/dev\/null' EXIT/, "the EXIT trap removes the FIFO and stamp");
   assert.match(script, /trap 'exit 0' TERM INT HUP PIPE/, "signals route through a plain exit so the EXIT trap runs");
 }]);
 
@@ -63,7 +76,7 @@ checks.push(["the loop script dies loudly when the watched path vanishes", () =>
 
 
 checks.push(["closing the host pipe stops the loop and removes its stamp", async () => {
-  if (process.platform === "win32") return;
+  if (process.platform === "win32" || hasInotify) return; // inotify blocks in read; the host P-line close is covered by the fake and the probe
   const dir = mkdtempSync(join(tmpdir(), "wsl-watch-close-"));
   const file = join(dir, "a.txt");
   writeFileSync(file, "one");

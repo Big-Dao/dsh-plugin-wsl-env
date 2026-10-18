@@ -71,9 +71,12 @@ crosses the 9p share. What to know about the one substrate there is:
   when `bubblewrap` itself is missing, so a distro that has bwrap but not rg
   needs the printed line run by hand. A search whose directory is a Windows
   folder keeps the host binary, which is native there.
-- **`watch()` is one poll loop** (a `find -newer` scan inside the distro for a directory, a `stat` fingerprint for a file), so
-  the coarse-invalidation caveats below apply. An inotify backend is planned,
-  not shipped.
+- **`watch()` prefers inotify, with a polling fallback.** When `inotifywait`
+  is installed and the target is an unbounded directory, the watcher uses
+  recursive inotify watches and coalesces events to one callback per 0.5s.
+  Otherwise — a file target, a positive `maxDepth`, or no `inotify-tools` — it
+  is the `find -newer` poll loop (a `stat` fingerprint for a file), so the
+  coarse-invalidation caveats below apply.
 - **With `sessionSandbox: false`, a confined command's `/tmp` is not the write
   tool's `/tmp`.** `workspace-write` mounts a fresh tmpfs at `/tmp` for the
   command — that is what makes it ephemeral — while the file tools' fence grants
@@ -90,19 +93,21 @@ crosses the 9p share. What to know about the one substrate there is:
   rebuild, and when that rebuild cannot complete — the distro is still down, or
   gone — the resident is permanently out: every later file operation fails the
   same way until the app restarts.
-- `watch()` observes from inside the distro (a `find -newer` poll loop, see
-  `lib/watcher.js`), so events are coarse invalidation, not per-file notifications,
-  and they arrive on the poll cadence, not instantly. A creation is seen even when
-  the new file's own mtime is old: creating it bumps the containing directory's
-  mtime, and the scan includes the watched directory itself (deletions are seen the
-  same way). What escapes the stamp is a change that leaves every scanned mtime
-  older than it — an in-place `cp -p` onto an existing file (new content, a
-  copied-back mtime), or a `tar -x` whose archive restores the containing
-  directory's own mtime. A FILE target is watched by its `mtime:size`
-  fingerprint: a rename-over or an in-place write fires, a removal reports the
-  target as gone, and a change that preserves both mtime and size escapes it.
-  Watching a 9p share from the Windows side remains
-  unsupported — the loop runs where the kernel can actually report change.
+- `watch()` observes from inside the distro, so callbacks are coarse
+  invalidation, not per-file notifications. With inotify they arrive as events
+  (coalesced to 0.5s); with the polling fallback they arrive on the poll
+  cadence, not instantly. In the polling path a creation is seen even when the
+  new file's own mtime is old: creating it bumps the containing directory's
+  mtime, and the scan includes the watched directory itself (deletions are seen
+  the same way). What escapes the polling stamp is a change that leaves every
+  scanned mtime older than it — an in-place `cp -p` onto an existing file (new
+  content, a copied-back mtime), or a `tar -x` whose archive restores the
+  containing directory's own mtime. That blind spot does not apply to the
+  inotify path. A FILE target is watched by its `mtime:size` fingerprint: a
+  rename-over or an in-place write fires, a removal reports the target as gone,
+  and a change that preserves both mtime and size escapes it. Watching a 9p
+  share from the Windows side remains unsupported — the loop runs where the
+  kernel can actually report change.
 - `editText` reads the whole file into memory before writing it back.
 
 ## The sandbox

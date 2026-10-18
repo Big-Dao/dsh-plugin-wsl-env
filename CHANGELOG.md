@@ -28,6 +28,13 @@ from it.
 
 ### Added
 
+- **The watcher uses inotify when it can.** With `inotifywait` installed and an
+  unbounded directory target, the in-distro watcher now uses recursive inotify
+  watches and coalesces events to one callback per 0.5s instead of polling
+  `find`. A file target, a positive `watchMaxDepth`, or a missing
+  `inotify-tools` keeps the polling fallback, so the backend is optional. The
+  polling mtime-old blind spot does not apply to the inotify path.
+
 - **`sessionSandbox` runs one session's commands in one scope.** With the key
   on, the shell executor acquires the runtime for `(distro, workspace,
   policy)` on the first command, reuses it for the session, runs the command

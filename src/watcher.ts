@@ -8,13 +8,15 @@
  * whenever something under `target` may have changed. That is cheap to honor
  * from inside the distro, where the kernel does know.
  *
- * The watcher is a long-lived `wsl.exe` shell loop: periodically
+ * When `inotifywait` is installed and the target is an unbounded directory,
+ * the watcher uses inotify: recursive kernel watches, one `C` per 0.5s of
+ * events (a build's event storm is coalesced, the first event is immediate).
+ * Otherwise it falls back to the long-lived polling loop: every cadence,
  * `find <dir> -newer <stamp>` — the directory itself is in the scan, so
  * creations AND deletions (which bump the parent's mtime) are both seen — and
- * one `C` line per hit. A FILE target uses the same one-way question through
- * its `mtime:size` fingerprint, so a rename-over or an in-place write is seen
- * too. No `inotifywait` dependency; the mtime walk is exact for
- * interactive-paced edits, which is the only pace a session watch serves.
+ * one `C` line per hit. A FILE target uses the `mtime:size` fingerprint (so a
+ * rename-over or an in-place write is seen), and a positive `maxDepth` keeps
+ * the polling scan because inotify cannot bound its own walk.
  *
  * The loop speaks three one-letter lines, the watcher protocol:
  *
@@ -57,8 +59,9 @@ import { createInterface } from "node:readline";
  * @param intervalSeconds - poll cadence; must be >= 1.
  * @param maxDepth - bound the scan's depth for a DIRECTORY target, 1 = the
  *   directory itself and its direct children; 0 (the default) scans the whole
- *   tree, which is the contract's semantics but a real cost over a tree with a
- *   `node_modules` in it. A file target ignores it.
+ *   tree, which is the contract's semantics. Positive values select the
+ *   polling scan (inotify is used only for the unbounded walk). A file target
+ *   ignores it.
  * @returns the `sh -c` script body.
  */
 export function watchLoopScript(intervalSeconds = 2, maxDepth = 0): string {
@@ -75,54 +78,75 @@ export function watchLoopScript(intervalSeconds = 2, maxDepth = 0): string {
   return [
     'D="$1"',
     'S="${TMPDIR:-/tmp}/wsl-watch.$$.stamp"',
+    'FIFO="${TMPDIR:-/tmp}/wsl-watch.$$.fifo"',
+    'IW=""',
     'touch "$S"',
-    // The stamp is the loop's private state, so every way out removes it. The
-    // EXIT trap covers plain exits; a signal alone would end the shell WITHOUT
-    // running it, so TERM/INT/HUP are trapped to a plain exit first.
-    "trap 'rm -f \"$S\"' EXIT",
+    // The stamp/FIFO are the loop's private state, so every way out removes
+    // them. The EXIT trap covers plain exits; a signal alone would end the
+    // shell WITHOUT running it, so TERM/INT/HUP/PIPE are trapped to a plain
+    // exit first. `pkill -P $$` also reaps inotifywait/sleep/find.
+    "trap 'kill \"$IW\" 2>/dev/null; pkill -P $$ 2>/dev/null; exec 3>&- 2>/dev/null; rm -f \"$FIFO\" \"$S\" 2>/dev/null' EXIT",
     "trap 'exit 0' TERM INT HUP PIPE",
     'F=""',
     '[ -f "$D" ] && F=$(stat -c "%Y:%s" -- "$D" 2>/dev/null || :)',
+    // Prefer inotify for an unbounded DIRECTORY watch: events are immediate and
+    // the kernel does the walking. A file target uses the fingerprint loop
+    // (it also reports a removal as E), and a bounded scan (maxDepth > 0)
+    // keeps the polling loop, which honors the bound.
+    `if [ -d "$D" ] && [ ${depth} -eq 0 ] && command -v inotifywait >/dev/null 2>&1; then`,
+    '  if mkfifo "$FIFO" 2>/dev/null; then',
+    '    exec 3<>"$FIFO"',
+    '    inotifywait -m -q -r -e create,delete,modify,move,attrib --format "%e" "$D" >"$FIFO" 2>/dev/null &',
+    '    IW=$!',
+    '  fi',
+    'fi',
     // The PID precedes READY so a close can stop the loop even if the pipe
     // stays open; killing wsl.exe alone does not close it reliably.
     "printf 'P %s\\n' \"$$\"",
-    // The READY line is the activation barrier: everything changed BEFORE it
-    // predates the stamp, so the host must not resolve the watch promise until
-    // it arrives — otherwise a write racing the first tick is invisible forever.
     "printf 'R\\n'",
-    // Check first, sleep second: a change made right after activation is seen
-    // on the first cadence, not one cadence later.
+    // One C per half second: a build's event storm becomes a coarse
+    // invalidation, while the first event is immediate. A quiet tree blocks
+    // in read; the close stops the shell through the P line, not the pipe.
+    'if [ -n "$IW" ]; then',
+    '  while read -r _ <&3; do',
+    "    printf 'C\\n'",
+    '    sleep 0.5',
+    '  done',
+    '  exec 3>&-',
+    'fi',
+    // Polling fallback: no inotifywait, a bounded scan, or inotifywait exited
+    // (a vanished target or an inotify limit). The stamp is the baseline.
     "while :; do",
     '  if [ -d "$D" ]; then',
     `    if [ -n "$(find "$D"${depthArgs} -newer "$S" -print -quit 2>/dev/null)" ]; then`,
     '      touch "$S"',
     "      printf 'C\\n'",
-    "    fi",
+    '    fi',
     '  elif [ -f "$D" ]; then',
     '    cur=$(stat -c "%Y:%s" -- "$D" 2>/dev/null || :)',
     '    if [ -z "$cur" ]; then',
     // The file was removed (or became unreadable): the target is gone.
     "      printf 'E\\n'",
-    "      exit 1",
-    "    fi",
+    '      exit 1',
+    '    fi',
     '    if [ "$cur" != "$F" ]; then',
     '      F="$cur"',
     "      printf 'C\\n'",
-    "    fi",
-    "  else",
+    '    fi',
+    '  else',
     // Neither a directory nor a file: say so and die, rather than spin.
     "    printf 'E\\n'",
-    "    exit 1",
-    "  fi",
+    '    exit 1',
+    '  fi',
     // Liveness: the host ignores H; the write dies with the pipe.
     "  printf 'H\\n'",
     `  sleep ${seconds}`,
-    "done",
+    'done',
   ].join("\n");
 }
 
 /**
- * Arm one in-distro watcher over a Linux directory.
+ * Arm one in-distro watcher over a Linux directory or file.
  *
  * @param options - the watch request.
  * @returns resolves once observation is active, with the async close function

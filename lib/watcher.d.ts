@@ -8,13 +8,15 @@
  * whenever something under `target` may have changed. That is cheap to honor
  * from inside the distro, where the kernel does know.
  *
- * The watcher is a long-lived `wsl.exe` shell loop: periodically
+ * When `inotifywait` is installed and the target is an unbounded directory,
+ * the watcher uses inotify: recursive kernel watches, one `C` per 0.5s of
+ * events (a build's event storm is coalesced, the first event is immediate).
+ * Otherwise it falls back to the long-lived polling loop: every cadence,
  * `find <dir> -newer <stamp>` — the directory itself is in the scan, so
  * creations AND deletions (which bump the parent's mtime) are both seen — and
- * one `C` line per hit. A FILE target uses the same one-way question through
- * its `mtime:size` fingerprint, so a rename-over or an in-place write is seen
- * too. No `inotifywait` dependency; the mtime walk is exact for
- * interactive-paced edits, which is the only pace a session watch serves.
+ * one `C` line per hit. A FILE target uses the `mtime:size` fingerprint (so a
+ * rename-over or an in-place write is seen), and a positive `maxDepth` keeps
+ * the polling scan because inotify cannot bound its own walk.
  *
  * The loop speaks three one-letter lines, the watcher protocol:
  *
@@ -53,13 +55,14 @@ import type { ChildProcess } from "node:child_process";
  * @param intervalSeconds - poll cadence; must be >= 1.
  * @param maxDepth - bound the scan's depth for a DIRECTORY target, 1 = the
  *   directory itself and its direct children; 0 (the default) scans the whole
- *   tree, which is the contract's semantics but a real cost over a tree with a
- *   `node_modules` in it. A file target ignores it.
+ *   tree, which is the contract's semantics. Positive values select the
+ *   polling scan (inotify is used only for the unbounded walk). A file target
+ *   ignores it.
  * @returns the `sh -c` script body.
  */
 export declare function watchLoopScript(intervalSeconds?: number, maxDepth?: number): string;
 /**
- * Arm one in-distro watcher over a Linux directory.
+ * Arm one in-distro watcher over a Linux directory or file.
  *
  * @param options - the watch request.
  * @returns resolves once observation is active, with the async close function

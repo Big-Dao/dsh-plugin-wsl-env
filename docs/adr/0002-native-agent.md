@@ -209,8 +209,8 @@ One process per agent, an event loop over stdin plus child pipes and timers:
 1. **Design (this ADR).** No code.
 2. **Spike (partial).** HELLO/PING/SETENV/EXEC/KILL, per-request process
    groups, the FS surface and the expected-version/mode matrix are done in
-   `agent/native/spike` (16/16 manual checks, 634 KB release binary). The host
-   wiring and musl/cross-arch builds remain.
+   `agent/native/spike` (17/17 manual checks, ~673 KB release binary). The
+   host wiring is in (opt-in); packaging and musl/cross-arch builds remain.
 3. **Differential + concurrency.** Full matrix; v6 error/env framing; the
    concurrent write acceptance test.
 4. **Host integration (partial).** The `DSH_WSL_AGENT_NATIVE` copy/verify and
@@ -231,20 +231,24 @@ serialized inside the agent for the v5 error channel; EXECs run concurrently
 with them.
 
 `agent/native/spike/test.mjs` (run manually against the built binary) passes
-16/16: HELLO; PING; EXEC exit/streams; SETENV; two concurrent EXECs with the
+17/17: HELLO; PING; EXEC exit/streams; SETENV; two concurrent EXECs with the
 short one settling first; KILL without a second `wsl.exe`; a 200 ms timeout
-killing the group promptly; a capped output that is cut while the pipe is
-still drained; FS stat/lstat/read matching the shell agent; a no-replace write
-and its refusal; the missing-path side channel; and a shell-agent differential
-for the EXEC shape. The release binary is 634 KB on
+killing the group promptly; the EXEC timeout unit (a 2 s budget does not kill
+a 300 ms command — an earlier millisecond reading killed every longer
+command); a capped output that is cut while the pipe is still drained; FS
+stat/lstat/read matching the shell agent; a no-replace write and its refusal;
+the missing-path side channel; FS list/realpath matching the shell; the
+dot-dot refusal; the expected-version replace/stale path; a setuid mode; and a
+shell-agent differential for the EXEC shape. The release binary is ~673 KB on
 x86_64-unknown-linux-gnu and builds in ~2 s with no dependencies.
 
 What this proves: the event loop removes the shell's serial-request stall and
 the `USR1`/second-transport cancellation shape is unnecessary, and the core
 FS surface (stat/lstat/read/write/list/realpath, version re-check, modes) can
 be reproduced in the native process. What it does not prove: musl/cross-arch
-builds, v6 concurrency/env framing, or the host copy/verify/backend
-integration. None of this is wired into the shipped plugin.
+builds, v6 concurrency/env framing, or the packaging/default rollout. The host
+copy/verify and the session-runtime factory are in place behind
+`DSH_WSL_AGENT_NATIVE`; the shell remains the shipped peer.
 
 ## When to build it
 

@@ -408,7 +408,7 @@ fn handle_exec(
     id: String,
     cwd: String,
     argv: Vec<String>,
-    timeout_ms: u64,
+    timeout_secs: u64,
     cap: usize,
     envs: Arc<Mutex<HashMap<String, String>>>,
     active: Arc<Mutex<HashMap<String, i32>>>,
@@ -448,7 +448,7 @@ fn handle_exec(
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) => {
-                if timeout_ms > 0 && started.elapsed() >= Duration::from_millis(timeout_ms) {
+                if timeout_secs > 0 && started.elapsed() >= Duration::from_secs(timeout_secs) {
                     unsafe { kill(-pgid, SIGTERM) };
                     thread::sleep(Duration::from_millis(100));
                     unsafe { kill(-pgid, SIGKILL) };
@@ -507,7 +507,7 @@ fn main() {
             "EXEC" => {
                 let id = fields.get(1).copied().unwrap_or("").to_string();
                 let cwd = fields.get(2).map(|v| String::from_utf8_lossy(&b64_decode(v)).into_owned()).unwrap_or_default();
-                let timeout_ms = fields.get(3).and_then(|v| v.parse().ok()).unwrap_or(0);
+                let timeout_secs = fields.get(3).and_then(|v| v.parse().ok()).unwrap_or(0);
                 let nargs: usize = fields.get(4).and_then(|v| v.parse().ok()).unwrap_or(0);
                 let cap: usize = fields.get(5).and_then(|v| v.parse().ok()).unwrap_or(0);
                 let mut argv = Vec::with_capacity(nargs);
@@ -520,7 +520,7 @@ fn main() {
                 let envs = Arc::clone(&envs);
                 let active = Arc::clone(&active);
                 let out = Arc::clone(&out);
-                thread::spawn(move || handle_exec(id, cwd, argv, timeout_ms, cap, envs, active, out));
+                thread::spawn(move || handle_exec(id, cwd, argv, timeout_secs, cap, envs, active, out));
             }
             "FS" => {
                 let id = fields.get(1).copied().unwrap_or("").to_string();

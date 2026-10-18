@@ -65,13 +65,15 @@ next stage.
 
 ## Result (2026-10-18, x86_64-unknown-linux-gnu, release)
 
-- 16/16 checks: HELLO, PING, EXEC (exit + both streams), SETENV (later
+- 17/17 checks: HELLO, PING, EXEC (exit + both streams), SETENV (later
   commands only), concurrent EXECs (the short one settles first), KILL (no
-  second `wsl.exe`, no full wait), timeout (group killed promptly), output cap
+  second `wsl.exe`, no full wait), timeout (group killed promptly), the EXEC
+  timeout unit (a 2 s budget does not kill a 300 ms command), output cap
   (cut and the pipe still drained), FS stat/lstat/read matching the shell
   agent, no-replace write + refusal, the missing-path side channel, FS list
   and realpath matching the shell, the dot-dot refusal, the expected-version
   replace/stale path, a setuid mode, and a shell-agent differential for EXEC.
-- Release binary: 634 KB; the crate builds in ~2 s with no dependencies.
-- The shell agent remains the shipped peer; nothing here is wired into
-  `agent-shared.ts`, the session runtime, or the CLI.
+- Release binary: ~673 KB; the crate builds in ~2 s with no dependencies.
+- The shell agent remains the shipped peer. The host wiring above is opt-in;
+  packaging (per-arch binaries), musl/cross-arch builds and the default
+  rollout are still pending.

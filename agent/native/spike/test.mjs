@@ -195,6 +195,15 @@ await check("the in-distro timeout kills the process group", async () => {
   await session.close();
 });
 
+await check("the EXEC timeout is seconds, not milliseconds", async () => {
+  const session = new Session(binary, []);
+  await session.hello;
+  const result = await session.exec({ argv: ["sh", "-c", "sleep 0.3; printf ok"], timeoutMs: 2000 });
+  assert.equal(result.exitCode, 0, `a 2 s budget must not kill a 300 ms command (exit ${result.exitCode})`);
+  assert.equal(result.stdout.toString(), "ok");
+  await session.close();
+});
+
 await check("the output cap cuts and still drains the pipe", async () => {
   const session = new Session(binary, []);
   await session.hello;

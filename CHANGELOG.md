@@ -263,6 +263,18 @@ from it.
   exit) now leaves the previous list in place and logs a debug line; only a
   successful empty scan produces an empty list.
 
+- **The stale-scope sweep recognizes the native agent.** It looked only for
+  `wsl-agent.sh` in the scope's cgroup, so a live native session scope (whose
+  agent is `dsh-wsl-agent`) could be stopped at the next session preflight.
+  The liveness check now accepts either marker; a scope with only leftover
+  background processes is still reaped.
+
+- **The native EXEC timeout is seconds.** The spike read the v5 EXEC frame's
+  timeout field as milliseconds, so a 120 s budget killed every command after
+  120 ms; longer commands exited 143 on the native session. It now converts
+  seconds (`Duration::from_secs`), and the spike's check runs a 300 ms command
+  under a 2 s budget so the unit cannot regress silently.
+
 - **The inotify watcher is reaped promptly on close and on a vanished
   directory.** The blocking FIFO read is woken by a one-second marker, so the
   TERM trap runs and the target check reports `E` within a second of the

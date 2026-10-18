@@ -295,8 +295,18 @@ export async function distroRead({ runner, distro, linuxRoot, path, offset, limi
   } catch {
     throw notText(path);
   }
-  const lines = text.length === 0 ? 0 : text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
-  const bytes = Buffer.byteLength(text, "utf8") + lines;
+  // `pageArgv` reads one line past the page so EOF is decidable from the
+  // yield; that line is a probe, not part of the answer. Split it off before
+  // counting, and count bytes on the page the caller actually receives (a
+  // CRLF file's line count is not a byte budget).
+  const parts = text.length === 0 ? [] : text.split("\n");
+  if (text.endsWith("\n")) parts.pop();
+  const count = parts.length;
+  const truncated = count > limit;
+  const kept = truncated ? parts.slice(0, limit) : parts;
+  const pageText = truncated ? `${kept.join("\n")}\n` : text;
+  const lines = kept.length;
+  const bytes = Buffer.byteLength(pageText, "utf8");
   if (bytes > maxBytes) {
     throw new RemoteError(
       "workspace-file/too-large",
@@ -304,10 +314,10 @@ export async function distroRead({ runner, distro, linuxRoot, path, offset, limi
       { path, limit: maxBytes },
     );
   }
-  if (text.includes(String.fromCharCode(0))) throw notText(path);
-  const eof = lines < limit;
+  if (pageText.includes(String.fromCharCode(0))) throw notText(path);
+  const eof = !truncated;
   const stat = { absolutePath: posixToUnc(distro, linuxFile), version: record.version };
-  return { ...stat, offset, text, lines, eof };
+  return { ...stat, offset, text: pageText, lines, eof };
 }
 
 /**

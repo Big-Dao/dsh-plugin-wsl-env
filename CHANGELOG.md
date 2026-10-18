@@ -172,6 +172,16 @@ from it.
   `run_capture` now prints the ACK after `CURRENT_PID=$!`, which is what the
   host's comment always claimed it meant.
 
+- **The GUI page contract no longer returns its EOF probe line.** `pageArgv`
+  reads one line past the requested page so EOF is decidable from the yield;
+  `distroRead` returned every line it got and derived `lines`/`eof` from the
+  probe, so an N-line page carried N+1 lines, a page ending exactly at the file
+  reported `eof: false`, and `bytes` added the line count on top of the UTF-8
+  length (over-charging CRLF files and refusing pages that fit). The probe is
+  split off before counting, `eof` means "no line past the page", and `bytes`
+  is the page's own UTF-8 length. Tests cover truncation, exact EOF, and the
+  byte cap.
+
 ### Notes
 
 - Gates on the new pins: style 9/9, syntax 7/7 members and 3/3 chain members

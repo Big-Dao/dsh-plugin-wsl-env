@@ -269,6 +269,7 @@ check("distroRead mirrors the upstream page semantics", async () => {
   const record = "regular file\t24\tfc03\t1\t1760000000\t1759000000";
   const runner = fakeAgent([
     { exitCode: 0, stdout: Buffer.from("alpha\nbeta\ngamma\n"), stderr: `${record}\n` },
+    { exitCode: 0, stdout: Buffer.from("alpha\nbeta\ngamma\n"), stderr: `${record}\n` },
     { exitCode: 0, stdout: Buffer.from("alpha\nbeta\n"), stderr: `${record}\n` },
     { exitCode: 0, stdout: Buffer.from("a\x00b\n"), stderr: `${record}\n` },
     { exitCode: 0, stdout: Buffer.from([0xff, 0xfe]), stderr: `${record}\n` },
@@ -288,8 +289,18 @@ check("distroRead mirrors the upstream page semantics", async () => {
     offset: 1, limit: 2, maxBytes: 65536,
     distroWorkspaceRoot: "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj",
   });
-  assert.equal(partial.text, "alpha\nbeta\n");
+  assert.equal(partial.text, "alpha\nbeta\n", "the probe line past the page is not returned");
+  assert.equal(partial.lines, 2);
   assert.equal(partial.eof, false, "a third line exists past the page");
+
+  const exact = await distroRead({
+    runner, distro: "ubuntu", linuxRoot: ROOT, path: "a.txt",
+    offset: 1, limit: 2, maxBytes: 65536,
+    distroWorkspaceRoot: "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj",
+  });
+  assert.equal(exact.text, "alpha\nbeta\n");
+  assert.equal(exact.lines, 2);
+  assert.equal(exact.eof, true, "the file ends exactly at the page");
 
   await assert.rejects(
     () => distroRead({

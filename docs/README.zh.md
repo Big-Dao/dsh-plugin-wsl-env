@@ -80,7 +80,7 @@ Windows 上的编程工具要在 WSL 项目上干活，一共三条路：
 | `wsl-shell` | `distro` | `''` | 用哪个子系统；空表示 WSL 的默认子系统 |
 | | `sandbox` | `true` | 命令跑在 `bubblewrap` 沙箱里；`false` 关掉沙箱 |
 | | `sessionSandbox` | `true` | 会话内的命令跑在同一个常驻 systemd user scope 里：后台 dev server 跨命令存活、`/tmp` 共享、`ps` 能看到整个会话。需要 systemd 为 PID 1、user manager 可达、`Linger` 打开；预检失败会带修复命令拒绝。设 `false` 回到每命令沙箱 |
-| | `agentBackend` | `auto` | 会话 runtime 的 in-distro agent：`auto` 在存在已校验来源（打包二进制或 `DSH_WSL_AGENT_NATIVE` 开发覆盖）时用 native，否则用 shell；`native` 准备失败时让首条命令失败而不是静默回退；`shell` 强制 shell。命令和受限写入共用该选择。native 目前是 opt-in、仅 x86_64 |
+| | `agentBackend` | `auto` | 会话 runtime 的 in-distro agent：`auto` 在存在已校验来源（打包二进制或 `DSH_WSL_AGENT_NATIVE` 开发覆盖）时用 native，否则用 shell；`native` 准备失败时让首条命令失败而不是静默回退；`shell` 强制 shell。命令和受限写入共用该选择。native 目前是 opt-in、x86_64/glibc |
 | | `maskWindowsDrive` | `false` | 让沙箱里的命令看不到 `/mnt`，收窄互操作这个洞（只是收窄，关不死，见[沙箱](#沙箱)） |
 | `wsl-fs` | `distro` | `''` | 同上 |
 | | `restrictToDistro` | `true` | 拒绝属于**别的子系统**的路径（`/mnt/c` 属于本子系统，不受影响）。拒绝码是 `FS_OUTSIDE_DISTRO`，放宽权限也解不开 |

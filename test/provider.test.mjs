@@ -17,6 +17,7 @@
  *   node test/provider.test.mjs
  */
 import assert from "node:assert/strict";
+import { configureAgentBackend } from "../lib/native-agent.js";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -140,6 +141,8 @@ const spawnView = (executor) => /** @type {OneShotSeam} */ (/** @type {unknown} 
  * @returns {{ fs: WslFileSystem, substrate: MockSubstrate }} the provider and its scripted substrate.
  */
 function makeFs({ sandbox = true, restrictToDistro = true, policy, sessionSandbox = false } = {}) {
+  // The unit suite must never resolve the packaged native binary: no wsl.exe.
+  configureAgentBackend("shell");
   const resolved = policy ?? { mode: "workspace-write", workspaceRoot: WORKSPACE };
   const ctx = new Context();
   ctx.provide("sandboxPolicy", { defaultMode: resolved.mode, resolve: () => resolved });
@@ -176,6 +179,7 @@ function makeExecutor({ sandbox = true, sessionSandbox = false } = {}) {
     sandbox,
     agent: true,
     sessionSandbox,
+    agentBackend: "shell",
   }));
   /** @type {AgentFrame[]} */
   const agentCalls = [];
@@ -517,6 +521,7 @@ check("a configured shell is cached; a failed probe is retried, not pinned", asy
     shell: "",
     sandbox: true,
     agent: true,
+    agentBackend: "shell",
     wslPath: "definitely-not-wsl.exe",
   }));
   assert.equal(await retrying.shell(), "bash", "the fallback answers per call");

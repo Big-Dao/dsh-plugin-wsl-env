@@ -25,14 +25,24 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { pinnedWindowsEnv } from "./agent.js";
 import { runCapture } from "./wsl.js";
 
 /** The host environment variable naming the native binary to opt in. */
 export const NATIVE_AGENT_ENV = "DSH_WSL_AGENT_NATIVE";
 
-/** Architectures this host can install; the spike ships x86_64 only. */
-const SUPPORTED_ARCH = /^(x86_64|amd64)$/u;
+/** Distro `uname -m` values mapped to the packaged directory names. */
+const ARCHS = new Map<string, string>([
+  ["x86_64", "x86_64"],
+  ["amd64", "x86_64"],
+  ["aarch64", "aarch64"],
+  ["arm64", "aarch64"],
+]);
+
+/** The plugin package root: `lib/native-agent.js` -> `<root>`. */
+const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 /**
  * The in-distro copy/verify script. The digest is embedded so `sh` needs no
@@ -52,6 +62,7 @@ export function nativeCacheScript(digest: string): string {
     'chmod 0755 "$dir/dsh-wsl-agent"',
     "got=$(sha256sum \"$dir/dsh-wsl-agent\" | cut -d' ' -f1)",
     `[ "$got" = "${digest}" ] || { echo digest-mismatch >&2; exit 1; }`,
+    '"$dir/dsh-wsl-agent" </dev/null >/dev/null 2>&1 || { echo cannot-execute >&2; exit 1; }',
     'printf "%s" "$dir/dsh-wsl-agent"',
   ].join("\n");
 }
@@ -62,8 +73,13 @@ export interface NativeBackendOptions {
   wslPath: string;
   /** The distro. */
   distro: string;
-  /** The host path of the binary; empty disables the native backend. */
+  /**
+   * The host path override (the development variable); empty resolves the
+   * packaged binary for the distro's architecture.
+   */
   source: string;
+  /** The plugin package root; tests and non-standard layouts substitute it. */
+  packageRoot?: string;
   /** Read the binary (tests substitute). */
   readSource?: (path: string) => Promise<Buffer>;
   /** Run a host command and return stdout (tests substitute). */
@@ -84,19 +100,21 @@ export async function ensureNativeBackend({
   wslPath,
   distro,
   source,
+  packageRoot = PACKAGE_ROOT,
   readSource = readFile,
   run = (argv) => runCapture(argv),
   copy,
 }: NativeBackendOptions): Promise<string | undefined> {
-  if (source.length === 0) return undefined;
-  const key = `${wslPath}\u0000${distro}\u0000${source}`;
+  const key = `${wslPath}\u0000${distro}\u0000${source}\u0000${packageRoot}`;
   const cached = NATIVE_CACHE.get(key);
   if (cached !== undefined) return cached;
   const pending = (async () => {
-    const binary = await readSource(source);
-    const digest = createHash("sha256").update(binary).digest("hex");
     const arch = (await run([wslPath, "-d", distro, "--exec", "uname", "-m"])).trim();
-    if (!SUPPORTED_ARCH.test(arch)) return undefined;
+    const normalized = ARCHS.get(arch);
+    if (normalized === undefined) return undefined;
+    const hostPath = source.length > 0 ? source : join(packageRoot, "agent", "native", `linux-${normalized}`, "dsh-wsl-agent");
+    const binary = await readSource(hostPath);
+    const digest = createHash("sha256").update(binary).digest("hex");
     const install = copy ?? ((script, bytes) => copyBinary(wslPath, distro, script, bytes));
     const path = await install(nativeCacheScript(digest), binary);
     return path.length > 0 ? path : undefined;
@@ -206,29 +224,12 @@ export async function ensureNativeSessionAgent({
     setNative(distro, "");
     return;
   }
-  const source = nativeAgentSource();
-  if (source.length === 0) {
-    if (backend === "native") {
-      throw new Error(`agentBackend: "native" is set, but no native binary is available: set ${NATIVE_AGENT_ENV} to a host path (or use "auto"/"shell").`);
-    }
-    return;
-  }
-  const path = await ensure({ wslPath, distro, source });
+  const path = await ensure({ wslPath, distro, source: process.env[NATIVE_AGENT_ENV] ?? "" });
   if (path === undefined) {
     if (backend === "native") {
-      throw new Error(`agentBackend: "native" could not prepare the native agent from "${source}" (architecture, copy or digest check failed); check ${NATIVE_AGENT_ENV}, or use "auto"/"shell".`);
+      throw new Error(`agentBackend: "native" could not prepare a native binary: the packaged binary for this architecture is missing or failed the copy/digest/execute check, and ${NATIVE_AGENT_ENV} is unset or unusable; set a valid ${NATIVE_AGENT_ENV}, or use "auto"/"shell".`);
     }
     return;
   }
   setNative(distro, path);
-}
-
-/**
- * The host binary source. The development override comes first; the packaged
- * per-arch binaries are the next stage, so this stays env-only for now.
- *
- * @returns the host path, or an empty string when no source is configured.
- */
-function nativeAgentSource(): string {
-  return process.env[NATIVE_AGENT_ENV] ?? "";
 }

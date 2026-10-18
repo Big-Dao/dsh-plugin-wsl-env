@@ -76,6 +76,28 @@ jobs:
       # and `lib/shell-env.js` still belong to the probes.
       - run: pnpm run test:coverage
 
+  # The native agent is a separate codebase (std-only Rust) with its own wire
+  # behaviour; the plugin's Node suite never compiles it. This job builds the
+  # spike from source, runs its manual suite against that build, then runs the
+  # same suite against the binary committed in the package — the artifact the
+  # host copies into a distro. The runner image already carries Rust; no new
+  # action is needed.
+  native:
+    name: native spike (x86_64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: Build the spike
+        run: cargo build --release --manifest-path agent/native/spike/Cargo.toml
+      - name: Test the source-built binary
+        run: node agent/native/spike/test.mjs agent/native/spike/target/release/dsh-wsl-agent-spike
+      - name: Test the committed package binary
+        run: node agent/native/spike/test.mjs agent/native/linux-x86_64/dsh-wsl-agent
+
   # The real-machine probes need Windows + WSL2 + the harness app, which no
   # hosted runner has. This job exists for a SELF-HOSTED Windows runner (the
   # development machine): dispatch it from the Actions tab there. On a hosted

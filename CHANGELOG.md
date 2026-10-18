@@ -321,6 +321,15 @@ from it.
 
 ### Notes
 
+- **The packaged native binary.** `agent/native/linux-x86_64/dsh-wsl-agent`
+  ships in the npm `files`; `agentBackend: auto` resolves it for a distro whose
+  `uname -m` is x86_64/amd64 (aarch64 is mapped but has no binary yet), with
+  `DSH_WSL_AGENT_NATIVE` still the development override. After the sha256 copy
+  the host executes the binary once with `</dev/null` and only then selects it,
+  so a glibc/musl mismatch falls back to the shell agent. The CI builds the
+  spike from source and runs its suite against both that build and the
+  committed package binary. The musl and aarch64 builds are the next step.
+
 - Added **`wsl-shell.agentBackend`**: `auto` (the default) uses the native
   in-distro agent when a verified source is available — the development
   override `DSH_WSL_AGENT_NATIVE`, and later the packaged per-arch binary —

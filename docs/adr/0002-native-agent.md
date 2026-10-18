@@ -213,9 +213,11 @@ One process per agent, an event loop over stdin plus child pipes and timers:
    host wiring is in (opt-in); packaging and musl/cross-arch builds remain.
 3. **Differential + concurrency.** Full matrix; v6 error/env framing; the
    concurrent write acceptance test.
-4. **Host integration (partial).** The copy/verify, the session-runtime factory
-   and the `wsl-shell.agentBackend` selection (`auto`/`native`/`shell`) are in
-   place. Packaging the per-arch binaries and the probes remain.
+4. **Host integration (partial).** The copy/verify, the session-runtime factory,
+   the `wsl-shell.agentBackend` selection and the packaged x86_64 binary
+   (`agent/native/linux-x86_64/dsh-wsl-agent`, selected by the distro's
+   `uname -m`) are in place. The musl/aarch64 builds, the HELLO digest and the
+   probes remain.
 5. **Enable by default** on x64 (aarch64 after a CI build leg); keep the shell
    fallback and the flag. Only then consider retiring the shell.
 

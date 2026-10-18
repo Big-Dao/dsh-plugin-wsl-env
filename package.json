@@ -93,6 +93,7 @@
     "lib/**/*.js",
     "lib/**/*.d.ts",
     "agent/*.sh",
+    "agent/native/linux-*/dsh-wsl-agent",
     "locale/**/*.json",
     "cordis.patch.yml",
     "examples/**/*.yml",

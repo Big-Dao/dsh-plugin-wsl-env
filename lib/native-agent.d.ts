@@ -38,8 +38,13 @@ export interface NativeBackendOptions {
     wslPath: string;
     /** The distro. */
     distro: string;
-    /** The host path of the binary; empty disables the native backend. */
+    /**
+     * The host path override (the development variable); empty resolves the
+     * packaged binary for the distro's architecture.
+     */
     source: string;
+    /** The plugin package root; tests and non-standard layouts substitute it. */
+    packageRoot?: string;
     /** Read the binary (tests substitute). */
     readSource?: (path: string) => Promise<Buffer>;
     /** Run a host command and return stdout (tests substitute). */
@@ -55,7 +60,7 @@ export interface NativeBackendOptions {
  * @param options - the transport, distro, source and injectables.
  * @returns the Linux binary path, or undefined when the backend cannot be used.
  */
-export declare function ensureNativeBackend({ wslPath, distro, source, readSource, run, copy, }: NativeBackendOptions): Promise<string | undefined>;
+export declare function ensureNativeBackend({ wslPath, distro, source, packageRoot, readSource, run, copy, }: NativeBackendOptions): Promise<string | undefined>;
 /**
  * Forget the cache; tests only.
  */

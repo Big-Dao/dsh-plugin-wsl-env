@@ -144,6 +144,26 @@ from it.
   `sh` agent is spawned with a 720 s lease and asserted to close its pipes
   immediately after `SHUTDOWN`.
 
+- **Cancellation reaches the command the agent is blocked on.** The stdin loop
+  is serial: a `KILL` frame written while a command ran sat in the pipe until
+  that command finished, and by then the id no longer matched, so the frame
+  was dropped. A request aborted mid-flight kept running to its own timeout; a
+  request aborted while queued ran in full later, with its answer discarded as
+  noise. Protocol 5 adds the agent shell's PID to `HELLO`; on abort the host
+  delivers `SIGUSR1` from a second `wsl.exe`, and the agent's trap kills the
+  request's process group — TERM, then KILL after the same 3 s grace the
+  timeout watcher uses. A request cancelled while it was still queued stays in
+  the pending map and is signalled on its `ACK`, so it is killed the moment it
+  becomes the running one; its late `RES` only cleans up. A PID-namespaced
+  confined resident is never signalled by its HELLO pid (that PID does not
+  exist in the distro and could name an unrelated process) — there the KILL
+  frame remains the fallback, and filesystem ops are short by construction.
+  The `KILL` frame stays as the fallback everywhere.
+
+  The fake transport covers the started, queued and confined cases; the real
+  `sh` agent is asked to run `sleep 30`, receives `USR1` after its ACK, and is
+  asserted to answer with a non-zero exit well before the sleep ends.
+
 ### Notes
 
 - Gates on the new pins: style 9/9, syntax 7/7 members and 3/3 chain members

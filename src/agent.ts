@@ -77,6 +77,12 @@ export interface PendingRequest {
   onAbort: (() => void) | null;
   /** Arms `watchdog`; null when the request carries no timeout. */
   armWatchdog: (() => void) | null;
+  /** Whether the agent has ACKed this request (it is the running one). */
+  started: boolean;
+  /** The caller cancelled it; the entry stays until the agent answers. */
+  cancelled: boolean;
+  /** The caller was already settled; a late answer only cleans up. */
+  settled: boolean;
 }
 
 /** How long a rebuilt agent has to re-answer the handshake before giving up. */
@@ -204,6 +210,10 @@ export class WslAgent {
   declare frameCapBytes: number;
   /** The injectable process factory, when the caller supplied one. */
   declare configuredSpawn: ((options: { wslPath: string, distro: string, scriptPath: string, argvPrefix: string[] }) => ChildProcess) | undefined;
+  /** The injectable signal sender, when the caller supplied one. */
+  declare configuredSignal: ((options: { wslPath: string, distro: string, pid: number, signal: NodeJS.Signals }) => void) | undefined;
+  /** The agent shell's PID from its HELLO, when a second wsl.exe can address it. */
+  declare agentPid: number | undefined;
   /** The live resident process, when any. */
   declare process: ChildProcess | null;
   /** The lifecycle state. */
@@ -256,6 +266,11 @@ export class WslAgent {
     frameCapBytes?: number,
     /** Injectable process factory for tests. */
     spawnTransport?: (options: { wslPath: string, distro: string, scriptPath: string, argvPrefix: string[] }) => ChildProcess,
+    /**
+     * Injectable out-of-band signal delivery for tests. The real path spawns a
+     * second `wsl.exe` to send USR1 to the agent's PID.
+     */
+    signalTransport?: (options: { wslPath: string, distro: string, pid: number, signal: NodeJS.Signals }) => void,
   }) {
     this.distro = config.distro;
     this.scriptPath = config.scriptPath;
@@ -265,6 +280,8 @@ export class WslAgent {
     this.expectedDigest = config.expectedDigest;
     this.frameCapBytes = config.frameCapBytes ?? MAX_FRAME_BYTES;
     this.configuredSpawn = config.spawnTransport;
+    this.configuredSignal = config.signalTransport;
+    this.agentPid = undefined;
     this.process = null;
     this.state = "idle";
     this.startPromise = null;
@@ -303,6 +320,7 @@ export class WslAgent {
     if (this.state === "ready") return Promise.resolve();
     if (this.startPromise) return this.startPromise;
     this.state = "starting";
+    this.agentPid = undefined;
     this.startPromise = new Promise((resolve, reject) => {
       // stdio is all-pipe (the spawn options above), so every standard stream
       // exists; the broad ChildProcess type models them as nullable.
@@ -423,6 +441,7 @@ export class WslAgent {
           return;
         }
         clearTimeout(handshakeTimer);
+        this.agentPid = message.pid;
         settleStart();
         break;
       }
@@ -430,9 +449,15 @@ export class WslAgent {
         // Dequeue signal: start this request's own budget clock NOW. Armed
         // here instead of at submission, a queued request can no longer time
         // out on a queue it never chose to join — and its watchdog can never
-        // kill the shared transport for a stall that was never its own.
+        // kill the shared transport for a stall that was never its own. A
+        // request cancelled while it was queued is killed only now, when it is
+        // the one running.
         const pending = this.pending.get(message.id);
-        pending?.armWatchdog?.();
+        if (pending) {
+          pending.started = true;
+          if (pending.cancelled) this.signalAgent("SIGUSR1");
+          pending.armWatchdog?.();
+        }
         break;
       }
       case "result": {
@@ -441,6 +466,9 @@ export class WslAgent {
         this.clearPending(pending);
         this.pending.delete(message.id);
         this.rearmIdleTimer();
+        // A cancelled request keeps its entry only until this answer arrives.
+        if (pending.settled) break;
+        pending.settled = true;
         pending.resolve({ exitCode: message.exitCode, stdout: message.stdout, stderr: message.stderr, truncated: message.truncated });
         break;
       }
@@ -450,6 +478,8 @@ export class WslAgent {
         this.clearPending(pending);
         this.pending.delete(message.id);
         this.rearmIdleTimer();
+        if (pending.settled) break;
+        pending.settled = true;
         // A cwd rejection is the command's own failure, not the agent's — it
         // becomes a CwdError so the execution layer can report it exactly like
         // the one-shot path's relay text.
@@ -479,6 +509,7 @@ export class WslAgent {
     // The exit handler has already proved this child is the current generation;
     // that check is the one place a stale exit can be rejected.
     this.process = null;
+    this.agentPid = undefined;
     this.teardownStreams(child);
     if (this.pending.size === 0) {
       if (this.state !== "dead") this.state = "idle";
@@ -514,6 +545,8 @@ export class WslAgent {
           relayable.push(pending);
         } else {
           this.clearPending(pending);
+          if (pending.settled) continue;
+          pending.settled = true;
           pending.reject(new AgentUnavailableError(
             `agent exited while request ${pending.id} was in flight; its state is unknown — inspect the distro before retrying`,
           ));
@@ -530,6 +563,8 @@ export class WslAgent {
             if (!this.writeLines(relabelFrame(pending.lines, id))) {
               this.clearPending(pending);
               this.pending.delete(id);
+              if (pending.settled) continue;
+              pending.settled = true;
               pending.reject(new AgentUnavailableError(`agent exited before request ${id} could be re-sent; its state is unknown`));
             }
           }
@@ -537,6 +572,8 @@ export class WslAgent {
         .catch((error) => {
           for (const pending of relayable) {
             this.clearPending(pending);
+            if (pending.settled) continue;
+            pending.settled = true;
             pending.reject(error);
           }
           this.state = "dead";
@@ -547,6 +584,8 @@ export class WslAgent {
     this.state = "dead";
     for (const pending of this.pending.values()) {
       this.clearPending(pending);
+      if (pending.settled) continue;
+      pending.settled = true;
       pending.reject(new AgentUnavailableError(this.lastError));
     }
     this.pending.clear();
@@ -584,6 +623,9 @@ export class WslAgent {
       watchdog: null,
       signal: signal ?? null,
       onAbort: null,
+      started: false,
+      cancelled: false,
+      settled: false,
       armWatchdog:
         timeoutMs > 0
           ? () => {
@@ -611,14 +653,19 @@ export class WslAgent {
         return;
       }
       pending.onAbort = () => {
-        // Address by the entry's CURRENT id: a request relayed across a
-        // rebuild was re-registered under a fresh one, and a stale KILL (or a
-        // stale map delete) would strand the entry and leave the command
-        // running to its own timeout.
+        pending.cancelled = true;
+        // The frame is the fallback for an agent that cannot be signalled (a
+        // confined resident, a build without the USR1 trap); the signal is what
+        // interrupts the command the agent is blocked on right now.
         this.writeLines([encodeKill(pending.id)]);
+        if (pending.started) this.signalAgent("SIGUSR1");
+        if (pending.settled) return;
+        pending.settled = true;
+        // Keep the entry until the agent answers: a request cancelled while it
+        // was QUEUED is killed when its ACK arrives, and its late RES only
+        // cleans the map.
         this.clearPending(pending);
-        this.pending.delete(pending.id);
-        reject(signal.reason instanceof Error ? signal.reason : new Error("aborted"));
+        pending.reject(signal.reason instanceof Error ? signal.reason : new Error("aborted"));
       };
       signal.addEventListener("abort", pending.onAbort, { once: true });
     }
@@ -737,6 +784,36 @@ export class WslAgent {
   }
 
   /**
+   * Deliver an out-of-band signal to the resident shell. The serial stdin loop
+   * cannot consume a frame while a command runs, so cancellation is a signal;
+   * a second `wsl.exe` is the only channel that reaches the agent while it is
+   * blocked in `wait`.
+   *
+   * Only the plain agent is addressable: a confined resident runs inside a PID
+   * namespace whose PIDs do not exist in the distro, so signalling its HELLO
+   * PID could hit an unrelated process. There the KILL frame remains the
+   * (delayed) fallback.
+   *
+   * @param signal - the signal to deliver (`SIGUSR1` is the cancel trap).
+   */
+  private signalAgent(signal: NodeJS.Signals): void {
+    const pid = this.agentPid;
+    if (pid === undefined || this.argvPrefix.length > 0) return;
+    if (this.configuredSignal) {
+      this.configuredSignal({ wslPath: this.wslPath, distro: this.distro, pid, signal });
+      return;
+    }
+    const distroArgs = this.distro.length > 0 ? ["-d", this.distro] : [];
+    const child = spawn(
+      this.wslPath,
+      [...distroArgs, "--exec", "sh", "-c", 'kill -s "$1" "$2" 2>/dev/null', "sh", signal.replace(/^SIG/, ""), String(pid)],
+      { stdio: "ignore", windowsHide: true, env: pinnedWindowsEnv(process.env) },
+    );
+    // The agent may already be gone; the KILL frame remains the fallback.
+    child.on("error", () => {});
+  }
+
+  /**
    * Shut the agent down: SHUTDOWN first, then kill after a short grace. The
    * agent becomes reusable — a later `exec` starts a fresh process.
    *
@@ -753,10 +830,13 @@ export class WslAgent {
     if (this.state === "starting") this.startSettler?.(new AgentUnavailableError("the agent was closed during start"));
     this.state = "idle";
     this.process = null;
+    this.agentPid = undefined;
     if (this.pending.size > 0) {
       const reason = new AgentUnavailableError("the agent was closed before this request answered");
       for (const pending of this.pending.values()) {
         this.clearPending(pending);
+        if (pending.settled) continue;
+        pending.settled = true;
         pending.reject(reason);
       }
       this.pending.clear();

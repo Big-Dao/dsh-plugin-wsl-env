@@ -14,7 +14,7 @@
  * @module dsh-plugin-wsl/agent-protocol
  */
 /** The protocol version this host side speaks; the agent must match. */
-export declare const PROTOCOL_VERSION = 4;
+export declare const PROTOCOL_VERSION = 5;
 /**
  * Upper bound on one `read` op's payload, set by the HOST looping over windowed
  * requests. Keeping each frame's decoded payload here means the agent's RES
@@ -127,15 +127,21 @@ export interface FsFrameRequest {
  */
 export declare function encodeFsFrame({ id, op, args, timeoutMs }: FsFrameRequest): string[];
 /**
- * `HELLO|name|version|digest` — `digest` is the sha256 of the script file the
- * agent is executing (empty when it could not hash it); the host compares it
- * against its own shipped copy.
+ * `HELLO|name|version|digest|pid` — `digest` is the sha256 of the script file
+ * the agent is executing (empty when it could not hash it); the host compares
+ * it against its own shipped copy. `pid` is the agent shell's PID inside the
+ * distro, present from protocol 5 on: the host uses it to deliver an
+ * out-of-band `USR1` cancellation while the agent is blocked in `wait`, which
+ * the serial stdin loop cannot do by frame. It is absent when the agent
+ * itself runs inside a PID namespace (the confined resident), where that PID
+ * is not addressable from a second `wsl.exe`.
  */
 export interface HelloMessage {
     type: "hello";
     name: string;
     version: number;
     digest: string;
+    pid?: number;
 }
 /** `PONG` — the liveness answer to `PING`. */
 export interface PongMessage {

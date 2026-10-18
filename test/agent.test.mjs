@@ -10,6 +10,9 @@
  */
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { mock } from "node:test";
 import { AGENT_NAME, PROTOCOL_VERSION, encodeB64 } from "../lib/agent-protocol.js";
@@ -44,6 +47,8 @@ const checks = [];
  */
 const checkReg = (name, fn) => checks.push([name, fn]);
 
+/** @typedef {{ dieAfterHello?: boolean, dieOnRequest?: boolean, noHello?: boolean, helloVersion?: number, helloDigest?: string, helloPid?: number, hangOnExec?: boolean }} FakeAgentOptions */
+
 /** A fake `wsl.exe --exec sh wsl-agent.sh` child the tests script directly. */
 class FakeAgentProcess extends EventEmitter {
   /** @type {string|null} - the EXEC request id whose argv words are still arriving. */
@@ -52,8 +57,13 @@ class FakeAgentProcess extends EventEmitter {
   pendingArgs = 0;
   /** @type {string[]} - the pending EXEC's argv words decoded so far. */
   pendingWords = [];
+  /** @type {number|undefined} - the PID the fake HELLO advertises, when any. */
+  helloPid = undefined;
+  /** @type {boolean} - ACK the EXEC but never answer it (a running command). */
+  hangOnExec = false;
 
-  constructor({ dieAfterHello = false, dieOnRequest = false, noHello = false, helloVersion = PROTOCOL_VERSION, helloDigest = TEST_DIGEST } = {}) {
+  /** @param {FakeAgentOptions} [options] - the fake's behaviour. */
+  constructor({ dieAfterHello = false, dieOnRequest = false, noHello = false, helloVersion = PROTOCOL_VERSION, helloDigest = TEST_DIGEST, helloPid = undefined, hangOnExec = false } = {}) {
     super();
     this.stdin = new PassThrough();
     this.stdout = new PassThrough();
@@ -64,6 +74,8 @@ class FakeAgentProcess extends EventEmitter {
     this.frames = [];
     this.silent = false;
     this.noHello = noHello;
+    this.helloPid = helloPid;
+    this.hangOnExec = hangOnExec;
     let buffer = "";
     this.stdin.on("data", (chunk) => {
       buffer += chunk.toString("utf8");
@@ -78,7 +90,7 @@ class FakeAgentProcess extends EventEmitter {
     this.dieAfterHello = dieAfterHello;
     this.dieOnRequest = dieOnRequest;
     queueMicrotask(() => {
-      if (!this.noHello) this.stdout.write(`HELLO|${AGENT_NAME}|${helloVersion}|${helloDigest}\n`);
+      if (!this.noHello) this.stdout.write(`HELLO|${AGENT_NAME}|${helloVersion}|${helloDigest}${this.helloPid === undefined ? "" : `|${this.helloPid}`}\n`);
       if (this.dieAfterHello) this.emit("exit", 1, null);
     });
   }
@@ -123,6 +135,12 @@ class FakeAgentProcess extends EventEmitter {
     if (this.pendingId && this.pendingWords.length < this.pendingArgs) {
       this.pendingWords.push(Buffer.from(line, "base64").toString("utf8"));
       if (this.pendingWords.length === this.pendingArgs) {
+        if (this.hangOnExec) {
+          // A command that keeps running: the host's cancellation path is the
+          // only thing that ends it.
+          this.pendingId = null;
+          return;
+        }
         const argv = this.pendingWords.join(" ");
         const stdout = Buffer.from(`${argv}\n`);
         this.stdout.write(`RES|${this.pendingId}|0|${encodeB64(stdout)}|${encodeB64(Buffer.alloc(0))}\n`);
@@ -719,6 +737,182 @@ checkReg("close settles requests it interrupts", async () => {
   const error = await run;
   assert.ok(error instanceof AgentUnavailableError, "the interrupted request rejects as unavailable");
   assert.match(error.message, /closed before this request answered/);
+});
+
+checkReg("an abort signals the running agent out of band", async () => {
+  /** @type {Array<{ wslPath: string, distro: string, pid: number, signal: NodeJS.Signals }>} */
+  const signals = [];
+  const child = new FakeAgentProcess({ helloPid: 4242, hangOnExec: true });
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport, signalTransport: (options) => signals.push(options) });
+  const controller = new AbortController();
+  const run = agent.exec({ cwd: "/", argv: ["sleep", "30"], timeoutMs: 0, signal: controller.signal }).then(
+    () => {
+      throw new Error("should not have completed");
+    },
+    (error) => error,
+  );
+  await flush(); // HELLO, ACK, the argv words; the command keeps running
+  child.stdout.write("ACK|unknown\n"); // a late ACK for nobody is ignored
+  controller.abort(new Error("stop"));
+  const error = await run;
+  assert.ok(error instanceof Error);
+  assert.match(error.message, /stop/);
+  assert.deepEqual(signals, [{ wslPath: "wsl.exe", distro: "ubuntu", pid: 4242, signal: "SIGUSR1" }]);
+  await agent.close();
+});
+
+checkReg("a queued abort waits for the request to start before signalling", async () => {
+  /** @type {Array<{ wslPath: string, distro: string, pid: number, signal: NodeJS.Signals }>} */
+  const signals = [];
+  const child = new FakeAgentProcess({ helloPid: 7 });
+  child.silent = true; // no ACK: the request is still queued
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport, signalTransport: (options) => signals.push(options) });
+  const controller = new AbortController();
+  const run = agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0, signal: controller.signal }).then(
+    () => {
+      throw new Error("should not have completed");
+    },
+    (error) => error,
+  );
+  await flush();
+  const [id] = [...agent.pending.keys()];
+  assert.ok(id !== undefined, "the request is tracked");
+  controller.abort(new Error("stop"));
+  await run;
+  assert.equal(signals.length, 0, "a request that has not started must not kill the running one");
+  child.stdout.write(`ACK|${id}\n`);
+  await flush();
+  assert.deepEqual(signals, [{ wslPath: "wsl.exe", distro: "ubuntu", pid: 7, signal: "SIGUSR1" }], "the signal follows the ACK");
+  child.stdout.write(`RES|${id}|0|${encodeB64("")}|${encodeB64("")}\n`);
+  await flush();
+  assert.equal(agent.pending.size, 0, "the late answer only cleans the cancelled entry");
+  await agent.close();
+});
+
+checkReg("a PID-namespaced resident is never signalled by its HELLO pid", async () => {
+  /** @type {Array<{ wslPath: string, distro: string, pid: number, signal: NodeJS.Signals }>} */
+  const signals = [];
+  const child = new FakeAgentProcess({ helloPid: 9, hangOnExec: true });
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, argvPrefix: ["bwrap", "--"], spawnTransport: transport, signalTransport: (options) => signals.push(options) });
+  const controller = new AbortController();
+  const run = agent.exec({ cwd: "/", argv: ["sleep", "30"], timeoutMs: 0, signal: controller.signal }).then(
+    () => {
+      throw new Error("should not have completed");
+    },
+    (error) => error,
+  );
+  await flush();
+  controller.abort(new Error("stop"));
+  await run;
+  assert.equal(signals.length, 0, "the confined resident's namespace PID is not addressable");
+  await agent.close();
+});
+
+checkReg("the default signal path runs a second wsl.exe with the cancel argv", async () => {
+  if (process.platform === "win32") return;
+  const dir = mkdtempSync(join(tmpdir(), "wsl-signal-"));
+  try {
+    const record = join(dir, "argv");
+    const fakeWsl = join(dir, "wsl.exe");
+    writeFileSync(fakeWsl, `#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(record)}\n`);
+    chmodSync(fakeWsl, 0o755);
+    const child = new FakeAgentProcess({ helloPid: 4242, hangOnExec: true });
+    const { transport } = scriptedTransport([child]);
+    const agent = new WslAgent({ ...CONFIG, wslPath: fakeWsl, spawnTransport: transport });
+    const controller = new AbortController();
+    const run = agent.exec({ cwd: "/", argv: ["sleep", "30"], timeoutMs: 0, signal: controller.signal }).then(
+      () => {
+        throw new Error("should not have completed");
+      },
+      (error) => error,
+    );
+    await flush();
+    controller.abort(new Error("stop"));
+    await run;
+    /** @type {string[] | undefined} */
+    let argv;
+    for (let attempt = 0; attempt < 100 && argv === undefined; attempt += 1) {
+      try {
+        argv = readFileSync(record, "utf8").trim().split("\n");
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    }
+    assert.ok(argv !== undefined, "the signal helper ran");
+    assert.deepEqual(argv.slice(0, 3), ["-d", "ubuntu", "--exec"]);
+    assert.equal(argv[3], "sh");
+    assert.equal(argv[4], "-c");
+    assert.match(argv[5] ?? "", /kill -s "\$1" "\$2"/);
+    assert.deepEqual(argv.slice(6), ["sh", "USR1", "4242"]);
+    await agent.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+checkReg("a failed signal helper is swallowed, not thrown", async () => {
+  const child = new FakeAgentProcess({ helloPid: 4242, hangOnExec: true });
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, wslPath: "/nonexistent/wsl.exe", spawnTransport: transport });
+  const controller = new AbortController();
+  const run = agent.exec({ cwd: "/", argv: ["sleep", "30"], timeoutMs: 0, signal: controller.signal }).then(
+    () => {
+      throw new Error("should not have completed");
+    },
+    (error) => error,
+  );
+  await flush();
+  controller.abort(new Error("stop"));
+  await run;
+  await flush(); // the spawn error is delivered and swallowed
+  assert.equal(child.frames.some((frame) => frame.startsWith("KILL|")), true, "the frame fallback was still written");
+  await agent.close();
+});
+
+checkReg("the constructor defaults fill a bare config", async () => {
+  const child = new FakeAgentProcess();
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ distro: "ubuntu", scriptPath: "/mnt/c/pkg/agent/wsl-agent.sh", spawnTransport: transport });
+  const result = await agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 });
+  assert.equal(result.exitCode, 0);
+  await agent.close();
+});
+
+checkReg("a dead agent rejects start and fs at the door", async () => {
+  const child = new FakeAgentProcess();
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  agent.state = "dead";
+  agent.lastError = "out for this process";
+  await assert.rejects(() => agent.start(), (error) => error instanceof AgentUnavailableError && /out for this process/.test(error.message));
+  await assert.rejects(() => agent.fs({ op: "stat", args: [] }), (error) => error instanceof AgentUnavailableError);
+});
+
+checkReg("a crash while a cancelled request is pending drops it, not the rebuild", async () => {
+  const first = new FakeAgentProcess({ helloPid: 1, hangOnExec: true });
+  const second = new FakeAgentProcess();
+  const { transport } = scriptedTransport([first, second]);
+  /** @type {Array<{ wslPath: string, distro: string, pid: number, signal: NodeJS.Signals }>} */
+  const signals = [];
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport, signalTransport: (options) => signals.push(options) });
+  const controller = new AbortController();
+  const run = agent.exec({ cwd: "/", argv: ["sleep", "30"], timeoutMs: 0, signal: controller.signal }).then(
+    () => {
+      throw new Error("should not have completed");
+    },
+    (error) => error,
+  );
+  await flush();
+  controller.abort(new Error("stop"));
+  await run;
+  assert.equal(agent.pending.size, 1, "the cancelled entry waits for its answer");
+  first.emit("exit", 1, null);
+  await flush();
+  assert.equal(agent.pending.size, 0, "the crash drops the cancelled entry");
+  await agent.close();
 });
 
 for (const [name, fn] of checks) {

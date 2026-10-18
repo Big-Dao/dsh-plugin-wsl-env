@@ -422,6 +422,44 @@ checks.push(["a timed-out EXEC takes the command's descendants with it", async (
   }
 }]);
 
+checks.push(["USR1 cancels the running command where it lives", async () => {
+  if (!POSIX) return;
+  const agent = new Harness();
+  try {
+    const hello = await agent.hello();
+    assert.equal(Number(hello.split("|")[4]), agent.child.pid, "HELLO names the agent shell's PID");
+    const id = `x${agent.n++}`;
+    const startedAt = Date.now();
+    for (const line of encodeExecFrame({ id, cwd: "/", argv: ["sh", "-c", "sleep 30"], timeoutMs: 0 })) agent.child.stdin.write(`${line}\n`);
+    for (;;) {
+      const message = /** @type {AgentMessage} */ (parseAgentLine(await agent.nextLine()));
+      if (message.type === "ack" && message.id === id) break;
+    }
+    const agentPid = agent.child.pid;
+    assert.ok(agentPid !== undefined, "the spawned agent has a pid");
+    process.kill(agentPid, "SIGUSR1");
+    /** @type {ReturnType<typeof setTimeout> | undefined} */
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error("USR1 did not end the command within 8s")), 8000);
+    });
+    /** @type {string} */
+    let line;
+    for (;;) {
+      line = /** @type {string} */ (await Promise.race([agent.nextLine(), timeout]));
+      const message = /** @type {AgentMessage} */ (parseAgentLine(line));
+      if (message.type === "result" && message.id === id) {
+        assert.notEqual(message.exitCode, 0, "the cancelled command reports a non-zero exit");
+        break;
+      }
+    }
+    clearTimeout(timer);
+    assert.ok(Date.now() - startedAt < 8000, "the signal ended the command promptly");
+  } finally {
+    await agent.close();
+  }
+}]);
+
 checks.push(["the lease watchdog does not hold the protocol pipes after exit", async () => {
   if (!POSIX) return;
   const child = /** @type {import("node:child_process").ChildProcessWithoutNullStreams} */ (spawn("sh", [SCRIPT], {

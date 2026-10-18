@@ -95,10 +95,17 @@ check("SETENV and KILL frames carry their payloads base64-encoded where binary i
   assert.equal(encodeKill("r2"), "KILL|r2");
 });
 
-check("the HELLO handshake parses to name, version, and the script digest", () => {
+check("the HELLO handshake parses to name, version, digest, and the cancellation PID", () => {
   assert.deepEqual(parseAgentLine(`HELLO|${AGENT_NAME}|${PROTOCOL_VERSION}`), { type: "hello", name: AGENT_NAME, version: PROTOCOL_VERSION, digest: "" });
   const digest = "ab".repeat(32);
   assert.deepEqual(parseAgentLine(`HELLO|${AGENT_NAME}|${PROTOCOL_VERSION}|${digest}`), { type: "hello", name: AGENT_NAME, version: PROTOCOL_VERSION, digest });
+  assert.deepEqual(
+    parseAgentLine(`HELLO|${AGENT_NAME}|${PROTOCOL_VERSION}|${digest}|4242`),
+    { type: "hello", name: AGENT_NAME, version: PROTOCOL_VERSION, digest, pid: 4242 },
+    "the agent shell's PID rides the handshake for the USR1 cancel path",
+  );
+  assert.equal(parseAgentLine(`HELLO|${AGENT_NAME}|${PROTOCOL_VERSION}|${digest}|0`).type, "hello");
+  assert.equal("pid" in parseAgentLine(`HELLO|${AGENT_NAME}|${PROTOCOL_VERSION}|${digest}|nope`), false, "a non-numeric PID is absent, not NaN");
 });
 
 check("a non-numeric exit code is protocol garbage, reported as -1", () => {

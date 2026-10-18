@@ -73,6 +73,12 @@ export interface PendingRequest {
     onAbort: (() => void) | null;
     /** Arms `watchdog`; null when the request carries no timeout. */
     armWatchdog: (() => void) | null;
+    /** Whether the agent has ACKed this request (it is the running one). */
+    started: boolean;
+    /** The caller cancelled it; the entry stays until the agent answers. */
+    cancelled: boolean;
+    /** The caller was already settled; a late answer only cleans up. */
+    settled: boolean;
 }
 /**
  * The Windows environment the transport starts from, pinned.
@@ -135,6 +141,15 @@ export declare class WslAgent {
         scriptPath: string;
         argvPrefix: string[];
     }) => ChildProcess) | undefined;
+    /** The injectable signal sender, when the caller supplied one. */
+    configuredSignal: ((options: {
+        wslPath: string;
+        distro: string;
+        pid: number;
+        signal: NodeJS.Signals;
+    }) => void) | undefined;
+    /** The agent shell's PID from its HELLO, when a second wsl.exe can address it. */
+    agentPid: number | undefined;
     /** The live resident process, when any. */
     process: ChildProcess | null;
     /** The lifecycle state. */
@@ -191,6 +206,16 @@ export declare class WslAgent {
             scriptPath: string;
             argvPrefix: string[];
         }) => ChildProcess;
+        /**
+         * Injectable out-of-band signal delivery for tests. The real path spawns a
+         * second `wsl.exe` to send USR1 to the agent's PID.
+         */
+        signalTransport?: (options: {
+            wslPath: string;
+            distro: string;
+            pid: number;
+            signal: NodeJS.Signals;
+        }) => void;
     });
     /**
      * Whether the agent is permanently out — the executor's fallback cue.
@@ -313,6 +338,20 @@ export declare class WslAgent {
      * @returns resolved on PONG.
      */
     ping(signal?: AbortSignal): Promise<void>;
+    /**
+     * Deliver an out-of-band signal to the resident shell. The serial stdin loop
+     * cannot consume a frame while a command runs, so cancellation is a signal;
+     * a second `wsl.exe` is the only channel that reaches the agent while it is
+     * blocked in `wait`.
+     *
+     * Only the plain agent is addressable: a confined resident runs inside a PID
+     * namespace whose PIDs do not exist in the distro, so signalling its HELLO
+     * PID could hit an unrelated process. There the KILL frame remains the
+     * (delayed) fallback.
+     *
+     * @param signal - the signal to deliver (`SIGUSR1` is the cancel trap).
+     */
+    private signalAgent;
     /**
      * Shut the agent down: SHUTDOWN first, then kill after a short grace. The
      * agent becomes reusable — a later `exec` starts a fresh process.

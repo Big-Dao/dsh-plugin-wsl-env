@@ -63,7 +63,7 @@
 
 set -u
 
-PROTO_VERSION=4
+PROTO_VERSION=5
 TMPDIR_AGENT=$(mktemp -d "${TMPDIR:-/tmp}/wsl-agent.XXXXXX")
 OUT_FILE="$TMPDIR_AGENT/out"
 ERR_FILE="$TMPDIR_AGENT/err"
@@ -164,7 +164,22 @@ shutdown() {
   kill_current
   exit 0
 }
+
+# Cancellation arrives as USR1, not as a frame: while a request runs this loop
+# is blocked in `wait`, so a KILL line would sit in the pipe until the command
+# ended and be dropped by the time it was read. The host delivers the signal
+# from a second wsl.exe; the trap runs inside the interrupted wait and kills
+# the request's whole group, TERM first and KILL after the timeout watcher's
+# grace, so a command that ignores TERM still cannot outlive the cancel.
+cancel_current() {
+  [ -n "${CURRENT_PID:-}" ] || return 0
+  cancel_pid=$CURRENT_PID
+  kill_request TERM "$cancel_pid"
+  ( sleep 3; kill_request KILL "$cancel_pid" ) </dev/null >/dev/null 2>&1 &
+}
+
 trap shutdown TERM INT HUP
+trap cancel_current USR1
 
 # Whether EXEC requests can run as their own session. `setsid` makes the
 # request process a session AND process-group leader (pid = pgid), which is
@@ -564,7 +579,7 @@ fs_dispatch() {
   esac
 }
 
-printf 'HELLO|wsl-agent|%s|%s\n' "$PROTO_VERSION" "$AGENT_DIGEST"
+printf 'HELLO|wsl-agent|%s|%s|%s\n' "$PROTO_VERSION" "$AGENT_DIGEST" "$$"
 
 while IFS= read -r line; do
   case $line in

@@ -98,6 +98,48 @@ jobs:
       - name: Test the committed package binary
         run: node agent/native/spike/test.mjs agent/native/linux-x86_64/dsh-wsl-agent
 
+  # The package must run on glibc (Ubuntu/Debian) and musl (Alpine) distros.
+  # Static musl covers both: x86_64 links with the distro musl-gcc, aarch64
+  # goes through cargo-zigbuild so one job can produce both. The artifacts are
+  # downloaded and committed (the plugin has no build step on purpose).
+  native-package:
+    name: native packages (musl x86_64 + aarch64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Add Rust targets and musl
+        run: |
+          rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+          sudo apt-get update
+          sudo apt-get install -y musl-tools python3-pip
+      - name: Build x86_64 musl
+        run: cargo build --release --target x86_64-unknown-linux-musl --manifest-path agent/native/spike/Cargo.toml
+      - name: Install zigbuild
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          pip install --user ziglang
+          cargo install cargo-zigbuild --locked
+      - name: Build aarch64 musl
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          cargo zigbuild --release --target aarch64-unknown-linux-musl --manifest-path agent/native/spike/Cargo.toml
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: Test the x86_64 musl binary
+        run: node agent/native/spike/test.mjs agent/native/spike/target/x86_64-unknown-linux-musl/release/dsh-wsl-agent-spike
+      # The upload action is a tag rather than a SHA because the artifact is a
+      # short-lived CI transport, not shipped code; the shipped bytes are the
+      # committed binaries after review.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-package
+          path: |
+            agent/native/spike/target/x86_64-unknown-linux-musl/release/dsh-wsl-agent-spike
+            agent/native/spike/target/aarch64-unknown-linux-musl/release/dsh-wsl-agent-spike
+          if-no-files-found: error
+
   # The real-machine probes need Windows + WSL2 + the harness app, which no
   # hosted runner has. This job exists for a SELF-HOSTED Windows runner (the
   # development machine): dispatch it from the Actions tab there. On a hosted

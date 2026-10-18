@@ -664,6 +664,8 @@ export interface WslFileSystemConfig {
     diffBasisMaxBytes?: number;
     /** Whether mutations are fenced by the policy. */
     sandbox: boolean;
+    /** Whether confined mutations run in the session runtime (ADR 0001). */
+    sessionSandbox: boolean;
     /** Whether confined profiles mask `/mnt`. */
     maskWindowsDrive: boolean;
     /** Whether paths leaving the distro are refused. */
@@ -700,6 +702,17 @@ export declare class WslFileSystem extends LocalFileSystem {
          * operations are unconfined.
          */
         sandbox: z<boolean, boolean, "defined">;
+        /**
+         * Run confined mutations in the session's systemd user scope — the same
+         * runtime the shell executor acquires for the same (distro, workspace,
+         * policy) — instead of a per-policy confined resident. The kernel
+         * enforcement is the runtime's mount profile, so commands and writes see
+         * the same `/tmp` and workspace; the scope stops when the session's
+         * providers release it. Requires systemd + `Linger`, like `wsl-shell`'s
+         * `sessionSandbox`; the preflight refuses with the remedy. Off for direct
+         * constructions; on in the shipped preset.
+         */
+        sessionSandbox: z<boolean, boolean, "defined">;
         /**
          * Shadow `/mnt` with an empty tmpfs in every confined profile, hiding the
          * Windows drive from confined commands — same meaning and same honest
@@ -762,6 +775,17 @@ export declare class WslFileSystem extends LocalFileSystem {
          */
         sandbox: z<boolean, boolean, "defined">;
         /**
+         * Run confined mutations in the session's systemd user scope — the same
+         * runtime the shell executor acquires for the same (distro, workspace,
+         * policy) — instead of a per-policy confined resident. The kernel
+         * enforcement is the runtime's mount profile, so commands and writes see
+         * the same `/tmp` and workspace; the scope stops when the session's
+         * providers release it. Requires systemd + `Linger`, like `wsl-shell`'s
+         * `sessionSandbox`; the preflight refuses with the remedy. Off for direct
+         * constructions; on in the shipped preset.
+         */
+        sessionSandbox: z<boolean, boolean, "defined">;
+        /**
          * Shadow `/mnt` with an empty tmpfs in every confined profile, hiding the
          * Windows drive from confined commands — same meaning and same honest
          * limits as the `wsl-shell` key of the same name (its doc carries the
@@ -814,6 +838,14 @@ export declare class WslFileSystem extends LocalFileSystem {
     sandbox: InstanceType<typeof WslSandbox>;
     /** The resident agent serving publication (see `publicationAgent`). */
     agentInstance: WslAgent | undefined;
+    /** The session-runtime registry; tests substitute it. */
+    sessionRuntimes: SessionRuntimes;
+    /** The runtimes this provider holds, by registry key. */
+    sessionRuntimeEntries: Map<string, SessionRuntimeEntry>;
+    /** The preflight's host runner; tests substitute it. */
+    sessionScopeProbe: (argv: string[]) => Promise<string>;
+    /** The last preflight verdict; only a success is cached. */
+    sessionRuntimePreflight: "unknown" | "ready";
     /**
      * @param ctx - the composition context.
      * @param config - the validated plugin config.
@@ -843,6 +875,36 @@ export declare class WslFileSystem extends LocalFileSystem {
      * @returns the substrate.
      */
     agentSubstrate(): Promise<AgentSubstrate>;
+    /**
+     * The persistent session runtime for one confined mutation, when
+     * `sessionSandbox` is on. The key is the shell executor's key for the same
+     * session/policy, so the write and the commands share one agent, one mount
+     * view and one scope; the provider holds a reference until the session ends.
+     *
+     * @param policy - the resolved confined policy.
+     * @param distro - the resolved distro name.
+     * @returns the runtime entry, or undefined when the mode is off.
+     */
+    sessionRuntimeFor(policy: {
+        mode: string;
+        workspaceRoot: string;
+    }, distro: string): SessionRuntimeEntry | undefined;
+    /**
+     * Run the session runtime's preflight once per provider. Only success is
+     * cached, so following the remedy does not need an app restart.
+     *
+     * @param distro - the resolved distro name.
+     * @returns resolved once the platform can host the runtime.
+     * @throws {Error} with the remedy when it cannot.
+     */
+    ensureSessionRuntimeUsable(distro: string): Promise<void>;
+    /**
+     * Release every runtime this provider holds. Called from the preset's
+     * dispose effect; public so tests and shutdown paths can await it.
+     *
+     * @returns resolved once every reference is released.
+     */
+    disposeSessionRuntimes(): Promise<void>;
     /**
      * The agent a MUTATION runs on under this resolved policy — stage-two
      * routing. A confined policy addresses the confined resident whose bwrap

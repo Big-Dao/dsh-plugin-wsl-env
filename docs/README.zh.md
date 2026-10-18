@@ -84,6 +84,7 @@ Windows 上的编程工具要在 WSL 项目上干活，一共三条路：
 | `wsl-fs` | `distro` | `''` | 同上 |
 | | `restrictToDistro` | `true` | 拒绝属于**别的子系统**的路径（`/mnt/c` 属于本子系统，不受影响）。拒绝码是 `FS_OUTSIDE_DISTRO`，放宽权限也解不开 |
 | | `sandbox` | `true` | 文件写入按同一份策略检查 |
+| | `sessionSandbox` | `true` | 受限写入跑在与命令相同的会话 runtime 里（同一个真实 `/tmp`、同一份 workspace mount）；需要同样的 systemd/linger 配置；`false` 回到每策略受限 resident |
 | | `substrate` | `agent` | 文件操作如何到达子系统。只剩一种：子系统内的 agent，读写直接落在子系统自己的文件系统上（原生符号链接与权限位）。旧 `"share"` 选项走 9p 共享，启动时即被拒绝 |
 | `directory-picker-wsl` | `includeHostHome` | `true` | 选择器里同时列出 Windows 家目录 |
 | `subprocess-wsl` | `distro` | `''` | GUI 终端开在哪个子系统 |
@@ -123,7 +124,7 @@ preset-wsl（wsl agent preset；这个环境里的服务相互独立）
 
 **命令的执行路径。** 一个会话有一个常驻 agent，运行在 systemd user scope 内；agent 在你的登录 shell 中、bubblewrap mount profile 内执行每条命令。scope 比命令活得久，所以后台 dev server 存活、`/tmp` 是子系统真实 `/tmp`、`ps` 能看到整个会话。设 `sessionSandbox: false` 时，agent 仍是每子系统一个、每条命令一套 bwrap profile（`--unshare-pid`、临时 `/tmp`），后台进程不存活。agent 不可用时（或 `agent: false`），改走一次性 `wsl.exe`——结果一致、略慢、仍是每命令隔离。
 
-**文件操作的执行路径。** 读、写、搜索同样发生在子系统内部：使用子系统自己的磁盘与工具。子系统工作区的搜索运行子系统内的 `rg`，不使用 Windows 侧副本走 9p 共享。文件写入与命令沙箱使用同一份策略检查。
+**文件操作的执行路径。** 读、写、搜索同样发生在子系统内部：使用子系统自己的磁盘与工具。子系统工作区的搜索运行子系统内的 `rg`，不使用 Windows 侧副本走 9p 共享。文件写入与命令沙箱使用同一份策略检查；`wsl-fs` 的 `sessionSandbox` 打开时（默认），受限写入跑在与命令相同的会话 runtime 里，看到相同的 `/tmp` 与 workspace mount。
 
 ## 沙箱
 

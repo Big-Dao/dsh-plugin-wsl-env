@@ -80,8 +80,8 @@ crosses the 9p share. What to know about the one substrate there is:
   the distro's *real* `/tmp`. Both are writable, so neither side is refused, but a
   file the write tool puts in `/tmp` is invisible to `bash` and vice versa. Hand
   a file between them through the session workspace. The shipped preset turns
-  the session runtime on, where commands bind the distro's real `/tmp` and the
-  two agree.
+  the session runtime on, and `wsl-fs` shares it for confined writes, so
+  commands and writes bind the same real `/tmp` and workspace.
 - A distro that is stopped or unregistered while the app runs takes the file
   tools' substrate with it: reads and writes report the substrate-unavailable
   error naming the cause. A death with nothing in flight costs nothing — the

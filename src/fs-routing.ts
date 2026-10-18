@@ -119,7 +119,7 @@ export class WslRoutingFileSystem extends LocalFileSystem {
    */
   private distroBackend: WslFileSystem | undefined;
   /** The distro knobs, verbatim from the row config. */
-  private distroConfig: { distro: string, wslPath: string, cwd: string, diffBasisMaxBytes: number | undefined, sandbox: boolean, maskWindowsDrive: boolean, restrictToDistro: boolean, watchMaxDepth: number };
+  private distroConfig: { distro: string, wslPath: string, cwd: string, diffBasisMaxBytes: number | undefined, sandbox: boolean, maskWindowsDrive: boolean, restrictToDistro: boolean, watchMaxDepth: number, sessionSandbox: boolean };
   /**
    * The context this router was constructed with. `this.ctx` inside a method is
    * the CALLER's context (cordis re-binds it for dependency tracing), so the
@@ -144,6 +144,10 @@ export class WslRoutingFileSystem extends LocalFileSystem {
       maskWindowsDrive: config.maskWindowsDrive ?? false,
       restrictToDistro: config.restrictToDistro ?? true,
       watchMaxDepth: config.watchMaxDepth ?? 0,
+      // The root router is app-level, not session-owned: its backend must not
+      // acquire a session runtime (that would live for the app, not the
+      // session). Preset-scoped `wsl-fs` is the owner of the session runtime.
+      sessionSandbox: false,
     };
   }
 

@@ -82,7 +82,10 @@ const realm = `          - id: wsl-env
                   # publication, and confined mutations are kernel-enforced.
                   # share: the opt-out — the Windows-side host fs stack over
                   # the 9p share.
-                  substrate: agent`;
+                  substrate: agent
+                  # Confined writes ride the session runtime (ADR 0001), so they
+                  # share the command's real /tmp and workspace mounts.
+                  sessionSandbox: true`;
 
 const rows = shipped
   .slice(rowsAt)

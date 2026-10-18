@@ -25,6 +25,22 @@
  * @module dsh-plugin-wsl/session-runtime
  */
 import { WslAgent } from "./agent.js";
+/**
+ * Run the session runtime's preflight through an injected host runner and map
+ * the answer to a refusal. Shared by the shell executor and the filesystem
+ * provider, so both gate the runtime on the same four requirements.
+ *
+ * @param options - the transport, distro and runner.
+ * @returns the remedy-bearing refusal, or null when the platform is usable.
+ */
+export declare function probeSessionRuntime({ wslPath, distro, run }: {
+    /** The `wsl.exe` path. */
+    wslPath: string;
+    /** The distro name. */
+    distro: string;
+    /** The host runner; throws when the probe could not run. */
+    run: (argv: string[]) => Promise<string>;
+}): Promise<string | null>;
 /** One request for a session runtime. */
 export interface SessionRuntimeRequest {
     /** The distro the runtime lives in. */

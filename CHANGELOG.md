@@ -234,6 +234,14 @@ from it.
   cover `yes` capped at 1 KiB (`truncated: true`) and `sleep & echo` answered
   without waiting for the background child.
 
+- **Confined file mutations share the session runtime.** With `wsl-fs`
+  `sessionSandbox: true` (the shipped preset), a confined `writeText`/`editText`
+  acquires the same `(distro, workspace, policy)` runtime as the shell
+  executor: one agent, one mount profile, one real `/tmp`, and the same scope
+  lifecycle. Reads stay on the plain shared agent; the app-level `fs-routing`
+  backend keeps the mode off because it is not session-owned. A failed
+  preflight refuses the write with the systemd/linger remedy.
+
 - **Stale session scopes are swept.** A hard kill of the app can leave a
   `dsh-wsl-*.scope` and its background processes behind. The session preflight
   now lists those units and stops one only when its cgroup has no

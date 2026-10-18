@@ -83,6 +83,7 @@ Each setting lives on a named row. To change one, add a row with the same id to 
 | `wsl-fs` | `distro` | `''` | same as above |
 | | `restrictToDistro` | `true` | refuse paths that belong to a **different** distro. (`/mnt/c` belongs to this distro, so it is not affected.) The refusal is `FS_OUTSIDE_DISTRO`; wider permissions cannot lift it |
 | | `sandbox` | `true` | check file writes against the same policy |
+| | `sessionSandbox` | `true` | run confined file writes in the same session runtime as commands (one real `/tmp`, one workspace mount view); needs the same systemd/linger setup; `false` uses the per-policy confined resident |
 | | `substrate` | `agent` | how file operations reach the distro. Only one value remains: the in-distro agent, so reads and writes run on the distro's own filesystem, with native symlinks and permissions. The former `"share"` option used the 9p share and is rejected at startup |
 | `directory-picker-wsl` | `includeHostHome` | `true` | also list the Windows home directory in the picker |
 | `subprocess-wsl` | `distro` | `''` | which distro the GUI terminal opens in |
@@ -122,7 +123,7 @@ preset-wsl (the wsl agent preset; its settings are separate from the app's)
 
 **How a command runs.** A session gets one resident agent inside a systemd user scope; the agent executes each command in your login shell under a bubblewrap mount profile. Because the scope outlives the command, a background dev server survives, `/tmp` is the distro's real `/tmp`, and `ps` sees the whole session. With `sessionSandbox: false`, the agent stays per distro and each command gets its own bwrap profile (`--unshare-pid`, a fresh `/tmp`), so background processes do not survive. If the agent is unavailable (or you set `agent: false`), the one-shot `wsl.exe` path runs the command instead — same result, slightly slower, and per-command isolation.
 
-**How file operations run.** Reads, writes and searches also happen inside the distro, on its own filesystem, with the distro's own tools. A search over a distro workspace runs the distro's `rg`, never the Windows binary over the 9p share. File writes are checked against the same policy the command sandbox enforces.
+**How file operations run.** Reads, writes and searches also happen inside the distro, on its own filesystem, with the distro's own tools. A search over a distro workspace runs the distro's `rg`, never the Windows binary over the 9p share. File writes are checked against the same policy the command sandbox enforces; with `wsl-fs` `sessionSandbox` on (the shipped preset), a confined write runs in the same session runtime as the commands, so it sees the same `/tmp` and workspace mounts.
 
 ## Sandbox
 

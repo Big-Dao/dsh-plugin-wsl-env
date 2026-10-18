@@ -57,8 +57,7 @@ import { sharedAgent } from "./agent-shared.js";
 import { AgentSubstrate } from "./fs-substrate.js";
 import { FsCodedError } from "./fsio-text.js";
 import { confinedAgent } from "./agent-confined.js";
-import { SessionRuntimes, sessionRuntimes } from "./session-runtime.js";
-import { sessionScopeProblem, sessionScopeProbeArgv } from "./session-scope.js";
+import { SessionRuntimes, probeSessionRuntime, sessionRuntimes } from "./session-runtime.js";
 import type { SessionRuntimeEntry } from "./session-runtime.js";
 // `runCapture` and distro discovery live in ./wsl.js so the directory picker
 // can use them without pulling this file's executor and filesystem peers in.
@@ -511,14 +510,7 @@ export class WslShellExecutor
   async ensureSessionRuntimeUsable(distro: string): Promise<void> {
     if (this.sessionRuntimePreflight === "ready") return;
     const config = this.config as unknown as WslShellExecutorConfig;
-    /** @type {{ stdout: string, error?: string }} */
-    let output;
-    try {
-      output = { stdout: await this.sessionScopeProbe(sessionScopeProbeArgv({ wslPath: config.wslPath, distro })) };
-    } catch (error) {
-      output = { stdout: "", error: String(error) };
-    }
-    const problem = sessionScopeProblem({ output, distro });
+    const problem = await probeSessionRuntime({ wslPath: config.wslPath, distro, run: this.sessionScopeProbe });
     if (problem !== null) throw new Error(problem);
     this.sessionRuntimePreflight = "ready";
   }
@@ -1069,6 +1061,8 @@ export interface WslFileSystemConfig {
   diffBasisMaxBytes?: number;
   /** Whether mutations are fenced by the policy. */
   sandbox: boolean;
+  /** Whether confined mutations run in the session runtime (ADR 0001). */
+  sessionSandbox: boolean;
   /** Whether confined profiles mask `/mnt`. */
   maskWindowsDrive: boolean;
   /** Whether paths leaving the distro are refused. */
@@ -1107,6 +1101,17 @@ export class WslFileSystem extends LocalFileSystem {
      * operations are unconfined.
      */
     sandbox: z.boolean().default(true),
+    /**
+     * Run confined mutations in the session's systemd user scope — the same
+     * runtime the shell executor acquires for the same (distro, workspace,
+     * policy) — instead of a per-policy confined resident. The kernel
+     * enforcement is the runtime's mount profile, so commands and writes see
+     * the same `/tmp` and workspace; the scope stops when the session's
+     * providers release it. Requires systemd + `Linger`, like `wsl-shell`'s
+     * `sessionSandbox`; the preflight refuses with the remedy. Off for direct
+     * constructions; on in the shipped preset.
+     */
+    sessionSandbox: z.boolean().default(false),
     /**
      * Shadow `/mnt` with an empty tmpfs in every confined profile, hiding the
      * Windows drive from confined commands — same meaning and same honest
@@ -1161,6 +1166,14 @@ export class WslFileSystem extends LocalFileSystem {
   declare sandbox: InstanceType<typeof WslSandbox>;
   /** The resident agent serving publication (see `publicationAgent`). */
   declare agentInstance: WslAgent | undefined;
+  /** The session-runtime registry; tests substitute it. */
+  declare sessionRuntimes: SessionRuntimes;
+  /** The runtimes this provider holds, by registry key. */
+  declare sessionRuntimeEntries: Map<string, SessionRuntimeEntry>;
+  /** The preflight's host runner; tests substitute it. */
+  declare sessionScopeProbe: (argv: string[]) => Promise<string>;
+  /** The last preflight verdict; only a success is cached. */
+  declare sessionRuntimePreflight: "unknown" | "ready";
 
   /**
    * @param ctx - the composition context.
@@ -1179,6 +1192,13 @@ export class WslFileSystem extends LocalFileSystem {
     this.agentSubstrateInstance = undefined;
     this.sandbox = new WslSandbox({ wslPath: config.wslPath, maskWindowsDrive: config.maskWindowsDrive });
     this.agentInstance = undefined;
+    this.sessionRuntimes = sessionRuntimes;
+    this.sessionRuntimeEntries = new Map();
+    this.sessionScopeProbe = (argv) => runCapture(argv);
+    this.sessionRuntimePreflight = "unknown";
+    // The preset's disposer releases the runtime; the shell executor's effect
+    // releases its own reference, so the scope stops after the last one.
+    ctx.effect(() => () => this.disposeSessionRuntimes().catch(() => {}), "wsl fs session runtimes");
   }
 
   /**
@@ -1228,6 +1248,62 @@ export class WslFileSystem extends LocalFileSystem {
   }
 
   /**
+   * The persistent session runtime for one confined mutation, when
+   * `sessionSandbox` is on. The key is the shell executor's key for the same
+   * session/policy, so the write and the commands share one agent, one mount
+   * view and one scope; the provider holds a reference until the session ends.
+   *
+   * @param policy - the resolved confined policy.
+   * @param distro - the resolved distro name.
+   * @returns the runtime entry, or undefined when the mode is off.
+   */
+  sessionRuntimeFor(policy: { mode: string, workspaceRoot: string }, distro: string): SessionRuntimeEntry | undefined {
+    const config = this.config as unknown as WslFileSystemConfig;
+    if (!config.sessionSandbox) return undefined;
+    const workspaceRoot = policy.workspaceRoot || config.cwd;
+    const key = SessionRuntimes.key({ distro, workspaceRoot, mode: policy.mode, maskWindowsDrive: config.maskWindowsDrive });
+    const held = this.sessionRuntimeEntries.get(key);
+    if (held !== undefined) return held;
+    const entry = this.sessionRuntimes.acquire({
+      distro,
+      wslPath: config.wslPath,
+      workspaceRoot,
+      mode: policy.mode,
+      maskWindowsDrive: config.maskWindowsDrive,
+    });
+    this.sessionRuntimeEntries.set(key, entry);
+    return entry;
+  }
+
+  /**
+   * Run the session runtime's preflight once per provider. Only success is
+   * cached, so following the remedy does not need an app restart.
+   *
+   * @param distro - the resolved distro name.
+   * @returns resolved once the platform can host the runtime.
+   * @throws {Error} with the remedy when it cannot.
+   */
+  async ensureSessionRuntimeUsable(distro: string): Promise<void> {
+    if (this.sessionRuntimePreflight === "ready") return;
+    const config = this.config as unknown as WslFileSystemConfig;
+    const problem = await probeSessionRuntime({ wslPath: config.wslPath, distro, run: this.sessionScopeProbe });
+    if (problem !== null) throw new Error(problem);
+    this.sessionRuntimePreflight = "ready";
+  }
+
+  /**
+   * Release every runtime this provider holds. Called from the preset's
+   * dispose effect; public so tests and shutdown paths can await it.
+   *
+   * @returns resolved once every reference is released.
+   */
+  async disposeSessionRuntimes(): Promise<void> {
+    const entries = [...this.sessionRuntimeEntries.values()];
+    this.sessionRuntimeEntries.clear();
+    for (const entry of entries) await this.sessionRuntimes.release(entry.key);
+  }
+
+  /**
    * The agent a MUTATION runs on under this resolved policy — stage-two
    * routing. A confined policy addresses the confined resident whose bwrap
    * profile binds exactly what the mode grants, so the kernel enforces what
@@ -1258,6 +1334,11 @@ export class WslFileSystem extends LocalFileSystem {
         confinedPolicy.mode,
         bwrapFailure(config.wslPath, distro) ?? missingBwrapRemedy(distro),
       );
+    }
+    if (config.sessionSandbox) {
+      await this.ensureSessionRuntimeUsable(distro);
+      const runtime = this.sessionRuntimeFor(confinedPolicy, distro);
+      if (runtime !== undefined) return runtime.agent;
     }
     return confinedAgent({ distro, wslPath: config.wslPath, policy: confinedPolicy, maskWindowsDrive: config.maskWindowsDrive });
   }

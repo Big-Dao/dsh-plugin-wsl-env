@@ -136,10 +136,10 @@ const spawnView = (executor) => /** @type {OneShotSeam} */ (/** @type {unknown} 
 
 /**
  * A filesystem provider over a fake substrate; the agent never spawns.
- * @param {{ sandbox?: boolean, restrictToDistro?: boolean, policy?: { mode: "read-only"|"workspace-write"|"danger-full-access", workspaceRoot: string } }} [options] - the provider switches and the policy the fake resolves.
+ * @param {{ sandbox?: boolean, restrictToDistro?: boolean, sessionSandbox?: boolean, policy?: { mode: "read-only"|"workspace-write"|"danger-full-access", workspaceRoot: string } }} [options] - the provider switches and the policy the fake resolves.
  * @returns {{ fs: WslFileSystem, substrate: MockSubstrate }} the provider and its scripted substrate.
  */
-function makeFs({ sandbox = true, restrictToDistro = true, policy } = {}) {
+function makeFs({ sandbox = true, restrictToDistro = true, policy, sessionSandbox = false } = {}) {
   const resolved = policy ?? { mode: "workspace-write", workspaceRoot: WORKSPACE };
   const ctx = new Context();
   ctx.provide("sandboxPolicy", { defaultMode: resolved.mode, resolve: () => resolved });
@@ -147,6 +147,7 @@ function makeFs({ sandbox = true, restrictToDistro = true, policy } = {}) {
     distro: DISTRO,
     sandbox,
     restrictToDistro,
+    sessionSandbox,
   }));
   /** @type {MockSubstrate} */
   const substrate = {
@@ -233,6 +234,50 @@ check("the real agentSubstrate wiring builds over the shared agent and keeps sta
   fs.sandbox = coreStub(true);
   const same = await fs.mutationAgent({ mode: "workspace-write", workspaceRoot: WORKSPACE });
   assert.ok(same.argvPrefix.length > 0, "mutations route to the confined resident through the same wiring");
+});
+
+check("with sessionSandbox, a confined mutation runs in the shared session runtime", async () => {
+  const { fs } = makeFs({ sessionSandbox: true });
+  fs.sandbox = coreStub(true);
+  fs.sessionScopeProbe = async () => "ok";
+  /** @type {Array<{ distro: string, wslPath: string, workspaceRoot: string, mode: string, maskWindowsDrive?: boolean }>} */
+  const acquired = [];
+  /** @type {string[]} */
+  const released = [];
+  const runtimeAgent = asAgent({
+    exec: async () => ({ exitCode: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), truncated: { stdout: false, stderr: false } }),
+  });
+  fs.sessionRuntimes = /** @type {WslFileSystem["sessionRuntimes"]} */ (/** @type {unknown} */ ({
+    /** @param {{ distro: string, wslPath: string, workspaceRoot: string, mode: string, maskWindowsDrive?: boolean }} request - the runtime request. */
+    acquire: (request) => {
+      acquired.push(request);
+      return { key: "fs-runtime", unit: "u", agent: runtimeAgent, distro: request.distro, wslPath: "wsl.exe", refs: 1 };
+    },
+    /** @param {string} key - the registry key. */
+    release: async (key) => {
+      released.push(key);
+    },
+  }));
+  const agent = await fs.mutationAgent({ mode: "workspace-write", workspaceRoot: WORKSPACE });
+  assert.equal(agent, runtimeAgent, "the write runs on the runtime's agent");
+  assert.equal(acquired.length, 1);
+  assert.equal(acquired[0]?.workspaceRoot, WORKSPACE);
+  assert.equal(acquired[0]?.mode, "workspace-write");
+  const again = await fs.mutationAgent({ mode: "workspace-write", workspaceRoot: WORKSPACE });
+  assert.equal(again, runtimeAgent, "the same key reuses the runtime");
+  assert.equal(acquired.length, 1, "one runtime per session key");
+  await fs.disposeSessionRuntimes();
+  assert.deepEqual(released, ["fs-runtime"], "disposing the provider releases the runtime");
+});
+
+check("with sessionSandbox, a failed preflight refuses the mutation with the remedy", async () => {
+  const { fs } = makeFs({ sessionSandbox: true });
+  fs.sandbox = coreStub(true);
+  fs.sessionScopeProbe = async () => "no-linger";
+  await assert.rejects(
+    () => fs.mutationAgent({ mode: "workspace-write", workspaceRoot: WORKSPACE }),
+    /loginctl enable-linger/,
+  );
 });
 
 check("worldPath mints the pinned distro's UNC for a Linux path", async () => {

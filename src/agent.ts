@@ -400,6 +400,11 @@ export class WslAgent {
         this.lastError = String(error);
         settleStart(error);
       });
+      // The write side can hit EPIPE after the child exits — a failed
+      // handshake followed by close(), or a scope stop. The failure is already
+      // reflected in the state/pending requests; an unhandled stream error
+      // would crash the host process instead.
+      child.stdin?.on("error", () => {});
       child.on("exit", (code, signalName) => {
         if (!current()) {
           // A stale child's exit: release its pipes, but never touch the

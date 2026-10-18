@@ -29,6 +29,7 @@ check("the cache script derives the path from the digest and verifies it", () =>
   assert.match(script, /chmod 0755/);
   assert.match(script, /sha256sum/);
   assert.match(script, /cannot-execute/);
+  assert.match(script, /exit 0/, "a valid cache is reused instead of overwritten");
   assert.match(script, new RegExp(`\\[ "\\$got" = "${digest}" \\]`));
 });
 

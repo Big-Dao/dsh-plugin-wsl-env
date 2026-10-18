@@ -57,13 +57,17 @@ export function nativeCacheScript(digest: string): string {
     "set -e",
     "umask 077",
     `dir="$HOME/.cache/dsh-wsl/agent/${digest}"`,
+    'target="$dir/dsh-wsl-agent"',
+    // A live session already runs this exact binary; rewriting it would fail
+    // with ETXTBSY. A valid cache is the same verified artifact, so reuse it.
+    `if [ -x "$target" ] && [ "$(sha256sum "$target" | cut -d' ' -f1)" = "${digest}" ]; then printf '%s' "$target"; exit 0; fi`,
     'mkdir -p "$dir"',
-    'cat > "$dir/dsh-wsl-agent"',
-    'chmod 0755 "$dir/dsh-wsl-agent"',
-    "got=$(sha256sum \"$dir/dsh-wsl-agent\" | cut -d' ' -f1)",
+    'cat > "$target"',
+    'chmod 0755 "$target"',
+    "got=$(sha256sum \"$target\" | cut -d' ' -f1)",
     `[ "$got" = "${digest}" ] || { echo digest-mismatch >&2; exit 1; }`,
-    '"$dir/dsh-wsl-agent" </dev/null >/dev/null 2>&1 || { echo cannot-execute >&2; exit 1; }',
-    'printf "%s" "$dir/dsh-wsl-agent"',
+    '"$target" </dev/null >/dev/null 2>&1 || { echo cannot-execute >&2; exit 1; }',
+    'printf "%s" "$target"',
   ].join("\n");
 }
 

@@ -185,3 +185,4 @@ jobs:
           run_or_skip terminal harness terminal.sh
           run_or_skip picker harness picker.sh
           run_or_skip missing-wsl harness missing-wsl.sh
+          run_or_skip native-session harness native-session.sh

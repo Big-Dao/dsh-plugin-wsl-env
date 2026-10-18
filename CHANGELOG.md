@@ -321,6 +321,17 @@ from it.
 
 ### Notes
 
+- **The native-session probe.** `test/probe/native-session.mjs` (also in the
+  real-machine suite and the self-hosted probes job) exercises the packaged
+  native binary end to end: the cache/digest, the session scope, EXEC, FS
+  write/read, a KILL that reaps the request group while the agent survives, a
+  wrong HELLO digest failing the handshake, and the scope/cache teardown. It
+  is 8/8 on the live machine. The probe found two integration bugs, both
+  fixed here: a valid cache is now reused instead of rewritten (rewriting a
+  binary a live session is running fails with ETXTBSY), and the agent's stdin
+  now has an error listener so `close()` after a failed handshake (EPIPE) does
+  not crash the host.
+
 - **Static musl packages for x86_64 and aarch64.** The package now ships
   `agent/native/linux-x86_64/dsh-wsl-agent` (static-pie musl, 635,752 bytes,
   sha256 `5920bdd5…`) and `agent/native/linux-aarch64/dsh-wsl-agent` (static

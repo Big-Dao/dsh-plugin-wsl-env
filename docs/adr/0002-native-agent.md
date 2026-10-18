@@ -217,7 +217,8 @@ One process per agent, an event loop over stdin plus child pipes and timers:
    the `wsl-shell.agentBackend` selection, the packaged static-musl x86_64 and
    aarch64 binaries (`agent/native/linux-<arch>/dsh-wsl-agent`, selected by the
    distro's `uname -m`) and the running-binary HELLO digest are in place. The
-   probes and the default rollout remain.
+   native-session probe (8/8: scope, EXEC, FS, KILL, digest, teardown) is in
+   the real-machine suite; the default rollout (A5) remains.
 5. **Enable by default** on x64 (aarch64 after a CI build leg); keep the shell
    fallback and the flag. Only then consider retiring the shell.
 

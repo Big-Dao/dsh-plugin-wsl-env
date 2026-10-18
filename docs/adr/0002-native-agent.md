@@ -5,8 +5,10 @@
   distro's architecture), with the shipped shell agent as the fallback and the
   `native`/`shell` overrides. The concurrency/KILL/FS surface, the copy/verify,
   the HELLO digest, the packaged x86_64/aarch64 binaries and the real-machine
-  probe are in place; the aarch64 hardware/qemu run and the v6/event-stream
-  future remain
+  probe are in place. **Plan after A6:** A7 (native shared read agent) and A8
+  (aarch64 functional validation); **v6 is deferred** — the measured
+  lock-removal gain is marginal, and the shared shell read agent is the real
+  batch bottleneck
 - **Date:** 2026-10-18
 - **Related:** [ADR 0001](0001-session-scoped-sandbox.md) (session runtime),
   `agent/wsl-agent.sh`, `src/agent.ts`, `src/agent-protocol.ts`
@@ -214,8 +216,11 @@ One process per agent, an event loop over stdin plus child pipes and timers:
    `agent/native/spike` (18/18 manual checks, ~673 KB release binary). The
    host wiring, the packaged static-musl x86_64/aarch64 binaries and the
    default rollout are in place; the aarch64 hardware/qemu run and v6 remain.
-3. **Differential + concurrency.** Full matrix; v6 error/env framing; the
-   concurrent write acceptance test.
+3. **v6 (deferred).** The A6 measurement shows the lock-removal gain is
+   marginal (~2-3 ms per 16 ops) and the shared shell read agent is the batch
+   bottleneck. v6 stays unimplemented; A7 addresses the measured bottleneck
+   instead. Revisit v6 only if the native shared v5 still queues measurably or
+   the ERR/env framing is needed for another reason.
 4. **Host integration (partial).** The copy/verify, the session-runtime factory,
    the `wsl-shell.agentBackend` selection, the packaged static-musl x86_64 and
    aarch64 binaries (`agent/native/linux-<arch>/dsh-wsl-agent`, selected by the
@@ -223,7 +228,13 @@ One process per agent, an event loop over stdin plus child pipes and timers:
    native-session probe (8/8: scope, EXEC, FS, KILL, digest, teardown) is in
    the real-machine suite; the default rollout is 0.10.0.
 5. **Enabled by default** on x86_64 and aarch64 (0.10.0); the shell fallback
-   and the flag stay. Retiring the shell is not planned until v6/events mature.
+   and the flag stay. Retiring the shell is not planned; the shell remains the
+   fallback and the shared read path until A7.
+6. **Native shared read agent (A7, next).** The shared unconfined read agent
+   selects the native binary (v5) with the shell as fallback; the A6 probe is
+   the acceptance measurement (~30x on batch reads).
+7. **aarch64 functional validation (A8).** Real hardware or qemu; the 18-check
+   suite and the native-session probe on an aarch64 distro.
 
 ## Spike result (stage 2, partial)
 

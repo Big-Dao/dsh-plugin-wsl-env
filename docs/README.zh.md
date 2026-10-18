@@ -125,7 +125,7 @@ preset-wsl（wsl agent preset；这个环境里的服务相互独立）
 
 **命令的执行路径。** 一个会话有一个常驻 agent，运行在 systemd user scope 内。默认它是 native `dsh-wsl-agent`——按 distro 架构选择的包内静态 musl 二进制，由 `agentBackend: auto` 选中；二进制缺失或 copy/digest/exec 校验失败时回退到 runtime 的 shell agent，`agentBackend: shell` 强制 shell，`native` 则拒绝回退。agent 在你的登录 shell 中、bubblewrap mount profile 内执行每条命令。scope 比命令活得久，所以后台 dev server 存活、`/tmp` 是子系统真实 `/tmp`、`ps` 能看到整个会话。设 `sessionSandbox: false` 时，agent 仍是每子系统一个、每条命令一套 bwrap profile（`--unshare-pid`、临时 `/tmp`），后台进程不存活，且不使用 native 后端。agent 不可用时（或 `agent: false`），改走一次性 `wsl.exe`——结果一致、略慢、仍是每命令隔离。
 
-**文件操作的执行路径。** 读、写、搜索同样发生在子系统内部：使用子系统自己的磁盘与工具。子系统工作区的搜索运行子系统内的 `rg`，不使用 Windows 侧副本走 9p 共享。文件写入与命令沙箱使用同一份策略检查；`wsl-fs` 的 `sessionSandbox` 打开时（默认），受限写入跑在与命令相同的会话 runtime 里（同一个 native/shell agent），看到相同的 `/tmp` 与 workspace mount。读操作走共享的 shell agent。
+**文件操作的执行路径。** 读、写、搜索同样发生在子系统内部：使用子系统自己的磁盘与工具。子系统工作区的搜索运行子系统内的 `rg`，不使用 Windows 侧副本走 9p 共享。文件写入与命令沙箱使用同一份策略检查；`wsl-fs` 的 `sessionSandbox` 打开时（默认），受限写入跑在与命令相同的会话 runtime 里（同一个 native/shell agent），看到相同的 `/tmp` 与 workspace mount。读操作走共享的 shell agent；native 共享读 agent（A7）是实测后的下一个优化——shell 是批量读的瓶颈（16 个并发读 342–614 ms，native 约 12–20 ms）。
 
 ## 沙箱
 
@@ -193,6 +193,7 @@ pnpm run probe:sandbox-off    # 验证 sandbox: false 确实关掉两侧沙箱�
 |---|---|
 | [docs/CONFIGURATION.md](CONFIGURATION.md) | 每个配置键，以及如何覆盖 |
 | [docs/ARCHITECTURE.md](ARCHITECTURE.md) | provider、挂载方式、路径坐标、沙箱、测试分层、文件布局 |
+| [docs/ROADMAP.md](ROADMAP.md) | 路线图：已完成、下一步（A7 native 共享读、A8 aarch64）、已推迟（v6） |
 | [docs/LIMITATIONS.md](LIMITATIONS.md) | 插件不做的事情，以及原因 |
 | [docs/VALUE.zh.md](VALUE.zh.md) | 本插件的价值、代价，以及什么情况下不该用它 |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | 开发循环、质量门、约定、已验证内容 |

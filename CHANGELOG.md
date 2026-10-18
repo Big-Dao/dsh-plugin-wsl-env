@@ -29,6 +29,13 @@ were part of the record.
   only takes 16 native writes from 7.7 ms to ~5 ms, so the native shared read
   agent (v5, ~30x on batch reads) is the high-value follow-up, not v6.
 
+### Changed
+
+- **The plan after the A6 measurement: A7 (native shared reads) next, v6
+  deferred.** [`docs/ROADMAP.md`](docs/ROADMAP.md) records the done, next and
+  deferred steps; ADR 0002, LIMITATIONS and the READMEs point the shared-read
+  bottleneck at A7 and make the v6 deferral explicit.
+
 ## [0.10.0] - 2026-10-18
 
 The native in-distro agent is the default session-runtime backend: `agentBackend: auto`

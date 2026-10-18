@@ -193,11 +193,12 @@ from it.
   fill the distro's `/tmp` — and a huge answer could exceed the 256 MiB frame
   cap and kill the shared agent. With a budget, both streams are captured
   through FIFOs drained by `head -c budget+1`; the rest is discarded, so the
-  files stay at one byte over the budget. The readers are stopped once the
-  request's own process is gone, so a background descendant holding the FIFO
-  cannot delay the answer. The extra byte is what distinguishes "exactly at
-  the cap" from "cut". The unbounded path (`FS` frames) still writes files
-  directly. Tests cover `yes` capped at 1 KiB (`truncated: true`) and
+  files stay at one byte over the budget. The readers are given a one-second
+  grace once the request's own process is gone and then stopped, so a
+  background descendant holding the FIFO cannot delay the answer — and the
+  grace lets a just-exited command's output reach the file before the reader
+  is stopped. The extra byte is what distinguishes "exactly at the cap" from
+  "cut". The unbounded path (`FS` frames) still writes files directly. Tests cover `yes` capped at 1 KiB (`truncated: true`) and
   `sleep & echo` answered without waiting for the background child.
 
 ### Notes

@@ -214,7 +214,7 @@ timeout_watcher() {
 # functions, not executables — run.
 run_capture() {
   local req_id timeout_s maxout mode rc watcher_pid out_cut err_cut
-  local out_fifo err_fifo out_reader err_reader spawn_out spawn_err
+  local out_fifo err_fifo out_reader err_reader spawn_out spawn_err killer_pid
   req_id=$1
   timeout_s=$2
   maxout=$3
@@ -286,16 +286,23 @@ run_capture() {
     kill "$watcher_pid" 2>/dev/null
     wait "$watcher_pid" 2>/dev/null
   fi
-  # Stop the bounded readers once the request's own process is gone. A
-  # background descendant may still hold the FIFO's write end; waiting for the
-  # drain here would delay the answer until that descendant exits.
-  if [ -n "$out_reader" ]; then
-    kill "$out_reader" 2>/dev/null
-    wait "$out_reader" 2>/dev/null
-  fi
-  if [ -n "$err_reader" ]; then
-    kill "$err_reader" 2>/dev/null
-    wait "$err_reader" 2>/dev/null
+  # Wait for the bounded readers to drain what the request wrote, but not for
+  # a background descendant that still holds the FIFO: after a short grace the
+  # killer stops them. A normal request's readers see EOF when the command
+  # exits, so the wait returns at once and the killer is cancelled — this is
+  # also what gives a just-exited command's output a chance to reach the file
+  # before the reader is stopped.
+  if [ -n "$out_reader" ] || [ -n "$err_reader" ]; then
+    (
+      sleep 1
+      [ -z "$out_reader" ] || kill "$out_reader" 2>/dev/null
+      [ -z "$err_reader" ] || kill "$err_reader" 2>/dev/null
+    ) </dev/null >/dev/null 2>&1 &
+    killer_pid=$!
+    [ -z "$out_reader" ] || wait "$out_reader" 2>/dev/null
+    [ -z "$err_reader" ] || wait "$err_reader" 2>/dev/null
+    kill "$killer_pid" 2>/dev/null
+    wait "$killer_pid" 2>/dev/null
   fi
   # The cap is what keeps a chatty command from becoming a multi-gigabyte
   # base64 blob inside THIS shell's command substitution: only the first

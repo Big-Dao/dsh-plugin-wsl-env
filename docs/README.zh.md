@@ -80,7 +80,7 @@ Windows 上的编程工具要在 WSL 项目上干活，一共三条路：
 | `wsl-shell` | `distro` | `''` | 用哪个子系统；空表示 WSL 的默认子系统 |
 | | `sandbox` | `true` | 命令跑在 `bubblewrap` 沙箱里；`false` 关掉沙箱 |
 | | `sessionSandbox` | `true` | 会话内的命令跑在同一个常驻 systemd user scope 里：后台 dev server 跨命令存活、`/tmp` 共享、`ps` 能看到整个会话。需要 systemd 为 PID 1、user manager 可达、`Linger` 打开；预检失败会带修复命令拒绝。设 `false` 回到每命令沙箱 |
-| | `agentBackend` | `auto` | 会话 runtime 的 in-distro agent：`auto` 在存在已校验来源（打包二进制或 `DSH_WSL_AGENT_NATIVE` 开发覆盖）时用 native，否则用 shell；`native` 准备失败时让首条命令失败而不是静默回退；`shell` 强制 shell。命令和受限写入共用该选择。native 目前是 opt-in，包内为静态 musl x86_64/aarch64 |
+| | `agentBackend` | `auto` | 会话 runtime 的 in-distro agent：`auto` 在存在已校验来源（打包二进制或 `DSH_WSL_AGENT_NATIVE` 开发覆盖）时用 native，否则用 shell；`native` 准备失败时让首条命令失败而不是静默回退；`shell` 强制 shell。命令和受限写入共用该选择。native 是默认后端，shell agent 是回退 |
 | | `maskWindowsDrive` | `false` | 让沙箱里的命令看不到 `/mnt`，收窄互操作这个洞（只是收窄，关不死，见[沙箱](#沙箱)） |
 | `wsl-fs` | `distro` | `''` | 同上 |
 | | `restrictToDistro` | `true` | 拒绝属于**别的子系统**的路径（`/mnt/c` 属于本子系统，不受影响）。拒绝码是 `FS_OUTSIDE_DISTRO`，放宽权限也解不开 |
@@ -123,9 +123,9 @@ preset-wsl（wsl agent preset；这个环境里的服务相互独立）
 
 **为什么分两层。** `wsl-shell` 和 `wsl-fs` 是随会话变化的两件事，所以放在 `wsl` preset 里：会话打开子系统目录时，`auto-preset` 给它绑上这个 preset；打开 Windows 目录的会话继续用原生 Windows 工具。一个进程，每个会话各有各的环境。GUI 终端是例外：它读的是应用层的配置，永远看不到 preset，所以 `subprocess-wsl` 挂在应用层。GUI 文件树和根级文件系统正好反过来——每个会话都用它们，单个 preset 拥有不了——所以 `workspace-files-wsl` 和 `fs-routing` 也挂在应用层。它们替换了随包的两行；根级路由的设计见 [docs/root-fs-routing.md](root-fs-routing.md)。
 
-**命令的执行路径。** 一个会话有一个常驻 agent，运行在 systemd user scope 内；agent 在你的登录 shell 中、bubblewrap mount profile 内执行每条命令。scope 比命令活得久，所以后台 dev server 存活、`/tmp` 是子系统真实 `/tmp`、`ps` 能看到整个会话。设 `sessionSandbox: false` 时，agent 仍是每子系统一个、每条命令一套 bwrap profile（`--unshare-pid`、临时 `/tmp`），后台进程不存活。agent 不可用时（或 `agent: false`），改走一次性 `wsl.exe`——结果一致、略慢、仍是每命令隔离。
+**命令的执行路径。** 一个会话有一个常驻 agent，运行在 systemd user scope 内。默认它是 native `dsh-wsl-agent`——按 distro 架构选择的包内静态 musl 二进制，由 `agentBackend: auto` 选中；二进制缺失或 copy/digest/exec 校验失败时回退到 runtime 的 shell agent，`agentBackend: shell` 强制 shell，`native` 则拒绝回退。agent 在你的登录 shell 中、bubblewrap mount profile 内执行每条命令。scope 比命令活得久，所以后台 dev server 存活、`/tmp` 是子系统真实 `/tmp`、`ps` 能看到整个会话。设 `sessionSandbox: false` 时，agent 仍是每子系统一个、每条命令一套 bwrap profile（`--unshare-pid`、临时 `/tmp`），后台进程不存活，且不使用 native 后端。agent 不可用时（或 `agent: false`），改走一次性 `wsl.exe`——结果一致、略慢、仍是每命令隔离。
 
-**文件操作的执行路径。** 读、写、搜索同样发生在子系统内部：使用子系统自己的磁盘与工具。子系统工作区的搜索运行子系统内的 `rg`，不使用 Windows 侧副本走 9p 共享。文件写入与命令沙箱使用同一份策略检查；`wsl-fs` 的 `sessionSandbox` 打开时（默认），受限写入跑在与命令相同的会话 runtime 里，看到相同的 `/tmp` 与 workspace mount。
+**文件操作的执行路径。** 读、写、搜索同样发生在子系统内部：使用子系统自己的磁盘与工具。子系统工作区的搜索运行子系统内的 `rg`，不使用 Windows 侧副本走 9p 共享。文件写入与命令沙箱使用同一份策略检查；`wsl-fs` 的 `sessionSandbox` 打开时（默认），受限写入跑在与命令相同的会话 runtime 里（同一个 native/shell agent），看到相同的 `/tmp` 与 workspace mount。读操作走共享的 shell agent。
 
 ## 沙箱
 

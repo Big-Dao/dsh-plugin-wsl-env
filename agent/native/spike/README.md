@@ -40,7 +40,7 @@ node agent/native/spike/test.mjs
 
 The test is not part of `pnpm test`: it needs the built binary.
 
-## Host wiring (opt-in, session runtime only)
+## Host wiring (default for the session runtime)
 
 `wsl-shell.agentBackend: auto` (the shipped default) selects the native agent
 when a verified source exists; `native` requires it; `shell` forces the shell
@@ -68,8 +68,8 @@ node scripts/native-wiring-check.mjs
 
 The check copies the built spike, acquires a real session runtime, runs one
 EXEC and one FS stat through the native entry, and releases the scope. The
-shipped default remains the shell agent; packaging/musl/default rollout is the
-next stage.
+native agent is the default session-runtime backend; the shell agent is the
+fallback and `agentBackend: shell` forces it.
 
 ## Result (2026-10-18, x86_64-unknown-linux-gnu, release)
 
@@ -83,6 +83,7 @@ next stage.
   replace/stale path, a setuid mode, and a shell-agent differential for EXEC.
 - Release binaries: static musl, ~621 KB (x86_64) and ~523 KB (aarch64);
   the crate builds in ~2 s with no dependencies.
-- The shell agent remains the shipped peer. The host wiring above is opt-in;
-  packaging (per-arch binaries), musl/cross-arch builds and the default
-  rollout are still pending.
+- The shell agent remains the shipped peer and the fallback. The packaged
+  static-musl x86_64/aarch64 binaries are the default; the aarch64 binary is
+  build-tested in CI but its functional run on real aarch64 hardware or qemu
+  is still pending, and v6 (FS concurrency/ERR frames) is future work.

@@ -119,6 +119,12 @@ crosses the 9p share. What to know about the one substrate there is:
   call. The session runtime path — the shipped default — is cleaned by its
   scope. A systemd-scoped one-shot (with explicit environment pass-through) is
   not shipped; prefer `agent: true` and the session runtime for long commands.
+- **The native backend is the default; aarch64 is build-tested only.** The
+  packaged x86_64 musl binary runs the 18-check suite in CI. The same job
+  builds the aarch64 binary, but the runner cannot execute it, so its
+  functional validation on real aarch64 hardware (or qemu) is still pending.
+  `agentBackend: auto` still selects it on an aarch64 distro; `native` refuses
+  if preparation fails, and `shell` forces the shell agent.
 - **The session runtime needs systemd and a lingering user manager.** The
   shipped preset sets `sessionSandbox: true`; a distro without systemd as PID 1,
   a reachable `systemd --user`, `systemd-run`, or `Linger` is refused on the

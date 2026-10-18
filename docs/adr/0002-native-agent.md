@@ -1,10 +1,12 @@
 # ADR 0002 — Native in-distro agent (design)
 
-- **Status:** proposed — design + stage-2 spike (EXEC/KILL/concurrency, the
-  FS surface, the version/permission matrix, and the opt-in host
-  copy/verify + session-runtime factory done; packaging/musl/default rollout
-  pending); implementation still deferred until a trigger in
-  [When to build it](#when-to-build-it) fires
+- **Status:** accepted — the native agent is the default session-runtime
+  backend (`agentBackend: auto` + the packaged static-musl binary for the
+  distro's architecture), with the shipped shell agent as the fallback and the
+  `native`/`shell` overrides. The concurrency/KILL/FS surface, the copy/verify,
+  the HELLO digest, the packaged x86_64/aarch64 binaries and the real-machine
+  probe are in place; the aarch64 hardware/qemu run and the v6/event-stream
+  future remain
 - **Date:** 2026-10-18
 - **Related:** [ADR 0001](0001-session-scoped-sandbox.md) (session runtime),
   `agent/wsl-agent.sh`, `src/agent.ts`, `src/agent-protocol.ts`
@@ -210,7 +212,8 @@ One process per agent, an event loop over stdin plus child pipes and timers:
 2. **Spike (partial).** HELLO/PING/SETENV/EXEC/KILL, per-request process
    groups, the FS surface and the expected-version/mode matrix are done in
    `agent/native/spike` (18/18 manual checks, ~673 KB release binary). The
-   host wiring is in (opt-in); packaging and musl/cross-arch builds remain.
+   host wiring, the packaged static-musl x86_64/aarch64 binaries and the
+   default rollout are in place; the aarch64 hardware/qemu run and v6 remain.
 3. **Differential + concurrency.** Full matrix; v6 error/env framing; the
    concurrent write acceptance test.
 4. **Host integration (partial).** The copy/verify, the session-runtime factory,
@@ -218,9 +221,9 @@ One process per agent, an event loop over stdin plus child pipes and timers:
    aarch64 binaries (`agent/native/linux-<arch>/dsh-wsl-agent`, selected by the
    distro's `uname -m`) and the running-binary HELLO digest are in place. The
    native-session probe (8/8: scope, EXEC, FS, KILL, digest, teardown) is in
-   the real-machine suite; the default rollout (A5) remains.
-5. **Enable by default** on x64 (aarch64 after a CI build leg); keep the shell
-   fallback and the flag. Only then consider retiring the shell.
+   the real-machine suite; the default rollout is 0.10.0.
+5. **Enabled by default** on x86_64 and aarch64 (0.10.0); the shell fallback
+   and the flag stay. Retiring the shell is not planned until v6/events mature.
 
 ## Spike result (stage 2, partial)
 
@@ -248,14 +251,18 @@ x86_64-unknown-linux-gnu and builds in ~2 s with no dependencies.
 What this proves: the event loop removes the shell's serial-request stall and
 the `USR1`/second-transport cancellation shape is unnecessary, and the core
 FS surface (stat/lstat/read/write/list/realpath, version re-check, modes) can
-be reproduced in the native process. What it does not prove: musl/cross-arch
-builds, v6 concurrency/env framing, or the packaging/default rollout. The host
-copy/verify and the session-runtime factory are in place behind
-`DSH_WSL_AGENT_NATIVE`; the shell remains the shipped peer.
+be reproduced in the native process. What it does not prove: the aarch64
+binary's functional run on real hardware/qemu (CI only builds it), v6
+concurrency/env framing, or the event stream. The host copy/verify, the
+session-runtime factory, the packaged binaries and the default are in place;
+the shell agent remains the fallback and the shipped peer.
 
-## When to build it
+## Why it was built
 
-Not now. Revisit when one of these is true:
+Built in 0.10.0. The triggers that fired were the long-build/FS-serialization
+pressure and the opportunity to make the session runtime native without
+changing the shipped shell contract; the shell agent remains the fallback. The
+conditions below are kept as the record of the decision:
 
 - A long build reliably blocks model file writes often enough to be a reported
   problem (the shell's serial loop).

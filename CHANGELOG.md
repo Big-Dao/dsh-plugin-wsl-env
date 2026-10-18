@@ -16,7 +16,12 @@ were part of the record.
 
 ## [Unreleased]
 
-The peer line moves to DeepSeek Harness `0.2.1-rc.2`, which is the desktop
+## [0.10.0] - 2026-10-18
+
+The native in-distro agent is the default session-runtime backend: `agentBackend: auto`
+selects the packaged static-musl binary for the distro's architecture, the shipped
+shell agent stays as the fallback, and `native`/`shell` keep the strict and forced
+modes. The peer line moves to DeepSeek Harness `0.2.1-rc.2`, which is the desktop
 app's own version line. No module under `src/` changed, and that is the
 finding, not an omission: every peer artifact this plugin subclasses or
 replicates is byte-identical to the one shipped for `0.2.0-rc.2`, except one

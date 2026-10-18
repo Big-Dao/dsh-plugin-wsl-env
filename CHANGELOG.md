@@ -309,6 +309,13 @@ from it.
 
 ### Notes
 
+- Added **ADR 0002 — native in-distro agent (design)**: goals and non-goals,
+  language/distribution options (Rust static binaries, copied to the user's
+  cache), the v5-compatible spike and v6 concurrency protocol, the event-loop
+  process model, the host integration/copy/verify path, the security and test
+  matrix, the migration stages, and the triggers that would justify building
+  it. Implementation is deferred; the shell agent remains the shipped peer.
+
 - Documented the one-shot fallback's timeout boundary: the host deadline kills
   `wsl.exe`, not the distro-side tree; the session runtime's scope is the
   cleanup path, and a systemd-scoped one-shot is not shipped.

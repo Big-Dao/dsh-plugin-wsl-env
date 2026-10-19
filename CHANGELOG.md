@@ -26,6 +26,12 @@ were part of the record.
   block to paste when a layer carries the nested id patch. See
   [docs/CONFIGURATION.md](docs/CONFIGURATION.md#overriding-the-rows-inside-preset-wsl).
 
+- **The doctor probes the resident agent.** `agent.handshake` starts the
+  shipped shell agent in the distro, reads its HELLO (pid, protocol, script
+  digest) and stops it, so a missing or stale agent script is a named check
+  instead of a first-command failure. It also reports the agent cache and the
+  live/stale `dsh-wsl-*.scope` counts.
+
 - **`pnpm run doctor` — one command for the environment prerequisites.** Reports
   Windows/WSL versions, the distro and its login shell, bubblewrap usability,
   systemd / the user manager / `systemd-run` / Linger, the optional tools, peer

@@ -6,7 +6,7 @@
  * read-only pass: Windows and WSL versions, the distro and its shell, bubblewrap
  * usability, systemd / the user manager / `systemd-run` / Linger, the optional
  * tools, the peer versions the plugin is loaded against, the native-agent cache,
- * stale session scopes, and the known profile-patch trap.
+ * a fresh-agent handshake, stale session scopes, and the known profile-patch trap.
  *
  *   node scripts/doctor.mjs [distro] [--json] [--fix] [--install] [--yes] [--read-only]
  *
@@ -25,7 +25,8 @@
  *
  * @module dsh-plugin-wsl/scripts/doctor
  */
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -33,6 +34,7 @@ import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { parseDistroList } from "../lib/wsl.js";
+import { AGENT_NAME, PROTOCOL_VERSION } from "../lib/agent-protocol.js";
 import { sessionScopeSweepScript } from "../lib/session-scope.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -321,6 +323,23 @@ async function main(options) {
     check("agent.cache", bad > 0 ? "warn" : "ok", "Agent cache", `${entries.length} cached binary(ies)${bad > 0 ? `, ${bad} not executable` : ""}`, bad > 0 ? `rm -rf ~/.cache/dsh-wsl/agent inside "${distro}"; the next command repopulates it` : undefined);
   }
 
+  // ---- resident handshake --------------------------------------------------
+  const agentScript = join(ROOT, "agent", "wsl-agent.sh");
+  if (!agentScript.startsWith("/")) {
+    check("agent.handshake", "info", "Agent handshake", "skipped: run the doctor from inside the distro (the script path is a Windows path)");
+  } else if (!existsSync(agentScript)) {
+    check("agent.handshake", "fail", "Agent handshake", "agent/wsl-agent.sh is missing from this install", "reinstall the plugin; the shell agent ships with the package");
+  } else {
+    const handshake = await probeResident(distro, agentScript);
+    if (handshake.ok) {
+      check("agent.handshake", handshake.digestMatches ? "ok" : "fail", "Agent handshake",
+        `pid ${handshake.pid}, protocol ${PROTOCOL_VERSION}, digest ${handshake.digestMatches ? "matches" : "MISMATCH — the distro reads a different script than this package"}`,
+        handshake.digestMatches ? undefined : "resync the runtime copy (pnpm run sync:windows), then restart the app");
+    } else {
+      check("agent.handshake", "fail", "Agent handshake", handshake.detail, "restart the DSH app; if it persists, delete ~/.cache/dsh-wsl/agent inside the distro and rerun the doctor");
+    }
+  }
+
   // ---- stale session scopes ------------------------------------------------
   const scopes = (await inDistro(distro, STALE_SCOPE_REPORT)).stdout.trim();
   const scopeLines = scopes === "none" || scopes.length === 0 ? [] : scopes.split(/\r?\n/);
@@ -387,6 +406,58 @@ async function main(options) {
   }
 
   return report(checks, { json: options.json });
+}
+
+/**
+ * Probe a fresh resident: start the shipped shell agent in the distro, read its
+ * HELLO, verify the script digest, and stop it. This proves the agent path can
+ * start and that the file the distro reads is the one this package shipped.
+ *
+ * @param {string} distro - the distro to probe.
+ * @param {string} scriptPath - the agent script as a Linux path inside the distro.
+ * @returns {Promise<{ ok: true, pid: number, digestMatches: boolean } | { ok: false, detail: string }>} the verdict, with the pid on success.
+ */
+function probeResident(distro, scriptPath) {
+  return new Promise((settle) => {
+    let settled = false;
+    /** @param {{ ok: true, pid: number, digestMatches: boolean } | { ok: false, detail: string }} value - the verdict. */
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.kill();
+      settle(value);
+    };
+    const child = spawn(WSL, ["-d", distro, "--exec", "sh", scriptPath], {
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+      env: { ...process.env, WSL_UTF8: "1" },
+    });
+    const timer = setTimeout(() => finish({ ok: false, detail: "no HELLO within 5 s" }), 5000);
+    let buffered = "";
+    child.stdout.on("data", (chunk) => {
+      buffered += String(chunk);
+      const newline = buffered.indexOf("\n");
+      if (newline < 0 || settled) return;
+      const line = buffered.slice(0, newline).trim();
+      const [kind, name, version, digest, pid] = line.split("|");
+      if (kind !== "HELLO" || name !== AGENT_NAME) {
+        finish({ ok: false, detail: `unexpected first line: ${line.slice(0, 80)}` });
+        return;
+      }
+      if (Number(version) !== PROTOCOL_VERSION) {
+        finish({ ok: false, detail: `protocol ${version}, expected ${PROTOCOL_VERSION}` });
+        return;
+      }
+      const expected = createHash("sha256").update(readFileSync(scriptPath)).digest("hex");
+      finish({ ok: true, pid: Number(pid), digestMatches: digest === expected });
+    });
+    child.on("error", (error) => finish({ ok: false, detail: error.message }));
+    child.on("exit", () => {
+      if (!settled) finish({ ok: false, detail: `agent exited before its HELLO (${buffered.trim().slice(0, 80)})` });
+    });
+    child.stdin.end();
+  });
 }
 
 /**

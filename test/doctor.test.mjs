@@ -10,15 +10,18 @@
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { peerSatisfied } from "../scripts/doctor.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+/** The digest the agent script self-reports; the fake HELLO carries it. */
+const AGENT_DIGEST = createHash("sha256").update(readFileSync(join(ROOT, "agent", "wsl-agent.sh"))).digest("hex");
 
-/** @typedef {{ id: string, status: string, remedy?: string }} Check */
+/** @typedef {{ id: string, status: string, detail?: string, remedy?: string }} Check */
 /** @typedef {{ schemaVersion: number, checks: Check[], summary: Record<string, number> }} Report */
 
 if (process.platform === "win32") {
@@ -40,6 +43,11 @@ esac
 all="$*"
 case "$all" in
   *"-d ubuntu"*) [ "\${FAKE_STOPPED:-no}" = yes ] && { printf 'WSL_E_DISTRO_NOT_FOUND\n' >&2; exit 1; } ;;
+esac
+case "$all" in
+  *"--exec sh /"*)
+    if [ "\${FAKE_AGENT_DIGEST:-}" = bad ]; then printf 'HELLO|wsl-agent|5|deadbeef|4242\\n'; else printf 'HELLO|wsl-agent|5|${AGENT_DIGEST}|4242\\n'; fi
+    exit 0 ;;
 esac
 case "$all" in
   *"--exec sh -c"*)
@@ -142,6 +150,18 @@ try {
     assert.equal(/** @type {Report} */ (JSON.parse(fixed.stdout)).checks.find((entry) => entry.id === "fix.scopes")?.status, "ok");
   });
 
+  check("the agent handshake reports the pid and catches a digest mismatch", () => {
+    const good = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
+    const ok = good.checks.find((entry) => entry.id === "agent.handshake");
+    assert.equal(ok?.status, "ok");
+    assert.match(String(ok?.detail), /pid 4242/);
+    const bad = /** @type {Report} */ (JSON.parse(doctor(["--json"], { FAKE_AGENT_DIGEST: "bad" }).stdout));
+    const mismatch = bad.checks.find((entry) => entry.id === "agent.handshake");
+    assert.equal(mismatch?.status, "fail");
+    assert.match(String(mismatch?.detail), /MISMATCH/);
+    assert.match(String(mismatch?.remedy), /sync:windows/);
+  });
+
   check("the human output names the failing check and its remedy", () => {
     const run = doctor([], { FAKE_BWRAP: "no" });
     assert.equal(run.status, 1);
@@ -168,4 +188,4 @@ try {
   rmSync(scratch, { recursive: true, force: true });
 }
 
-console.log(`${passed}/7 doctor checks pass`);
+console.log(`${passed}/8 doctor checks pass`);

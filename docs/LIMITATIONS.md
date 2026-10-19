@@ -18,8 +18,10 @@ crosses the 9p share. What to know about the one substrate there is:
   Overwrites and edits keep the original bits. Run `chmod` (or ask the model to)
   when a new file must be executable.
 - **When the agent is out, file operations fail closed.** The distro stopped, or
-  the resident crashed past its one rebuild: `FS_IO_ERROR` naming the substrate,
-  with the recovery path in the message. There is no fallback I/O to degrade
+  the resident crashed through its revive budget: `FS_IO_ERROR` naming the
+  substrate, with the recovery path in the message. A single crash rides the
+  one rebuild (read-only ops only); a spent rebuild enters the bounded revival
+  (2/4/8 s), and three deaths make the state permanent with the restart remedy. There is no fallback I/O to degrade
   into — deliberately; the old failure message pointed at the share, and the
   share is what this plugin exists to keep the model off.
 - **The mutation guard survives to the write.** `createIfAbsent` publishes with
@@ -192,6 +194,19 @@ crosses the 9p share. What to know about the one substrate there is:
   does not exist — a configured `cwd` pointing at a deleted directory, for instance — is
   a separate case and is now reported as an error naming that directory, because
   `wsl.exe` would otherwise run the command in `/` and exit 0.
+
+## Agent diagnostics
+
+- **The doctor's `agent.handshake` check probes a fresh resident, not the live
+  one.** It starts `agent/wsl-agent.sh` in the distro, reads its HELLO (pid,
+  protocol, script digest) and stops it, so it proves that the agent path can
+  start and that the file the distro reads is the shipped one. It cannot read
+  the running app resident's last error — there is no IPC channel from a plugin
+  script to the app process — so that error stays in the app log. In-process,
+  `WslAgent.status()` exposes state, pid, lastError, deaths and pending.
+- **`dsh-wsl-*.scope` counts are point-in-time.** The doctor lists and inspects
+  the user scopes once; a scope created or stopped a moment later is not
+  reflected. `--fix` runs the same sweep the session preflight uses.
 
 ## Session-start advisories
 

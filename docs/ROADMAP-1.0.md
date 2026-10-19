@@ -493,19 +493,32 @@ agent round trips. Correctness first, but the latency needs a measured budget.
 **Priority:** P1 · **Size:** M · **Labels:** `area:reliability`,
 `type:feature`, `priority:P1`
 
+**Status:** implemented (2026-10-19): a resident that spends its one rebuild
+enters a bounded revival (2/4/8 s backoff, one fresh transport and one rebuild
+per attempt); after three deaths the refusal is permanent and names the restart
+remedy. `WslAgent.status()` exposes state, pid, lastError, deaths and pending.
+`pnpm run doctor` now probes a fresh shell resident (`agent.handshake`: pid,
+protocol, script digest) and still reports the agent cache and live/stale
+`dsh-wsl-*.scope` counts. The live app resident's last error has no IPC channel
+to the doctor, so the doctor reports its own probe failure and the app log
+keeps the live last error — documented in LIMITATIONS.
+
 **Why:** An in-flight agent death can take the filesystem substrate out until
 the app restarts; users experience "everything suddenly fails".
 
 **Acceptance:**
 
-- [ ] A failed agent is re-established on the next call with bounded backoff,
+- [x] A failed agent is re-established on the next call with bounded backoff,
       or fails with a named state and a restart remedy.
-- [ ] A status/doctor view reports the agent, scope and last error.
-- [ ] Fault injection covers in-flight EXEC, FS read and FS write.
-- [ ] Recovery does not replay mutation frames.
+- [x] A status/doctor view reports the agent, scope and last error (doctor:
+      fresh-agent handshake + scopes + probe error; `status()`: live snapshot;
+      the live resident's last error stays in the app log).
+- [x] Fault injection covers in-flight EXEC, FS read and FS write.
+- [x] Recovery does not replay mutation frames.
 
-**Tests/probes:** fake transport fault injection; real-machine kill/restart
-probe.
+**Tests/probes:** `test/agent.test.mjs` (revival, budget exhaustion, status,
+EXEC/read/write fault injection); `test/doctor.test.mjs` (handshake, digest
+mismatch); a real-machine kill/restart probe is still unrun.
 
 **Depends on:** WSL-102 for status output.
 

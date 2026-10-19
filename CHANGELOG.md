@@ -56,6 +56,22 @@ were part of the record.
   previous meaning of `distro: ''` (WSL's default): set `'default'` to keep that
   posture.
 
+### Fixed
+
+- **A cancelled command's signal can no longer kill the next one.** The
+  out-of-band USR1 carries no request id: a signal meant for a timed-out
+  command could land after the agent had moved on, and the next command then
+  died with exit 138 but reported `completed`. A host timeout no longer sends
+  the signal at all (the in-distro watcher is the one that kills that
+  command), and an explicit cancel now waits briefly and is dropped once the
+  request answered or a newer request is running.
+
+- **A missing workdir is reported with its path on the native agent.** The
+  native agent reports the failed spawn as reason `spawn`, without naming the
+  directory; the executor now treats that as its own error class and retries
+  the command on the one-shot path, whose `chdir(<path>) failed` warning names
+  the directory.
+
 ## [0.12.0] - 2026-10-19
 
 The GUI file service keeps the shipped `workspace-files` row: its server-only

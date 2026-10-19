@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { mock } from "node:test";
 import { AGENT_NAME, PROTOCOL_VERSION, encodeB64 } from "../lib/agent-protocol.js";
-import { AgentUnavailableError, CwdError } from "../lib/agent-errors.js";
+import { AgentUnavailableError, CwdError, SpawnError } from "../lib/agent-errors.js";
 import { WslAgent, agentLeaseEnv, pinnedWindowsEnv } from "../lib/agent.js";
 import { confinedAgent, resetConfinedAgents } from "../lib/agent-confined.js";
 import { bwrapProfileArgs } from "../lib/bwrap.js";
@@ -179,6 +179,8 @@ const CONFIG = { distro: "ubuntu", scriptPath: "/mnt/c/pkg/agent/wsl-agent.sh", 
 
 /** Two event-loop turns: enough for start() and the relay's microtask chain. */
 const flush = () => new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
+/** Wait past the cancel signal's grace so the delayed USR1 can land. */
+const settleCancel = () => new Promise((resolve) => setTimeout(resolve, 150));
 
 checkReg("exec rides the handshake and resolves with the decoded result", async () => {
   const child = new FakeAgentProcess();
@@ -540,6 +542,20 @@ checkReg("protocol garbage after the handshake is dropped, and a cwd rejection r
   await agent.close();
 });
 
+checkReg("a spawn rejection reads as SpawnError so the executor can retry one-shot", async () => {
+  const child = new FakeAgentProcess();
+  child.silent = true;
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  const settled = agent.exec({ cwd: "/gone", argv: ["true"], timeoutMs: 0 }).then(() => "resolved", (e) => e);
+  await flush();
+  child.stdout.write(`ERR|r0|spawn|${encodeB64("No such file or directory (os error 2)")}\n`);
+  const error = await settled;
+  assert.ok(error instanceof SpawnError, "a spawn failure is its own class, not the agent being out");
+  assert.match(error.message, /No such file or directory/);
+  await agent.close();
+});
+
 checkReg("an agentError that is not cwd reads as the agent being out", async () => {
   const child = new FakeAgentProcess();
   child.silent = true;
@@ -786,6 +802,7 @@ checkReg("an abort signals the running agent out of band", async () => {
   const error = await run;
   assert.ok(error instanceof Error);
   assert.match(error.message, /stop/);
+  await settleCancel();
   assert.deepEqual(signals, [{ wslPath: "wsl.exe", distro: "ubuntu", pid: 4242, signal: "SIGUSR1" }]);
   await agent.close();
 });
@@ -812,11 +829,40 @@ checkReg("a queued abort waits for the request to start before signalling", asyn
   assert.equal(signals.length, 0, "a request that has not started must not kill the running one");
   child.stdout.write(`ACK|${id}\n`);
   await flush();
+  await settleCancel();
   assert.deepEqual(signals, [{ wslPath: "wsl.exe", distro: "ubuntu", pid: 7, signal: "SIGUSR1" }], "the signal follows the ACK");
   child.stdout.write(`RES|${id}|0|${encodeB64("")}|${encodeB64("")}\n`);
   await flush();
   assert.equal(agent.pending.size, 0, "the late answer only cleans the cancelled entry");
   await agent.close();
+});
+
+checkReg("a stale cancel signal is dropped once a newer request is running", async () => {
+  /** @type {Array<{ wslPath: string, distro: string, pid: number, signal: NodeJS.Signals }>} */
+  const signals = [];
+  const child = new FakeAgentProcess({ helloPid: 31, hangOnExec: true });
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport, signalTransport: (options) => signals.push(options) });
+  const first = new AbortController();
+  const run = agent.exec({ cwd: "/", argv: ["sleep", "30"], timeoutMs: 0, signal: first.signal }).then(
+    () => "completed",
+    () => "aborted",
+  );
+  await flush();
+  const [firstId] = [...agent.pending.keys()];
+  assert.ok(firstId !== undefined);
+  // Abort the first, then let the agent answer it and ACK a newer request
+  // before the grace expires — exactly the interleaving that used to kill the
+  // new command with SIGUSR1.
+  first.abort(new Error("stop"));
+  assert.equal(await run, "aborted");
+  child.stdout.write(`RES|${firstId}|0|${encodeB64("")}|${encodeB64("")}\n`);
+  const second = agent.exec({ cwd: "/", argv: ["sleep", "30"], timeoutMs: 0 }).catch(() => undefined);
+  await flush();
+  await settleCancel();
+  assert.deepEqual(signals, [], "the old cancel must not reach the request that took its place");
+  await agent.close();
+  await second;
 });
 
 checkReg("a PID-namespaced resident is never signalled by its HELLO pid", async () => {
@@ -861,6 +907,7 @@ checkReg("a prefixed but PID-shared session runtime is signalable", async () => 
   await flush();
   controller.abort(new Error("stop"));
   await run;
+  await settleCancel();
   assert.deepEqual(signals, [{ wslPath: "wsl.exe", distro: "ubuntu", pid: 11, signal: "SIGUSR1" }]);
   await agent.close();
 });

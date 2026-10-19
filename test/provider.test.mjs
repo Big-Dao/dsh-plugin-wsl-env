@@ -872,6 +872,34 @@ check("an agent that is out falls back to the one-shot path, which is the point 
   assert.equal(factsOf(result), undefined, "the plain fallback is unfenced and says so: no sandbox fact");
 });
 
+check("an agent spawn rejection retries one-shot, where the missing workdir is named", async () => {
+  const { executor } = makeExecutor();
+  const { SpawnError } = await import("../lib/agent-errors.js");
+  executor.executionAgent = () => asAgent({ exec: async () => { throw new SpawnError("No such file or directory (os error 2)"); } });
+  /** @type {Array<readonly string[]>} */
+  const oneShots = [];
+  spawnView(executor).executeArgv = async (resolved, argvBuilder) => {
+    oneShots.push(await argvBuilder(new AbortController().signal));
+    return /** @type {ShellExecution} */ (/** @type {unknown} */ ({
+      result: async () => ({
+        exitCode: 1,
+        signal: null,
+        timedOut: false,
+        aborted: false,
+        timeoutMs: 5,
+        stdout: { text: "", lossy: false, truncated: false },
+        stderr: { text: "<3>WSL: CreateProcessCommon: chdir(/gone) failed: No such file or directory", lossy: false, truncated: false },
+      }),
+    }));
+  };
+  const execution = await executor.execute(spec({ command: "pwd", workdir: "/gone", timeoutMs: 5000 }));
+  await assert.rejects(
+    () => execution.result(),
+    /could not enter the working directory "\/gone"/,
+  );
+  assert.equal(oneShots.length, 1, "the spawn failure retried the command on the one-shot path");
+});
+
 check("spawnSpec pins the host cwd, WSL_UTF8, and the managed WSLENV translation", () => {
   const { executor } = makeExecutor();
   // The mounted config wraps volatile fields in getters; a direct construction

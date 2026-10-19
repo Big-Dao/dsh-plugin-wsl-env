@@ -52,8 +52,11 @@ import { WslSandbox } from "./sandbox.js";
 import { bwrapFailure, missingBwrapRemedy, withBwrapHint } from "./sandbox-core.js";
 import { armDistroWatcher } from "./watcher.js";
 import type { WslAgent } from "./agent.js";
-import { AgentUnavailableError } from "./agent-errors.js";
-import { agentExecutionHandle } from "./agent-exec.js";
+import { AgentUnavailableError, SpawnError } from "./agent-errors.js";
+
+/** The settled shape the agent handle's `result()` resolves with. */
+type AgentSettledResult = Awaited<ReturnType<AgentExecutionHandle["result"]>>;
+import { agentExecutionHandle, type AgentExecutionHandle } from "./agent-exec.js";
 import { sharedAgent } from "./agent-shared.js";
 import { AgentSubstrate } from "./fs-substrate.js";
 import { FsCodedError } from "./fsio-text.js";
@@ -766,7 +769,7 @@ export class WslShellExecutor
    * @param mapError - maps a rejection, when the caller has one.
    * @returns the same handle.
    */
-  static decorateResult<H extends { result(): Promise<unknown> }>(ex: H, map: (result: Awaited<ReturnType<H["result"]>>) => Awaited<ReturnType<H["result"]>>, mapError: (error: unknown) => Awaited<ReturnType<H["result"]>>): H {
+  static decorateResult<H extends { result(): Promise<unknown> }>(ex: H, map: (result: Awaited<ReturnType<H["result"]>>) => Awaited<ReturnType<H["result"]>>, mapError: (error: unknown) => Awaited<ReturnType<H["result"]>> | Promise<Awaited<ReturnType<H["result"]>>>): H {
     type R = Awaited<ReturnType<H["result"]>>;
     const handle = ex as { result: () => Promise<R> };
     const base = handle.result.bind(handle);
@@ -994,6 +997,13 @@ export class WslShellExecutor
       }) as typeof result;
     }, (error) => {
       if (resolved.signal?.aborted === true) resolved.signal.throwIfAborted();
+      // The native agent reports a missing workdir as a spawn failure without
+      // naming it. Retry that command on the one-shot path, whose `--cd`
+      // warning names the directory — the failure path pays the extra spawn,
+      // the hot path does not.
+      if (error instanceof SpawnError) {
+        return this.executeOneShot(resolved, distro, shell).then((fallback) => fallback.result() as unknown as AgentSettledResult);
+      }
       throw error;
     });
     // The agent handle IS the upstream execution shape at runtime; its typedef

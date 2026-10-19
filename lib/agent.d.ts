@@ -59,6 +59,8 @@ export interface ExecResult {
 export interface PendingRequest {
     /** The request id, as the agent echoes it. */
     id: string;
+    /** The request's numeric sequence; newer requests have a larger one. */
+    seq: number;
     /** Which metric bucket this request belongs to. */
     kind: "fs" | "exec";
     /** When the frame was written, for the queue measurement. */
@@ -87,6 +89,10 @@ export interface PendingRequest {
     cancelled: boolean;
     /** The caller was already settled; a late answer only cleans up. */
     settled: boolean;
+    /** Whether the agent has answered (RES or ERR); a late signal is then unsafe. */
+    answered: boolean;
+    /** The delayed cancel signal, so it can be dropped when the request settles. */
+    signalTimer: NodeJS.Timeout | null;
 }
 /** Per-kind request metrics. */
 export interface RequestMetrics {
@@ -227,6 +233,8 @@ export declare class WslAgent {
     nextRequestId: number;
     /** The requests in flight, keyed by their current id. */
     pending: Map<string, PendingRequest>;
+    /** The newest request the agent has ACKed; a cancel older than this is stale. */
+    lastAckedSeq: number;
     /** Whether the one permitted rebuild has been spent. */
     rebuildUsed: boolean;
     /** The idle-shutdown timer. */
@@ -526,6 +534,20 @@ export declare class WslAgent {
      * @param pending - the entry to clear.
      */
     private clearPending;
+    /**
+     * Deliver the out-of-band cancel signal after a short grace, and only while
+     * the request it was meant for is still the agent's current one.
+     *
+     * The signal has no request id: it interrupts whatever command the agent is
+     * blocked in. A timeout request is usually already being killed by the
+     * in-distro watcher, so an immediate signal can land after the agent moved
+     * on — the next request then dies with exit 138 (SIGUSR1) and looks
+     * `completed`. A newer ACK means the agent has answered the old request, so
+     * the signal is dropped; an answered request is dropped too.
+     *
+     * @param pending - the cancelled request.
+     */
+    private armCancelSignal;
 }
 /**
  * Rewrite the request id inside a stored frame so a resent request does not

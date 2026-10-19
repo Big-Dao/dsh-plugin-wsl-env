@@ -546,7 +546,7 @@ export declare class WslShellExecutor extends LocalBashExecutor {
      */
     static decorateResult<H extends {
         result(): Promise<unknown>;
-    }>(ex: H, map: (result: Awaited<ReturnType<H["result"]>>) => Awaited<ReturnType<H["result"]>>, mapError: (error: unknown) => Awaited<ReturnType<H["result"]>>): H;
+    }>(ex: H, map: (result: Awaited<ReturnType<H["result"]>>) => Awaited<ReturnType<H["result"]>>, mapError: (error: unknown) => Awaited<ReturnType<H["result"]>> | Promise<Awaited<ReturnType<H["result"]>>>): H;
     /**
      * Stamp the per-process sandbox facts before `done` settles, so a background
      * process reports the same mode, denial and enforcement a foreground run

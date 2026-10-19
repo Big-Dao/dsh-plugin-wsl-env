@@ -29,7 +29,7 @@
  * @module dsh-plugin-wsl/agent-exec
  */
 
-import { CwdError } from "./agent-errors.js";
+import { BASH_TIMEOUT_REASON, CwdError } from "./agent-errors.js";
 
 /** The request one agent `exec` carries. */
 export interface AgentExecRequest {
@@ -160,7 +160,7 @@ export function agentExecutionHandle({ agent, cwd, argv, timeoutMs = 0, maxOutpu
   if (timeoutMs > 0) {
     setTimeout(() => {
       timedOut = true;
-      controller.abort(new Error("BASH_TIMEOUT"));
+      controller.abort(new Error(BASH_TIMEOUT_REASON));
     }, timeoutMs).unref?.();
   }
 

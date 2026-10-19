@@ -29,7 +29,10 @@ echo "full probe suite; log: $LOG" >&2
 echo "waiting for the harness application to close..." >&2
 
 # Poll the Windows process list through interop until the app is gone.
-while tasklist.exe 2>/dev/null | grep -qi "DeepSeek Harness.exe"; do
+# `grep -q` must not be used here: it exits as soon as it matches, tasklist
+# then dies of SIGPIPE, and `pipefail` turns that into "the app is gone" on
+# the first iteration. The full read keeps the pipeline honest.
+while tasklist.exe 2>/dev/null | tr -d '\0' | grep -i "DeepSeek Harness.exe" >/dev/null; do
   sleep 5
 done
 echo "harness closed at $(date), starting the suite" >&2

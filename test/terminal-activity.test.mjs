@@ -101,12 +101,25 @@ if (process.platform !== "win32") {
     // script would NOT do: /proc/<pid>/environ shows the exec-time block
     // only, so the shell itself would stay unmarked and the count would
     // never pass one.
-    const background = spawn("sh", ["-c", "sleep 1.5 & wait"], { stdio: "ignore", detached: true, env: { ...process.env, [TERMINAL_ID_ENV]: id } });
+    const background = spawn("sh", ["-c", "sleep 3 & wait"], { stdio: "ignore", detached: true, env: { ...process.env, [TERMINAL_ID_ENV]: id } });
     background.unref();
-    await delay(300);
-    assert.equal(run(), "busy", "a marked shell with a live child is busy");
-    await delay(1700);
-    assert.equal(run(), "idle", "the marked shell has exited");
+    /**
+     * Poll the probe until it reports the wanted state, so a loaded suite cannot
+     * fail the check by delaying the mark's exec past a fixed sleep.
+     * @param {"busy" | "idle"} want - the state to wait for.
+     * @param {number} timeoutMs - the deadline.
+     * @returns {Promise<boolean>} whether the state was observed.
+     */
+    const waitFor = async (want, timeoutMs) => {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        if (run() === want) return true;
+        await delay(50);
+      }
+      return run() === want;
+    };
+    assert.equal(await waitFor("busy", 2500), true, "a marked shell with a live child is busy");
+    assert.equal(await waitFor("idle", 6000), true, "the marked shell has exited");
   });
 }
 

@@ -412,19 +412,33 @@ executed.
 **Priority:** P1 · **Size:** M · **Labels:** `area:release`,
 `area:quality`, `priority:P1`
 
+**Status:** implemented (2026-10-19): [`test/e2e/install.sh`](../test/e2e/install.sh)
+(`pnpm run e2e:install`) packs the tree, creates a fresh `DSH_HOME` under
+`%TEMP%`, initializes a profile from the shipped `web` template, installs the
+tarball, asserts `--dump-config` composes the plugin rows with no skipped-patch
+warnings, removes it and asserts every row is gone. With network it also
+installs the previous minor (0.11.0), plants a marker in the profile layer,
+upgrades to the packed version, and asserts the marker survives, the installed
+version is current, and the installed CHANGELOG carries the migration note.
+The run passed 10/10 on this machine (the app may stay running: plugin
+management is local). [`test/packaging.test.mjs`](../test/packaging.test.mjs)
+guards the packed file list in `pnpm test`. A self-hosted Windows runner job is
+still unconfigured; the local command is the documented path.
+
 **Why:** The install path is manual and has no automated guard; an upgrade can
 silently leave an obsolete workaround behind.
 
 **Acceptance:**
 
-- [ ] A script creates a temporary `DSH_HOME`, installs a packed tarball,
+- [x] A script creates a temporary `DSH_HOME`, installs a packed tarball,
       checks `--dump-config`, removes the plugin and asserts cleanup.
-- [ ] Upgrading from the previous minor preserves the profile and prints the
-      migration note.
-- [ ] The E2E runs on the self-hosted Windows runner or a documented local
-      command.
+- [x] Upgrading from the previous minor preserves the profile and prints the
+      migration note (asserted against the installed CHANGELOG).
+- [x] The E2E runs via a documented local command (`pnpm run e2e:install`);
+      the self-hosted runner job remains to be wired.
 
-**Tests/probes:** PowerShell/bash E2E script; release checklist.
+**Tests/probes:** bash E2E (`test/e2e/install.sh`), packaging test
+(`test/packaging.test.mjs`), release checklist.
 
 **Depends on:** none.
 

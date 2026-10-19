@@ -26,6 +26,12 @@ were part of the record.
   block to paste when a layer carries the nested id patch. See
   [docs/CONFIGURATION.md](docs/CONFIGURATION.md#overriding-the-rows-inside-preset-wsl).
 
+- **Install/upgrade/uninstall E2E.** `pnpm run e2e:install` packs the tree,
+  installs it into a fresh `%TEMP%` `DSH_HOME`, composes `--dump-config`, removes
+  it, and upgrades from the previous minor with a marker proving the profile
+  layer survived. `test/packaging.test.mjs` keeps the packed file list honest in
+  `pnpm test`.
+
 - **The doctor probes the resident agent.** `agent.handshake` starts the
   shipped shell agent in the distro, reads its HELLO (pid, protocol, script
   digest) and stops it, so a missing or stale agent script is a named check

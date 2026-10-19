@@ -33,3 +33,6 @@ test/probe/.scratch/
 .zcode/plans/
 # Cargo's home for the native spike's local builds (never shipped).
 .cargo-home/
+
+# Install E2E scratch: packed tarballs, npm cache and logs.
+test/e2e/.scratch/

@@ -178,6 +178,7 @@ terminal if you would rather not see the prompt.
 | `pnpm run lint:style` | style and lint rules | no |
 | `pnpm run lint:build` | the build-freshness check: every source has its artifacts and the committed bytes match a real build | no |
 | `pnpm run lint:types` | the TypeScript check over `test/**` and the ambient types (`tsc --noEmit`) | no |
+| `pnpm run e2e:install` | packed-tarball install/upgrade/uninstall into a temporary `DSH_HOME` | yes; Windows + WSL |
 | `pnpm run doctor` | the environment prerequisites, peers and caches (`--json` for scripts; `diagnose` is the read-only alias) | no; inside the distro |
 | `pnpm run probe` | filesystem behaviour against a real distro | yes |
 | `pnpm run probe:sandbox` | what bubblewrap confines and what it does not | no |

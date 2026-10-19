@@ -139,6 +139,21 @@ export declare function windowsToLinuxMount(winPath: string): string | undefined
  */
 export declare function toLinuxPath(value: string, options?: WorldPathOptions): string;
 /**
+ * Join a requested path onto a workspace root in the distro's Linux
+ * coordinate system: UNC absolutes map to their Linux paths, POSIX absolutes
+ * win over the root, and relative paths join onto it.
+ *
+ * This is the path half of the shipped `workspace-files` service's `ctx.fs`
+ * calls: the routed backend receives the same path/`cwd` pairs a host
+ * workspace would, so the stock service can serve a distro workspace without a
+ * second implementation.
+ *
+ * @param linuxRoot - the workspace root in Linux form.
+ * @param path - the requested path, in any coordinate system.
+ * @returns the absolute Linux path.
+ */
+export declare function linuxJoin(linuxRoot: string, path: string): string;
+/**
  * Resolve a caller-supplied path into the UNC coordinate system the host's fs
  * calls use. Linux paths from the model, UNC paths from the harness, and
  * Windows paths from the host all have to land somewhere real.

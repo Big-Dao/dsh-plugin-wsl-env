@@ -160,6 +160,11 @@ git 自己的 "command not found"（exit 127）——与搜索同样是**拒绝�
 > `fs-sandbox` 行，设计文档见 `docs/root-fs-routing.md`）。下文保留当时的方案与
 > 权衡；表内与实现不一致的四处配方（list/stat/read/readBytes）已就地更正为实际形态。
 
+> **状态（2026-10-19）**：路线一已撤销。`workspace-files-wsl` 是 server-only
+> 替换，而 DSH 的浏览器 boot graph 只扫描启用行的包；随包 `workspace-files`
+> 行的 `dsh.client` 因此不再加载，侧边栏预览报“文件资源服务不可用”。默认组合
+> 改用路线二：保留随包 `workspace-files` 行，经 `fs-routing` 读写 WSL 路径。
+
 源码事实（`packages/api/workspace-files/src/index.ts`，465 行）：`WorkspaceFiles
 extends TypertRemoteService`，`inject=['fs','sandboxPolicy','sessions','typert']`；
 read/readBytes/stat/list/changes 五个 @Remote 操作**全部漏斗到 `this.ctx.fs`**

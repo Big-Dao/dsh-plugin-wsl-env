@@ -17,16 +17,16 @@ DeepSeek Harness 的 WSL 集成插件：把一个 WSL 发行版配置为会话�
 ## 硬性规则
 
 - `lib/` 整体是 `src/<name>.ts` 的编译产物，产物提交进仓（克隆后免构建即可加载——Harness 无转译层）。改 `src/` 后重新构建；`lint:build` 自动校验逐字节一致与 `lib/`↔`src/` 一一对应。
-- peer 版本与 harness 同步升级，不单独动：`@deepseek-ai/dsh-*` 锁定为 0.2.1-rc.2，另两条 `@deepseek-ai/cordis` 为 `~4.0.5`、`@deepseek-ai/schemastery` 为 `~3.18.5`。本插件以子类扩展 peer：`WslShellExecutor extends LocalBashExecutor`、fs 提供者继承 `LocalFileSystem`、`WorkspaceFilesWsl` 继承 `WorkspaceFiles`。
+- peer 版本与 harness 同步升级，不单独动：`@deepseek-ai/dsh-*` 锁定为 0.2.1-rc.2，另两条 `@deepseek-ai/cordis` 为 `~4.0.5`、`@deepseek-ai/schemastery` 为 `~3.18.5`。本插件以子类扩展 peer：`WslShellExecutor extends LocalBashExecutor`、fs 提供者继承 `LocalFileSystem`；GUI 文件服务不接管，沿用随包的 `workspace-files` 行。
 - 代码风格：双引号、2 空格、LF、禁 tab/BOM；包根只有一个 README（中文版在 `docs/`）。
 - 类型收窄用 `assert.ok` 或带注释的 `as`；不用 `any` 与 `!` 非空断言。`.ts` 里 JSDoc `@type` 不是类型断言，必须用 `as`。
 - 类型检查分工：`tsc --noEmit`（checkJs）查 `test/**` 与 `types/*.d.ts`；`src/` 由构建程序查（strict + `noUncheckedIndexedAccess` + `noUnusedLocals`，`noEmitOnError`）；`lib/**` 不参与。
 - 单元测试直接运行 `lib/*.js`（发布产物），运行器为 `node --test`；测试文件多为可直接 `node test/<name>.test.mjs` 执行的 `node:assert` 脚本，只有个别文件用 `node:test` 模块（取 `mock` / `it`）。
-- `@ts-expect-error` 仅用于已记录的上游接口缺口：行内注明原因，并在 `docs/UPSTREAM-*.md` 或源码注释中记录缺口。现存两处：`src/index.ts` 那处引用 `docs/UPSTREAM-SPAWN-SEAM.md`；`src/workspace-files-wsl.ts` 的 exit-4 relay 缺口只在同文件注释中说明——relay 不上报条目类型（kind 只能猜），如实修复需要改协议，故有意保留可见。
+- `@ts-expect-error` 仅用于已记录的上游接口缺口：行内注明原因，并在 `docs/UPSTREAM-*.md` 或源码注释中记录缺口。现存一处：`src/index.ts` 那处引用 `docs/UPSTREAM-SPAWN-SEAM.md`。
 
 ## 架构边界
 
-- 组合层按路径坐标路由：根级 fs 是 `WslRoutingFileSystem`（distro UNC → agent 实现，盘符路径 → 宿主后端）；GUI 文件服务 `WorkspaceFilesWsl` 的宿主路径走父类实现。服务装配在 `cordis.patch.yml`。
+- 组合层按路径坐标路由：根级 fs 是 `WslRoutingFileSystem`（distro UNC → agent 实现，盘符路径 → 宿主后端）；GUI 文件服务沿用随包的 `workspace-files` 行，经根级路由读取 WSL 路径（多几次 agent 往返，见 `docs/LIMITATIONS.md`）。服务装配在 `cordis.patch.yml`。
 - 默认命令路径与受限写入走 session runtime 的 native agent（`agent/native/linux-<arch>/dsh-wsl-agent`，由 `agentBackend: auto` 按 distro `uname -m` 选择）；shell agent（`agent/wsl-agent.sh` + `lib/agent.ts`）是回退与 `agentBackend: shell` 的强制路径。两者共用 v5 协议：stderr 侧信道（`dsh-fs|reason|base64`、退出码约定）与 `lib/agent-protocol.ts` 的帧编解码必须同步修改。无约束 FS 读走 `lib/agent-shared.ts` 的共享 agent（A7 起默认 native，`agentBackend: shell` 或 native 失败时回退 shell；它也是 A6 实测的批量读瓶颈）；命令执行另有一条并行的回退路径：agent 失效（`AgentUnavailableError`）或配置 `agent: false` 时改走一次性 `wsl.exe`（`src/index.ts` 的 `executeOneShot`）——两条路径的隔离、输出预算与结果装饰一致，真机探针逐项对拍，改命令执行时两条都要同步。文件操作没有回退：agent 失效即 fail closed（`FS_IO_ERROR`）。
 - agent 实例按 distro 缓存为全局单例（`lib/agent-shared.ts`），有意不注册为 ctx 服务——根上下文与会话级隔离上下文必须共享同一常驻进程。
 - 命令隔离在 distro 内由 `bwrap` 执行（`lib/sandbox-core.ts`）。`enforcement: "partial"` 与如实上报的 `sandboxMode` 是对外契约，不得声称未执行的隔离。

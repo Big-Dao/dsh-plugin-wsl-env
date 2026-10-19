@@ -304,7 +304,7 @@ On Windows 11 + WSL2 (Ubuntu 26.04) the following has been verified:
   outside the session workspace is refused inside the distro and the following
   wider-permission request succeeds.
 
-Counts: 28 unit test files under `test/` — 27 of them registered in the
+Counts: 33 unit test files under `test/` — 32 of them registered in the
 `test:unit` list, see the OI-7 note above — which need the pinned packages
 installed, and over 1000 `assert` call sites across them; 19 filesystem-probe
 assertions; 15 shell-probe checks; 9 picker checks; 6 missing-executable checks;

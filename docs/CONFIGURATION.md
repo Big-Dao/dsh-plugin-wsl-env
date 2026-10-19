@@ -7,7 +7,7 @@ profile layer: `$DSH_HOME/profiles/<name>/cordis.patch.yml`. Start from
 reference for every value the plugin ships.
 
 Which rows a patch can reach depends on where they sit. `fs-routing`,
-`workspace-files-wsl`, `directory-picker-wsl`, `subprocess-wsl`, `wsl-shell-env`
+`directory-picker-wsl`, `subprocess-wsl`, `wsl-shell-env`
 and `preset-wsl` are top-level rows, so `- id: <row>` in your layer patches them.
 `wsl-shell` and `wsl-fs` are not top-level: they are plugins of the `wsl` agent
 preset, nested inside the `preset-wsl` row's `config.plugins`. A patch that
@@ -47,10 +47,6 @@ has its own table at the end of this page.
 | | `restrictToDistro` | `true` *(shipped)* | refuse a path in another distro's share (`FS_OUTSIDE_DISTRO`) |
 | | `watchMaxDepth` | `0` *(shipped)* | how deep the routed watch scan walks; `0` walks the whole tree and enables the inotify backend; a positive value keeps the polling scan |
 | | `distroCwd` | `''` | the routed backend's default workdir; empty means the distro user's home. `cwd` belongs to the host backend only — the distro side reads `distroCwd` — while `diffBasisMaxBytes` is shared: it bounds the overwrite diff on both sides |
-| `workspace-files-wsl` | `maxBytes` | `2097152` *(shipped)* | byte cap on one page of a text read, and the default byte window of a byte read |
-| | `maxFileBytes` | `33554432` *(shipped)* | full-file byte cap for the byte reader |
-| | `maxLines` | `5000` *(shipped)* | line cap on one text read |
-| | `maxEntries` | `2000` *(shipped)* | directory entries listed per level before the listing is flagged truncated |
 | `directory-picker-wsl` | `preferredDistro` | `''` *(shipped)* | the distro listed first in the picker |
 | | `includeHostHome` | `true` *(shipped)* | also list the Windows home directory |
 | | `maxEntries` | `1000` *(shipped)* | maximum entries listed per directory |
@@ -59,6 +55,11 @@ has its own table at the end of this page.
 | | `loginShell` | `true` | whether a pinned shell uses login semantics |
 | | `hostSessions` | `true` | give a session opened on a Windows folder a host `powershell.exe` in its own directory instead of the distro shell at `/mnt/<drive>/…`; `false` restores the composition-owned distro terminal for every session |
 | | `terminalIdleReclaim` | `true` | let the controller reclaim an idle distro terminal: the launch is marked with a per-terminal `DSH_TERMINAL_ID`, and the handle's `inspectActivity` counts the marked processes through the resident agent — one (the shell at its prompt) is idle, more than one (a running command or a nested shell) is busy, `unknown` (agent out) pauses reclamation. `false` restores close-by-hand |
+
+The GUI file tree and previews use the shipped `workspace-files` row, not a plugin
+row. Its caps are the peer defaults (`maxBytes` 2 MiB, `maxFileBytes` 32 MiB,
+`maxLines` 5000, `maxEntries` 2000); override them with `- id: workspace-files`
+in your own layer.
 
 ## Overriding the rows inside `preset-wsl`
 

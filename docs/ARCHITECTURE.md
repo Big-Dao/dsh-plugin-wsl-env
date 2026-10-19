@@ -26,19 +26,25 @@ root-plane services, and adds three smaller integrations.
 extends the shipped `LocalFileSystem`. Only the parts that need a distro are
 overridden.
 
-## The two root-plane takeovers
+## The root-plane filesystem takeover
 
-Two of the shipped services are session-less — the GUI file tree and the root
-`ctx.fs` — so they cannot be served from an agent preset. The layer replaces
-their shipped rows outright, with subclasses that route by coordinate:
+One of the shipped services is session-less — the root `ctx.fs` — so it cannot
+be served from an agent preset. The layer replaces its shipped row outright with
+a subclass that routes by coordinate:
 
 | Service | Class | File | What it does |
 |---|---|---|---|
-| `ctx.workspaceFiles` | `WorkspaceFilesWsl` | [`lib/workspace-files-wsl.js`](../lib/workspace-files-wsl.js) | The GUI file tree and previews for a `\\wsl.localhost\<distro>` workspace, served from inside the distro over the resident agent instead of Windows-side 9P walks. Extends the shipped service: a distro UNC routes distro-side, a drive path calls `super`, and the watch stream delegates unchanged — so replacing the row is safe for Windows-folder sessions too. Replaces the shipped `workspace-files` row. |
 | `ctx.fs` (root plane) | `WslRoutingFileSystem` | [`lib/fs-routing.js`](../lib/fs-routing.js) | The root filesystem, routed by coordinate: a distro UNC identity is served by the resident agent (real watch events, ext4 reads), a drive path stays host-native. Replaces the shipped `fs-sandbox` row, whose write fence has no root-plane consumers — the model's writes ride the preset filesystems. [`root-fs-routing.md`](root-fs-routing.md) is the design. |
 
-Both routes are composition-level for the mirror-image reason the terminal is
-(see below): no session identity reaches them. Each takeover is a top-level
+The GUI file tree and previews keep the shipped `workspace-files` row. Its
+client half is the browser `file` resource provider the Sidebar previews need,
+so replacing the row with a server-only subclass would drop it; the shipped
+service reads WSL paths through the routed root filesystem instead. The cost is
+extra `ctx.fs` round trips per listing, `stat` or page read (see
+[LIMITATIONS](LIMITATIONS.md)).
+
+The takeover is composition-level for the mirror-image reason the terminal is
+(see below): no session identity reaches the root filesystem. It is a top-level
 `disabled:` entry targeting the shipped row plus a bare `insert:` list holding
 the replacement — because a `disabled` written *inside* an insert list is not a
 patch but a duplicate-id data row, and a nested `insert:` is never interpreted at
@@ -79,7 +85,7 @@ The environment is per session, not per process:
 |---|---|---|
 | `wsl-shell`, `wsl-fs` | inside `preset-wsl`, an agent preset with isolate realms | so one process can serve a Windows workspace and a distro workspace at the same time |
 | `subprocess-wsl` | at the app level, called the composition; the shipped `subprocess` row is disabled | because no session identity reaches the terminal controller, see below |
-| `workspace-files-wsl` | at the app level; the shipped `workspace-files` row is disabled | the GUI file tree is session-less, so it cannot be served from a preset |
+| `workspace-files` | shipped, not replaced | its client half is the browser `file` resource provider the Sidebar previews need; it reads WSL paths through the routed root filesystem |
 | `fs-routing` | at the app level; the shipped `fs-sandbox` row is disabled | the root `ctx.fs` is session-less, and its write fence has no root-plane consumers |
 | `directory-picker-wsl`, `wsl-shell-env`, `auto-preset` | at the app level | they answer questions that are not scoped to a session |
 
@@ -282,7 +288,8 @@ failures are named as well. Every `FsError` code the plugin itself raises appear
 below — a model sees the code, and a reader asking what refused them finds it here.
 Codes the shipped host stack raises behind a drive path pass through
 `lib/fs-routing.js` unchanged and are the peer's, not this table's; the GUI file
-tree's own wire refusals are a separate dialect, listed after the table.
+service is the shipped `workspace-files` row, so its wire refusals are the peer's
+own dialect, described after the table.
 
 | Code | Raised by | Meaning | What clears it |
 |---|---|---|---|
@@ -301,14 +308,11 @@ tree's own wire refusals are a separate dialect, listed after the table.
 | `FS_EDIT_NOT_FOUND` | `lib/fsio-text.js` (`applyLiteralEdit`) | `old_string` was empty, or matched nothing in the file | give an `old_string` the file actually contains |
 | `FS_AMBIGUOUS_EDIT` | `lib/fsio-text.js` (`applyLiteralEdit`) | `old_string` matched more than once and `replace_all` was not set | make `old_string` unique, or set `replace_all` |
 
-The GUI file tree speaks a second dialect. `WorkspaceFilesWsl` refuses through the
-typert wire's `RemoteError`s, not `FsError`s, so its codes are not in the table
-above: `workspace-file/not-found`, `workspace-file/outside-workspace`,
-`workspace-file/not-directory`, `workspace-file/not-regular-file`,
-`workspace-file/not-text`, and `workspace-file/too-large` (one code for both the
-full-file cap and the byte-window cap), plus `gateway/bad-request` for a malformed
-page request (a non-integer offset, or a limit above `maxLines`). A drive-path
-workspace calls the shipped service and gets the peer's own answers instead.
+The GUI file service keeps the shipped `workspace-files` row, so its wire
+refusals are the peer's `workspace-file/*` dialect (plus `gateway/bad-request`
+for a malformed page request), not this plugin's `FsError` codes. The plugin
+supplies the routed `ctx.fs`; an agent outage reaches the service as
+`FS_IO_ERROR` and the peer maps it.
 
 Two failures come from `wsl.exe` itself rather than from a code of ours, and both used
 to be invisible:
@@ -361,9 +365,8 @@ waits for the app to exit and then runs the whole real-machine suite once —
 The unit tests come in two kinds: most import only Node builtins, while
 [`test/composition.test.mjs`](../test/composition.test.mjs),
 [`test/fs.boot.test.mjs`](../test/fs.boot.test.mjs),
-[`test/fsio-agent.test.mjs`](../test/fsio-agent.test.mjs),
-[`test/provider.test.mjs`](../test/provider.test.mjs) and
-[`test/workspace-files-wsl.test.mjs`](../test/workspace-files-wsl.test.mjs) import
+[`test/fsio-agent.test.mjs`](../test/fsio-agent.test.mjs) and
+[`test/provider.test.mjs`](../test/provider.test.mjs) import
 pinned `@deepseek-ai/*` development dependencies (the composition and boot tests run
 the loader's real patch algorithm). One `pnpm install` reproduces that tree before
 the first run; the runtime package itself still ships zero dependencies. CI runs
@@ -444,10 +447,6 @@ src/terminal-activity.ts     the distro-side activity probe for idle terminal
                              reclamation
 src/terminal-route.ts        which execution world a terminal launch belongs to (pure)
 src/watcher.ts               in-distro file watching for WslFileSystem.watch
-src/workspace-files-route.ts pure builders and parsers for the routed
-                             workspace-files service
-src/workspace-files-wsl.ts   WorkspaceFilesWsl (ctx.workspaceFiles), the GUI
-                             file tree and previews
 src/wsl.ts                   wsl.exe interop primitives (no DSH imports)
 ```
 

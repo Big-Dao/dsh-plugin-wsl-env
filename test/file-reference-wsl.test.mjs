@@ -2,7 +2,7 @@
  * The `@` completion traversal prototype (lib/file-reference-wsl.js): the
  * routing decisions, the distro listing argv and its Dirent-faithful parse,
  * the per-segment resolve walk, and the strategy's coordinate dispatch —
- * over a fake agent runner, the same shape workspace-files-wsl tests use.
+ * over a fake agent runner.
  *
  *   node test/file-reference-wsl.test.mjs
  */

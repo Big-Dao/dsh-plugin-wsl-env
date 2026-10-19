@@ -110,6 +110,31 @@ crosses the 9p share. What to know about the one substrate there is:
   kernel can actually report change.
 - `editText` reads the whole file into memory before writing it back.
 
+## The GUI workspace-files service
+
+- **The GUI file tree and previews use the shipped `workspace-files` row.** The
+  plugin deliberately does not replace it: its client half is the browser `file`
+  resource provider the Sidebar previews need, and a server-only replacement
+  drops it (the earlier `workspace-files-wsl` takeover did exactly that). The
+  shipped service reads WSL paths through the routed root filesystem
+  (`fs-routing`), so the file tree and previews still run inside the distro.
+
+- **That path costs extra agent round trips.** A listing, `stat` or page read
+  goes through `ctx.fs` before reaching the resident agent: roughly four to six
+  round trips instead of one, and a deep page read streams the preceding lines
+  through the pipe before cutting. Expect the GUI file tree and previews to be
+  slower than a direct agent call, especially on large files; the model's own
+  file operations are unaffected — they use the preset filesystem and the
+  resident agent directly.
+
+- **`fs-routing` is the seam.** The shipped service depends on the routed root
+  filesystem staying enabled and faithful to the `ctx.fs` contract (`resolve`,
+  `lstat`, `stat`, `listDir`, `streamText`, `readBytes`, `watch`, `contains`,
+  `processPath`). Disabling `fs-routing` restores the host 9p-backed root
+  filesystem, and the GUI file service then crosses 9p for WSL workspaces. The
+  shipped row's own caps (`maxBytes`, `maxFileBytes`, `maxLines`, `maxEntries`)
+  can be overridden on the `workspace-files` row.
+
 ## The sandbox
 
 - **The one-shot fallback has only the host deadline.** With `agent: false`, or

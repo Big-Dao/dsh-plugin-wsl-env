@@ -23,7 +23,6 @@ import Loader from "@deepseek-ai/cordis-plugin-loader";
 import { WslRoutingFileSystem } from "../lib/fs-routing.js";
 import { WslFileSystem } from "../lib/index.js";
 import { FsTargetKey } from "@deepseek-ai/dsh-fs";
-import { WorkspaceFilesWsl } from "../lib/workspace-files-wsl.js";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -122,23 +121,16 @@ check("the patch applies without skipped-patch warnings", () => {
   assert.deepEqual(warnings, [], "a warning means a targeted row was absent from the composed tree");
 });
 
-check("upstream workspace-files is disabled by name, not shadowed", () => {
+check("upstream workspace-files stays enabled for its client file provider", () => {
   const row = byId.get("workspace-files");
   assert.equal(row?.name, "@deepseek-ai/dsh-api-workspace-files", "the shipped row keeps its identity");
-  assert.equal(row?.disabled, true, "the 9p-backed service is off");
+  assert.equal(row?.disabled, undefined, "the shipped service and its browser file provider stay mounted");
 });
 
 check("upstream fs-sandbox is disabled by name, not shadowed", () => {
   const row = byId.get("fs-sandbox");
   assert.equal(row?.name, "@deepseek-ai/dsh-fs-sandbox", "the shipped row keeps its identity");
   assert.equal(row?.disabled, true, "the root 9p-backed filesystem is off");
-});
-
-check("workspace-files-wsl is mounted as a real top-level row", () => {
-  const row = byId.get("workspace-files-wsl");
-  assert.equal(row?.name, "dsh-plugin-wsl-env/workspace-files-wsl");
-  assert.equal(row?.disabled, undefined);
-  assert.ok(row?.config && typeof row?.config === "object", "the variant carries its config");
 });
 
 check("fs-routing is mounted as a real top-level row", () => {
@@ -159,15 +151,14 @@ check("the established host-side disables still land", () => {
   assert.equal(byId.get("directory-picker")?.disabled, true);
 });
 
-check("the takeover rows actually START through the Loader, not just compose", async () => {
-  // Patch algebra proves the rows land in the tree; only a boot proves the
-  // names resolve and the Configs accept. The composed takeover rows are
-  // booted through the real Loader exactly the way the app mounts them.
+check("the routed root filesystem actually starts through the Loader, not just composes", async () => {
+  // Patch algebra proves the row lands in the tree; only a boot proves the
+  // name resolves and the Config accepts. The composed row is booted through
+  // the real Loader exactly the way the app mounts it.
   const root = await mkdtemp(join(tmpdir(), "dsh-wsl-env-composition-"));
   try {
     const configPath = join(root, "cordis.yml");
     const rows = [
-      { id: "workspace-files-wsl", name: "workspace-files-wsl-under-test", config: { maxBytes: 1024, maxFileBytes: 1024, maxLines: 10, maxEntries: 10 } },
       { id: "fs-routing", name: "fs-routing-under-test", config: { distro: "", wslPath: "wsl.exe", sandbox: true, restrictToDistro: true } },
     ];
     await writeFile(configPath, JSON.stringify(rows));
@@ -187,7 +178,6 @@ check("the takeover rows actually START through the Loader, not just compose", a
     await context.plugin(Loader);
     context.loader.builtins.include = Include;
     stubLoaderInternal(context.loader, async (specifier) => {
-      if (specifier === "workspace-files-wsl-under-test") return WorkspaceFilesWsl;
       if (specifier === "fs-routing-under-test") return WslRoutingFileSystem;
       throw new Error(`unexpected Loader import: ${specifier}`);
     });
@@ -273,9 +263,6 @@ check("the takeover rows actually START through the Loader, not just compose", a
     assert.equal(router.contains(hostDir, await router.resolve(join(root, "host-dir", "child.txt"))), true);
     const closeHost = await router.watch(hostDir, () => {}, AbortSignal.timeout(5000));
     await closeHost();
-    // The workspace-files variant's class constructed with its config: its
-    // provider identity is the takeover, not the shipped base.
-    assert.equal(WorkspaceFilesWsl.Config !== undefined, true);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -7,7 +7,7 @@
  */
 import assert from "node:assert/strict";
 import { distroContains, targetIsDistro, inputIsDistro } from "../lib/fs-routing.js";
-import { linuxJoin } from "../lib/workspace-files-route.js";
+import { linuxJoin } from "../lib/paths.js";
 
 let passed = 0;
 /** @type {Array<[string, () => void | Promise<void>]>} */

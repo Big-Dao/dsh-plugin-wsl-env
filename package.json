@@ -75,10 +75,6 @@
     },
     "./subprocess/locale/en.json": "./locale/subprocess/en.json",
     "./subprocess/locale/zh.json": "./locale/subprocess/zh.json",
-    "./workspace-files-wsl": {
-      "types": "./lib/workspace-files-wsl.d.ts",
-      "default": "./lib/workspace-files-wsl.js"
-    },
     "./wsl": {
       "types": "./lib/wsl.d.ts",
       "default": "./lib/wsl.js"
@@ -120,9 +116,9 @@
     "lint:types": "tsc --noEmit",
     "build": "node scripts/build.mjs",
     "lint:build": "node test/build-freshness.mjs",
-    "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=85 --test-coverage-branches=84 --test-coverage-functions=70 test/agent-exec.test.mjs test/agent-fs-script.test.mjs test/agent-protocol.test.mjs test/agent.test.mjs test/fs-substrate.test.mjs test/fs.boot.test.mjs test/workspace-files-wsl.test.mjs test/composition.test.mjs test/provider.test.mjs test/file-reference-wsl.test.mjs test/fsio-agent.test.mjs test/fsio-text.test.mjs test/git-route.test.mjs test/listing.test.mjs test/paths.test.mjs test/ports.test.mjs test/preset-choice.test.mjs test/probe-cache.test.mjs test/preflight.test.mjs test/sandbox.test.mjs test/search-exec.test.mjs test/search-route.test.mjs test/shell.test.mjs test/terminal-activity.test.mjs test/terminal.test.mjs test/watcher.test.mjs test/wsl.test.mjs test/fs-decisions.test.mjs test/session-scope.test.mjs test/session-runtime.test.mjs test/native-agent.test.mjs test/peers.test.mjs test/agent-shared.test.mjs",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=85 --test-coverage-branches=84 --test-coverage-functions=70 test/agent-exec.test.mjs test/agent-fs-script.test.mjs test/agent-protocol.test.mjs test/agent.test.mjs test/fs-substrate.test.mjs test/fs.boot.test.mjs test/composition.test.mjs test/provider.test.mjs test/file-reference-wsl.test.mjs test/fsio-agent.test.mjs test/fsio-text.test.mjs test/git-route.test.mjs test/listing.test.mjs test/paths.test.mjs test/ports.test.mjs test/preset-choice.test.mjs test/probe-cache.test.mjs test/preflight.test.mjs test/sandbox.test.mjs test/search-exec.test.mjs test/search-route.test.mjs test/shell.test.mjs test/terminal-activity.test.mjs test/terminal.test.mjs test/watcher.test.mjs test/wsl.test.mjs test/fs-decisions.test.mjs test/session-scope.test.mjs test/session-runtime.test.mjs test/native-agent.test.mjs test/peers.test.mjs test/agent-shared.test.mjs",
     "test:syntax": "node test/syntax.mjs",
-    "test:unit": "node --test test/fs.boot.test.mjs test/fsio-text.test.mjs test/workspace-files-wsl.test.mjs test/composition.test.mjs test/provider.test.mjs test/file-reference-wsl.test.mjs test/paths.test.mjs test/listing.test.mjs test/shell.test.mjs test/terminal.test.mjs test/probe-cache.test.mjs test/preflight.test.mjs test/preset-choice.test.mjs test/sandbox.test.mjs test/agent-protocol.test.mjs test/agent.test.mjs test/agent-fs-script.test.mjs test/fsio-agent.test.mjs test/fs-substrate.test.mjs test/agent-exec.test.mjs test/ports.test.mjs test/watcher.test.mjs test/wsl.test.mjs test/fs-decisions.test.mjs test/git-route.test.mjs test/fsio-text.test.mjs test/search-route.test.mjs test/search-exec.test.mjs test/terminal-activity.test.mjs test/session-scope.test.mjs test/session-runtime.test.mjs test/native-agent.test.mjs test/peers.test.mjs test/agent-shared.test.mjs",
+    "test:unit": "node --test test/fs.boot.test.mjs test/fsio-text.test.mjs test/composition.test.mjs test/provider.test.mjs test/file-reference-wsl.test.mjs test/paths.test.mjs test/listing.test.mjs test/shell.test.mjs test/terminal.test.mjs test/probe-cache.test.mjs test/preflight.test.mjs test/preset-choice.test.mjs test/sandbox.test.mjs test/agent-protocol.test.mjs test/agent.test.mjs test/agent-fs-script.test.mjs test/fsio-agent.test.mjs test/fs-substrate.test.mjs test/agent-exec.test.mjs test/ports.test.mjs test/watcher.test.mjs test/wsl.test.mjs test/fs-decisions.test.mjs test/git-route.test.mjs test/fsio-text.test.mjs test/search-route.test.mjs test/search-exec.test.mjs test/terminal-activity.test.mjs test/session-scope.test.mjs test/session-runtime.test.mjs test/native-agent.test.mjs test/peers.test.mjs test/agent-shared.test.mjs",
     "lint:style": "node test/style.mjs",
     "prepublishOnly": "pnpm test",
     "probe": "bash test/probe/run.sh",
@@ -166,7 +162,6 @@
     "@deepseek-ai/cordis": "4.0.5",
     "@deepseek-ai/cordis-plugin-include": "*",
     "@deepseek-ai/cordis-plugin-loader": "*",
-    "@deepseek-ai/dsh-api-workspace-files": "0.2.1-rc.2",
     "@deepseek-ai/dsh-bash-local": "0.2.1-rc.2",
     "@deepseek-ai/dsh-fs": "0.2.1-rc.2",
     "@deepseek-ai/dsh-fs-local": "0.2.1-rc.2",
@@ -184,7 +179,6 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.5",
-    "@deepseek-ai/dsh-api-workspace-files": "0.2.1-rc.2",
     "@deepseek-ai/dsh-bash-local": "0.2.1-rc.2",
     "@deepseek-ai/dsh-fs": "0.2.1-rc.2",
     "@deepseek-ai/dsh-fs-local": "0.2.1-rc.2",
@@ -197,9 +191,6 @@
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": {
-      "optional": true
-    },
-    "@deepseek-ai/dsh-api-workspace-files": {
       "optional": true
     },
     "@deepseek-ai/dsh-bash-local": {

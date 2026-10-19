@@ -74,10 +74,9 @@ targetKey（或 path/cwd）是 \\wsl.localhost\<distro> UNC
   路径，而读它的根消费者仍在——正是本路由所服务的 workspace-files change
   feed：它在每个 `change` 事件里发出 `ctx.fs.processPath(target)`
   （`@deepseek-ai/dsh-api-workspace-files/lib/index.js:92`），distro 工作区的事件路径因此
-  是 Linux 形态；行替换后的子类只接管 list/stat/read/readBytes，不覆写
-  `changes`（`src/workspace-files-wsl.ts:10`），而同一次会话的 `stat` 由子类
-  覆写、`absolutePath` 仍合成 UNC 形态（同文件 `:19-20`）——两种形态不一致的
-  后果见 §5。
+  是 Linux 形态。GUI 文件服务现在也用随包的 `workspace-files` 行，`stat`/读
+  同样经 `ctx.fs.processPath`，两种形态一致；此前的 `workspace-files-wsl`
+  接管把 `stat` 的 `absolutePath` 合成 UNC，已随该行删除。
   `fileUrl` 不在覆写之列（§2.1 注）：它由 `processPath` 派生，同样不能假定为
   `file:///home/...`。
 - **watch 的事件粒度**：distro 侧是 `find -newer` 轮询（粗粒度失效 + 已知
@@ -121,9 +120,11 @@ export `./fs-routing`）。config 承载两侧旋钮：宿主侧 `cwd`/`diffBasi
 
 ## 4. 与其它件的关系
 
-- **workspace-files 行替换**（已落地）：继续快于本路由（四操作绕过 ctx.fs
-  直连 agent）；本路由补的是它没接管的 `changes` 流——那条流经根 fs 做
-  resolve/stat/watch/contains，并在每个事件里取 `processPath`（§2.2）。
+- **workspace-files 行不再替换**：GUI 文件树/预览使用随包的
+  `workspace-files` 行，经本路由读写 WSL 路径；比原来的直连 agent 多 4–6 次
+  往返（见 [LIMITATIONS](LIMITATIONS.md)）。本路由同时服务它的 `changes`
+  流——那条流经根 fs 做 resolve/stat/watch/contains，并在每个事件里取
+  `processPath`（§2.2）。
 - **`@` 补全**：仍需上游 seam（遍历漏斗是模块内函数，不经 ctx.fs）——本路由
   帮不到它，RFC 增补①的提案不变。
 - **晋升**：若上游收编，本模块即 RFC 增补②"coordinate-routing root
@@ -134,7 +135,7 @@ export `./fs-routing`）。config 承载两侧旋钮：宿主侧 `cwd`/`diffBasi
 仓库里可跑的：
 
 - `node test/composition.test.mjs`：把本插件的 `cordis.patch.yml` 过真实的
-  `applyEntryPatches`，再让接管行真的经 Loader 启动，断言组合树里
+  `applyEntryPatches`，再让 `fs-routing` 行真的经 Loader 启动，断言组合树里
   `fs-routing` 是真实的顶层行、`fs-sandbox` 按名禁用，以及
   `context.fs instanceof WslRoutingFileSystem`。同一检查随后**经 `ctx.fs`
   服务代理**调用 `distro()`，断言后端只构建一次、根 `fs` 不被后端的服务
@@ -156,12 +157,9 @@ export `./fs-routing`）。config 承载两侧旋钮：宿主侧 `cwd`/`diffBasi
 （`wsl.exe --terminate <distro>`），根级对 UNC 目标的调用应 fail-closed 报
 `FS_IO_ERROR`（§2.3），而不是回落到 9P；同一次验证里宿主盘符路径照常工作。
 
-已知待确认：`changes` 事件里的 `absolutePath` 是 Linux 形态，而同一次会话
-`stat` 的 `absolutePath` 是 UNC 形态；客户端把后者归一化后与前者比对
-（`@deepseek-ai/dsh-api-workspace-files/lib/client.js:14-16`、`:40-41`、`:75`、
-`:147`），形态不同即不投递。GUI 文件树的实时刷新是否因此失效，本文档没有
-真机证据；若确认失效，修法在代码侧（给该流补一次坐标映射，或统一两个出口
-的形态），不在本文档范围。
+`changes` 与 `stat` 的 `absolutePath` 现在都来自 `ctx.fs.processPath`，都是
+Linux 形态；客户端归一化后可比对。此前的 `workspace-files-wsl` 接管让
+`stat` 返回 UNC、与 `changes` 不一致；该接管已删除，这一形态差异不再存在。
 
 回退：`fs-routing` 是顶层行，可以在你自己的 profile 层
 （`$DSH_HOME/profiles/<name>/cordis.patch.yml`，按 id 覆盖插件行）里恢复随发的

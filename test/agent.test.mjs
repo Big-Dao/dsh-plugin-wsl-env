@@ -249,6 +249,23 @@ checkReg("a crash relays a read-only FS request but fails an in-flight EXEC as u
   await agent.close();
 });
 
+checkReg("a crash fails an in-flight FS write as unknown state, never replaying it", async () => {
+  const dying = new FakeAgentProcess();
+  dying.silent = true; // both FS requests stay in flight
+  const healthy = new FakeAgentProcess();
+  const { transport } = scriptedTransport([dying, healthy]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  const write = agent.fs({ op: "write", args: ["/tmp/f", "payload"], timeoutMs: 0 }).then(() => "resolved", (error) => error);
+  const list = agent.fs({ op: "list", args: ["/tmp"], timeoutMs: 0 });
+  await flush();
+  dying.emit("exit", 1, null);
+  const [writeError] = await Promise.all([write, list]);
+  assert.ok(writeError instanceof AgentUnavailableError, "a write in flight is a failure, not a retry");
+  assert.match(writeError.message, /state is unknown/);
+  assert.equal(healthy.frames.some((line) => line.includes("|write|")), false, "the write frame must never be replayed");
+  await agent.close();
+});
+
 checkReg("the watchdog starts at the dequeue ACK, so queue time never spends the budget", async () => {
   const child = new FakeAgentProcess();
   child.silent = true; // never answers; only the watchdog may end this

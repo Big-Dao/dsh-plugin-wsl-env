@@ -78,7 +78,15 @@ try {
     assert.doesNotMatch(fs, /agentBackend:/);
   });
 
-  check("only the requested keys change", () => {
+  check("--session-sandbox auto writes the auto mode into both rows", () => {
+  const block = applyEdits(presetBlock(source), { sessionSandbox: "auto" });
+  const shell = section(block, "wsl-shell", "wsl-fs");
+  const fs = section(block, "wsl-fs", "persona");
+  assert.match(shell, /^ {14}sessionSandbox: auto$/m);
+  assert.match(fs, /^ {14}sessionSandbox: auto$/m);
+});
+
+check("only the requested keys change", () => {
     const before = presetBlock(source);
     const after = applyEdits(before, { distro: "Debian" });
     const changed = before.split("\n").map((line, index) => [line, after.split("\n")[index]]).filter(([a, b]) => a !== b);
@@ -122,4 +130,4 @@ try {
   rmSync(scratch, { recursive: true, force: true });
 }
 
-console.log(`${passed}/7 profile-preset checks pass`);
+console.log(`${passed}/8 profile-preset checks pass`);

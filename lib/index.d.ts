@@ -128,8 +128,8 @@ export interface WslShellExecutorConfig {
     };
     /** Whether execution prefers the resident agent. */
     agent: boolean;
-    /** Whether commands run in one persistent session scope (ADR 0001). */
-    sessionSandbox: boolean;
+    /** Session runtime: `true` requires it, `false` disables it, `"auto"` uses it when usable. */
+    sessionSandbox: boolean | "auto";
     /** The session runtime's agent backend; `auto` when omitted. */
     agentBackend?: AgentBackend;
 }
@@ -161,6 +161,8 @@ interface ProcessFacts {
     workdir: string;
     /** Whether the profile masks the Windows drive. */
     windowsDrive: "masked" | "visible";
+    /** Which runtime the process used: the session scope or a per-command profile. */
+    sessionScope: "session" | "per-command";
 }
 /**
  * Bash executor that runs every command inside a WSL distro.
@@ -250,7 +252,7 @@ export declare class WslShellExecutor extends LocalBashExecutor {
          * `Linger`; the preflight refuses with the remedy when one is missing, and
          * only a success is cached. Off by default; requires `agent: true`.
          */
-        sessionSandbox: z<boolean, boolean, "defined">;
+        sessionSandbox: z<boolean | "auto", boolean | "auto", "defined">;
     }>>, Schemastery.ObjectT<NoInfer<{
         /**
          * Distro mode: empty/`"auto"` follows the request workdir, `"default"`
@@ -328,7 +330,7 @@ export declare class WslShellExecutor extends LocalBashExecutor {
          * `Linger`; the preflight refuses with the remedy when one is missing, and
          * only a success is cached. Off by default; requires `agent: true`.
          */
-        sessionSandbox: z<boolean, boolean, "defined">;
+        sessionSandbox: z<boolean | "auto", boolean | "auto", "defined">;
     }>>, "plain">;
     /** Cached default distro, resolved once from `wsl.exe -l -q`. */
     resolvedDistro: string;
@@ -352,6 +354,11 @@ export declare class WslShellExecutor extends LocalBashExecutor {
     sessionScopeProbe: (argv: string[]) => Promise<string>;
     /** Distros whose session-runtime preflight has succeeded. */
     sessionRuntimePreflight: Set<string>;
+    /** Per-distro `auto` verdicts, re-probed when they were negative and stale. */
+    autoSessionScope: Map<string, {
+        usable: boolean;
+        checkedAt: number;
+    }>;
     /**
      * Per-process confinement facts retained until settlement. Overlapping calls
      * can carry different policies, so a shared latest-wrap value would classify
@@ -452,6 +459,15 @@ export declare class WslShellExecutor extends LocalBashExecutor {
      * @throws {Error} with the remedy when it cannot.
      */
     ensureSessionRuntimeUsable(distro: string): Promise<void>;
+    /**
+     * Whether this executor should use the session runtime for one distro, with
+     * the `auto` downgrade and its bounded re-probe. `true` keeps the refusing
+     * behavior; `false` stays off.
+     *
+     * @param distro - the resolved distro.
+     * @returns whether to acquire the per-session scope.
+     */
+    wantsSessionRuntime(distro: string): Promise<boolean>;
     /**
      * Release every runtime this executor holds, stopping each scope. Called
      * from the session's dispose hook; public so tests and shutdown paths can
@@ -699,8 +715,8 @@ export interface WslFileSystemConfig {
     diffBasisMaxBytes?: number;
     /** Whether mutations are fenced by the policy. */
     sandbox: boolean;
-    /** Whether confined mutations run in the session runtime (ADR 0001). */
-    sessionSandbox: boolean;
+    /** Session runtime: `true` requires it, `false` disables it, `"auto"` uses it when usable. */
+    sessionSandbox: boolean | "auto";
     /** Whether confined profiles mask `/mnt`. */
     maskWindowsDrive: boolean;
     /** Whether paths leaving the distro are refused. */
@@ -750,7 +766,7 @@ export declare class WslFileSystem extends LocalFileSystem {
          * `sessionSandbox`; the preflight refuses with the remedy. Off for direct
          * constructions; on in the shipped preset.
          */
-        sessionSandbox: z<boolean, boolean, "defined">;
+        sessionSandbox: z<boolean | "auto", boolean | "auto", "defined">;
         /**
          * Shadow `/mnt` with an empty tmpfs in every confined profile, hiding the
          * Windows drive from confined commands — same meaning and same honest
@@ -825,7 +841,7 @@ export declare class WslFileSystem extends LocalFileSystem {
          * `sessionSandbox`; the preflight refuses with the remedy. Off for direct
          * constructions; on in the shipped preset.
          */
-        sessionSandbox: z<boolean, boolean, "defined">;
+        sessionSandbox: z<boolean | "auto", boolean | "auto", "defined">;
         /**
          * Shadow `/mnt` with an empty tmpfs in every confined profile, hiding the
          * Windows drive from confined commands — same meaning and same honest
@@ -893,6 +909,11 @@ export declare class WslFileSystem extends LocalFileSystem {
     sessionScopeProbe: (argv: string[]) => Promise<string>;
     /** Distros whose session-runtime preflight has succeeded. */
     sessionRuntimePreflight: Set<string>;
+    /** Per-distro `auto` verdicts, re-probed when they were negative and stale. */
+    autoSessionScope: Map<string, {
+        usable: boolean;
+        checkedAt: number;
+    }>;
     /**
      * @param ctx - the composition context.
      * @param config - the validated plugin config.
@@ -970,6 +991,15 @@ export declare class WslFileSystem extends LocalFileSystem {
      * @throws {Error} with the remedy when it cannot.
      */
     ensureSessionRuntimeUsable(distro: string): Promise<void>;
+    /**
+     * Whether this provider should use the session runtime for one distro, with
+     * the `auto` downgrade and its bounded re-probe. `true` keeps the refusing
+     * behavior; `false` stays off.
+     *
+     * @param distro - the resolved distro.
+     * @returns whether to acquire the per-session scope.
+     */
+    wantsSessionRuntime(distro: string): Promise<boolean>;
     /**
      * Release every runtime this provider holds. Called from the preset's
      * dispose effect; public so tests and shutdown paths can await it.

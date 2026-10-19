@@ -37,6 +37,15 @@ were part of the record.
 
 ### Changed
 
+- **`sessionSandbox: auto` — the session runtime is an optimization, not a
+  prerequisite.** `wsl-shell` and `wsl-fs` accept `true`, `false` or `"auto"`;
+  `auto` uses the systemd user scope when it is available and otherwise falls
+  back to the per-command `bwrap` profile — still confined, never unconfined —
+  reporting `sessionScope: "session" | "per-command"` in the command result.
+  A failed verdict is re-probed at most once a minute, so installing systemd or
+  enabling Linger upgrades without an app restart. `true` keeps refusing with
+  the existing remedy; `false` is unchanged.
+
 - **The session preflight also checks the session-runtime prerequisites.** It
   now probes systemd as PID 1, the user manager, `systemd-run` and Linger —
   not only `bubblewrap` — when a distro session opens, and publishes the same

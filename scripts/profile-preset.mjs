@@ -10,7 +10,7 @@
  * `cordis.patch.yml`, applies the common edits, and can validate or write a
  * profile layer.
  *
- *   node scripts/profile-preset.mjs [--distro Debian] [--session-sandbox false]
+ *   node scripts/profile-preset.mjs [--distro Debian] [--session-sandbox false|auto]
  *        [--sandbox false] [--mask-windows-drive true] [--agent-backend native]
  *        [--out <profile/cordis.patch.yml>] [--check <file>] [--force]
  *
@@ -110,7 +110,7 @@ function setKey(lines, id, key, value) {
 /**
  * Apply the supported edits to a preset block.
  * @param {string} block - the block from {@link presetBlock}.
- * @param {{ distro?: string, sessionSandbox?: boolean, sandbox?: boolean, maskWindowsDrive?: boolean, agentBackend?: string }} edits - the edits.
+ * @param {{ distro?: string, sessionSandbox?: boolean | "auto", sandbox?: boolean, maskWindowsDrive?: boolean, agentBackend?: string }} edits - the edits.
  * @returns {string} the edited block.
  */
 export function applyEdits(block, edits) {
@@ -147,7 +147,7 @@ function parseArgs(argv) {
     if (flag === "--distro") {
       if (value.length === 0) throw new Error("profile-preset: --distro needs a name");
       edits.distro = value;
-    } else if (flag === "--session-sandbox") edits.sessionSandbox = parseBoolean(flag, value);
+    } else if (flag === "--session-sandbox") edits.sessionSandbox = parseSandboxMode(flag, value);
     else if (flag === "--sandbox") edits.sandbox = parseBoolean(flag, value);
     else if (flag === "--mask-windows-drive") edits.maskWindowsDrive = parseBoolean(flag, value);
     else if (flag === "--agent-backend") {
@@ -159,7 +159,7 @@ function parseArgs(argv) {
       options.force = true;
       i -= 1;
     } else if (flag === "--help" || flag === "-h") {
-      console.log("node scripts/profile-preset.mjs [--distro NAME] [--session-sandbox true|false] [--sandbox true|false] [--mask-windows-drive true|false] [--agent-backend auto|native|shell] [--out FILE] [--check FILE] [--force]");
+      console.log("node scripts/profile-preset.mjs [--distro NAME] [--session-sandbox true|false|auto] [--sandbox true|false] [--mask-windows-drive true|false] [--agent-backend auto|native|shell] [--out FILE] [--check FILE] [--force]");
       process.exit(0);
     } else throw new Error(`profile-preset: unknown option "${arg}"`);
   }
@@ -176,6 +176,17 @@ function parseBoolean(flag, value) {
   if (value === "true") return true;
   if (value === "false") return false;
   throw new Error(`profile-preset: ${flag} takes true or false (got "${value}")`);
+}
+
+/**
+ * Parse the `--session-sandbox` value: the boolean modes plus `auto`.
+ * @param {string} flag - the flag, for the error.
+ * @param {string} value - the value.
+ * @returns {boolean | "auto"} the mode.
+ */
+function parseSandboxMode(flag, value) {
+  if (value === "auto") return "auto";
+  return parseBoolean(flag, value);
 }
 
 /**

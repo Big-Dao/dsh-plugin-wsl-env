@@ -110,7 +110,7 @@ const coreStub = (verdict) => /** @type {WslFileSystem["sandbox"]} */ (/** @type
  * The sandbox facts the executor stamps at settlement: the upstream
  * `ShellSandboxInfo` plus this plugin's `windowsDrive` mitigation flag, which
  * the upstream result type cannot describe.
- * @typedef {{ mode?: string, denied?: boolean, enforcement?: string, windowsDrive?: "masked"|"visible" }} WslSandboxFacts
+ * @typedef {{ mode?: string, denied?: boolean, enforcement?: string, windowsDrive?: "masked"|"visible", sessionScope?: "session"|"per-command" }} WslSandboxFacts
  */
 
 /**
@@ -137,7 +137,7 @@ const spawnView = (executor) => /** @type {OneShotSeam} */ (/** @type {unknown} 
 
 /**
  * A filesystem provider over a fake substrate; the agent never spawns.
- * @param {{ sandbox?: boolean, restrictToDistro?: boolean, sessionSandbox?: boolean, distro?: string, policy?: { mode: "read-only"|"workspace-write"|"danger-full-access", workspaceRoot: string } }} [options] - the provider switches, the distro mode, and the policy the fake resolves.
+ * @param {{ sandbox?: boolean, restrictToDistro?: boolean, sessionSandbox?: boolean | "auto", distro?: string, policy?: { mode: "read-only"|"workspace-write"|"danger-full-access", workspaceRoot: string } }} [options] - the provider switches, the distro mode, and the policy the fake resolves.
  * @returns {{ fs: WslFileSystem, substrate: MockSubstrate }} the provider and its scripted substrate.
  */
 function makeFs({ sandbox = true, restrictToDistro = true, distro = DISTRO, policy, sessionSandbox = false } = {}) {
@@ -166,7 +166,7 @@ function makeFs({ sandbox = true, restrictToDistro = true, distro = DISTRO, poli
 
 /**
  * An executor whose agent and confinement are fakes at the seam.
- * @param {{ sandbox?: boolean, sessionSandbox?: boolean, distro?: string }} [options] - the executor switches and distro mode.
+ * @param {{ sandbox?: boolean, sessionSandbox?: boolean | "auto", distro?: string }} [options] - the executor switches and distro mode.
  * @returns {{ executor: WslShellExecutor, agent: ScriptedAgent, agentCalls: AgentFrame[] }} the executor, its scripted frame-runner, and every frame it saw.
  */
 function makeExecutor({ sandbox = true, sessionSandbox = false, distro = DISTRO } = {}) {
@@ -664,7 +664,7 @@ check("a confined agent command runs the confined argv in the distro coordinate"
   assert.ok(frame !== undefined, "the agent saw the command's frame");
   assert.equal(frame.cwd, "/home/andy/proj", "the UNC never reaches chdir — the agent carries the Linux path");
   assert.equal(frame.argv[0], "/usr/bin/bwrap", "the confined argv runs, not the raw shell line");
-  assert.deepEqual(factsOf(result), { mode: "workspace-write", denied: false, enforcement: "full", windowsDrive: "visible" });
+  assert.deepEqual(factsOf(result), { mode: "workspace-write", denied: false, enforcement: "full", windowsDrive: "visible", sessionScope: "per-command" });
 });
 
 
@@ -717,6 +717,59 @@ check("with sessionSandbox, the command runs on the session runtime without the 
   assert.equal(acquired.length, 1, "one runtime per session key");
   await executor.disposeSessionRuntimes();
   assert.deepEqual(released, ["k"], "disposing the executor releases the runtime");
+});
+
+check("sessionSandbox: auto falls back to the per-command sandbox and reports it", async () => {
+  const { executor, agentCalls } = makeExecutor({ sessionSandbox: "auto" });
+  executor.sessionScopeProbe = async () => "no-linger";
+  const result = await (await executor.execute(spec({
+    command: "echo hi",
+    workdir: WORKSPACE,
+    timeoutMs: 5000,
+    sandboxPolicy: { mode: "workspace-write", workspaceRoot: WORKSPACE },
+  }))).result();
+  assert.equal(agentCalls[0]?.argv[0], "/usr/bin/bwrap", "the per-command wrap ran instead of a scope");
+  assert.equal(factsOf(result)?.sessionScope, "per-command", "the narrower scope is reported, not hidden");
+});
+
+check("sessionSandbox: auto uses the scope when the platform can host it", async () => {
+  const { executor, agentCalls } = makeExecutor({ sessionSandbox: "auto" });
+  executor.sessionScopeProbe = async () => "ok";
+  /** @type {AgentFrame[]} */
+  const runtimeCalls = [];
+  executor.sessionRuntimes = /** @type {WslShellExecutor["sessionRuntimes"]} */ (/** @type {unknown} */ ({
+    acquire: () => ({
+      key: "k",
+      unit: "u",
+      agent: asAgent({
+        exec: async ({ cwd, argv, timeoutMs, maxOutputBytes }) => {
+          runtimeCalls.push({ cwd, argv, timeoutMs, maxOutputBytes });
+          return { exitCode: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), truncated: { stdout: false, stderr: false } };
+        },
+      }),
+      distro: DISTRO,
+      wslPath: "wsl.exe",
+      refs: 1,
+    }),
+    release: async () => {},
+  }));
+  const result = await (await executor.execute(spec({
+    command: "echo hi",
+    workdir: WORKSPACE,
+    timeoutMs: 5000,
+    sandboxPolicy: { mode: "workspace-write", workspaceRoot: WORKSPACE },
+  }))).result();
+  assert.equal(agentCalls.length, 0, "the shared per-command agent is not used");
+  assert.equal(runtimeCalls.length, 1, "the session runtime ran the command");
+  assert.equal(factsOf(result)?.sessionScope, "session", "the scope in use is reported");
+});
+
+check("with sessionSandbox: auto, a mutation falls back to the confined resident", async () => {
+  const { fs } = makeFs({ sessionSandbox: "auto" });
+  fs.sandbox = coreStub(true);
+  fs.sessionScopeProbe = async () => "no-systemd";
+  const agent = await fs.mutationAgent({ mode: "workspace-write", workspaceRoot: WORKSPACE });
+  assert.ok(agent.argvPrefix.length > 0, "the per-command confined resident served the mutation");
 });
 
 check("the agent frame carries the resolved maxOutputBytes, not the volatile wrapper", async () => {
@@ -772,7 +825,7 @@ check("danger-full-access runs unconfined and says so in the sandbox fact", asyn
   const escalated = agentCalls[0];
   assert.ok(escalated !== undefined, "the agent saw the command's frame");
   assert.equal(escalated.argv[0], "/bin/zsh", "no bwrap prefix on the escalated run");
-  assert.deepEqual(factsOf(result), { mode: "danger-full-access", denied: false });
+  assert.deepEqual(factsOf(result), { mode: "danger-full-access", denied: false, sessionScope: "per-command" });
 });
 
 check("distroArgv and argv compose the verbatim one-shot launch", () => {
@@ -845,7 +898,7 @@ check("the one-shot path runs the plain wsl.exe argv and decorates the same fact
   assert.equal(spawn.argv[0], "wsl.exe", "the one-shot path spawns wsl.exe");
   assert.equal(spawn.argv[5], "--exec");
   assert.equal(spawn.argv[6], "/usr/bin/bwrap", "confined here too");
-  assert.deepEqual(factsOf(result), { mode: "workspace-write", denied: false, enforcement: "full", windowsDrive: "visible" });
+  assert.deepEqual(factsOf(result), { mode: "workspace-write", denied: false, enforcement: "full", windowsDrive: "visible", sessionScope: "per-command" });
 });
 
 check("an agent that is out falls back to the one-shot path, which is the point of the fallback", async () => {

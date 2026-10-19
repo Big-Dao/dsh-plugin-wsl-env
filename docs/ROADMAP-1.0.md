@@ -355,21 +355,33 @@ real-machine missing-bwrap and non-systemd sessions.
 **Priority:** P1 · **Size:** M · **Labels:** `area:sandbox`,
 `type:feature`, `priority:P1`
 
+**Status:** implemented (2026-10-19): `sessionSandbox` accepts `true`, `false`
+or `"auto"` on both `wsl-shell` and `wsl-fs`. `auto` probes the session runtime
+and, when the platform cannot host it, falls back to the per-command `bwrap`
+profile — still confined — and the command result reports
+`sessionScope: "session" | "per-command"`. A failed `auto` verdict is re-probed
+at most once a minute, so following the remedy upgrades without a restart.
+`true` still refuses with the preflight remedy; `false` is unchanged. Unit
+tests cover auto-usable, auto-fallback (shell and fs) and the `true` refusal;
+the non-systemd real-machine leg has not been run (this machine has systemd and
+only one distro).
+
 **Why:** systemd is a hard default prerequisite. A distro without it should
 still get a safe, sandboxed first command instead of a refusal.
 
 **Acceptance:**
 
-- [ ] `sessionSandbox: auto` uses the scope when systemd and Linger are
+- [x] `sessionSandbox: auto` uses the scope when systemd and Linger are
       available, otherwise falls back to per-command bwrap and reports the
       narrower scope.
-- [ ] `true` still refuses with the existing remedy; `false` is unchanged.
-- [ ] The result exposes whether the scope was active; docs explain the
-      `/tmp` and background-process difference.
-- [ ] The fallback never runs unconfined.
+- [x] `true` still refuses with the existing remedy; `false` is unchanged.
+- [x] The result exposes whether the scope was active (`sessionScope`);
+      CONFIGURATION explains the `/tmp` and background-process difference.
+- [x] The fallback never runs unconfined.
 
-**Tests/probes:** session-runtime unit tests; a non-systemd distro (Alpine or
-a systemd-disabled Ubuntu) real-machine probe.
+**Tests/probes:** `test/provider.test.mjs` (auto-usable, auto-fallback for the
+shell and the filesystem, the `true` refusal); a non-systemd distro real-machine
+probe remains unrun (no non-systemd distro here).
 
 **Depends on:** WSL-102, WSL-105.
 

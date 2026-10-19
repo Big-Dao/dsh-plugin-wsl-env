@@ -234,8 +234,8 @@ export interface WslShellExecutorConfig {
   graceMs: { get(): number };
   /** Whether execution prefers the resident agent. */
   agent: boolean;
-  /** Whether commands run in one persistent session scope (ADR 0001). */
-  sessionSandbox: boolean;
+  /** Session runtime: `true` requires it, `false` disables it, `"auto"` uses it when usable. */
+  sessionSandbox: boolean | "auto";
   /** The session runtime's agent backend; `auto` when omitted. */
   agentBackend?: AgentBackend;
 }
@@ -272,6 +272,53 @@ interface ProcessFacts {
   workdir: string;
   /** Whether the profile masks the Windows drive. */
   windowsDrive: "masked" | "visible";
+  /** Which runtime the process used: the session scope or a per-command profile. */
+  sessionScope: "session" | "per-command";
+}
+
+/**
+ * How long an `auto` distro that could not host a session runtime stays
+ * downgraded before the probe is retried.
+ */
+const AUTO_SCOPE_RECHECK_MS = 60_000;
+
+/**
+ * Whether a provider should use the session runtime for one distro.
+ *
+ * - `false` is off;
+ * - `true` refuses with the preflight remedy when the platform cannot host it;
+ * - `"auto"` downgrades to the per-command sandbox and reports that narrower
+ *   scope in the result, re-probing a failed verdict at most once a minute so
+ *   following the remedy (systemd, Linger) upgrades without an app restart.
+ *
+ * @param value - the configured `sessionSandbox` value.
+ * @param distro - the resolved distro.
+ * @param ensure - the provider's preflight, which throws the remedy on failure.
+ * @param cache - the provider's per-distro `auto` verdicts.
+ * @returns whether the session runtime should be used.
+ */
+async function sessionRuntimeWanted(
+  value: boolean | "auto",
+  distro: string,
+  ensure: () => Promise<void>,
+  cache: Map<string, { usable: boolean, checkedAt: number }>,
+): Promise<boolean> {
+  if (value === false) return false;
+  if (value === true) {
+    await ensure();
+    return true;
+  }
+  const cached = cache.get(distro);
+  if (cached?.usable === true) return true;
+  if (cached !== undefined && Date.now() - cached.checkedAt < AUTO_SCOPE_RECHECK_MS) return false;
+  try {
+    await ensure();
+    cache.set(distro, { usable: true, checkedAt: Date.now() });
+    return true;
+  } catch {
+    cache.set(distro, { usable: false, checkedAt: Date.now() });
+    return false;
+  }
 }
 
 /**
@@ -365,7 +412,7 @@ export class WslShellExecutor
      * `Linger`; the preflight refuses with the remedy when one is missing, and
      * only a success is cached. Off by default; requires `agent: true`.
      */
-    sessionSandbox: z.boolean().default(false),
+    sessionSandbox: z.union([z.boolean(), z.const("auto")]).default(false),
   });
 
   /** Cached default distro, resolved once from `wsl.exe -l -q`. */
@@ -390,6 +437,8 @@ export class WslShellExecutor
   declare sessionScopeProbe: (argv: string[]) => Promise<string>;
   /** Distros whose session-runtime preflight has succeeded. */
   declare sessionRuntimePreflight: Set<string>;
+  /** Per-distro `auto` verdicts, re-probed when they were negative and stale. */
+  declare autoSessionScope: Map<string, { usable: boolean, checkedAt: number }>;
   /**
    * Per-process confinement facts retained until settlement. Overlapping calls
    * can carry different policies, so a shared latest-wrap value would classify
@@ -418,6 +467,7 @@ export class WslShellExecutor
     this.sessionRuntimeEntries = new Map();
     this.sessionScopeProbe = (argv) => runCapture(argv);
     this.sessionRuntimePreflight = new Set();
+    this.autoSessionScope = new Map();
     // The preset realm disposes when the session ends; the scope must go with
     // it, or a dev server outlives the session that started it.
     ctx.effect(() => () => this.disposeSessionRuntimes().catch(() => {}), "wsl session runtimes");
@@ -596,6 +646,19 @@ export class WslShellExecutor
     if (problem !== null) throw new Error(problem);
     await ensureNativeSessionAgent({ wslPath: config.wslPath, distro, setNative: setSessionNativeAgent });
     this.sessionRuntimePreflight.add(distro);
+  }
+
+  /**
+   * Whether this executor should use the session runtime for one distro, with
+   * the `auto` downgrade and its bounded re-probe. `true` keeps the refusing
+   * behavior; `false` stays off.
+   *
+   * @param distro - the resolved distro.
+   * @returns whether to acquire the per-session scope.
+   */
+  async wantsSessionRuntime(distro: string): Promise<boolean> {
+    const config = this.config as unknown as WslShellExecutorConfig;
+    return sessionRuntimeWanted(config.sessionSandbox, distro, () => this.ensureSessionRuntimeUsable(distro), this.autoSessionScope);
   }
 
   /**
@@ -805,6 +868,7 @@ export class WslShellExecutor
         denied: !runnerFailed && matchesSignature(proc.exitCode, stderr, facts.denialSignatures),
         enforcement: facts.enforcement,
         ...(facts.windowsDrive ? { windowsDrive: facts.windowsDrive } : {}),
+        sessionScope: facts.sessionScope,
         ...(runnerFailed ? { runnerFailed } : {}),
       } as typeof proc.sandbox;
     }
@@ -926,8 +990,8 @@ export class WslShellExecutor
       ? await this.sandbox.confine(this.distroArgv(resolved, shell), { ...policy, mode: policy.mode }, { distro, signal: resolved.signal })
       : undefined;
     const mode = policy?.mode;
-    if (config.sessionSandbox) await this.ensureSessionRuntimeUsable(distro);
-    const runtime = this.sessionRuntimeFor(policy, resolved, distro);
+    const useScope = await this.wantsSessionRuntime(distro);
+    const runtime = useScope ? this.sessionRuntimeFor(policy, resolved, distro) : undefined;
     const agent = runtime !== undefined ? runtime.agent : await this.executionAgent(distro);
     // A session runtime's own bwrap profile applies the mounts, so the
     // command must NOT be wrapped a second time: the per-command probe still
@@ -967,6 +1031,7 @@ export class WslShellExecutor
               runnerProgram: profile.argv[0] ?? "",
               workdir: resolved.workdir,
               windowsDrive: profile.windowsDrive,
+              sessionScope: useScope ? "session" : "per-command",
             });
           }
         : undefined,
@@ -976,7 +1041,7 @@ export class WslShellExecutor
       this.throwIfWorkdirMissing(result, resolved.workdir);
       if (this.sandbox === undefined) return result;
       if (confined === undefined) {
-        return ({ ...result, sandbox: { mode, denied: false } }) as typeof result;
+        return ({ ...result, sandbox: { mode, denied: false, sessionScope: useScope ? "session" : "per-command" } }) as typeof result;
       }
       const { enforcement, denialSignatures, runnerFailureRules, windowsDrive } = confined;
       const runnerFailure = classifyRunnerFailure(result.exitCode, result.stderr.text, runnerFailureRules);
@@ -993,6 +1058,7 @@ export class WslShellExecutor
           denied: matchesSignature(result.exitCode, result.stderr.text, denialSignatures),
           enforcement,
           windowsDrive,
+          sessionScope: useScope ? "session" : "per-command",
         },
       }) as typeof result;
     }, (error) => {
@@ -1072,6 +1138,7 @@ export class WslShellExecutor
           runnerProgram: profile.argv[0] ?? "",
           workdir: resolved.workdir,
           windowsDrive: profile.windowsDrive,
+          sessionScope: "per-command",
         });
       },
     );
@@ -1079,7 +1146,7 @@ export class WslShellExecutor
       this.throwIfDistroUnavailable(result, distro);
       this.throwIfWorkdirMissing(result, resolved.workdir);
       if (confined === undefined) {
-        return ({ ...result, sandbox: { mode, denied: false } }) as typeof result;
+        return ({ ...result, sandbox: { mode, denied: false, sessionScope: "per-command" } }) as typeof result;
       }
       const { enforcement, denialSignatures, runnerFailureRules, windowsDrive } = confined;
       // Runner failure outranks denial because the command did not run at all.
@@ -1092,6 +1159,7 @@ export class WslShellExecutor
           denied: matchesSignature(result.exitCode, result.stderr.text, denialSignatures),
           enforcement,
           windowsDrive,
+          sessionScope: "per-command",
         },
       }) as typeof result;
     }, (error) => {
@@ -1152,8 +1220,8 @@ export interface WslFileSystemConfig {
   diffBasisMaxBytes?: number;
   /** Whether mutations are fenced by the policy. */
   sandbox: boolean;
-  /** Whether confined mutations run in the session runtime (ADR 0001). */
-  sessionSandbox: boolean;
+  /** Session runtime: `true` requires it, `false` disables it, `"auto"` uses it when usable. */
+  sessionSandbox: boolean | "auto";
   /** Whether confined profiles mask `/mnt`. */
   maskWindowsDrive: boolean;
   /** Whether paths leaving the distro are refused. */
@@ -1205,7 +1273,7 @@ export class WslFileSystem extends LocalFileSystem {
      * `sessionSandbox`; the preflight refuses with the remedy. Off for direct
      * constructions; on in the shipped preset.
      */
-    sessionSandbox: z.boolean().default(false),
+    sessionSandbox: z.union([z.boolean(), z.const("auto")]).default(false),
     /**
      * Shadow `/mnt` with an empty tmpfs in every confined profile, hiding the
      * Windows drive from confined commands — same meaning and same honest
@@ -1274,6 +1342,8 @@ export class WslFileSystem extends LocalFileSystem {
   declare sessionScopeProbe: (argv: string[]) => Promise<string>;
   /** Distros whose session-runtime preflight has succeeded. */
   declare sessionRuntimePreflight: Set<string>;
+  /** Per-distro `auto` verdicts, re-probed when they were negative and stale. */
+  declare autoSessionScope: Map<string, { usable: boolean, checkedAt: number }>;
 
   /**
    * @param ctx - the composition context.
@@ -1299,6 +1369,7 @@ export class WslFileSystem extends LocalFileSystem {
     this.sessionRuntimeEntries = new Map();
     this.sessionScopeProbe = (argv) => runCapture(argv);
     this.sessionRuntimePreflight = new Set();
+    this.autoSessionScope = new Map();
     // The preset's disposer releases the runtime; the shell executor's effect
     // releases its own reference, so the scope stops after the last one.
     ctx.effect(() => () => this.disposeSessionRuntimes().catch(() => {}), "wsl fs session runtimes");
@@ -1446,6 +1517,19 @@ export class WslFileSystem extends LocalFileSystem {
   }
 
   /**
+   * Whether this provider should use the session runtime for one distro, with
+   * the `auto` downgrade and its bounded re-probe. `true` keeps the refusing
+   * behavior; `false` stays off.
+   *
+   * @param distro - the resolved distro.
+   * @returns whether to acquire the per-session scope.
+   */
+  async wantsSessionRuntime(distro: string): Promise<boolean> {
+    const config = this.config as unknown as WslFileSystemConfig;
+    return sessionRuntimeWanted(config.sessionSandbox, distro, () => this.ensureSessionRuntimeUsable(distro), this.autoSessionScope);
+  }
+
+  /**
    * Release every runtime this provider holds. Called from the preset's
    * dispose effect; public so tests and shutdown paths can await it.
    *
@@ -1491,8 +1575,7 @@ export class WslFileSystem extends LocalFileSystem {
         bwrapFailure(config.wslPath, distro) ?? missingBwrapRemedy(distro),
       );
     }
-    if (config.sessionSandbox) {
-      await this.ensureSessionRuntimeUsable(distro);
+    if (await this.wantsSessionRuntime(distro)) {
       const runtime = this.sessionRuntimeFor(confinedPolicy, distro);
       if (runtime !== undefined) return runtime.agent;
     }

@@ -1,5 +1,9 @@
 # 晋升地图：对照 ssh 家族的预就绪状态
 
+The packaging proposal (layout, seam index, boot-test gaps) is
+[promotion-pack.md](promotion-pack.md).
+
+
 > 内部文档。记录"如果上游未来收编（或我们按其架构品味重构），本插件到
 > `packages/ssh` 同构形态的映射、差距与已就绪件"。上游 CONTRIBUTING.md 明确
 > 现阶段不接受外部 PR，因此本文是**预就绪清单**而非 PR 计划；上游英文草稿见

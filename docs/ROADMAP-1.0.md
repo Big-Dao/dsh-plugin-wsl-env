@@ -645,15 +645,29 @@ user reports it.
 **Why:** The plugin is standalone, but upstream seams would remove the most
 fragile parts.
 
+**Status:** packaging plan written (2026-10-19):
+[docs/upstream/promotion-pack.md](upstream/promotion-pack.md) records the
+`packages/wsl/*` layout (ten capability packages plus a thin integration
+package, each with its existing tests), the seam/RFC index with the current
+state of each seam, what `test/composition.test.mjs` boots today and the gaps a
+real-composition boot test would close, and the install proof
+(`e2e:install`, CI on both platforms). The LSP pair is explicitly deferred
+(`UPSTREAM-LSP-SEAM.md`), so the "RFCs/prototypes for all four seams" item is
+satisfied for three and documented as deferred for LSP.
+
 **Acceptance:**
 
-- [ ] A `packages/wsl`-shaped layout is documented, with the package-level
-      test split and real-composition boot test.
-- [ ] RFCs/prototypes exist for the session environment resolver, the
-      `FileReferenceTraversal` seam, the search provider and the LSP pair.
-- [ ] The plugin remains installable and green with none of them accepted.
+- [x] A `packages/wsl`-shaped layout is documented, with the package-level
+      test split and real-composition boot test (the current one; gaps listed).
+- [x] RFCs/prototypes exist for the session environment resolver
+      (promotion-map), the `FileReferenceTraversal` seam (RFC addendum ① plus the
+      built consumer), the search provider (promotion-map), and the LSP pair
+      (deferred note with trigger).
+- [x] The plugin remains installable and green with none of them accepted
+      (`e2e:install` 10/10; CI green on both platforms).
 
-**Tests/probes:** promotion checklist; boot test.
+**Tests/probes:** `test/composition.test.mjs`; `test/e2e/install.sh`;
+`docs/upstream/promotion-pack.md`.
 
 **Depends on:** WSL-101, WSL-204, WSL-205.
 

@@ -26,6 +26,12 @@ were part of the record.
   block to paste when a layer carries the nested id patch. See
   [docs/CONFIGURATION.md](docs/CONFIGURATION.md#overriding-the-rows-inside-preset-wsl).
 
+- **Upstream promotion pack documented.** `docs/upstream/promotion-pack.md`
+  records the `packages/wsl/*` layout (ten capability packages plus an
+  integration package), the seam/RFC index, what the composition boot test
+  covers and its gaps, and the install proof. Promotion stays packaging and
+  proof, not a dependency.
+
 - **`@`-reference traversal cost measured; seam deferred.** The Windows walk
   over the WSL share is ~56× the ext4 walk on a 520-entry tree (84.7 ms vs
   1.5 ms) and is now reproducible with `pnpm run probe:file-reference`.

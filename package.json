@@ -95,6 +95,8 @@
     "examples/**/*.yml",
     "README.md",
     "docs/README.zh.md",
+    "docs/QUICKSTART.md",
+    "docs/PERFORMANCE.md",
     "docs/CONFIGURATION.md",
     "docs/LIMITATIONS.md",
     "docs/PARITY.md",

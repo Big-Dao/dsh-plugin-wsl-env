@@ -88,6 +88,8 @@ try {
   check("the docs the runtime points at ship", () => {
     for (const path of [
       "docs/CONFIGURATION.md",
+      "docs/QUICKSTART.md",
+      "docs/PERFORMANCE.md",
       "docs/LIMITATIONS.md",
       "docs/PEER-PARITY.md",
       "docs/UPSTREAM-SESSION-NOTICE.md",

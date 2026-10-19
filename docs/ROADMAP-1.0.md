@@ -650,18 +650,31 @@ fragile parts.
 **Priority:** P2 · **Size:** M · **Labels:** `area:docs`,
 `area:community`, `priority:P2`
 
+**Status:** implemented except the visual demo (2026-10-19):
+[docs/QUICKSTART.md](QUICKSTART.md) is the one-page entry (prerequisites,
+install, first session, recipes for Node/Python/Rust/Go and a monorepo, an
+honest Tier 1/Tier 2 table); [docs/PERFORMANCE.md](PERFORMANCE.md) is the
+9p-vs-agent page with the A6/A7 numbers and the GUI-preview baseline, and
+`pnpm run probe:gui-preview` / `fs-queue.mjs` reproduce the latter. No GIF or
+screenshot exists yet (capturing the GUI is not something this repository has
+recorded), so that acceptance item is explicitly open. No DSH plugin
+marketplace was identified, so nothing was submitted.
+
 **Why:** "Best" also means easy to find and evaluate.
 
 **Acceptance:**
 
-- [ ] A one-page entry (docs site or README section) with a five-minute
-      quickstart, compatibility table and screenshots.
-- [ ] A demo or GIF showing the picker, terminal, preview and sandbox fact.
-- [ ] Recipes for Node, Python, Rust/Go and a monorepo; a 9p-vs-plugin
+- [x] A one-page entry with a five-minute quickstart, compatibility table and
+      screenshots (text only; screenshots are the open item).
+- [ ] A demo or GIF showing the picker, terminal, preview and sandbox fact
+      (not produced; recorded here and in QUICKSTART).
+- [x] Recipes for Node, Python, Rust/Go and a monorepo; a 9p-vs-plugin
       benchmark page.
-- [ ] The DSH plugin directory/marketplace is updated if one exists.
+- [ ] The DSH plugin directory/marketplace is updated if one exists (none
+      identified).
 
-**Tests/probes:** link check; quickstart run on Tier 1.
+**Tests/probes:** `pnpm run lint:links`; the quickstart's commands are the
+documented Tier 1 path, not executed by CI.
 
 **Depends on:** WSL-102, WSL-202.
 

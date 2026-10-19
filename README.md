@@ -12,6 +12,8 @@ The harness process stays on Windows. Commands, file operations, the folder pick
 
 Windows + WSL 2 only.
 
+**New here?** Start with [docs/QUICKSTART.md](docs/QUICKSTART.md) — five minutes, prerequisites, recipes and the honest compatibility table.
+
 ## Why this plugin
 
 A Windows coding tool that works on WSL projects has three options: run the whole tool inside the distro, connect to a helper server inside the distro, or let the plugin provide the distro environment. This plugin is the third option. One workflow covers both kinds of session, with the distro's real tools and the command sandbox intact.
@@ -172,6 +174,8 @@ Real-machine probes run on Windows + WSL only. See [CONTRIBUTING.md](CONTRIBUTIN
 
 | Document | Content |
 |---|---|
+| [docs/QUICKSTART.md](docs/QUICKSTART.md) | five-minute first run, recipes, compatibility |
+| [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | ext4 agent vs 9p, measured latency, how to reproduce |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | every configuration key and how to override it |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | services, path routing, sandbox, error codes |
 | [docs/LIMITATIONS.md](docs/LIMITATIONS.md) | what the plugin does not do |

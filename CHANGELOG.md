@@ -26,6 +26,12 @@ were part of the record.
   block to paste when a layer carries the nested id patch. See
   [docs/CONFIGURATION.md](docs/CONFIGURATION.md#overriding-the-rows-inside-preset-wsl).
 
+- **Quickstart and performance entry pages.** `docs/QUICKSTART.md` is the
+  five-minute path (prerequisites, install, first session, Node/Python/Rust/Go
+  and monorepo recipes, honest Tier 1/Tier 2 table); `docs/PERFORMANCE.md`
+  records the 9p-vs-agent numbers and the GUI-preview baseline with reproduction
+  commands. The visual demo is explicitly still missing.
+
 - **GUI-preview latency has a measured baseline.** `pnpm run probe:gui-preview`
   drives the routed backend's `stat`, `listDir` and 1 MiB `readByteRange` with
   p50/p95 budgets (stat 100 ms, listing 500 ms, page 1 s/MiB). On this machine:

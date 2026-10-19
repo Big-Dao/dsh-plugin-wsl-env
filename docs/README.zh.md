@@ -80,6 +80,7 @@ wsl.exe -d <发行版> -u root -- apt-get install -y bubblewrap
 
 打开一个发行版文件夹作为工作区，例如 `\\wsl.localhost\ubuntu\home\you\project`。
 
+- 打开哪个发行版的文件夹，就在哪个发行版执行——即使它不是 WSL 的默认发行版。
 - 命令在发行版登录 shell 中运行。`/home/you/x` 与 `\\wsl.localhost\ubuntu\home\you\x` 是同一个文件。
 - **New terminal** 在同一发行版、同一目录打开 shell。
 - 模型能看到监听端口，并返回 dev server 的 URL。WSL 2 会把 localhost 转发到 Windows。
@@ -91,18 +92,18 @@ wsl.exe -d <发行版> -u root -- apt-get install -y bubblewrap
 
 | 行 | 键 | 默认值 | 作用 |
 |---|---|---|---|
-| `wsl-shell` | `distro` | `''` | 使用的发行版；空表示 WSL 默认 |
+| `wsl-shell` | `distro` | `''` | 发行版模式；空/`auto` 跟随工作区，`default` 强制 WSL 默认 |
 | | `sandbox` | `true` | 用 `bubblewrap` 约束命令 |
 | | `sessionSandbox` | `true` | 会话命令跑在同一个 systemd user scope 中 |
 | | `agentBackend` | `auto` | 发行版内 agent：`auto`、`native` 或 `shell` |
 | | `maskWindowsDrive` | `false` | 让受限命令看不到 `/mnt` |
-| `wsl-fs` | `distro` | `''` | 文件操作使用的发行版 |
-| | `restrictToDistro` | `true` | 拒绝属于其他发行版的路径 |
+| `wsl-fs` | `distro` | `''` | 发行版模式；空/`auto` 跟随每个目标路径 |
+| | `restrictToDistro` | `true` | 固定发行版（`default` 或名字）时拒绝属于其他发行版的路径 |
 | | `sandbox` | `true` | 按策略检查受限写入 |
 | | `sessionSandbox` | `true` | 受限写入跑在会话 runtime 中 |
 | | `substrate` | `agent` | 发行版内 agent；`share` 在启动时被拒绝 |
 | `directory-picker-wsl` | `includeHostHome` | `true` | 同时列出 Windows 家目录 |
-| `subprocess-wsl` | `distro` | `''` | GUI 终端使用的发行版 |
+| `subprocess-wsl` | `distro` | `''` | 发行版模式；空/`auto` 跟随启动目录 |
 
 `wsl-shell` 和 `wsl-fs` 位于随包的 `wsl` preset 中，按 id 覆盖无效。要改就覆盖整个 `preset-wsl` 行；配方和其余键见 [docs/CONFIGURATION.md](CONFIGURATION.md)。[`cordis.patch.yml`](../cordis.patch.yml) 是随包值的注释参考。
 
@@ -174,6 +175,7 @@ pnpm run sync:windows  # 更新应用加载的 Windows 侧副本
 | [docs/ARCHITECTURE.md](ARCHITECTURE.md) | 服务、路径路由、沙箱、错误码 |
 | [docs/LIMITATIONS.md](LIMITATIONS.md) | 插件不做的事 |
 | [docs/ROADMAP.md](ROADMAP.md) | 当前计划和推迟项 |
+| [docs/ROADMAP-1.0.md](ROADMAP-1.0.md) | 1.0 与生态优化计划 |
 | [docs/VALUE.zh.md](VALUE.zh.md) | 价值与取舍 |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | 开发循环、质量门、探针 |
 | [SECURITY.md](../SECURITY.md) | 私下上报漏洞 |

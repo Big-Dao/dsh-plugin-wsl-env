@@ -47,6 +47,7 @@ import { FsError } from "@deepseek-ai/dsh-fs";
 import { canonicalPath, classifyRunnerFailure, isRunnerSpawnFailure, matchesSignature, SandboxUnavailableError, writableRoots } from "@deepseek-ai/dsh-sandbox";
 import { isAnotherDistrosUnc, isRelativeWorldPath, isWorldPathUnder, isWslUnc, posixToUnc, toLinuxPath, toWorldPath, uncToPosix, windowsToLinuxMount } from "./paths.js";
 import { isConfinedMutation, mutationModeRefusal, outsideDistroRefusal, shareSubstrateRefusal, substrateFailure, workspaceWriteDenial } from "./fs-decisions.js";
+import { distroOfUnc, isDefaultDistro, pinnedDistro, selectDistro } from "./distro-route.js";
 import { WslSandbox } from "./sandbox.js";
 import { bwrapFailure, missingBwrapRemedy, withBwrapHint } from "./sandbox-core.js";
 import { armDistroWatcher } from "./watcher.js";
@@ -139,20 +140,24 @@ function configuredCwd(config: { cwd?: { get(): string | undefined } }): string 
  * An empty `cwd` cannot mean the shipped default (`process.cwd()`, a Windows
  * directory no `wsl.exe --cd` accepts) and it must not mean a hardcoded author
  * path either, so both providers agree on this instead: the distro's own home,
- * asked of the distro once per instance.
+ * asked of the distro once per (provider, distro) pair.
  *
  * @param owner - a WslShellExecutor or WslFileSystem.
+ * @param distro - the distro whose home is wanted.
  * @returns an absolute Linux path.
  */
-async function distroHome(owner: WslShellExecutor | WslFileSystem): Promise<string> {
-  if (owner.resolvedHome === undefined) {
-    // Both providers carry `wslPath` in their own config; the base classes'
-    // `config` types do not know the key, so the shape is asserted here.
-    const config = owner.config as unknown as { wslPath: string };
-    const distro = await owner.distro();
-    owner.resolvedHome = await linuxHomePath(distro, { wslPath: config.wslPath });
-  }
-  return owner.resolvedHome;
+async function distroHome(owner: WslShellExecutor | WslFileSystem, distro: string): Promise<string> {
+  const cached = owner.resolvedHomes.get(distro);
+  if (cached !== undefined) return cached;
+  // Both providers carry `wslPath` in their own config; the base classes'
+  // `config` types do not know the key, so the shape is asserted here.
+  const config = owner.config as unknown as { wslPath: string };
+  const home = await linuxHomePath(distro, { wslPath: config.wslPath });
+  owner.resolvedHomes.set(distro, home);
+  // The legacy single-home cache is still what `processPathFromHostPath` and
+  // the existing tests read; keep it warm for the resolved default/pin.
+  if (owner.resolvedDistro.length > 0 && distro === owner.resolvedDistro) owner.resolvedHome = home;
+  return home;
 }
 
 /**
@@ -275,7 +280,10 @@ export class WslShellExecutor
   static inject = ["subprocess", "sandboxPolicy"];
 
   static Config = z.object({
-    /** Distro name; empty means WSL's own default distro. */
+    /**
+     * Distro mode: empty/`"auto"` follows the request workdir, `"default"`
+     * forces WSL's default, and an explicit name pins every command.
+     */
     distro: z.string().default(""),
     /** Path to `wsl.exe`; overridable for a non-standard install. */
     wslPath: z.string().default("wsl.exe"),
@@ -355,8 +363,12 @@ export class WslShellExecutor
   declare resolvedDistro: string;
   /** Cached distro-user login shell, resolved once. */
   declare resolvedShell: string;
+  /** Per-distro login shells, for a workspace that is not the default distro. */
+  declare resolvedShells: Map<string, string>;
   /** Cached distro-user home, the workdir when `cwd` is empty. */
   declare resolvedHome: string | undefined;
+  /** Per-distro homes, so two concurrent distros cannot share one. */
+  declare resolvedHomes: Map<string, string>;
   /** The default mode — the capability fact the tool layer reads. */
   declare mode: SandboxMode | undefined;
   /** The distro-side confinement, or nothing when the operator opted out. */
@@ -367,8 +379,8 @@ export class WslShellExecutor
   declare sessionRuntimeEntries: Map<string, SessionRuntimeEntry>;
   /** The preflight's host runner; tests substitute it. */
   declare sessionScopeProbe: (argv: string[]) => Promise<string>;
-  /** The last preflight verdict; only a success is cached. */
-  declare sessionRuntimePreflight: "unknown" | "ready";
+  /** Distros whose session-runtime preflight has succeeded. */
+  declare sessionRuntimePreflight: Set<string>;
   /**
    * Per-process confinement facts retained until settlement. Overlapping calls
    * can carry different policies, so a shared latest-wrap value would classify
@@ -383,9 +395,11 @@ export class WslShellExecutor
   constructor(ctx: Context, config: WslShellExecutorConfig) {
     super(ctx, config);
     configureAgentBackend(config.agentBackend ?? "auto");
-    this.resolvedDistro = config.distro;
+    this.resolvedDistro = pinnedDistro(config.distro) ?? "";
     this.resolvedShell = config.shell;
+    this.resolvedShells = new Map();
     this.resolvedHome = undefined;
+    this.resolvedHomes = new Map();
     this.mode = config.sandbox ? ctx.sandboxPolicy.defaultMode : undefined;
     this.sandbox = config.sandbox
       ? new WslSandbox({ wslPath: config.wslPath, maskWindowsDrive: config.maskWindowsDrive })
@@ -394,7 +408,7 @@ export class WslShellExecutor
     this.sessionRuntimes = sessionRuntimes;
     this.sessionRuntimeEntries = new Map();
     this.sessionScopeProbe = (argv) => runCapture(argv);
-    this.sessionRuntimePreflight = "unknown";
+    this.sessionRuntimePreflight = new Set();
     // The preset realm disposes when the session ends; the scope must go with
     // it, or a dev server outlives the session that started it.
     ctx.effect(() => () => this.disposeSessionRuntimes().catch(() => {}), "wsl session runtimes");
@@ -413,7 +427,8 @@ export class WslShellExecutor
   }
 
   /**
-   * The distro every command runs in, resolving WSL's default on first use.
+   * The distro used when no path supplies evidence: the pinned name, WSL's
+   * default, or the default for the automatic modes.
    *
    * @returns the distro name.
    */
@@ -424,10 +439,32 @@ export class WslShellExecutor
   }
 
   /**
-   * The shell every command runs in: the configured one, else the login shell of
-   * the distro user, resolved once and cached.
+   * The distro one command belongs to: an explicit pin wins; otherwise the
+   * request workdir, then the configured `cwd`, may name a distro; both
+   * absent falls back to WSL's default.
    *
-   * @returns an absolute path to the shell inside the distro.
+   * @param workdir - the request's workdir, in any coordinate system.
+   * @param cwd - the configured default workdir, when the caller has it.
+   * @returns the distro name.
+   */
+  async distroFor(workdir?: string, cwd?: string): Promise<string> {
+    const config = this.config as unknown as WslShellExecutorConfig;
+    const pinned = pinnedDistro(config.distro);
+    if (pinned !== undefined) return pinned;
+    if (!isDefaultDistro(config.distro)) {
+      for (const candidate of [workdir, cwd ?? configuredCwd(this.config)]) {
+        const named = distroOfUnc(candidate);
+        if (named !== undefined) return named;
+      }
+    }
+    return this.distro();
+  }
+
+  /**
+   * The shell name for the default/pinned distro, as the shell tool presents
+   * it.
+   *
+   * @returns the basename of the shell, or `bash` when it cannot be named.
    */
   async shellName(): Promise<string> {
     // Consumed by the shell tool after upstream change A: it names and describes
@@ -439,8 +476,27 @@ export class WslShellExecutor
   }
 
   /**
-   * The shell every command runs in, resolving the distro login shell on
-   * first use.
+   * The shell for one distro: the configured shell, else that distro's login
+   * shell. The default/pinned distro keeps the legacy {@link resolvedShell}
+   * cache; every other distro gets an entry in {@link resolvedShells}.
+   *
+   * @param distro - the distro name.
+   * @returns an absolute path to the shell inside the distro.
+   */
+  async shellFor(distro: string): Promise<string> {
+    const config = this.config as unknown as WslShellExecutorConfig;
+    if (config.shell.length > 0) return config.shell;
+    if (this.resolvedDistro.length > 0 && distro === this.resolvedDistro) return this.shell();
+    const cached = this.resolvedShells.get(distro);
+    if (cached !== undefined) return cached;
+    const resolved = await defaultShell(distro, { wslPath: config.wslPath });
+    if (resolved !== undefined) this.resolvedShells.set(distro, resolved);
+    return resolved ?? "bash";
+  }
+
+  /**
+   * The shell for the default/pinned distro: the configured one, else the
+   * login shell, resolved once and cached.
    *
    * @returns an absolute path to the shell inside the distro.
    */
@@ -525,12 +581,12 @@ export class WslShellExecutor
    * @throws {Error} with the remedy when it cannot.
    */
   async ensureSessionRuntimeUsable(distro: string): Promise<void> {
-    if (this.sessionRuntimePreflight === "ready") return;
+    if (this.sessionRuntimePreflight.has(distro)) return;
     const config = this.config as unknown as WslShellExecutorConfig;
     const problem = await probeSessionRuntime({ wslPath: config.wslPath, distro, run: this.sessionScopeProbe });
     if (problem !== null) throw new Error(problem);
     await ensureNativeSessionAgent({ wslPath: config.wslPath, distro, setNative: setSessionNativeAgent });
-    this.sessionRuntimePreflight = "ready";
+    this.sessionRuntimePreflight.add(distro);
   }
 
   /**
@@ -685,9 +741,10 @@ export class WslShellExecutor
   async withDefaultWorkdir(spec: WslExecSpec): Promise<WslExecSpec> {
     const tail = typeof spec?.relativeWorkdir === "string" ? spec.relativeWorkdir : undefined;
     if (String(spec?.workdir ?? "").trim().length > 0 && tail === undefined) return spec;
-    const home = await distroHome(this);
+    const distro = await this.distroFor(spec.workdir, configuredCwd(this.config));
+    const home = await distroHome(this, distro);
     if (tail === undefined || tail.length === 0) return { ...spec, workdir: home };
-    return { ...spec, workdir: toLinuxPath(tail, { distro: await this.distro(), cwd: home }) };
+    return { ...spec, workdir: toLinuxPath(tail, { distro, cwd: home }) };
   }
 
   /**
@@ -806,9 +863,9 @@ export class WslShellExecutor
    */
   async execute(spec: ShellExecSpec): Promise<ShellExecution> {
     const config = this.config as unknown as WslShellExecutorConfig;
-    const distro = await this.distro();
-    const shell = await this.shell();
     const resolved = await this.withDefaultWorkdir(spec);
+    const distro = await this.distroFor(resolved.workdir, configuredCwd(config));
+    const shell = await this.shellFor(distro);
     this.throwIfWorkdirInAnotherDistro(resolved.workdir, distro);
     if (config.agent) {
       try {
@@ -1099,7 +1156,10 @@ export class WslFileSystem extends LocalFileSystem {
   static inject = ["sandboxPolicy"];
 
   static Config = z.object({
-    /** Distro name; empty resolves WSL's default on first use. */
+    /**
+     * Distro mode: empty/`"auto"` follows the target path, `"default"` forces
+     * WSL's default, and an explicit name pins the filesystem.
+     */
     distro: z.string().default(""),
     /**
      * Default workdir for relative input; accepts a Linux path, a UNC path, or
@@ -1176,22 +1236,28 @@ export class WslFileSystem extends LocalFileSystem {
   declare resolvedDistro: string;
   /** Cached distro-user home, the base for relative input when `cwd` is empty. */
   declare resolvedHome: string | undefined;
+  /** Per-distro homes, so two concurrent distros cannot share one. */
+  declare resolvedHomes: Map<string, string>;
   /** The deployment default mode — the capability fact the tool layer reads. */
   declare defaultMode: SandboxMode;
-  /** The lazy agent-backed substrate, built on first use (see `agentSubstrate`). */
+  /** The lazy default-distro substrate, kept for the legacy accessor and tests. */
   declare agentSubstrateInstance: AgentSubstrate | undefined;
+  /** The per-distro agent-backed substrates. */
+  declare agentSubstrates: Map<string, AgentSubstrate>;
   /** The distro-side bwrap usability probe, shared with the confined agents. */
   declare sandbox: InstanceType<typeof WslSandbox>;
-  /** The resident agent serving publication (see `publicationAgent`). */
+  /** The resident agent serving publication for the default/pinned distro. */
   declare agentInstance: WslAgent | undefined;
+  /** The per-distro publication agents. */
+  declare agentInstances: Map<string, WslAgent>;
   /** The session-runtime registry; tests substitute it. */
   declare sessionRuntimes: SessionRuntimes;
   /** The runtimes this provider holds, by registry key. */
   declare sessionRuntimeEntries: Map<string, SessionRuntimeEntry>;
   /** The preflight's host runner; tests substitute it. */
   declare sessionScopeProbe: (argv: string[]) => Promise<string>;
-  /** The last preflight verdict; only a success is cached. */
-  declare sessionRuntimePreflight: "unknown" | "ready";
+  /** Distros whose session-runtime preflight has succeeded. */
+  declare sessionRuntimePreflight: Set<string>;
 
   /**
    * @param ctx - the composition context.
@@ -1204,16 +1270,19 @@ export class WslFileSystem extends LocalFileSystem {
     const refusal = shareSubstrateRefusal(config.substrate);
     if (refusal !== null) throw new Error(refusal.message);
     super(ctx, config);
-    this.resolvedDistro = config.distro;
+    this.resolvedDistro = pinnedDistro(config.distro) ?? "";
     this.resolvedHome = undefined;
+    this.resolvedHomes = new Map();
     this.defaultMode = ctx.sandboxPolicy.defaultMode;
     this.agentSubstrateInstance = undefined;
+    this.agentSubstrates = new Map();
     this.sandbox = new WslSandbox({ wslPath: config.wslPath, maskWindowsDrive: config.maskWindowsDrive });
     this.agentInstance = undefined;
+    this.agentInstances = new Map();
     this.sessionRuntimes = sessionRuntimes;
     this.sessionRuntimeEntries = new Map();
     this.sessionScopeProbe = (argv) => runCapture(argv);
-    this.sessionRuntimePreflight = "unknown";
+    this.sessionRuntimePreflight = new Set();
     // The preset's disposer releases the runtime; the shell executor's effect
     // releases its own reference, so the scope stops after the last one.
     ctx.effect(() => () => this.disposeSessionRuntimes().catch(() => {}), "wsl fs session runtimes");
@@ -1233,11 +1302,10 @@ export class WslFileSystem extends LocalFileSystem {
   }
 
   /**
-   * The resident agent serving this filesystem's in-distro side work, created
-   * on first use and kept for the provider's lifetime (its own idle timer
-   * retires the process; a later call starts a fresh one).
+   * The resident agent serving the default/pinned distro's in-distro side
+   * work, created on first use and kept for the provider's lifetime.
    *
-   * @returns the agent for the pinned distro.
+   * @returns the agent for the default/pinned distro.
    */
   async publicationAgent(): Promise<WslAgent> {
     if (this.agentInstance === undefined) {
@@ -1247,8 +1315,25 @@ export class WslFileSystem extends LocalFileSystem {
   }
 
   /**
-   * The agent-backed substrate, built on first use over the same resident
-   * agent every other distro side work shares.
+   * The resident agent for one distro. The default/pinned distro keeps the
+   * legacy {@link publicationAgent} cache; every other distro gets its own
+   * entry, because the shared agent is a per-distro process singleton.
+   *
+   * @param distro - the distro name.
+   * @returns the agent for that distro.
+   */
+  async publicationAgentFor(distro: string): Promise<WslAgent> {
+    if (this.resolvedDistro.length > 0 && distro === this.resolvedDistro) return this.publicationAgent();
+    const cached = this.agentInstances.get(distro);
+    if (cached !== undefined) return cached;
+    const agent = sharedAgent(distro);
+    this.agentInstances.set(distro, agent);
+    return agent;
+  }
+
+  /**
+   * The agent-backed substrate for the default/pinned distro, built on first
+   * use over the shared resident agent.
    *
    * @returns the substrate.
    */
@@ -1263,6 +1348,40 @@ export class WslFileSystem extends LocalFileSystem {
       });
     }
     return this.agentSubstrateInstance;
+  }
+
+  /**
+   * The agent-backed substrate for one distro. The default/pinned distro keeps
+   * the legacy {@link agentSubstrate} accessor (and its test override); every
+   * other distro gets a substrate that mints its own UNC identities and
+   * addresses its own resident.
+   *
+   * @param distro - the distro name.
+   * @returns the substrate for that distro.
+   */
+  async agentSubstrateFor(distro: string): Promise<AgentSubstrate> {
+    if (this.resolvedDistro.length > 0 && distro === this.resolvedDistro) return this.agentSubstrate();
+    const cached = this.agentSubstrates.get(distro);
+    if (cached !== undefined) return cached;
+    const config = this.config as unknown as WslFileSystemConfig;
+    const substrate = new AgentSubstrate({
+      agent: await this.publicationAgentFor(distro),
+      distro,
+      diffBasisMaxBytes: config.diffBasisMaxBytes,
+      agentFor: (policy) => this.mutationAgent(policy, distro),
+    });
+    this.agentSubstrates.set(distro, substrate);
+    return substrate;
+  }
+
+  /**
+   * The substrate for one resolved target, following the target's UNC identity.
+   *
+   * @param target - the resolved target.
+   * @returns the substrate for the target's distro.
+   */
+  async substrateForTarget(target: FsTarget): Promise<AgentSubstrate> {
+    return this.agentSubstrateFor(await this.distroForTarget(target));
   }
 
   /**
@@ -1302,12 +1421,12 @@ export class WslFileSystem extends LocalFileSystem {
    * @throws {Error} with the remedy when it cannot.
    */
   async ensureSessionRuntimeUsable(distro: string): Promise<void> {
-    if (this.sessionRuntimePreflight === "ready") return;
+    if (this.sessionRuntimePreflight.has(distro)) return;
     const config = this.config as unknown as WslFileSystemConfig;
     const problem = await probeSessionRuntime({ wslPath: config.wslPath, distro, run: this.sessionScopeProbe });
     if (problem !== null) throw new Error(problem);
     await ensureNativeSessionAgent({ wslPath: config.wslPath, distro, setNative: setSessionNativeAgent });
-    this.sessionRuntimePreflight = "ready";
+    this.sessionRuntimePreflight.add(distro);
   }
 
   /**
@@ -1333,18 +1452,20 @@ export class WslFileSystem extends LocalFileSystem {
    *
    * @param policy - the resolved file-effect policy, or undefined when the
    *   caller pre-checked.
+   * @param forDistro - the distro the mutation belongs to; derived from the
+   *   policy when the caller does not know it.
    * @returns the agent to publish through.
    */
-  async mutationAgent(policy: { mode: string, workspaceRoot: string } | undefined): Promise<WslAgent> {
+  async mutationAgent(policy: { mode: string, workspaceRoot: string } | undefined, forDistro?: string): Promise<WslAgent> {
     const config = this.config as unknown as WslFileSystemConfig;
+    const distro = forDistro ?? await this.distroForPolicy(policy);
     if (!isConfinedMutation({ policy, sandboxEnabled: config.sandbox })) {
-      return this.publicationAgent();
+      return this.publicationAgentFor(distro);
     }
     // The untyped guard decided this is a confined policy but cannot narrow
     // the parameter, so the confined shape is asserted once here (type-level
     // only; `confinedPolicy` is the same value as `policy`).
     const confinedPolicy = policy as { mode: ConfinedSandboxMode, workspaceRoot: string };
-    const distro = await this.distro();
     if (!(await this.sandbox.usable(distro))) {
       // The probe's classified remedy — missing vs present-but-broken, with the
       // distro's own package family — is what every other refusal surfaces;
@@ -1392,7 +1513,8 @@ export class WslFileSystem extends LocalFileSystem {
   }
 
   /**
-   * The pinned distro, resolving WSL's default on first use.
+   * The distro used when no path supplies evidence: the pinned name, WSL's
+   * default, or the default for the automatic modes.
    *
    * @returns the distro name.
    */
@@ -1400,6 +1522,59 @@ export class WslFileSystem extends LocalFileSystem {
     const config = this.config as unknown as WslFileSystemConfig;
     if (this.resolvedDistro.length === 0) this.resolvedDistro = await defaultDistro({ wslPath: config.wslPath });
     return this.resolvedDistro;
+  }
+
+  /**
+   * The distro one path belongs to: an explicit pin wins; otherwise the path
+   * itself, then the cwd or configured cwd, may name a distro; both absent
+   * falls back to WSL's default.
+   *
+   * @param path - the caller path, in any coordinate system.
+   * @param cwd - the caller's optional cwd override.
+   * @returns the distro name.
+   */
+  async distroForPath(path: string, cwd?: string): Promise<string> {
+    const config = this.config as unknown as WslFileSystemConfig;
+    const pinned = pinnedDistro(config.distro);
+    if (pinned !== undefined) return pinned;
+    if (!isDefaultDistro(config.distro)) {
+      for (const candidate of [path, cwd ?? config.cwd]) {
+        const named = distroOfUnc(candidate);
+        if (named !== undefined) return named;
+      }
+    }
+    return this.distro();
+  }
+
+  /**
+   * The distro a resolved target belongs to. A UNC identity names it outright;
+   * a host-coordinate target falls back to the configured/default distro.
+   *
+   * @param target - the resolved target.
+   * @returns the distro name.
+   */
+  async distroForTarget(target: FsTarget): Promise<string> {
+    return uncToPosix(target.targetKey)?.distro ?? this.distroForPath(target.displayPath);
+  }
+
+  /**
+   * The distro a mutation's policy belongs to: the workspace root is the
+   * strongest evidence, then the configured cwd, then the default.
+   *
+   * @param policy - the resolved policy, when the caller has one.
+   * @returns the distro name.
+   */
+  async distroForPolicy(policy: { mode: string, workspaceRoot: string } | undefined): Promise<string> {
+    const config = this.config as unknown as WslFileSystemConfig;
+    const pinned = pinnedDistro(config.distro);
+    if (pinned !== undefined) return pinned;
+    if (!isDefaultDistro(config.distro)) {
+      for (const candidate of [policy?.workspaceRoot, config.cwd]) {
+        const named = distroOfUnc(candidate);
+        if (named !== undefined) return named;
+      }
+    }
+    return this.distro();
   }
 
   /**
@@ -1411,13 +1586,13 @@ export class WslFileSystem extends LocalFileSystem {
    */
   async worldPath(path: string, cwd?: string): Promise<string> {
     const config = this.config as unknown as WslFileSystemConfig;
-    const distro = await this.distro();
+    const distro = await this.distroForPath(path, cwd);
     let base = cwd ?? config.cwd;
     if (String(base ?? "").trim().length === 0 && isRelativeWorldPath(path)) {
       // An empty `cwd` means the distro user's home. Only relative input
       // consults the base at all, which is also the only case that has to pay
       // for the `wsl.exe` query — an absolute path never does.
-      base = await distroHome(this);
+      base = await distroHome(this, distro);
     }
     const world = toWorldPath(path, { distro, cwd: base });
     const refusal = outsideDistroRefusal({ path, world, distro, restrictToDistro: config.restrictToDistro });
@@ -1442,10 +1617,11 @@ export class WslFileSystem extends LocalFileSystem {
     const world = await this.worldPath(path, opts?.cwd);
     const linux = uncToPosix(world)?.linuxPath ?? windowsToLinuxMount(world);
     if (linux === undefined) throw new FsError(`cannot serve "${path}" from inside the distro`, "FS_IO_ERROR");
+    const distro = uncToPosix(world)?.distro ?? await this.distroForPath(path, opts?.cwd);
     try {
       // The substrate's resolved shape carries plain-string keys; the seam's
       // branded tokens ride one type-level cast (runtime shape unchanged).
-      return (await (await this.agentSubstrate()).resolve(linux, opts?.signal)) as FsTarget;
+      return (await (await this.agentSubstrateFor(distro)).resolve(linux, opts?.signal)) as FsTarget;
     } catch (error) {
       throw this.peerError(error);
     }
@@ -1479,8 +1655,8 @@ export class WslFileSystem extends LocalFileSystem {
       throw new FsError(modeRefusal.message, modeRefusal.code as FsErrorCode);
     }
     if (policy.mode !== "workspace-write") return target;
-    const fresh = await this.resolve(target.displayPath);
-    const distro = await this.distro();
+    const distro = await this.distroForTarget(target);
+    const fresh = await this.resolve(target.targetKey);
     for (const root of wslWritableRoots(policy, distro)) {
       if (isWorldPathUnder(fresh.targetKey, root, { distro })) return fresh;
     }
@@ -1497,7 +1673,7 @@ export class WslFileSystem extends LocalFileSystem {
    */
   async stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined> {
     try {
-      return (await (await this.agentSubstrate()).stat(target, signal)) as FsInfo | undefined;
+      return (await (await this.substrateForTarget(target)).stat(target, signal)) as FsInfo | undefined;
     } catch (error) {
       throw this.peerError(error);
     }
@@ -1516,8 +1692,9 @@ export class WslFileSystem extends LocalFileSystem {
     const world = await this.worldPath(path, opts?.cwd);
     const linux = uncToPosix(world)?.linuxPath ?? windowsToLinuxMount(world);
     if (linux === undefined) throw new FsError(`cannot inspect "${path}" from inside the distro`, "FS_IO_ERROR");
+    const distro = uncToPosix(world)?.distro ?? await this.distroForPath(path, opts?.cwd);
     try {
-      return (await (await this.agentSubstrate()).lstat(linux, signal)) as FsPathInfo | undefined;
+      return (await (await this.agentSubstrateFor(distro)).lstat(linux, signal)) as FsPathInfo | undefined;
     } catch (error) {
       throw this.peerError(error);
     }
@@ -1532,7 +1709,7 @@ export class WslFileSystem extends LocalFileSystem {
    */
   async readText(target: FsTarget, signal?: AbortSignal): Promise<string> {
     try {
-      return await (await this.agentSubstrate()).readText(target, signal);
+      return await (await this.substrateForTarget(target)).readText(target, signal);
     } catch (error) {
       throw this.peerError(error);
     }
@@ -1547,7 +1724,7 @@ export class WslFileSystem extends LocalFileSystem {
    */
   async streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>> {
     try {
-      return await (await this.agentSubstrate()).streamText(target, signal);
+      return await (await this.substrateForTarget(target)).streamText(target, signal);
     } catch (error) {
       throw this.peerError(error);
     }
@@ -1563,7 +1740,7 @@ export class WslFileSystem extends LocalFileSystem {
    */
   async readBytes(target: FsTarget, signal: AbortSignal | undefined, maxBytes: number): Promise<Uint8Array> {
     try {
-      return await (await this.agentSubstrate()).readBytes(target, signal, maxBytes);
+      return await (await this.substrateForTarget(target)).readBytes(target, signal, maxBytes);
     } catch (error) {
       throw this.peerError(error);
     }
@@ -1579,7 +1756,7 @@ export class WslFileSystem extends LocalFileSystem {
    */
   async readByteRange(target: FsTarget, range: { offset: number, length: number }, signal?: AbortSignal): Promise<Uint8Array> {
     try {
-      return await (await this.agentSubstrate()).readByteRange(target, range, signal);
+      return await (await this.substrateForTarget(target)).readByteRange(target, range, signal);
     } catch (error) {
       throw this.peerError(error);
     }
@@ -1595,7 +1772,7 @@ export class WslFileSystem extends LocalFileSystem {
    */
   async listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]> {
     try {
-      return (await (await this.agentSubstrate()).listDir(target, signal)) as FsDirEntry[];
+      return (await (await this.substrateForTarget(target)).listDir(target, signal)) as FsDirEntry[];
     } catch (error) {
       throw this.peerError(error);
     }
@@ -1608,10 +1785,10 @@ export class WslFileSystem extends LocalFileSystem {
    * plain callback over image attachments, and `packages/api/session-controller`
    * plus the UI's open/reveal path compare the return value against `undefined`
    * without awaiting. The mapping is therefore built from facts that are already
-   * known — the distro, once `distro()` has resolved it (the pinned config, or
-   * the default `wsl.exe` answered earlier: the first filesystem operation
-   * resolves it), and the configured `cwd`, or the resolved home for a relative
-   * path. A call that would have to ask `wsl.exe` — a cold default distro, or a
+   * known — a UNC host path names its own distro outright; a non-UNC path uses
+   * the pinned/config default once `distro()` has resolved it, and the
+   * configured `cwd`, or the resolved home for a relative path. A call that
+   * would have to ask `wsl.exe` — a cold default distro with no UNC, or a
    * relative path before the home is known — answers `undefined`, which every
    * consumer reads as "no mapping", the same answer the ssh provider gives for
    * a path it cannot map.
@@ -1629,14 +1806,19 @@ export class WslFileSystem extends LocalFileSystem {
    */
   processPathFromHostPath(hostPath: string): string | undefined {
     const config = this.config as unknown as WslFileSystemConfig;
-    if (this.resolvedDistro.length === 0) return undefined;
+    const choice = selectDistro({
+      configured: config.distro,
+      candidates: [hostPath, config.cwd],
+      fallback: this.resolvedDistro,
+    });
+    if (choice.distro.length === 0) return undefined;
     let base: string | undefined = config.cwd;
     if (String(base ?? "").trim().length === 0 && isRelativeWorldPath(hostPath)) {
-      if (this.resolvedHome === undefined) return undefined;
-      base = this.resolvedHome;
+      base = this.resolvedHomes.get(choice.distro) ?? (choice.distro === this.resolvedDistro ? this.resolvedHome : undefined);
+      if (base === undefined) return undefined;
     }
-    const world = toWorldPath(hostPath, { distro: this.resolvedDistro, cwd: base });
-    const refusal = outsideDistroRefusal({ path: hostPath, world, distro: this.resolvedDistro, restrictToDistro: config.restrictToDistro });
+    const world = toWorldPath(hostPath, { distro: choice.distro, cwd: base });
+    const refusal = outsideDistroRefusal({ path: hostPath, world, distro: choice.distro, restrictToDistro: config.restrictToDistro });
     return refusal === null ? world : undefined;
   }
 
@@ -1664,7 +1846,18 @@ export class WslFileSystem extends LocalFileSystem {
     if (parsed === undefined) {
       throw new FsError(`cannot watch "${target.displayPath}": not a path inside the distro`, "FS_IO_ERROR");
     }
-    const distro = await this.distro();
+    const pinned = pinnedDistro(config.distro);
+    const configuredName = pinned ?? (isDefaultDistro(config.distro) ? await this.distro() : undefined);
+    if (configuredName !== undefined) {
+      const refusal = outsideDistroRefusal({
+        path: target.displayPath,
+        world: target.targetKey,
+        distro: configuredName,
+        restrictToDistro: config.restrictToDistro,
+      });
+      if (refusal !== null) throw new FsError(refusal.message, refusal.code as FsErrorCode);
+    }
+    const distro = parsed.distro;
     return armDistroWatcher({
       wslPath: config.wslPath,
       distro,
@@ -1695,7 +1888,7 @@ export class WslFileSystem extends LocalFileSystem {
     const policy = sandboxPolicy ?? this.ctx.sandboxPolicy.resolve();
     const fenced = await this.checkedTarget(target, policy);
     try {
-      return (await (await this.agentSubstrate()).writeText(fenced, content, expected, signal, policy)) as FsWriteOutcome;
+      return (await (await this.substrateForTarget(fenced)).writeText(fenced, content, expected, signal, policy)) as FsWriteOutcome;
     } catch (error) {
       throw this.peerError(error);
     }
@@ -1717,7 +1910,7 @@ export class WslFileSystem extends LocalFileSystem {
     const policy = sandboxPolicy ?? this.ctx.sandboxPolicy.resolve();
     const fenced = await this.checkedTarget(target, policy);
     try {
-      return (await (await this.agentSubstrate()).editText(fenced, edit, expected, signal, policy)) as FsEditOutcome;
+      return (await (await this.substrateForTarget(fenced)).editText(fenced, edit, expected, signal, policy)) as FsEditOutcome;
     } catch (error) {
       throw this.peerError(error);
     }

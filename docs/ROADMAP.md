@@ -6,6 +6,10 @@ measurement; the numbers are in the ADR's
 [FS queue measurement](adr/0002-native-agent.md#fs-queue-measurement-a6-2026-10-18)
 section.
 
+> The product and ecosystem plan toward 1.0 is
+> [ROADMAP-1.0.md](ROADMAP-1.0.md). This file remains the current technical
+> plan for the native agent.
+
 ## Done
 
 | Step | Outcome |

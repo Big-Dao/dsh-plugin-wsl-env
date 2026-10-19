@@ -22,7 +22,7 @@ has its own table at the end of this page.
 
 | Row | Key | Default | Meaning |
 |---|---|---|---|
-| `wsl-shell` | `distro` | `''` *(shipped)* | distro name; empty means WSL's default distro |
+| `wsl-shell` | `distro` | `''` *(shipped)* | distro mode: empty/`auto` follows the request workdir, `default` forces WSL's default, and a name pins every command |
 | | `shell` | `''` | pin a shell inside the distro; empty means the user's login shell |
 | | `loginShell` | `true` *(shipped)* | use `<shell> -lc`, which sources your profile, instead of a bare `-c`. Applies only to the POSIX family; a non-POSIX shell (fish, csh) still gets a bare `-c` |
 | | `agent` | `true` | run commands over the resident in-distro agent (one long-lived process; in-distro timeout); the one-shot `wsl.exe` path is fallen back to only when the agent is out of service. Anything else — a cwd refusal, a sandbox refusal — is the command's own verdict and is raised, not retried on the other path |
@@ -32,25 +32,25 @@ has its own table at the end of this page.
 | | `maskWindowsDrive` | `false` | shadow `/mnt` with an empty tmpfs in every confined profile: the Windows drive's files cannot be read or exfiltrated and its executables cannot be launched through interop — the hole that lets a "sandboxed" command reach your full Windows token. A narrowing, not a closure (a command can still write an executable into the workspace and run it — binfmt dispatches on content, not location), so enforcement stays `partial` and the result's sandbox fact reports `windowsDrive: "masked"`. The complete closure is distro-level: `[interop] enabled=false` in `wsl.conf` |
 | | `cwd` | `''` | default working directory; empty means the distro user's home |
 | | `timeoutMs` / `maxTimeoutMs` | `120000` / `600000` *(shipped)* | per-call time limit, and the ceiling a call may ask for |
-| `wsl-fs` | `distro` | `''` *(shipped)* | as above |
-| | `restrictToDistro` | `true` *(shipped)* | refuse a path in **another distro**'s share. `/mnt/c` is a directory *inside* the pinned distro, so it is not affected. The refusal carries `FS_OUTSIDE_DISTRO`; that is not a sandbox decision, so the file tools do not offer a wider permission for it. Set `false` to allow another distro's share |
+| `wsl-fs` | `distro` | `''` *(shipped)* | distro mode: empty/`auto` follows each target path, `default` forces WSL's default, and a name pins the filesystem |
+| | `restrictToDistro` | `true` *(shipped)* | under a fixed `distro` (`default` or a name), refuse a path in **another distro**'s share (`FS_OUTSIDE_DISTRO`). Under `auto`, a UNC target is served by its own distro, so the fence has nothing foreign to refuse. `/mnt/c` is a directory *inside* the selected distro and is not affected |
 | | `sandbox` | `true` | check `writeText` and `editText` against the policy. Needs a usable `bwrap` in the distro too, and fails closed the same way: a distro without one refuses confined mutations (`FS_IO_ERROR`, with the install guidance) rather than downgrading them |
 | | `maskWindowsDrive` | `false` | as on `wsl-shell`: confined fs mutations publish through a resident whose profile shadows `/mnt` (same honest limits) |
 | | `sessionSandbox` | `true` *(shipped)* | run confined mutations in the same session runtime the shell uses for the same `(distro, workspace, policy)` — one agent, one real `/tmp`, one workspace mount view; requires the same systemd/linger setup and the preflight refuses with the remedy. Set `false` for the per-policy confined resident. The app-level `fs-routing` backend is not session-owned and keeps this off |
 | | `substrate` | `agent` *(shipped)* | which I/O substrate serves the file tools. Only the resident in-distro agent (`lib/fs-substrate.js`) exists: reads, writes and identities run on ext4 — native symlinks, native mode bits, and the mutation guard survives to the write's atomic publication, kernel-enforced by the confined resident when the policy is confined. The former `share` opt-out (the Windows-side host stack over the 9p share) is refused at boot; delete the line. The comment shipped beside this key in `cordis.patch.yml` still calls `share` the opt-out — that comment is out of date, and the boot refusal is what runs |
 | | `cwd` | `''` | base directory for relative paths; empty means the distro user's home |
 | | `watchMaxDepth` | `0` | how deep the in-distro watch scan walks; `0` walks the whole tree and enables the inotify backend. A positive value keeps the polling scan (inotify cannot bound its walk); a change below the bound is seen only when another change above it fires the same callback |
-| `fs-routing` | `distro` | `''` *(shipped)* | which distro the root-plane filesystem routes to; empty resolves WSL's default. **A row of its own**, with its own copy of the distro knobs — changing `wsl-fs` does not change this one, nor the other way round |
+| `fs-routing` | `distro` | `''` *(shipped)* | distro mode for the root-plane filesystem: empty/`auto` follows each target's UNC distro, `default` forces WSL's default, and a name pins. **A row of its own**, with its own copy of the distro knobs — changing `wsl-fs` does not change this one, nor the other way round |
 | | `wslPath` | `wsl.exe` *(shipped)* | path to `wsl.exe`; used here only to resolve the default distro |
 | | `sandbox` | `true` *(shipped)* | fence routed mutations by `ctx.sandboxPolicy`; same `bwrap` requirement and fail-closed refusal as `wsl-fs`. The routing row reports no `sandboxMode` — `undefined` whether the fence is on or off |
 | | `maskWindowsDrive` | `false` *(shipped)* | as on `wsl-shell`, for routed mutations |
-| | `restrictToDistro` | `true` *(shipped)* | refuse a path in another distro's share (`FS_OUTSIDE_DISTRO`) |
+| | `restrictToDistro` | `true` *(shipped)* | under a fixed `distro` (`default` or a name), refuse a path in another distro's share (`FS_OUTSIDE_DISTRO`); under `auto`, each UNC target is served by its own distro |
 | | `watchMaxDepth` | `0` *(shipped)* | how deep the routed watch scan walks; `0` walks the whole tree and enables the inotify backend; a positive value keeps the polling scan |
 | | `distroCwd` | `''` | the routed backend's default workdir; empty means the distro user's home. `cwd` belongs to the host backend only — the distro side reads `distroCwd` — while `diffBasisMaxBytes` is shared: it bounds the overwrite diff on both sides |
 | `directory-picker-wsl` | `preferredDistro` | `''` *(shipped)* | the distro listed first in the picker |
 | | `includeHostHome` | `true` *(shipped)* | also list the Windows home directory |
 | | `maxEntries` | `1000` *(shipped)* | maximum entries listed per directory |
-| `subprocess-wsl` | `distro` | `''` *(shipped)* | which distro the GUI terminal opens in |
+| `subprocess-wsl` | `distro` | `''` *(shipped)* | distro mode for the GUI terminal: empty/`auto` follows the launch directory, `default` forces WSL's default, and a name pins |
 | | `shell` | `''` | pin a shell; empty lets `wsl.exe` decide |
 | | `loginShell` | `true` | whether a pinned shell uses login semantics |
 | | `hostSessions` | `true` | give a session opened on a Windows folder a host `powershell.exe` in its own directory instead of the distro shell at `/mnt/<drive>/…`; `false` restores the composition-owned distro terminal for every session |
@@ -164,9 +164,12 @@ is out of service and the call rides the one-shot `wsl.exe` path.
 
 ## Which distro is used
 
-`distro: ''` means the distro `wsl.exe` treats as default, so an installation with a
-single distro needs no configuration. Name one when you have several, or when the
-default is not the one you want sessions in.
+`distro: ''` (or `distro: 'auto'`) follows the workspace: opening
+`\\wsl.localhost\Debian\...` runs there even when Ubuntu is WSL's default.
+`distro: 'default'` forces WSL's default instead, and a fixed distro (`default` or
+a name) pins every session to that distro — a foreign UNC then refuses with
+`FS_OUTSIDE_DISTRO` while `restrictToDistro` holds. A single-distro installation
+needs no configuration.
 
 ## Turning the sandbox off
 
@@ -218,8 +221,8 @@ When something refuses, the message names the row or the code:
 | a command never starts | a `WSL_E_*` code naming the distro | start it with `wsl.exe -d <distro>`, or point `distro` at another one — wider permissions do not help |
 | `wsl.exe` itself cannot be started | the error names the executable and says to check `wslPath` on this row | fix `wslPath`, and check WSL is installed |
 | WSL wedges mid-command | no completion within the deadline | retry once, then `wsl.exe --shutdown` and reopen |
-| a watched path never fires | `FS_IO_ERROR` from `watch` | watch a path inside the pinned distro |
-| a path in another distro is refused | `FS_OUTSIDE_DISTRO` | open a session in that distro, or set `restrictToDistro: false` |
+| a watched path never fires | `FS_IO_ERROR` from `watch` | watch a path inside the selected distro |
+| a path in another distro is refused | `FS_OUTSIDE_DISTRO` | only when `distro` is pinned; set `distro: ''`/`auto` to follow the workspace, or open a session in that distro |
 
 The full code table — what each code means and what clears it — is
 [ARCHITECTURE.md § Error codes](ARCHITECTURE.md#error-codes); the design boundaries
@@ -229,5 +232,5 @@ behind the fail-closed choices above are in [LIMITATIONS.md](LIMITATIONS.md).
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `distro` | `''` | the distro the `DSH_WSL_*` facts describe |
+| `distro` | `''` | distro mode for the `DSH_WSL_*` facts: empty/`auto` follows each session's workspace, `default` forces WSL's default, and a name pins |
 | `portsRefreshMs` | `10000` | how often the `DSH_WSL_PORTS` listening-port snapshot refreshes through the resident agent. A failed scan keeps the last successful list (and a debug line), so a transient agent outage does not read as “no ports”; only a successful empty scan means none were listening |

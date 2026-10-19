@@ -137,17 +137,17 @@ const spawnView = (executor) => /** @type {OneShotSeam} */ (/** @type {unknown} 
 
 /**
  * A filesystem provider over a fake substrate; the agent never spawns.
- * @param {{ sandbox?: boolean, restrictToDistro?: boolean, sessionSandbox?: boolean, policy?: { mode: "read-only"|"workspace-write"|"danger-full-access", workspaceRoot: string } }} [options] - the provider switches and the policy the fake resolves.
+ * @param {{ sandbox?: boolean, restrictToDistro?: boolean, sessionSandbox?: boolean, distro?: string, policy?: { mode: "read-only"|"workspace-write"|"danger-full-access", workspaceRoot: string } }} [options] - the provider switches, the distro mode, and the policy the fake resolves.
  * @returns {{ fs: WslFileSystem, substrate: MockSubstrate }} the provider and its scripted substrate.
  */
-function makeFs({ sandbox = true, restrictToDistro = true, policy, sessionSandbox = false } = {}) {
+function makeFs({ sandbox = true, restrictToDistro = true, distro = DISTRO, policy, sessionSandbox = false } = {}) {
   // The unit suite must never resolve the packaged native binary: no wsl.exe.
   configureAgentBackend("shell");
   const resolved = policy ?? { mode: "workspace-write", workspaceRoot: WORKSPACE };
   const ctx = new Context();
   ctx.provide("sandboxPolicy", { defaultMode: resolved.mode, resolve: () => resolved });
   const fs = new WslFileSystem(ctx, WslFileSystem.Config({
-    distro: DISTRO,
+    distro,
     sandbox,
     restrictToDistro,
     sessionSandbox,
@@ -166,15 +166,15 @@ function makeFs({ sandbox = true, restrictToDistro = true, policy, sessionSandbo
 
 /**
  * An executor whose agent and confinement are fakes at the seam.
- * @param {{ sandbox?: boolean, sessionSandbox?: boolean }} [options] - the executor switches.
+ * @param {{ sandbox?: boolean, sessionSandbox?: boolean, distro?: string }} [options] - the executor switches and distro mode.
  * @returns {{ executor: WslShellExecutor, agent: ScriptedAgent, agentCalls: AgentFrame[] }} the executor, its scripted frame-runner, and every frame it saw.
  */
-function makeExecutor({ sandbox = true, sessionSandbox = false } = {}) {
+function makeExecutor({ sandbox = true, sessionSandbox = false, distro = DISTRO } = {}) {
   const policy = { mode: "workspace-write", workspaceRoot: WORKSPACE };
   const ctx = new Context();
   ctx.provide("sandboxPolicy", { defaultMode: policy.mode, resolve: () => policy });
   const executor = new WslShellExecutor(ctx, WslShellExecutor.Config({
-    distro: DISTRO,
+    distro,
     shell: "/bin/zsh",
     sandbox,
     agent: true,
@@ -307,6 +307,33 @@ check("restrictToDistro: false lets the foreign UNC through", async () => {
   assert.equal(await fs.worldPath("\\\\wsl.localhost\\debian\\etc\\hostname"), "\\\\wsl.localhost\\debian\\etc\\hostname");
 });
 
+check("auto routing follows a workspace UNC instead of the pinned distro", async () => {
+  const { fs } = makeFs({ distro: "" });
+  const debian = "\\\\wsl.localhost\\debian\\home\\andy\\proj";
+  assert.equal(await fs.worldPath(debian), debian, "the workspace distro wins over the unstated default");
+  assert.equal(await fs.distroForTarget({ targetKey: FsTargetKey(`${debian}\\a.ts`), displayPath: "/home/andy/proj/a.ts" }), "debian");
+  assert.equal(fs.processPathFromHostPath(`${debian}\\a.ts`), `${debian}\\a.ts`, "a UNC maps without resolving WSL's default");
+  const fake = { distro: "debian" };
+  fs.agentSubstrates.set("debian", /** @type {never} */ (fake));
+  assert.equal(await fs.agentSubstrateFor("debian"), fake, "the Debian target addresses its own substrate");
+});
+
+check("auto resolve sends a Debian path to the Debian substrate", async () => {
+  const { fs } = makeFs({ distro: "" });
+  /** @type {string[]} */
+  const seen = [];
+  const substrate = {
+    resolve: async (/** @type {string} */ linuxPath) => {
+      seen.push(linuxPath);
+      return { displayPath: linuxPath, targetKey: FsTargetKey(`\\\\wsl.localhost\\debian${linuxPath.replaceAll("/", "\\")}`) };
+    },
+  };
+  fs.agentSubstrates.set("debian", /** @type {never} */ (substrate));
+  const target = await fs.resolve("\\\\wsl.localhost\\debian\\home\\andy\\proj");
+  assert.deepEqual(seen, ["/home/andy/proj"], "the Debian substrate receives the Linux coordinate");
+  assert.equal(target.targetKey, "\\\\wsl.localhost\\debian\\home\\andy\\proj");
+});
+
 check("processPathFromHostPath maps synchronously and closes the consumers' round trip", async () => {
   const { fs } = makeFs();
   const hostPath = `${WORKSPACE}\\a.ts`;
@@ -321,12 +348,15 @@ check("processPathFromHostPath maps synchronously and closes the consumers' roun
   assert.equal(fs.processPath(target), hostPath, "map → resolve → processPath returns the host path back");
 });
 
-check("processPathFromHostPath answers undefined for what it cannot know synchronously", async () => {
+check("processPathFromHostPath maps a UNC without the default, but not a cold non-UNC path", async () => {
   const foreign = `${WORKSPACE.replace("ubuntu", "debian")}\\a.ts`;
   assert.equal(makeFs().fs.processPathFromHostPath(foreign), undefined, "another distro's share is not this backend's to map (the async path refuses loudly)");
   const cold = makeFs();
   cold.fs.resolvedDistro = "";
-  assert.equal(cold.fs.processPathFromHostPath(`${WORKSPACE}\\a.ts`), undefined, "a cold default distro would need wsl.exe; the sync answer is no mapping");
+  assert.equal(cold.fs.processPathFromHostPath(`${WORKSPACE}\\a.ts`), `${WORKSPACE}\\a.ts`, "a UNC names its distro; the default cache is not needed");
+  const auto = makeFs({ distro: "" });
+  auto.fs.resolvedDistro = "";
+  assert.equal(auto.fs.processPathFromHostPath("C:\\proj\\a.ts"), undefined, "a cold non-UNC path has no distro evidence yet");
   const relative = makeFs();
   assert.equal(relative.fs.processPathFromHostPath("src/a.ts"), undefined, "a relative path with no cwd and no known home has no base");
   relative.fs.resolvedHome = "/home/andy";
@@ -473,6 +503,18 @@ check("watch refuses a target that is not a distro path before arming", async ()
   await assert.rejects(
     () => fs.watch({ displayPath: "C:\\x", targetKey: FsTargetKey("C:\\x") }, () => {}, new AbortController().signal),
     (error) => /** @type {{ code?: string }} */ (error).code === "FS_IO_ERROR",
+  );
+});
+
+check("watch refuses a foreign distro target under a pin before arming", async () => {
+  const { fs } = makeFs();
+  await assert.rejects(
+    () => fs.watch(
+      { displayPath: "/home/andy/proj", targetKey: FsTargetKey("\\\\wsl.localhost\\debian\\home\\andy\\proj") },
+      () => {},
+      new AbortController().signal,
+    ),
+    (error) => /** @type {{ code?: string }} */ (error).code === "FS_OUTSIDE_DISTRO",
   );
 });
 
@@ -750,6 +792,23 @@ check("a workdir in another distro is refused before anything runs", async () =>
     /names a workspace in another WSL distro/,
   );
   assert.deepEqual(agentCalls, [], "the refusal precedes the agent");
+});
+
+check("auto routing runs a command in the workspace's distro", async () => {
+  const { executor, agent } = makeExecutor({ distro: "" });
+  /** @type {string[]} */
+  const seen = [];
+  executor.executionAgent = (distro) => {
+    seen.push(distro);
+    return asAgent(agent);
+  };
+  const execution = await executor.execute(spec({
+    command: "ls",
+    workdir: "\\\\wsl.localhost\\debian\\home\\andy\\proj",
+    timeoutMs: 5000,
+  }));
+  await execution.result();
+  assert.deepEqual(seen, ["debian"], "the agent is the Debian singleton, not the default distro's");
 });
 
 check("the one-shot path runs the plain wsl.exe argv and decorates the same facts", async () => {

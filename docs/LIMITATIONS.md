@@ -198,10 +198,11 @@ crosses the 9p share. What to know about the one substrate there is:
 - **The port poller keeps the resident agent permanently warm.** The
   `DSH_WSL_PORTS` snapshot refreshes through the shared resident agent every
   `portsRefreshMs` (10 s by default, well inside the agent's idle timeout), so
-  while the app runs the agent never idles out: one `wsl.exe` and one
-  in-distro agent process stay resident per pinned distro even with no command
-  in flight. Raising `portsRefreshMs` past the agent's idle timeout restores
-  idle shutdown, at the cost of staler port facts.
+  while a distro's session is active the agent never idles out: one `wsl.exe`
+  and one in-distro agent process stay resident per active distro even with no
+  command in flight. The poller starts only for a distro a session actually
+  uses; raising `portsRefreshMs` past the agent's idle timeout restores idle
+  shutdown, at the cost of staler port facts.
 
 ## The directory picker
 

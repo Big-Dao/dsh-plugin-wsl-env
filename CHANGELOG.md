@@ -16,6 +16,17 @@ were part of the record.
 
 ## [Unreleased]
 
+### Changed
+
+- **The distro follows the workspace.** `distro: ''`/`'auto'` now selects the
+  distro from the request workdir or target UNC; `'default'` forces WSL's
+  default, and an explicit name still pins. Shell, files, root-plane routing,
+  the GUI terminal and `shell-env` all use the same rule, and the shared agent,
+  substrate, home and session-runtime state are cached per distro. A pinned
+  profile still refuses a foreign UNC with `FS_OUTSIDE_DISTRO`. This changes the
+  previous meaning of `distro: ''` (WSL's default): set `'default'` to keep that
+  posture.
+
 ## [0.12.0] - 2026-10-19
 
 The GUI file service keeps the shipped `workspace-files` row: its server-only

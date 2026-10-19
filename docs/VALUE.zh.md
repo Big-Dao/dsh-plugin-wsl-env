@@ -42,7 +42,7 @@ DSH 是 Windows 桌面应用，项目在 WSL 的 ext4 里。不做集成，三�
 
 **机制。** 一个会话的受限命令在同一个 systemd user scope 内经 `bubblewrap` mount profile 执行（后台进程、真实 `/tmp`、`ps` 可见），scope 随会话结束停止；三档权限（`read-only` / `workspace-write` / `danger-full-access`）逐档生效；文件写入按同一份策略检查，受限策略下的写入还由内核在 bwrap 配置内二次拒绝。没有可用的 bwrap 时，命令报 `SANDBOX_UNAVAILABLE` 而不是脱箱运行。
 
-**可感知的差别。** 可以把一个会自己跑命令的 agent 放进真实仓库，同时知道它写不出工作区。被拒绝时，模型收到一次「用刚好够用的权限重试」的提议，而不是直接要 `danger-full-access`。审计时能拿到当时实际执行的模式和拒绝原因；文件工具遇到跨发行版路径时由 `FS_OUTSIDE_DISTRO` 拒绝，且放宽权限也解不开。
+**可感知的差别。** 可以把一个会自己跑命令的 agent 放进真实仓库，同时知道它写不出工作区。被拒绝时，模型收到一次「用刚好够用的权限重试」的提议，而不是直接要 `danger-full-access`。审计时能拿到当时实际执行的模式和拒绝原因；在显式 pin 发行版的配置里，文件工具遇到跨发行版路径时由 `FS_OUTSIDE_DISTRO` 拒绝，且放宽权限也解不开。
 
 **诚实边界。** 上报是 `enforcement: partial`，因为发行版内的进程仍可通过 interop 启动 Windows 程序；`maskWindowsDrive` 收窄这个洞（`/mnt` 在受限视图里消失），但 binfmt 按内容分发，所以它仍不是闭合；完全关闭要在发行版层面设 `[interop] enabled=false`。插件不把 partial 说成 full。
 
@@ -95,7 +95,7 @@ DSH 是 Windows 桌面应用，项目在 WSL 的 ext4 里。不做集成，三�
 - **bubblewrap 是硬依赖。** 默认路径没有它，每条受限命令都失败（这是有意的 fail-closed）；受限的文件写入同样需要它。会话 runtime 还要求 systemd 为 PID 1、user manager 已 `enable-linger`；预检失败会带修复命令拒绝。`pnpm run bootstrap -- <distro>` 会体检并给出安装命令。
 - **enforcement 是 partial。** interop 让发行版内的进程仍能启动 Windows 程序。`maskWindowsDrive` 只是收窄；完全关闭要靠 `wsl.conf` 的 `[interop] enabled=false`。需要「对 Windows 侧也绝对隔离」的场景，本插件给不了。
 - **两套 `/tmp`。** `workspace-write` 下命令看到的是临时 tmpfs，文件工具写的是发行版真实的 `/tmp`；两边都成功，但互相看不见。跨边界的文件要走会话工作区。
-- **watch 是轮询，不是 inotify 事件流。** 事件粗粒度、按轮询节奏到达；原地 `cp -p`、恢复目录 mtime 的解包等极端情形可能漏报。
+- **watch 优先 inotify，轮询回退。** 无界目录且装了 `inotify-tools` 时用递归 inotify，按 0.5s 合并为粗粒度失效；文件目标、限深目录或缺少工具时回退轮询，原地 `cp -p`、恢复目录 mtime 的解包等极端情形仍可能漏报。
 - **文件名含反斜杠无法寻址**，因为 UNC 显示形式就是身份。改名是唯一工作法。
 - **新文件发布为 0600**（宿主后端的发布语义）；需要可执行时自己 `chmod`。写入的发布对进程死亡持久，但不 fsync 父目录，机器崩溃可能丢 rename。
 - **平台与版本。** 仅 Windows + WSL2；Node `^22.19.0 || >=24.0.0`；peer 与 harness 同步钉版，升级要跟着走。

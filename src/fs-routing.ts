@@ -48,7 +48,10 @@ export interface RoutingConfig {
   cwd?: string;
   /** The host backend's overwrite-diff byte bound. */
   diffBasisMaxBytes?: number;
-  /** The pinned distro for routed targets; empty resolves WSL's default. */
+  /**
+   * The distro mode for routed targets: empty/`"auto"` follows each target's
+   * UNC distro, `"default"` forces WSL's default, and an explicit name pins.
+   */
   distro?: string;
   /** The `wsl.exe` path, used only to resolve the default distro. */
   wslPath?: string;

@@ -166,10 +166,19 @@ await check("an already-live agent is swept on mount", async () => {
 
 await check("no default distro stays quiet at warn level", async () => {
   const f = fakeCtx();
-  await apply(/** @type {never} */ (wireCtx(f)), { distro: "", wslPath: join(dir, "no-such-wsl.exe"), sandbox: true });
+  await apply(/** @type {never} */ (wireCtx(f)), { distro: "default", wslPath: join(dir, "no-such-wsl.exe"), sandbox: true });
   await f.fire({ agent: { id: "a5", session: { header: { cwd: DISTRO_UNC } } } }, 250);
   assert.deepEqual(f.warns, [], "a missing WSL install is not the preflight's warning to give");
   assert.equal(f.debugs.length > 0, true, "it stays observable at debug level");
+});
+
+await check("auto preflights the workspace's distro", async () => {
+  const wslPath = await fakeWsl("wsl-preauto.exe", join(dir, "absent-auto"));
+  const f = fakeCtx();
+  await apply(/** @type {never} */ (wireCtx(f)), { distro: "", wslPath, sandbox: true });
+  await f.fire({ agent: { id: "a9", session: { header: { cwd: DISTRO_UNC } } } });
+  assert.equal(f.warns.length, 1, "the unusable bwrap is reported");
+  assert.match(f.warns[0] ?? "", /scripts\/bootstrap\.sh ubuntu --install/, "the workspace's distro, not WSL's default, is named");
 });
 
 await check("a context without logger or agents survives, and a payload without an agent is silent", async () => {

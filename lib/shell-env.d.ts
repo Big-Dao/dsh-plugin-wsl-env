@@ -31,19 +31,25 @@ import type { Context } from "@deepseek-ai/cordis";
 export declare const name = "wsl-shell-env";
 export declare const inject: string[];
 export declare const Config: z<Schemastery.ObjectS<NoInfer<{
-    /** Distro these facts describe; empty means this machine's default distro. */
+    /**
+     * Distro these facts describe. Empty/`"auto"` follows each session's
+     * workspace; an explicit name pins; `"default"` forces WSL's default.
+     */
     distro: z<string, string, "defined">;
     /** How often the listening-port snapshot refreshes, in milliseconds. */
     portsRefreshMs: z<number, number, "defined">;
 }>>, Schemastery.ObjectT<NoInfer<{
-    /** Distro these facts describe; empty means this machine's default distro. */
+    /**
+     * Distro these facts describe. Empty/`"auto"` follows each session's
+     * workspace; an explicit name pins; `"default"` forces WSL's default.
+     */
     distro: z<string, string, "defined">;
     /** How often the listening-port snapshot refreshes, in milliseconds. */
     portsRefreshMs: z<number, number, "defined">;
 }>>, "plain">;
 /** The config schema's validated output. */
 export interface ShellEnvConfig {
-    /** Distro these facts describe; empty means this machine's default distro. */
+    /** The distro mode: empty/`auto`, an explicit name, or `default`. */
     distro?: string;
     /** How often the listening-port snapshot refreshes, in milliseconds. */
     portsRefreshMs?: number;

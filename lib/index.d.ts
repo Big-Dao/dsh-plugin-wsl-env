@@ -174,7 +174,10 @@ interface ProcessFacts {
 export declare class WslShellExecutor extends LocalBashExecutor {
     static inject: string[];
     static Config: z<Schemastery.ObjectS<NoInfer<{
-        /** Distro name; empty means WSL's own default distro. */
+        /**
+         * Distro mode: empty/`"auto"` follows the request workdir, `"default"`
+         * forces WSL's default, and an explicit name pins every command.
+         */
         distro: z<string, string, "defined">;
         /** Path to `wsl.exe`; overridable for a non-standard install. */
         wslPath: z<string, string, "defined">;
@@ -249,7 +252,10 @@ export declare class WslShellExecutor extends LocalBashExecutor {
          */
         sessionSandbox: z<boolean, boolean, "defined">;
     }>>, Schemastery.ObjectT<NoInfer<{
-        /** Distro name; empty means WSL's own default distro. */
+        /**
+         * Distro mode: empty/`"auto"` follows the request workdir, `"default"`
+         * forces WSL's default, and an explicit name pins every command.
+         */
         distro: z<string, string, "defined">;
         /** Path to `wsl.exe`; overridable for a non-standard install. */
         wslPath: z<string, string, "defined">;
@@ -328,8 +334,12 @@ export declare class WslShellExecutor extends LocalBashExecutor {
     resolvedDistro: string;
     /** Cached distro-user login shell, resolved once. */
     resolvedShell: string;
+    /** Per-distro login shells, for a workspace that is not the default distro. */
+    resolvedShells: Map<string, string>;
     /** Cached distro-user home, the workdir when `cwd` is empty. */
     resolvedHome: string | undefined;
+    /** Per-distro homes, so two concurrent distros cannot share one. */
+    resolvedHomes: Map<string, string>;
     /** The default mode — the capability fact the tool layer reads. */
     mode: SandboxMode | undefined;
     /** The distro-side confinement, or nothing when the operator opted out. */
@@ -340,8 +350,8 @@ export declare class WslShellExecutor extends LocalBashExecutor {
     sessionRuntimeEntries: Map<string, SessionRuntimeEntry>;
     /** The preflight's host runner; tests substitute it. */
     sessionScopeProbe: (argv: string[]) => Promise<string>;
-    /** The last preflight verdict; only a success is cached. */
-    sessionRuntimePreflight: "unknown" | "ready";
+    /** Distros whose session-runtime preflight has succeeded. */
+    sessionRuntimePreflight: Set<string>;
     /**
      * Per-process confinement facts retained until settlement. Overlapping calls
      * can carry different policies, so a shared latest-wrap value would classify
@@ -363,21 +373,41 @@ export declare class WslShellExecutor extends LocalBashExecutor {
      */
     get sandboxMode(): SandboxMode | undefined;
     /**
-     * The distro every command runs in, resolving WSL's default on first use.
+     * The distro used when no path supplies evidence: the pinned name, WSL's
+     * default, or the default for the automatic modes.
      *
      * @returns the distro name.
      */
     distro(): Promise<string>;
     /**
-     * The shell every command runs in: the configured one, else the login shell of
-     * the distro user, resolved once and cached.
+     * The distro one command belongs to: an explicit pin wins; otherwise the
+     * request workdir, then the configured `cwd`, may name a distro; both
+     * absent falls back to WSL's default.
      *
-     * @returns an absolute path to the shell inside the distro.
+     * @param workdir - the request's workdir, in any coordinate system.
+     * @param cwd - the configured default workdir, when the caller has it.
+     * @returns the distro name.
+     */
+    distroFor(workdir?: string, cwd?: string): Promise<string>;
+    /**
+     * The shell name for the default/pinned distro, as the shell tool presents
+     * it.
+     *
+     * @returns the basename of the shell, or `bash` when it cannot be named.
      */
     shellName(): Promise<string>;
     /**
-     * The shell every command runs in, resolving the distro login shell on
-     * first use.
+     * The shell for one distro: the configured shell, else that distro's login
+     * shell. The default/pinned distro keeps the legacy {@link resolvedShell}
+     * cache; every other distro gets an entry in {@link resolvedShells}.
+     *
+     * @param distro - the distro name.
+     * @returns an absolute path to the shell inside the distro.
+     */
+    shellFor(distro: string): Promise<string>;
+    /**
+     * The shell for the default/pinned distro: the configured one, else the
+     * login shell, resolved once and cached.
      *
      * @returns an absolute path to the shell inside the distro.
      */
@@ -687,7 +717,10 @@ export interface WslFileSystemConfig {
 export declare class WslFileSystem extends LocalFileSystem {
     static inject: string[];
     static Config: z<Schemastery.ObjectS<NoInfer<{
-        /** Distro name; empty resolves WSL's default on first use. */
+        /**
+         * Distro mode: empty/`"auto"` follows the target path, `"default"` forces
+         * WSL's default, and an explicit name pins the filesystem.
+         */
         distro: z<string, string, "defined">;
         /**
          * Default workdir for relative input; accepts a Linux path, a UNC path, or
@@ -759,7 +792,10 @@ export declare class WslFileSystem extends LocalFileSystem {
          */
         substrate: z<"agent" | "share", "agent" | "share", "defined">;
     }>>, Schemastery.ObjectT<NoInfer<{
-        /** Distro name; empty resolves WSL's default on first use. */
+        /**
+         * Distro mode: empty/`"auto"` follows the target path, `"default"` forces
+         * WSL's default, and an explicit name pins the filesystem.
+         */
         distro: z<string, string, "defined">;
         /**
          * Default workdir for relative input; accepts a Linux path, a UNC path, or
@@ -835,22 +871,28 @@ export declare class WslFileSystem extends LocalFileSystem {
     resolvedDistro: string;
     /** Cached distro-user home, the base for relative input when `cwd` is empty. */
     resolvedHome: string | undefined;
+    /** Per-distro homes, so two concurrent distros cannot share one. */
+    resolvedHomes: Map<string, string>;
     /** The deployment default mode — the capability fact the tool layer reads. */
     defaultMode: SandboxMode;
-    /** The lazy agent-backed substrate, built on first use (see `agentSubstrate`). */
+    /** The lazy default-distro substrate, kept for the legacy accessor and tests. */
     agentSubstrateInstance: AgentSubstrate | undefined;
+    /** The per-distro agent-backed substrates. */
+    agentSubstrates: Map<string, AgentSubstrate>;
     /** The distro-side bwrap usability probe, shared with the confined agents. */
     sandbox: InstanceType<typeof WslSandbox>;
-    /** The resident agent serving publication (see `publicationAgent`). */
+    /** The resident agent serving publication for the default/pinned distro. */
     agentInstance: WslAgent | undefined;
+    /** The per-distro publication agents. */
+    agentInstances: Map<string, WslAgent>;
     /** The session-runtime registry; tests substitute it. */
     sessionRuntimes: SessionRuntimes;
     /** The runtimes this provider holds, by registry key. */
     sessionRuntimeEntries: Map<string, SessionRuntimeEntry>;
     /** The preflight's host runner; tests substitute it. */
     sessionScopeProbe: (argv: string[]) => Promise<string>;
-    /** The last preflight verdict; only a success is cached. */
-    sessionRuntimePreflight: "unknown" | "ready";
+    /** Distros whose session-runtime preflight has succeeded. */
+    sessionRuntimePreflight: Set<string>;
     /**
      * @param ctx - the composition context.
      * @param config - the validated plugin config.
@@ -866,20 +908,45 @@ export declare class WslFileSystem extends LocalFileSystem {
      */
     get sandboxMode(): SandboxMode | undefined;
     /**
-     * The resident agent serving this filesystem's in-distro side work, created
-     * on first use and kept for the provider's lifetime (its own idle timer
-     * retires the process; a later call starts a fresh one).
+     * The resident agent serving the default/pinned distro's in-distro side
+     * work, created on first use and kept for the provider's lifetime.
      *
-     * @returns the agent for the pinned distro.
+     * @returns the agent for the default/pinned distro.
      */
     publicationAgent(): Promise<WslAgent>;
     /**
-     * The agent-backed substrate, built on first use over the same resident
-     * agent every other distro side work shares.
+     * The resident agent for one distro. The default/pinned distro keeps the
+     * legacy {@link publicationAgent} cache; every other distro gets its own
+     * entry, because the shared agent is a per-distro process singleton.
+     *
+     * @param distro - the distro name.
+     * @returns the agent for that distro.
+     */
+    publicationAgentFor(distro: string): Promise<WslAgent>;
+    /**
+     * The agent-backed substrate for the default/pinned distro, built on first
+     * use over the shared resident agent.
      *
      * @returns the substrate.
      */
     agentSubstrate(): Promise<AgentSubstrate>;
+    /**
+     * The agent-backed substrate for one distro. The default/pinned distro keeps
+     * the legacy {@link agentSubstrate} accessor (and its test override); every
+     * other distro gets a substrate that mints its own UNC identities and
+     * addresses its own resident.
+     *
+     * @param distro - the distro name.
+     * @returns the substrate for that distro.
+     */
+    agentSubstrateFor(distro: string): Promise<AgentSubstrate>;
+    /**
+     * The substrate for one resolved target, following the target's UNC identity.
+     *
+     * @param target - the resolved target.
+     * @returns the substrate for the target's distro.
+     */
+    substrateForTarget(target: FsTarget): Promise<AgentSubstrate>;
     /**
      * The persistent session runtime for one confined mutation, when
      * `sessionSandbox` is on. The key is the shell executor's key for the same
@@ -921,12 +988,14 @@ export declare class WslFileSystem extends LocalFileSystem {
      *
      * @param policy - the resolved file-effect policy, or undefined when the
      *   caller pre-checked.
+     * @param forDistro - the distro the mutation belongs to; derived from the
+     *   policy when the caller does not know it.
      * @returns the agent to publish through.
      */
     mutationAgent(policy: {
         mode: string;
         workspaceRoot: string;
-    } | undefined): Promise<WslAgent>;
+    } | undefined, forDistro?: string): Promise<WslAgent>;
     /**
      * Map a substrate error onto the peer's `FsError`, so the tool layer reads
      * the same refusal dialect on both substrates. An agent that is out becomes
@@ -946,11 +1015,41 @@ export declare class WslFileSystem extends LocalFileSystem {
      */
     linuxOf(target: FsTarget): string;
     /**
-     * The pinned distro, resolving WSL's default on first use.
+     * The distro used when no path supplies evidence: the pinned name, WSL's
+     * default, or the default for the automatic modes.
      *
      * @returns the distro name.
      */
     distro(): Promise<string>;
+    /**
+     * The distro one path belongs to: an explicit pin wins; otherwise the path
+     * itself, then the cwd or configured cwd, may name a distro; both absent
+     * falls back to WSL's default.
+     *
+     * @param path - the caller path, in any coordinate system.
+     * @param cwd - the caller's optional cwd override.
+     * @returns the distro name.
+     */
+    distroForPath(path: string, cwd?: string): Promise<string>;
+    /**
+     * The distro a resolved target belongs to. A UNC identity names it outright;
+     * a host-coordinate target falls back to the configured/default distro.
+     *
+     * @param target - the resolved target.
+     * @returns the distro name.
+     */
+    distroForTarget(target: FsTarget): Promise<string>;
+    /**
+     * The distro a mutation's policy belongs to: the workspace root is the
+     * strongest evidence, then the configured cwd, then the default.
+     *
+     * @param policy - the resolved policy, when the caller has one.
+     * @returns the distro name.
+     */
+    distroForPolicy(policy: {
+        mode: string;
+        workspaceRoot: string;
+    } | undefined): Promise<string>;
     /**
      * Translate one caller path into the world path, enforcing the distro fence.
      *
@@ -1064,10 +1163,10 @@ export declare class WslFileSystem extends LocalFileSystem {
      * plain callback over image attachments, and `packages/api/session-controller`
      * plus the UI's open/reveal path compare the return value against `undefined`
      * without awaiting. The mapping is therefore built from facts that are already
-     * known — the distro, once `distro()` has resolved it (the pinned config, or
-     * the default `wsl.exe` answered earlier: the first filesystem operation
-     * resolves it), and the configured `cwd`, or the resolved home for a relative
-     * path. A call that would have to ask `wsl.exe` — a cold default distro, or a
+     * known — a UNC host path names its own distro outright; a non-UNC path uses
+     * the pinned/config default once `distro()` has resolved it, and the
+     * configured `cwd`, or the resolved home for a relative path. A call that
+     * would have to ask `wsl.exe` — a cold default distro with no UNC, or a
      * relative path before the home is known — answers `undefined`, which every
      * consumer reads as "no mapping", the same answer the ssh provider gives for
      * a path it cannot map.

@@ -28,13 +28,17 @@ import z from "@deepseek-ai/schemastery";
 import type { Context } from "@deepseek-ai/cordis";
 import { isWslUnc } from "./paths.js";
 import { defaultDistro, runCapture } from "./wsl.js";
+import { distroOfUnc, isDefaultDistro, pinnedDistro } from "./distro-route.js";
 import { bwrapFailure, bwrapUsable, missingBwrapRemedy } from "./sandbox-core.js";
 import { sessionScopeSweepScript } from "./session-scope.js";
 
 export const name = "wsl-preflight";
 
 export const Config = z.object({
-  /** Distro to preflight; empty means this machine's default distro. */
+  /**
+   * Distro to preflight. Empty/`"auto"` follows the session workspace; an
+   * explicit name pins; `"default"` forces WSL's default.
+   */
   distro: z.string().default(""),
   /** The `wsl.exe` path the probe spawns; keep in step with the providers' `wslPath`. */
   wslPath: z.string().default("wsl.exe"),
@@ -44,7 +48,7 @@ export const Config = z.object({
 
 /** The config schema's validated output. */
 export interface PreflightConfig {
-  /** Distro to preflight; empty means this machine's default distro. */
+  /** The distro mode: empty/`auto`, an explicit name, or `default`. */
   distro?: string;
   /** The `wsl.exe` path the probe spawns. */
   wslPath?: string;
@@ -119,15 +123,21 @@ export async function apply(ctx: PreflightContext, config: PreflightConfig = {})
     // warn about a sandbox it never uses.
     const cwd = agent?.session?.header?.cwd;
     if (cwd === undefined || !isWslUnc(cwd)) return;
-    let distro = config.distro ?? "";
+    const pinned = pinnedDistro(config.distro);
+    let distro = pinned ?? "";
     if (distro.length === 0) {
-      try {
-        distro = await defaultDistro({ wslPath });
-      } catch (error) {
-        // No WSL at all is the missing-wsl probe's territory; the first
-        // command's own error is the precise one. Stay quiet at warn level.
-        ctx.logger?.debug?.(`wsl-preflight: no default distro to preflight (${(error as Error)?.message ?? error})`);
-        return;
+      if (!isDefaultDistro(config.distro)) {
+        distro = distroOfUnc(cwd) ?? "";
+      }
+      if (distro.length === 0) {
+        try {
+          distro = await defaultDistro({ wslPath });
+        } catch (error) {
+          // No WSL at all is the missing-wsl probe's territory; the first
+          // command's own error is the precise one. Stay quiet at warn level.
+          ctx.logger?.debug?.(`wsl-preflight: no default distro to preflight (${(error as Error)?.message ?? error})`);
+          return;
+        }
       }
     }
     // bwrapUsable answers false on a failed probe — it never rejects — so

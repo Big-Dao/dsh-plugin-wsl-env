@@ -89,7 +89,10 @@ import type { SubprocessTerminalActivity } from "./terminal-activity.js";
  * builds.
  */
 export interface WslSubprocessConfig {
-    /** Distro name; empty means WSL's own default distro. */
+    /**
+     * Distro mode: empty/`"auto"` follows the launch directory, `"default"`
+     * forces WSL's default, and an explicit name pins.
+     */
     distro: string;
     /** Path to `wsl.exe`. */
     wslPath: string;
@@ -121,7 +124,10 @@ export interface WslSubprocessConfig {
  */
 export declare class WslSubprocessRuntime extends LocalSubprocessRuntime {
     static Config: z<Schemastery.ObjectS<NoInfer<{
-        /** Distro name; empty means WSL's own default distro. */
+        /**
+         * Distro mode: empty/`"auto"` follows the launch directory, `"default"`
+         * forces WSL's default, and an explicit name pins.
+         */
         distro: z<string, string, "defined">;
         /** Path to `wsl.exe`; overridable for a non-standard install. */
         wslPath: z<string, string, "defined">;
@@ -163,7 +169,10 @@ export declare class WslSubprocessRuntime extends LocalSubprocessRuntime {
          */
         terminalIdleReclaim: z<boolean, boolean, "defined">;
     }>>, Schemastery.ObjectT<NoInfer<{
-        /** Distro name; empty means WSL's own default distro. */
+        /**
+         * Distro mode: empty/`"auto"` follows the launch directory, `"default"`
+         * forces WSL's default, and an explicit name pins.
+         */
         distro: z<string, string, "defined">;
         /** Path to `wsl.exe`; overridable for a non-standard install. */
         wslPath: z<string, string, "defined">;

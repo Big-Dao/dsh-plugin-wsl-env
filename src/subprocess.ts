@@ -94,6 +94,7 @@ import { parseTerminalActivity, TERMINAL_ID_ENV, terminalActivityProbe, wrapTerm
 import type { SubprocessTerminalActivity } from "./terminal-activity.js";
 import { AgentUnavailableError } from "./agent-errors.js";
 import { terminalRoute } from "./terminal-route.js";
+import { pinnedDistro, isDefaultDistro } from "./distro-route.js";
 
 /**
  * Env names a terminal launch keeps for the distro. `TERM` rides along because
@@ -114,7 +115,10 @@ const WSL_PROGRAM = "wsl";
  * builds.
  */
 export interface WslSubprocessConfig {
-  /** Distro name; empty means WSL's own default distro. */
+  /**
+   * Distro mode: empty/`"auto"` follows the launch directory, `"default"`
+   * forces WSL's default, and an explicit name pins.
+   */
   distro: string;
   /** Path to `wsl.exe`. */
   wslPath: string;
@@ -145,7 +149,10 @@ export interface WslSubprocessConfig {
  */
 export class WslSubprocessRuntime extends LocalSubprocessRuntime {
   static Config = z.object({
-    /** Distro name; empty means WSL's own default distro. */
+    /**
+     * Distro mode: empty/`"auto"` follows the launch directory, `"default"`
+     * forces WSL's default, and an explicit name pins.
+     */
     distro: z.string().default(""),
     /** Path to `wsl.exe`; overridable for a non-standard install. */
     wslPath: z.string().default(DEFAULT_WSL_PATH),
@@ -200,7 +207,7 @@ export class WslSubprocessRuntime extends LocalSubprocessRuntime {
   constructor(ctx: Context, config: WslSubprocessConfig) {
     super(ctx);
     this.config = config;
-    this.resolvedDistro = config.distro;
+    this.resolvedDistro = pinnedDistro(config.distro) ?? "";
   }
 
   /**
@@ -234,7 +241,26 @@ export class WslSubprocessRuntime extends LocalSubprocessRuntime {
   async terminalTarget(cwd: string | undefined): Promise<{ distro: string, linuxCwd: string }> {
     const text = String(cwd ?? "").trim();
     const named = uncToPosix(text);
-    if (named !== undefined) return { distro: named.distro, linuxCwd: named.linuxPath };
+    if (named !== undefined) {
+      const pinned = pinnedDistro(this.config.distro);
+      if (pinned !== undefined && named.distro.toLowerCase() !== pinned.toLowerCase()) {
+        throw new Error(
+          `"${text}" names a workspace in another WSL distro, and this profile pins its terminal to "${pinned}". ` +
+            `Open a session in that distro, or set this row's distro to ''/auto.`,
+        );
+      }
+      if (isDefaultDistro(this.config.distro)) {
+        const fallback = await this.distro();
+        if (named.distro.toLowerCase() !== fallback.toLowerCase()) {
+          throw new Error(
+            `"${text}" names a workspace in another WSL distro, and this profile forces WSL's default ("${fallback}"). ` +
+              `Open a session in that distro, or set this row's distro to ''/auto.`,
+          );
+        }
+        return { distro: fallback, linuxCwd: named.linuxPath };
+      }
+      return { distro: named.distro, linuxCwd: named.linuxPath };
+    }
     const distro = await this.distro();
     if (isPosixAbsolute(text)) return { distro, linuxCwd: text };
     const mounted = windowsToLinuxMount(text);

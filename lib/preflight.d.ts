@@ -27,14 +27,20 @@ import z from "@deepseek-ai/schemastery";
 import type { Context } from "@deepseek-ai/cordis";
 export declare const name = "wsl-preflight";
 export declare const Config: z<Schemastery.ObjectS<NoInfer<{
-    /** Distro to preflight; empty means this machine's default distro. */
+    /**
+     * Distro to preflight. Empty/`"auto"` follows the session workspace; an
+     * explicit name pins; `"default"` forces WSL's default.
+     */
     distro: z<string, string, "defined">;
     /** The `wsl.exe` path the probe spawns; keep in step with the providers' `wslPath`. */
     wslPath: z<string, string, "defined">;
     /** Whether the session-start sandbox preflight runs at all. */
     sandbox: z<boolean, boolean, "defined">;
 }>>, Schemastery.ObjectT<NoInfer<{
-    /** Distro to preflight; empty means this machine's default distro. */
+    /**
+     * Distro to preflight. Empty/`"auto"` follows the session workspace; an
+     * explicit name pins; `"default"` forces WSL's default.
+     */
     distro: z<string, string, "defined">;
     /** The `wsl.exe` path the probe spawns; keep in step with the providers' `wslPath`. */
     wslPath: z<string, string, "defined">;
@@ -43,7 +49,7 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
 }>>, "plain">;
 /** The config schema's validated output. */
 export interface PreflightConfig {
-    /** Distro to preflight; empty means this machine's default distro. */
+    /** The distro mode: empty/`auto`, an explicit name, or `default`. */
     distro?: string;
     /** The `wsl.exe` path the probe spawns. */
     wslPath?: string;

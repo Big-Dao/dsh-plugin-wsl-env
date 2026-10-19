@@ -37,6 +37,10 @@ targetKey（或 path/cwd）是 \\wsl.localhost\<distro> UNC
   → super（宿主 LocalFileSystem：NTFS 原生，含 chokidar watch）
 ```
 
+一个 `WslFileSystem` 实例内部再按 UNC 的 distro 选择自己的 substrate、agent 与
+home 缓存，所以同一个根平面可以同时服务多个发行版；`distro: ''`/`auto` 是默认，
+显式名字才是 pin（此时外来 distro 仍由 `restrictToDistro` 拒绝）。
+
 判定是**纯坐标**：不看会话、不看 preset。这正是"根平面 session-less"约束下
 唯一自洽的形态——它不放弃 per-session 语义，因为根平面本来就没有；工具写入
 的 per-session 围栏在 preset 的 `wsl-fs`/`fs-sandbox` 里，不在这里。

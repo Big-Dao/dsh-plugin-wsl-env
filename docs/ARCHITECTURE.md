@@ -66,7 +66,7 @@ functions.
 |---|---|---|---|
 | `dsh-plugin-wsl-env/picker` | `WslDirectoryPicker` | [`lib/picker.js`](../lib/picker.js) | Adds the installed distros to the folder picker, next to the Windows home directory, and lists distro levels from inside the distro (the resident's `ls`, one-shot `wsl.exe` when it is out). |
 | `dsh-plugin-wsl-env/auto-preset` | `auto-preset` | [`lib/auto-preset.js`](../lib/auto-preset.js) | Binds the `wsl` agent preset when a new session's workspace is inside a distro. |
-| `dsh-plugin-wsl-env/shell-env` | `wsl-shell-env` | [`lib/shell-env.js`](../lib/shell-env.js) | Contributes `DSH_WSL_DISTRO`, `DSH_WSL_SHELL`, `DSH_WSL_HOME` and `DSH_WSL_PORTS` to the managed `DSH_*` namespace. The port list is a snapshot, refreshed every `portsRefreshMs` (10000 by default), so a server started moments ago may not be listed yet. |
+| `dsh-plugin-wsl-env/shell-env` | `wsl-shell-env` | [`lib/shell-env.js`](../lib/shell-env.js) | Contributes `DSH_WSL_DISTRO`, `DSH_WSL_SHELL`, `DSH_WSL_HOME` and `DSH_WSL_PORTS` to the managed `DSH_*` namespace, choosing the session workspace's distro (default/pinned facts are probed at mount; other distros are warmed when their session appears). The port list is a snapshot per active distro, refreshed every `portsRefreshMs` (10000 by default), so a server started moments ago may not be listed yet. |
 
 Three modules support them and import no DSH package.
 [`lib/paths.js`](../lib/paths.js) translates paths.
@@ -87,7 +87,7 @@ The environment is per session, not per process:
 | `subprocess-wsl` | at the app level, called the composition; the shipped `subprocess` row is disabled | because no session identity reaches the terminal controller, see below |
 | `workspace-files` | shipped, not replaced | its client half is the browser `file` resource provider the Sidebar previews need; it reads WSL paths through the routed root filesystem |
 | `fs-routing` | at the app level; the shipped `fs-sandbox` row is disabled | the root `ctx.fs` is session-less, and its write fence has no root-plane consumers |
-| `directory-picker-wsl`, `wsl-shell-env`, `auto-preset` | at the app level | they answer questions that are not scoped to a session |
+| `directory-picker-wsl`, `wsl-shell-env`, `auto-preset` | at the app level | they answer questions that are not scoped to a single preset; `shell-env` resolves its facts per session workspace |
 
 The preset mount requires the isolate realms. Without them the registry rejects the
 providers with `Preset services require isolate realms: shell, fs`.
@@ -295,10 +295,10 @@ own dialect, described after the table.
 |---|---|---|---|
 | `SANDBOX_UNAVAILABLE` | `WslSandbox.confine` | the requested mode cannot be enforced: no usable `bwrap` in the distro | install `bubblewrap` there (a failed probe is re-run, so no restart is needed), or set `sandbox: false` |
 | `FS_SANDBOX_DENIED` | `WslFileSystem.checkedTarget`, and `lib/fsio-agent.js` (a write the confined resident's mount table refused, classified from the kernel's `read-only file system`) | the file-effect policy refused the write: `read-only`, or a target outside the writable roots — or the kernel refused it at the resident's profile | a wider permission for that one call, or a session workspace that contains the target |
-| `FS_OUTSIDE_DISTRO` | `WslFileSystem.worldPath` | `restrictToDistro` is on and the path names **another distro**'s share — a configuration fence, not a sandbox decision | open a session in that distro, or set `restrictToDistro: false`. A wider permission does **not** lift it |
+| `FS_OUTSIDE_DISTRO` | `WslFileSystem.worldPath` | `distro` is fixed (`default` or a name), `restrictToDistro` is on, and the path names **another distro**'s share — a configuration fence, not a sandbox decision. With `distro: ''`/`auto` a UNC target is served by its own distro, so the fence has nothing foreign to refuse | set `distro` to `''`/`auto` (the default), or open a session in that distro. A wider permission does **not** lift it |
 | `FS_NOT_OBSERVED` | `lib/fs-substrate.js` (`writeText`; the agent's `exists` conclusion, mapped in `lib/fsio-agent.js`) | a guarded create (`createIfAbsent`) targeted a file that exists and had not been read first | read the file, then overwrite with the version guard or edit it |
 | `FS_STALE_VERSION` | `lib/fs-substrate.js` (`writeText`, `editText`; the agent's `stale` conclusion, mapped in `lib/fsio-agent.js`) | the version the caller holds no longer matches: the file changed, or is gone | read it again and retry with the fresh version |
-| `FS_IO_ERROR` | the filesystem stack: `lib/fs-decisions.js` (the substrate is unavailable), `lib/fsio-agent.js` (a `perm`/`loop`/`io` reason or a malformed record), `lib/index.js` (a path that cannot be mapped, or a `SandboxUnavailableError`), and `WslFileSystem.watch` | the catch-all I/O failure — most often the resident agent is out or the distro returned an I/O error, the "agent outage fails closed" case above. A watch target outside the pinned distro is the narrow one | get the resident back (check `wsl.exe -l -v`, then restart the session); for a watch, aim it at a distro path — the watch itself runs where the files live (`lib/watcher.js`) |
+| `FS_IO_ERROR` | the filesystem stack: `lib/fs-decisions.js` (the substrate is unavailable), `lib/fsio-agent.js` (a `perm`/`loop`/`io` reason or a malformed record), `lib/index.js` (a path that cannot be mapped, or a `SandboxUnavailableError`), and `WslFileSystem.watch` | the catch-all I/O failure — most often the resident agent is out or the distro returned an I/O error, the "agent outage fails closed" case above. A watch target outside the selected distro is the narrow one | get the resident back (check `wsl.exe -l -v`, then restart the session); for a watch, aim it at a distro path — the watch itself runs where the files live (`lib/watcher.js`) |
 | `FS_NOT_FOUND` | `lib/fsio-agent.js` and `lib/fs-substrate.js` (the agent's `notfound`/`notdir` conclusion, an empty path, or a missing edit target), and the host filesystem stack behind a drive path | the path does not exist — the ordinary answer | — |
 | `FS_NOT_REGULAR_FILE` | `lib/fsio-agent.js`, `lib/fs-substrate.js` | the target is not a regular file where one is required: a directory, symlink or device on a read, or a non-file target on a write | point the call at a regular file |
 | `FS_NOT_DIRECTORY` | `lib/fsio-agent.js` (`listChildren`) | the target is not a directory, so there are no children to list | list a directory |
@@ -416,6 +416,8 @@ src/auto-preset.ts           per-session environment selection
 src/bwrap.ts                 the bwrap command line every confinement site
                              assembles (no imports, so a bare checkout can
                              assert it)
+src/distro-route.ts          the pure distro-mode selector (pinned / workspace /
+                             default) shared by shell, fs, preflight and env
 src/file-reference-wsl.ts    the distro-side `@`-completion traversal — built,
                              tested, not yet wired (see above)
 src/fs.ts                    the ctx.fs subpath entry point

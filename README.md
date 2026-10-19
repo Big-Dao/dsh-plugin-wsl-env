@@ -80,6 +80,7 @@ Upgrade by running the `add` command again. Uninstall with `dsh plugin --profile
 
 Open a distro folder as the workspace, for example `\\wsl.localhost\ubuntu\home\you\project`.
 
+- Opening a folder in any distro runs there, even when it is not WSL's default.
 - Commands run in the distro's login shell. `/home/you/x` and `\\wsl.localhost\ubuntu\home\you\x` are the same file.
 - **New terminal** opens a shell in the same distro and directory.
 - The model sees listening ports and can return the URL of a dev server. WSL 2 forwards localhost to Windows.
@@ -91,18 +92,18 @@ Settings live on named rows in `$DSH_HOME/profiles/<name>/cordis.patch.yml`. The
 
 | Row | Key | Default | Purpose |
 |---|---|---|---|
-| `wsl-shell` | `distro` | `''` | distro to use; empty means the WSL default |
+| `wsl-shell` | `distro` | `''` | distro mode; empty/`auto` follows the workspace, `default` forces WSL's default |
 | | `sandbox` | `true` | confine commands with `bubblewrap` |
 | | `sessionSandbox` | `true` | run the session's commands in one systemd user scope |
 | | `agentBackend` | `auto` | `auto`, `native` or `shell` for the in-distro agent |
 | | `maskWindowsDrive` | `false` | hide `/mnt` from confined commands |
-| `wsl-fs` | `distro` | `''` | distro for file operations |
-| | `restrictToDistro` | `true` | refuse paths that belong to another distro |
+| `wsl-fs` | `distro` | `''` | distro mode; empty/`auto` follows each target path |
+| | `restrictToDistro` | `true` | under a fixed distro, refuse paths that belong to another distro |
 | | `sandbox` | `true` | check confined writes against the policy |
 | | `sessionSandbox` | `true` | run confined writes in the session runtime |
 | | `substrate` | `agent` | in-distro agent; `share` is rejected at startup |
 | `directory-picker-wsl` | `includeHostHome` | `true` | also list the Windows home directory |
-| `subprocess-wsl` | `distro` | `''` | distro used by the GUI terminal |
+| `subprocess-wsl` | `distro` | `''` | distro mode; empty/`auto` follows the launch directory |
 
 `wsl-shell` and `wsl-fs` are inside the shipped `wsl` preset, so overriding them by id does not work. Override the whole `preset-wsl` row instead; [docs/CONFIGURATION.md](docs/CONFIGURATION.md) has the recipe and the remaining keys. [`cordis.patch.yml`](cordis.patch.yml) is the commented reference for every shipped value.
 
@@ -174,6 +175,7 @@ Real-machine probes run on Windows + WSL only. See [CONTRIBUTING.md](CONTRIBUTIN
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | services, path routing, sandbox, error codes |
 | [docs/LIMITATIONS.md](docs/LIMITATIONS.md) | what the plugin does not do |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | current plan and deferred work |
+| [docs/ROADMAP-1.0.md](docs/ROADMAP-1.0.md) | the 1.0 and ecosystem plan |
 | [docs/VALUE.zh.md](docs/VALUE.zh.md) | value and trade-offs in Chinese |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | development loop, gates, probes |
 | [SECURITY.md](SECURITY.md) | private vulnerability reporting |

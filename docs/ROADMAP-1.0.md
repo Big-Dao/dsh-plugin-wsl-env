@@ -141,7 +141,7 @@ may move if the compatibility matrix exposes a higher-severity failure.
 |---|---|---|---|
 | Time to first command | Not systematically measured | p50 <= 5 min, p90 <= 15 min | Ten clean-machine runs |
 | Tier 1 first-run success | Not measured | >= 95% | Compatibility matrix |
-| Real-machine probes | 12, manual | 100%, nightly | Self-hosted Windows runner |
+| Real-machine probes | 14, manual | 100%, nightly | Self-hosted Windows runner |
 | FS single-op p95 | ~22ms host round trip | <= 30ms | `fs-queue.mjs` |
 | 16 concurrent reads p95 | 2.4-8.2ms | <= 20ms | `fs-queue.mjs` |
 | GUI preview p95 | Four to six round trips | <= 1s/MiB | New GUI probe |
@@ -264,8 +264,11 @@ composition test applies the result through the real patch algorithm.
 
 ### WSL-104 — Documentation and gate hygiene
 
-**Status:** implemented in the working tree (2026-10-19): the three drifts are
-fixed, `fs-routing` and the new `distro-route` tests are in both lists.
+**Status:** implemented (2026-10-19): the three drifts are fixed, `fs-routing`
+and `distro-route` are in both test lists, `scripts/check-links.mjs` gates
+relative links from `pnpm test`, and `probe:fs-routing` is written and wired
+into the real-machine suite. The routing probe has not been executed yet (it
+needs the app closed); its first run stays on the release checklist.
 
 **Priority:** P0 · **Size:** S · **Labels:** `area:docs`, `area:quality`,
 `priority:P0`
@@ -275,13 +278,14 @@ test lists despite the repository's own rule.
 
 **Acceptance:**
 
-- [ ] `VALUE.zh` no longer says watch is polling-only; `PARITY` no longer says
+- [x] `VALUE.zh` no longer says watch is polling-only; `PARITY` no longer says
       "a poll, not inotify"; the `cordis.patch.yml` substrate comment no
       longer calls `share` an opt-out.
-- [ ] `test/fs-routing.test.mjs` is in `test:unit` and `test:coverage`.
-- [ ] A `probe:fs-routing` exists and runs in the real-machine suite.
-- [ ] Markdown links resolve; version references in the roadmap/docs are
-      checked at release time.
+- [x] `test/fs-routing.test.mjs` is in `test:unit` and `test:coverage`.
+- [x] A `probe:fs-routing` exists and is wired into the real-machine suite
+      (first execution pending: the suite needs the app closed).
+- [x] Markdown links resolve (`scripts/check-links.mjs`, in `pnpm test`);
+      version references in the roadmap/docs are checked at release time.
 
 **Tests/probes:** `pnpm test`, `pnpm run test:coverage`, `probe:fs-routing`.
 

@@ -351,7 +351,7 @@ step with the checkout, and `pnpm run sync:windows` runs that script.
 | Type check | `tsc --noEmit` over `test/**` and `types/*.d.ts` (`src/` is checked by the build itself) | no |
 | Unit tests | `test/*.test.mjs` | no |
 | Sandbox probe | [`test/probe/sandbox.sh`](../test/probe/sandbox.sh) | no; it applies the profile arguments directly |
-| Harness probes | [`test/probe/run.sh`](../test/probe/run.sh), `terminal.sh`, `sandbox-shell.sh`, `picker.sh`, `missing-wsl.sh`, `sandbox-off.sh` | yes: Windows, WSL2, a mounted profile, and a linked checkout |
+| Harness probes | [`test/probe/run.sh`](../test/probe/run.sh), `terminal.sh`, `sandbox-shell.sh`, `picker.sh`, `fs-routing.sh`, `missing-wsl.sh`, `sandbox-off.sh` | yes: Windows, WSL2, a mounted profile, and a linked checkout |
 | Distro probes | [`test/probe/substrate.sh`](../test/probe/substrate.sh), `watch.sh`, `agent.sh`, `exec.sh` | Windows and WSL2, but no harness boot and no profile: they run from a distro terminal with Node available, reaching `wsl.exe` through interop |
 | Host probe | [`test/probe/mode.sh`](../test/probe/mode.sh) | Windows Node, no harness |
 | Probe plugins | the `*-probe.mjs` and `*-probe.yml` files in `test/probe/` | loaded by the scripts above |

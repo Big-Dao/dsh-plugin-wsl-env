@@ -172,7 +172,8 @@ terminal if you would rather not see the prompt.
 
 | Command | Covers | Needs a harness |
 |---|---|---|
-| `pnpm test` | style checks, syntax pass, build consistency, type check, and unit tests | no |
+| `pnpm test` | style checks, relative links, syntax pass, build consistency, type check, and unit tests | no |
+| `pnpm run lint:links` | relative Markdown links in README, CONTRIBUTING, AGENTS and `docs/**` | no |
 | `pnpm run test:coverage` | unit tests with coverage | no |
 | `pnpm run lint:style` | style and lint rules | no |
 | `pnpm run lint:build` | the build-freshness check: every source has its artifacts and the committed bytes match a real build | no |
@@ -187,11 +188,12 @@ terminal if you would rather not see the prompt.
 | `pnpm run probe:exec` | the agent-backed execution handle: timeout, kill, cwd failure | no; inside the distro |
 | `pnpm run probe:missing-wsl` | how a `wslPath` that cannot start is reported | yes |
 | `pnpm run probe:picker` | the picker's root level, its refusals and its cap | yes |
+| `pnpm run probe:fs-routing` | the root-plane router: distro coordinate, host plane, cross-distro fence | yes |
 | `pnpm run probe:mode` | which POSIX-mode facts survive the share | no; Windows Node |
 | `pnpm run probe:sandbox-off` | the documented opt-out on both providers | yes |
 
 Every script above is wired in `package.json`. `pnpm test` runs `lint:style`,
-`test:syntax`, `lint:build`, `lint:types` and `test:unit` in that order.
+`lint:links`, `test:syntax`, `lint:build`, `lint:types` and `test:unit` in that order.
 `prepublishOnly` runs `pnpm test` again at publish time, so a broken gate stops a
 release before the upload.
 
@@ -253,10 +255,10 @@ must skip itself — print a `SKIP` line and exit 0 — the way that file does o
 
 Probes are shell scripts, plus the small plugin files they load: the `*-probe.mjs`
 and `*-probe.yml` files in the same directory. Two shapes. The harness probes
-(`run.sh`, `terminal.sh`, `sandbox-shell.sh`, `picker.sh`, `missing-wsl.sh`,
-`sandbox-off.sh`) boot a throwaway profile whose setup steps are in the header of
-`test/probe/run.sh`; the five others reuse the profile `run.sh` creates rather
-than making their own. The distro probes (`substrate.sh`, `watch.sh`, `agent.sh`,
+(`run.sh`, `terminal.sh`, `sandbox-shell.sh`, `picker.sh`, `fs-routing.sh`,
+`missing-wsl.sh`, `sandbox-off.sh`) boot a throwaway profile whose setup steps
+are in the header of `test/probe/run.sh`; the six others reuse the profile
+`run.sh` creates rather than making their own. The distro probes (`substrate.sh`, `watch.sh`, `agent.sh`,
 `exec.sh`) boot nothing: they run from a distro terminal and drive the resident
 agent through the `wsl.exe` interop transport. `sandbox.sh` and `mode.sh` sit
 outside both groups — no harness boot, no profile.

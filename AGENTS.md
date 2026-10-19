@@ -6,11 +6,11 @@ DeepSeek Harness 的 WSL 集成插件：把一个 WSL 发行版配置为会话�
 
 | 命令 | 作用 |
 |---|---|
-| `pnpm test` | 完整检查链：风格 → 语法 → 构建一致性 → 类型检查 → 单测。提交前必须通过 |
+| `pnpm test` | 完整检查链：风格 → 链接 → 语法 → 构建一致性 → 类型检查 → 单测。提交前必须通过 |
 | `pnpm run build` | 用 `tsc` 把 `src/*.ts` 编译为 `lib/*.js` + `.d.ts`，并删除无源码对应的 `.d.ts` |
 | `pnpm run test:coverage` | 覆盖率阈值：行 85 / 分支 84 / 函数 70（分支线刻意定低，见 `docs/RELEASING.md`） |
 | `pnpm run sync:windows` | 同步到 Windows 侧应用加载的副本；改 `lib/` 后必跑，并重启 DSH 应用（ESM 缓存） |
-| `test/probe/run-all-when-closed.sh --include-fs` | 真机探针全套 12 项（仅 Windows+WSL；CI 跳过） |
+| `test/probe/run-all-when-closed.sh --include-fs` | 真机探针全套 14 项（仅 Windows+WSL；CI 跳过） |
 
 工具链：Node `^22.19.0 || >=24.0.0`（`engines`，即 harness 宿主自身的下限；Node 20 有意不支持）；pnpm 由 `packageManager` 字段锁定（corepack 解析）；CI 在 Node 22 与 24 上跑（Linux + Windows 两平台）。
 

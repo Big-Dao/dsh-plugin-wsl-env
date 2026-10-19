@@ -14,7 +14,7 @@
 # --include-fs also runs run.sh, the filesystem-mutation probe (the slowest,
 # and the one that needs the throwaway wslfs profile set up per its header).
 # Without it: terminal.sh, mode.sh, missing-wsl.sh, sandbox.sh, sandbox-shell.sh,
-# sandbox-off.sh, picker.sh — the fast behavioural set. native-session.sh needs
+# sandbox-off.sh, picker.sh, fs-routing.sh — the fast behavioural set. native-session.sh needs
 # the packaged native binary and exercises its own session scope (the app may
 # be running; the probe releases the scope it creates).
 
@@ -34,7 +34,7 @@ while tasklist.exe 2>/dev/null | grep -qi "DeepSeek Harness.exe"; do
 done
 echo "harness closed at $(date), starting the suite" >&2
 
-declare -a SUITE=(terminal.sh mode.sh missing-wsl.sh sandbox.sh sandbox-shell.sh sandbox-off.sh picker.sh agent.sh watch.sh substrate.sh exec.sh native-session.sh)
+declare -a SUITE=(terminal.sh mode.sh missing-wsl.sh sandbox.sh sandbox-shell.sh sandbox-off.sh picker.sh fs-routing.sh agent.sh watch.sh substrate.sh exec.sh native-session.sh)
 if [ "${1:-}" = "--include-fs" ]; then
   SUITE=("run.sh" "${SUITE[@]}")
 fi

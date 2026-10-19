@@ -25,6 +25,7 @@ test/probe/.generated-*.yml
 # Probe reports for the newer probes, same reason as fs-probe.txt.
 test/probe/missing-wsl-report.txt
 test/probe/picker-report.txt
+test/probe/fs-routing-report.txt
 test/probe/sandbox-off-report.txt
 test/probe/.scratch/
 

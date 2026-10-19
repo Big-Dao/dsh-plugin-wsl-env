@@ -1,0 +1,36 @@
+# Coordinate-routing probe overlay — applied on top of the throwaway `wslfs`
+# profile that `test/probe/run.sh` documents.
+#
+# `wslfs` binds the root `fs` to the distro; this probe needs the shipped
+# root-plane *router* instead, so the profile's row is disabled and the router
+# (plus this probe) is inserted in its place. The router is pinned to one distro
+# so the cross-distro fence is observable; auto routing is covered by
+# `test/fs-routing.test.mjs`.
+#
+# TEMPLATE: `fs-routing.sh` substitutes @DISTRO@, @DISTRO_PATH@, @DISTRO_LINUX@,
+# @DISTRO_TEXT@, @HOST_PATH@, @HOST_TEXT@, @PROBE_UNC@ and @REPORT_UNC@ into a
+# generated copy beside it.
+- id: wsl-fs
+  disabled: true
+
+- insert:
+    - id: fs-routing
+      name: 'dsh-plugin-wsl-env/fs-routing'
+      config:
+        distro: '@DISTRO@'
+        wslPath: wsl.exe
+        restrictToDistro: true
+        sandbox: true
+        maskWindowsDrive: false
+        watchMaxDepth: 0
+
+    - id: fs-routing-probe
+      name: '@PROBE_UNC@'
+      config:
+        distro: '@DISTRO@'
+        distroPath: '@DISTRO_PATH@'
+        distroLinux: '@DISTRO_LINUX@'
+        distroText: '@DISTRO_TEXT@'
+        hostPath: '@HOST_PATH@'
+        hostText: '@HOST_TEXT@'
+        report: '@REPORT_UNC@'

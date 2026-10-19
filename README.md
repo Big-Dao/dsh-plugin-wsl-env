@@ -149,6 +149,7 @@ Enforcement is reported as `partial`. A command inside the distro can still star
 | the session refuses before the first command | run `pnpm run doctor`; enable systemd and linger, or set `sessionSandbox: false` on `wsl-shell` and `wsl-fs` |
 | `glob` and `grep` are slow in the distro | install `ripgrep` with `pnpm run bootstrap -- <distro> --install` |
 | `dsh plugin add` prints nothing | the plugin is already installed; this is success |
+| a profile patch for `wsl-shell`/`wsl-fs` changes nothing | those rows are nested inside `preset-wsl`. Run `pnpm run preset -- --check <patch>`; it fails with the complete block to paste |
 | changes under `lib/` have no effect | run `pnpm run sync:windows`, then restart the app |
 
 More error codes and refusals are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#error-codes). Everything the plugin does not do is in [docs/LIMITATIONS.md](docs/LIMITATIONS.md).

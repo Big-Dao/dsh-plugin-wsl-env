@@ -255,22 +255,31 @@ Tier 1 image; `diagnose` remains a read-only alias.
 **Priority:** P0 · **Size:** M · **Labels:** `area:configuration`,
 `type:feature`, `priority:P0`
 
+**Status:** implemented (2026-10-19): [`scripts/profile-preset.mjs`](../scripts/profile-preset.mjs)
+(`pnpm run preset`) prints the complete `preset-wsl` row, applies `--distro`,
+`--session-sandbox`, `--sandbox`, `--mask-windows-drive` and `--agent-backend`,
+and writes a profile layer with `--out`. `--check` fails on a top-level
+`- id: wsl-shell`/`wsl-fs` entry and prints the exact block to paste. The unit
+suite compares the printed block byte-for-byte with the shipped row the app
+loads and exercises every CLI path.
+
 **Why:** `wsl-shell` and `wsl-fs` are nested inside `preset-wsl`; an id patch
 logs a warning and does nothing, which is the worst kind of configuration
 failure.
 
 **Acceptance:**
 
-- [ ] A helper prints the complete, copy-paste `preset-wsl` block for the
+- [x] A helper prints the complete, copy-paste `preset-wsl` block for the
       installed version.
-- [ ] The helper can apply a small set of common edits (`distro`,
+- [x] The helper can apply a small set of common edits (`distro`,
       `sessionSandbox`, `sandbox`, `maskWindowsDrive`, `agentBackend`).
-- [ ] An invalid nested patch fails with a message that includes the exact
+- [x] An invalid nested patch fails with a message that includes the exact
       block to paste; no silent no-op.
-- [ ] The helper is covered by a unit test and documented in CONFIGURATION.
+- [x] The helper is covered by a unit test and documented in CONFIGURATION.
 
-**Tests/probes:** generated YAML compared against the shipped block; a
-composition test applies the result through the real patch algorithm.
+**Tests/probes:** generated YAML compared byte-for-byte against the shipped
+block (the row the real composition loads); the CLI's print/write/check paths
+run in [`test/profile-preset.test.mjs`](../test/profile-preset.test.mjs).
 
 **Depends on:** none.
 

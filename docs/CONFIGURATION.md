@@ -83,6 +83,21 @@ changes nothing and does not fail: the log carries
 `patch: entry "wsl-shell" not found` and `patch: entry "wsl-fs" not found`, and the
 composed config keeps the shipped values.
 
+The helper does the extraction and the common edits for you:
+
+```bash
+pnpm run preset -- --distro Ubuntu --session-sandbox false \
+  --out "$DSH_HOME/profiles/<name>/cordis.patch.yml"
+```
+
+`--distro`, `--session-sandbox`, `--sandbox`, `--mask-windows-drive` and
+`--agent-backend` are the supported edits; without `--out` the helper prints the
+complete block instead of writing it. `pnpm run preset -- --check <file>` reads an
+existing layer and **fails with the exact block to paste** when it finds a
+top-level `- id: wsl-shell`/`wsl-fs` entry — the silent no-op is caught before
+boot. The generated block is byte-for-byte the shipped row plus your edits, so a
+plugin upgrade only needs a re-run.
+
 The route that works is to override the `preset-wsl` row as a whole. A row's
 `config` is replaced whole, never deep-merged, so the replacement has to carry
 `id`, `order` and the entire `plugins` list — every plugin, the `wsl-env` group

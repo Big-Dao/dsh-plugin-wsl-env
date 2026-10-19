@@ -361,7 +361,7 @@ async function main(options) {
       if (/^\s*-\s*id:\s*(wsl-shell|wsl-fs)\s*$/m.test(text)) trapped.push(entry.name);
     }
     if (trapped.length > 0) {
-      check("config.preset-trap", "warn", "Profile patches", `nested rows patched by id in: ${trapped.join(", ")}`, "wsl-shell and wsl-fs live inside preset-wsl; an id patch matches nothing and is silently ignored. Override them under \"- id: preset-wsl\" config.plugins — see docs/CONFIGURATION.md#overriding-the-rows-inside-preset-wsl");
+      check("config.preset-trap", "warn", "Profile patches", `nested rows patched by id in: ${trapped.join(", ")}`, "wsl-shell and wsl-fs live inside preset-wsl; an id patch matches nothing and is silently ignored. Run \"pnpm run preset -- --check <patch>\" to get the complete block, or see docs/CONFIGURATION.md#overriding-the-rows-inside-preset-wsl");
     } else {
       check("config.profiles", "ok", "Profile patches", `${seen} profile patch(es) scanned`);
     }

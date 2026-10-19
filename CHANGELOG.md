@@ -18,6 +18,14 @@ were part of the record.
 
 ### Added
 
+- **`pnpm run preset` — the `preset-wsl` override helper.** `wsl-shell` and
+  `wsl-fs` sit inside `preset-wsl`'s `config.plugins`, so a patch that targets
+  them by id is ignored with only a loader warning. The helper prints the
+  complete `preset-wsl` block, applies `distro`/`sessionSandbox`/`sandbox`/
+  `maskWindowsDrive`/`agentBackend`, and `--check` fails loudly with the exact
+  block to paste when a layer carries the nested id patch. See
+  [docs/CONFIGURATION.md](docs/CONFIGURATION.md#overriding-the-rows-inside-preset-wsl).
+
 - **`pnpm run doctor` — one command for the environment prerequisites.** Reports
   Windows/WSL versions, the distro and its login shell, bubblewrap usability,
   systemd / the user manager / `systemd-run` / Linger, the optional tools, peer

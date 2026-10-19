@@ -26,6 +26,12 @@ were part of the record.
   block to paste when a layer carries the nested id patch. See
   [docs/CONFIGURATION.md](docs/CONFIGURATION.md#overriding-the-rows-inside-preset-wsl).
 
+- **GUI-preview latency has a measured baseline.** `pnpm run probe:gui-preview`
+  drives the routed backend's `stat`, `listDir` and 1 MiB `readByteRange` with
+  p50/p95 budgets (stat 100 ms, listing 500 ms, page 1 s/MiB). On this machine:
+  p95 2.7 ms / 5.1 ms / 63.5 ms per MiB. No optimization follows; the
+  `workspace-files` row is untouched.
+
 - **LSP seam researched and deferred.** `docs/UPSTREAM-LSP-SEAM.md` records that
   the harness ships `dsh-lsp`/`dsh-lsp-stdio`/`dsh-tool-lsp` but the 0.2.1-rc.2
   base composition mounts none of them, and that a WSL provider needs a

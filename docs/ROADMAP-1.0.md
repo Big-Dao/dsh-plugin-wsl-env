@@ -144,7 +144,7 @@ may move if the compatibility matrix exposes a higher-severity failure.
 | Real-machine probes | 14, manual | 100%, nightly | Self-hosted Windows runner |
 | FS single-op p95 | ~22ms host round trip | <= 30ms | `fs-queue.mjs` |
 | 16 concurrent reads p95 | 2.4-8.2ms | <= 20ms | `fs-queue.mjs` |
-| GUI preview p95 | Four to six round trips | <= 1s/MiB | New GUI probe |
+| GUI preview p95 | Backend 63.5 ms/MiB (service round trips on top) | <= 1s/MiB | `probe:gui-preview` |
 | Agent recovery | One rebuild | < 2s | Fault injection |
 | Documentation drift | Three known | 0 | Release checklist |
 | Release cadence | Ad hoc | Every 2-4 weeks | Calendar |
@@ -498,18 +498,30 @@ no prototype while the trigger is unmet.
 **Priority:** P1 · **Size:** M · **Labels:** `area:performance`,
 `area:gui`, `priority:P1`
 
+**Status:** implemented (2026-10-19): [`test/probe/gui-preview.sh`](../test/probe/gui-preview.sh)
+(`pnpm run probe:gui-preview`) measures the three routed backend operations a
+preview pays — `stat`, `listDir`, and a 1 MiB `readByteRange` — with p50/p95 and
+budgets (stat 100 ms, listing 500 ms, page 1 s/MiB). Measured on this machine
+(20 iterations): stat p95 2.7 ms, listDir p95 5.1 ms, 1 MiB page read p95
+63.5 ms/MiB. The service's own round trips are not part of this number; they
+stack on top, and the earlier "four to six" remains the qualitative shape. No
+optimization is justified; the shipped `workspace-files` row is untouched, so
+there is no speculative v6.
+
 **Why:** The 0.12.0 correction restored previews at the cost of four to six
 agent round trips. Correctness first, but the latency needs a measured budget.
 
 **Acceptance:**
 
-- [ ] A probe measures listing, stat and page-read latency for a representative
+- [x] A probe measures listing, stat and page-read latency for a representative
       tree and a 1 MiB file.
-- [ ] p95 <= 1s/MiB for the page read; listings within the agreed budget.
-- [ ] Any optimization is justified by the probe; no speculative v6.
-- [ ] The shipped `workspace-files` row is not replaced again.
+- [x] p95 <= 1s/MiB for the page read (63.5 ms/MiB); listings within the agreed
+      budget (5.1 ms).
+- [x] Any optimization is justified by the probe; no speculative v6.
+- [x] The shipped `workspace-files` row is not replaced again.
 
-**Tests/probes:** GUI probe; `fs-queue.mjs`; real-machine measurement.
+**Tests/probes:** `test/probe/gui-preview.sh` (new); `fs-queue.mjs` for the
+agent queue; the service-level round-trip count remains qualitative.
 
 **Depends on:** WSL-101 for per-distro routing.
 

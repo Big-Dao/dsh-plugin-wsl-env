@@ -127,7 +127,13 @@ crosses the 9p share. What to know about the one substrate there is:
   through the pipe before cutting. Expect the GUI file tree and previews to be
   slower than a direct agent call, especially on large files; the model's own
   file operations are unaffected — they use the preset filesystem and the
-  resident agent directly.
+  resident agent directly. Measured 2026-10-19 with
+  [`test/probe/gui-preview.sh`](../test/probe/gui-preview.sh) (20 iterations on
+  this machine): the routed backend's `stat` p95 2.7 ms, `listDir` p95 5.1 ms,
+  and a 1 MiB `readByteRange` p95 **63.5 ms/MiB** — the service's own round
+  trips sit on top of those, and the 1 s/MiB budget has a wide margin. No
+  optimization is justified by these numbers; revisit only with a measured
+  regression.
 
 - **`fs-routing` is the seam.** The shipped service depends on the routed root
   filesystem staying enabled and faithful to the `ctx.fs` contract (`resolve`,

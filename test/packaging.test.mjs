@@ -95,6 +95,7 @@ try {
       "docs/UPSTREAM-SESSION-NOTICE.md",
       "docs/UPSTREAM-LSP-SEAM.md",
       "docs/UPSTREAM-FILE-REFERENCE-SEAM.md",
+      "docs/MIGRATION.md",
       "README.md",
       "CHANGELOG.md",
       "SECURITY.md",

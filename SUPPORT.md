@@ -76,7 +76,9 @@ There is no long-term support branch. Fixes go to the latest version.
   [SECURITY.md](SECURITY.md).
 - **Cadence.** Releases ship when there is a change worth shipping, roughly every
   two to four weeks; the tag workflow and its gates are in
-  [docs/RELEASING.md](docs/RELEASING.md). There is no long-term support branch.
+  [docs/RELEASING.md](docs/RELEASING.md), and the configuration-stability and
+  migration rules are in [docs/MIGRATION.md](docs/MIGRATION.md). There is no
+  long-term support branch.
 - **Good first issues.** The `good first issue` label marks changes that need no
   prior context; [CONTRIBUTING.md](CONTRIBUTING.md#good-first-issues-and-the-contributor-path)
   lists the usual shapes and how to claim one.

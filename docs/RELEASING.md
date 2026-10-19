@@ -25,6 +25,9 @@ move in a minor release.
 
 ## 3. Run the gates
 
+The configuration-stability rules and the full gate table (including the manual
+legs a CI run cannot execute) are in [MIGRATION.md](MIGRATION.md#gates-a-release-must-clear).
+
 ```bash
 pnpm test
 pnpm run test:coverage

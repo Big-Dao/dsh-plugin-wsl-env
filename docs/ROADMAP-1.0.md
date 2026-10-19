@@ -734,16 +734,26 @@ usual shapes and how to claim one.
 **Priority:** P2 · **Size:** M · **Labels:** `area:release`,
 `priority:P2`
 
+**Status:** policy subset implemented (2026-10-19): [MIGRATION.md](MIGRATION.md)
+records the configuration freeze (new keys are minors with preserving defaults,
+removals need a boot-time refusal, meaning changes need a migration note; exact
+peer pins are tested by the canary), the deprecation path with the
+`substrate: "share"` and `distro: ''` cases, and the release-gate table with the
+manual legs marked unrun. RELEASING and SUPPORT link it. The empirical legs
+(Tier 1 matrix, aarch64 execution, 30 days without a P0) and the final `1.0.0`
+release notes remain open.
+
 **Acceptance:**
 
-- [ ] Configuration schema frozen; new keys require a minor.
-- [ ] Migration and deprecation policy documented.
+- [x] Configuration schema frozen; new keys require a minor.
+- [x] Migration and deprecation policy documented.
 - [ ] Tier 1 green, aarch64 executed, install E2E green, no P0 bugs for 30
-      days.
+      days (install E2E is 10/10; the other three are open/unrun).
 - [ ] `1.0.0` release notes list the supported matrix and the known
-      limitations.
+      limitations (draft waits for the matrix).
 
-**Tests/probes:** release gate; full probe suite.
+**Tests/probes:** [MIGRATION.md](MIGRATION.md#gates-a-release-must-clear);
+release gate; full probe suite.
 
 **Depends on:** WSL-101, WSL-102, WSL-202, WSL-203.
 

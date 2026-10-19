@@ -26,6 +26,13 @@ were part of the record.
   block to paste when a layer carries the nested id patch. See
   [docs/CONFIGURATION.md](docs/CONFIGURATION.md#overriding-the-rows-inside-preset-wsl).
 
+- **Configuration stability and migration policy.** `docs/MIGRATION.md` records
+  the below-1.0 freeze (new keys preserve behavior, removals refuse at boot with
+  a migration, meaning changes get a note), the deprecation path with the
+  `substrate: "share"` and `distro: ''` cases, and the release-gate table with
+  the manual legs (probe suite, clean machine, aarch64) marked unrun.
+  RELEASING and SUPPORT link it.
+
 - **Upstream promotion pack documented.** `docs/upstream/promotion-pack.md`
   records the `packages/wsl/*` layout (ten capability packages plus an
   integration package), the seam/RFC index, what the composition boot test

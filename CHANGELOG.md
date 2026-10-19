@@ -26,6 +26,11 @@ were part of the record.
   block to paste when a layer carries the nested id patch. See
   [docs/CONFIGURATION.md](docs/CONFIGURATION.md#overriding-the-rows-inside-preset-wsl).
 
+- **Session-notice upstream payload ready.** The exact title, body and `gh`
+  command for the session-visible notice proposal are in
+  `docs/upstream/proposal-session-notice.md`; it remains unfiled (a maintainer
+  action).
+
 - **Configuration stability and migration policy.** `docs/MIGRATION.md` records
   the below-1.0 freeze (new keys preserve behavior, removals refuse at boot with
   a migration, meaning changes get a note), the deprecation path with the

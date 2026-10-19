@@ -339,8 +339,9 @@ command.
 - [x] The preflight checks bwrap, systemd PID 1, `systemd-run` and Linger.
 - [x] The warning is visibly attached to the session through the
       runtime-context entry (not only logs).
-- [ ] A GUI notice/banner renders it: upstream seam missing; proposal ready to
-      file ([UPSTREAM-SESSION-NOTICE.md](UPSTREAM-SESSION-NOTICE.md)).
+- [ ] A GUI notice/banner renders it: upstream seam missing; the filing payload
+      is ready at [proposal-session-notice.md](upstream/proposal-session-notice.md)
+      and has not been submitted (a maintainer action).
 - [x] The warning never installs anything and never changes fail-closed
       behavior.
 - [x] A session with a usable environment produces no warning.

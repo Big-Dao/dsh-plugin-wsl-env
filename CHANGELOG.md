@@ -16,6 +16,33 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-19
+
+The GUI file service keeps the shipped `workspace-files` row: its server-only
+replacement dropped the browser `file` resource provider and broke Sidebar
+previews. The shipped row now serves WSL paths through `fs-routing`. The
+`wsl-shell.maskWindowsDrive` wiring fix ships with it.
+
+### Fixed
+
+- **`wsl-shell.maskWindowsDrive` reaches the per-command sandbox.** The shell
+  executor built its `WslSandbox` without the configured key. With
+  `sessionSandbox: false` the per-command profile therefore left `/mnt`
+  visible after the operator asked for the mask; with `sessionSandbox: true`
+  the runtime still masked the drive, but the decorated result reported
+  `windowsDrive: "visible"`. The executor now passes the value, matching
+  `wsl-fs` and `fs-routing`.
+
+- **Sidebar previews work: the GUI file service keeps the shipped
+  `workspace-files` row.** The former `workspace-files-wsl` takeover replaced
+  that row with a server-only subclass, which dropped the browser `file`
+  resource provider and made every Sidebar preview report "The file resource
+  service is unavailable." The shipped row now serves WSL paths through
+  `fs-routing`, so the server and client halves stay paired. The trade-off is
+  GUI-only: a listing, `stat` or page read takes roughly four to six agent round
+  trips instead of one, and a deep page read streams the preceding lines through
+  the pipe. The model's file tools, search and `@` references are unaffected.
+
 ## [0.11.0] - 2026-10-18
 
 The shared read agent is the native binary (A7): unconfined reads now use the

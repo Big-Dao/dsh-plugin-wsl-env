@@ -98,6 +98,20 @@ const wireCtx = (f) => ({
   on: f.on,
 });
 
+
+/**
+ * A fake `wsl.exe` whose session-runtime probe prints one verdict word while
+ * every other probe (the bwrap usability one included) succeeds.
+ * @param {string} name - the fake's file name under the scratch dir.
+ * @param {string} word - the probe answer: `ok`, `no-systemd`, ...
+ * @returns {Promise<string>} the fake's path.
+ */
+const scriptedWsl = async (name, word) => {
+  const path = join(dir, name);
+  await writeFile(path, `#!/bin/sh\ncase "$*" in\n  *loginctl*) printf '%s' "${word}" ;;\n  *) exit 0 ;;\nesac\n`, { mode: 0o755 });
+  return path;
+};
+
 let passed = 0;
 /**
  * Runs one check now, printing its verdict; a throw fails the process exit code.
@@ -229,6 +243,63 @@ await check("a warn-only logger still warns; a debug-only logger still debugs", 
   );
   await debugOnly.fire({ agent: { id: "a8", session: { header: { cwd: DISTRO_UNC } } } });
   assert.equal(debugOnly.debugs.length > 0, true, "debug lands without a warn method beside it");
+});
+
+
+await check("a usable bwrap but no Linger warns with the session remedy", async () => {
+  const wslPath = await scriptedWsl("wsl-prelinger.exe", "no-linger");
+  const f = fakeCtx();
+  await apply(/** @type {never} */ (wireCtx(f)), { distro: "ubuntu", wslPath, sandbox: true });
+  await f.fire({ agent: { id: "a10", session: { header: { cwd: DISTRO_UNC } } } });
+  assert.equal(f.warns.length, 1, "exactly one advisory");
+  assert.match(f.warns[0] ?? "", /wsl-preflight: /, "the warning names its source");
+  assert.match(f.warns[0] ?? "", /loginctl enable-linger/, "the remedy is the session one");
+});
+
+await check("a non-systemd distro warns with the wsl.conf remedy", async () => {
+  const wslPath = await scriptedWsl("wsl-presystemd.exe", "no-systemd");
+  const f = fakeCtx();
+  await apply(/** @type {never} */ (wireCtx(f)), { distro: "ubuntu", wslPath, sandbox: true });
+  await f.fire({ agent: { id: "a11", session: { header: { cwd: DISTRO_UNC } } } });
+  assert.equal(f.warns.length, 1);
+  assert.match(f.warns[0] ?? "", /\[boot\] systemd=true/, "the remedy names the wsl.conf change");
+});
+
+await check("a usable session runtime stays quiet", async () => {
+  const wslPath = await scriptedWsl("wsl-prehealthy.exe", "ok");
+  const f = fakeCtx();
+  await apply(/** @type {never} */ (wireCtx(f)), { distro: "ubuntu", wslPath, sandbox: true });
+  await f.fire({ agent: { id: "a12", session: { header: { cwd: DISTRO_UNC } } } });
+  assert.deepEqual(f.warns, [], "a usable environment must not warn");
+  assert.equal(f.debugs.length > 0, true, "the verdict is still observable at debug level");
+});
+
+await check("sessionSandbox: false leaves the session prerequisites alone", async () => {
+  const wslPath = await scriptedWsl("wsl-prenosession.exe", "no-linger");
+  const f = fakeCtx();
+  await apply(/** @type {never} */ (wireCtx(f)), { distro: "ubuntu", wslPath, sandbox: true, sessionSandbox: false });
+  await f.fire({ agent: { id: "a13", session: { header: { cwd: DISTRO_UNC } } } });
+  assert.deepEqual(f.warns, [], "an opted-out session runtime is not preflighted");
+});
+
+await check("the advisory also lands in the session runtime context", async () => {
+  const wslPath = await scriptedWsl("wsl-precontext.exe", "no-linger");
+  const f = fakeCtx();
+  /** @type {Array<{name: string, order: number, text: () => string}>} */
+  const contexts = [];
+  /** @type {(names: string[], install: (scope: { systemPrompt: { context: (entry: { name: string, order: number, text: () => string }) => unknown } }) => void) => void} */
+  const injectPrompt = (_names, install) => install({ systemPrompt: { context: (entry) => contexts.push(entry) } });
+  const agent = {
+    id: "a14",
+    session: { header: { cwd: DISTRO_UNC } },
+    ctx: { inject: injectPrompt },
+  };
+  await apply(/** @type {never} */ (wireCtx(f)), { distro: "ubuntu", wslPath, sandbox: true });
+  await f.fire({ agent });
+  assert.equal(f.warns.length, 1, "the log line still lands");
+  assert.equal(contexts.length, 1, "one runtime-context entry");
+  assert.equal(contexts[0]?.name, "wsl-preflight");
+  assert.match(contexts[0]?.text() ?? "", /loginctl enable-linger/, "the entry carries the remedy");
 });
 
 await rm(dir, { recursive: true, force: true });

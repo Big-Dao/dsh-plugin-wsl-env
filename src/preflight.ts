@@ -30,7 +30,7 @@ import { isWslUnc } from "./paths.js";
 import { defaultDistro, runCapture } from "./wsl.js";
 import { distroOfUnc, isDefaultDistro, pinnedDistro } from "./distro-route.js";
 import { bwrapFailure, bwrapUsable, missingBwrapRemedy } from "./sandbox-core.js";
-import { sessionScopeSweepScript } from "./session-scope.js";
+import { sessionScopeProblem, sessionScopeProbeScript, sessionScopeSweepScript } from "./session-scope.js";
 
 export const name = "wsl-preflight";
 
@@ -44,6 +44,14 @@ export const Config = z.object({
   wslPath: z.string().default("wsl.exe"),
   /** Whether the session-start sandbox preflight runs at all. */
   sandbox: z.boolean().default(true),
+  /**
+   * Whether the preflight also checks the session-runtime prerequisites
+   * (systemd PID 1, the user manager, `systemd-run`, Linger). On by default,
+   * matching the shipped `sessionSandbox: true`; turn it off when the profile
+   * opts out of the session runtime, or the warning would name a prerequisite
+   * that profile does not use.
+   */
+  sessionSandbox: z.boolean().default(true),
 });
 
 /** The config schema's validated output. */
@@ -54,6 +62,8 @@ export interface PreflightConfig {
   wslPath?: string;
   /** Whether the session-start sandbox preflight runs at all. */
   sandbox?: boolean;
+  /** Whether the session-runtime prerequisites are preflighted too. */
+  sessionSandbox?: boolean;
 }
 
 /** Distros whose stale-scope sweep has already run in this process. */
@@ -85,6 +95,22 @@ export interface PreflightAgent {
   id: string;
   /** The session stub, when mounted. */
   session?: { header?: { cwd?: string | undefined } } | undefined;
+  /**
+   * The agent's own context, when the harness exposes it. Used to publish the
+   * advisory into the session's runtime context; absent in the unit tests and
+   * on a harness without the `systemPrompt` seam, where the log line stands
+   * alone.
+   */
+  ctx?: {
+    inject?: (names: string[], install: (scope: PreflightPromptScope) => void) => unknown,
+  } | undefined;
+}
+
+/** The slice of a session context that can carry the advisory. */
+export interface PreflightPromptScope {
+  systemPrompt: {
+    context: (entry: { name: string, order: number, text: () => string }) => unknown,
+  };
 }
 
 /**
@@ -114,6 +140,50 @@ export async function apply(ctx: PreflightContext, config: PreflightConfig = {})
   const warn = (message: string) => ctx.logger?.warn?.(message);
 
   /**
+   * Publish one advisory: the log line always, plus — when the harness exposes
+   * the agent's `systemPrompt` — a session-scoped runtime-context entry, so the
+   * warning is visible to the session instead of only in the app log. DSH
+   * 0.2.1 has no toast/notice seam; docs/UPSTREAM-SESSION-NOTICE.md records the
+   * ask, and the runtime context is the available visible channel today.
+   *
+   * @param agent - the session that just opened.
+   * @param message - the advisory, remedy included.
+   */
+  const announce = (agent: PreflightAgent, message: string): void => {
+    warn(message);
+    const agentCtx = agent.ctx;
+    if (agentCtx === undefined || typeof agentCtx.inject !== "function") return;
+    try {
+      agentCtx.inject(["systemPrompt"], (scope) => {
+        scope.systemPrompt.context({ name: "wsl-preflight", order: 200, text: () => message });
+      });
+    } catch (error) {
+      ctx.logger?.debug?.(`wsl-preflight: could not publish the notice to the session (${(error as Error)?.message ?? error})`);
+    }
+  };
+
+  /**
+   * Ask the distro's session-runtime probe. Only a recognized refusal is a
+   * verdict: an empty or unfamiliar answer means "cannot tell" (a fixture, an
+   * old image, a wedged shell) and stays at debug level — the preflight is
+   * advisory and must not invent a prerequisite from silence.
+   *
+   * @param distro - the resolved distro.
+   * @returns the remedy, or undefined when the session runtime is usable or unknown.
+   */
+  const probeSession = async (distro: string): Promise<string | undefined> => {
+    try {
+      const output = await runCapture([wslPath, "-d", distro, "--exec", "sh", "-c", sessionScopeProbeScript()]);
+      const word = output.trim().split(/\r?\n/u)[0]?.trim() ?? "";
+      if (!["no-systemd", "no-user-manager", "no-systemd-run", "no-linger"].includes(word)) return undefined;
+      return sessionScopeProblem({ output: { stdout: word }, distro }) ?? undefined;
+    } catch (error) {
+      ctx.logger?.debug?.(`wsl-preflight: the session probe could not run (${(error as Error)?.message ?? error})`);
+      return undefined;
+    }
+  };
+
+  /**
    * Probe the distro once and surface an unusable `bwrap` as a warning.
    *
    * @param agent - the session that just opened, for the workspace scope.
@@ -122,7 +192,7 @@ export async function apply(ctx: PreflightContext, config: PreflightConfig = {})
     // Only a distro workspace has commands that confine: a host session would
     // warn about a sandbox it never uses.
     const cwd = agent?.session?.header?.cwd;
-    if (cwd === undefined || !isWslUnc(cwd)) return;
+    if (agent === undefined || cwd === undefined || !isWslUnc(cwd)) return;
     const pinned = pinnedDistro(config.distro);
     let distro = pinned ?? "";
     if (distro.length === 0) {
@@ -147,11 +217,14 @@ export async function apply(ctx: PreflightContext, config: PreflightConfig = {})
     // runtime; a live agent in another session's cgroup makes its scope safe.
     sweepStaleScopes(wslPath, distro);
     const usable = await bwrapUsable({ wslPath, distro });
-    if (usable) {
-      ctx.logger?.debug?.(`wsl-preflight: bwrap is usable inside distro "${distro}"`);
+    if (!usable) {
+      announce(agent, `wsl-preflight: ${bwrapFailure(wslPath, distro) ?? missingBwrapRemedy(distro)}`);
       return;
     }
-    warn(`wsl-preflight: ${bwrapFailure(wslPath, distro) ?? missingBwrapRemedy(distro)}`);
+    ctx.logger?.debug?.(`wsl-preflight: bwrap is usable inside distro "${distro}"`);
+    if (!(config.sessionSandbox ?? true)) return;
+    const sessionProblem = await probeSession(distro);
+    if (sessionProblem !== undefined) announce(agent, `wsl-preflight: ${sessionProblem}`);
   };
 
   ctx.on("agent/created", (payload) => void check(payload?.agent));

@@ -37,6 +37,16 @@ were part of the record.
 
 ### Changed
 
+- **The session preflight also checks the session-runtime prerequisites.** It
+  now probes systemd as PID 1, the user manager, `systemd-run` and Linger —
+  not only `bubblewrap` — when a distro session opens, and publishes the same
+  advisory to the session's runtime context as well as the log. `sessionSandbox:
+  false` on the `wsl-preflight` row skips the session half. DSH 0.2.1 has no
+  session-notice seam; the ask is recorded in
+  [docs/UPSTREAM-SESSION-NOTICE.md](docs/UPSTREAM-SESSION-NOTICE.md) and the
+  boundary in [docs/LIMITATIONS.md](docs/LIMITATIONS.md#session-start-advisories).
+  Advisory only: nothing is installed and fail-closed behavior is unchanged.
+
 - **The distro follows the workspace.** `distro: ''`/`'auto'` now selects the
   distro from the request workdir or target UNC; `'default'` forces WSL's
   default, and an explicit name still pins. Shell, files, root-plane routing,

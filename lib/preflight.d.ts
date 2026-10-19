@@ -36,6 +36,14 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     wslPath: z<string, string, "defined">;
     /** Whether the session-start sandbox preflight runs at all. */
     sandbox: z<boolean, boolean, "defined">;
+    /**
+     * Whether the preflight also checks the session-runtime prerequisites
+     * (systemd PID 1, the user manager, `systemd-run`, Linger). On by default,
+     * matching the shipped `sessionSandbox: true`; turn it off when the profile
+     * opts out of the session runtime, or the warning would name a prerequisite
+     * that profile does not use.
+     */
+    sessionSandbox: z<boolean, boolean, "defined">;
 }>>, Schemastery.ObjectT<NoInfer<{
     /**
      * Distro to preflight. Empty/`"auto"` follows the session workspace; an
@@ -46,6 +54,14 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     wslPath: z<string, string, "defined">;
     /** Whether the session-start sandbox preflight runs at all. */
     sandbox: z<boolean, boolean, "defined">;
+    /**
+     * Whether the preflight also checks the session-runtime prerequisites
+     * (systemd PID 1, the user manager, `systemd-run`, Linger). On by default,
+     * matching the shipped `sessionSandbox: true`; turn it off when the profile
+     * opts out of the session runtime, or the warning would name a prerequisite
+     * that profile does not use.
+     */
+    sessionSandbox: z<boolean, boolean, "defined">;
 }>>, "plain">;
 /** The config schema's validated output. */
 export interface PreflightConfig {
@@ -55,6 +71,8 @@ export interface PreflightConfig {
     wslPath?: string;
     /** Whether the session-start sandbox preflight runs at all. */
     sandbox?: boolean;
+    /** Whether the session-runtime prerequisites are preflighted too. */
+    sessionSandbox?: boolean;
 }
 /**
  * The slice of a created agent this service inspects; the harness's agent
@@ -69,6 +87,25 @@ export interface PreflightAgent {
             cwd?: string | undefined;
         };
     } | undefined;
+    /**
+     * The agent's own context, when the harness exposes it. Used to publish the
+     * advisory into the session's runtime context; absent in the unit tests and
+     * on a harness without the `systemPrompt` seam, where the log line stands
+     * alone.
+     */
+    ctx?: {
+        inject?: (names: string[], install: (scope: PreflightPromptScope) => void) => unknown;
+    } | undefined;
+}
+/** The slice of a session context that can carry the advisory. */
+export interface PreflightPromptScope {
+    systemPrompt: {
+        context: (entry: {
+            name: string;
+            order: number;
+            text: () => string;
+        }) => unknown;
+    };
 }
 /**
  * The cordis context extended with the slices this service consumes. `logger`

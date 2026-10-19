@@ -213,8 +213,18 @@ is missing.
 
 The same probe also runs when a session opens: the `wsl-preflight` row warns
 with the full remedy if `bwrap` is unusable, so the news arrives with the
-session rather than with the first failed command. It is advisory — it never
-installs anything and never changes the fail-closed semantics; drop the
+session rather than with the first failed command. It also checks the session
+runtime's prerequisites — systemd as PID 1, the user manager, `systemd-run` and
+Linger — when `sessionSandbox` on the preflight row is `true` (the default,
+matching the shipped preset). Set `sessionSandbox: false` on that row when the
+profile opts out of the session runtime, so it does not warn about a
+prerequisite the profile does not use.
+
+The advisory is logged and also published as a `wsl-preflight` runtime-context
+entry, so it reaches the session transcript; DSH 0.2.1 has no toast/banner seam
+for a plugin (see [UPSTREAM-SESSION-NOTICE.md](UPSTREAM-SESSION-NOTICE.md) and
+[LIMITATIONS.md](LIMITATIONS.md#session-start-advisories)). It is advisory — it
+never installs anything and never changes the fail-closed semantics; drop the
 `wsl-preflight` row from your layer (or set `sandbox: false` on it) to silence
 the warning.
 

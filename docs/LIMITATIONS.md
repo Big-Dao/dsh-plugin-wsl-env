@@ -193,6 +193,24 @@ crosses the 9p share. What to know about the one substrate there is:
   a separate case and is now reported as an error naming that directory, because
   `wsl.exe` would otherwise run the command in `/` and exit 0.
 
+## Session-start advisories
+
+- **There is no session-UI notice seam in DSH 0.2.1.** When a distro session
+  opens, `wsl-preflight` checks `bubblewrap`, systemd as PID 1, the user
+  manager, `systemd-run` and Linger. A failure is advisory: it never installs
+  anything, never cancels the session and never changes the fail-closed
+  behavior of the first command. The finding goes to the host log
+  (`logger.warn`) and into the session's runtime context as a `wsl-preflight`
+  entry — model-visible on the next assembly — but the GUI today has no
+  toast/banner service a plugin can publish to. `pnpm run doctor` is the
+  deterministic human-facing check; the exact upstream ask is
+  [UPSTREAM-SESSION-NOTICE.md](UPSTREAM-SESSION-NOTICE.md).
+- **The runtime-context entry is a repeated snapshot, not a dismissible
+  notification.** It appears in every assembly until the environment is fixed;
+  it has no severity decoration and no dismiss control. Removing the
+  `wsl-preflight` row (or setting `sandbox: false` on it) silences the probe
+  entirely.
+
 ## Ports
 
 - **The port poller keeps the resident agent permanently warm.** The

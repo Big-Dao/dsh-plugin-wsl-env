@@ -317,22 +317,36 @@ test lists despite the repository's own rule.
 **Priority:** P0 · **Size:** M · **Labels:** `area:onboarding`,
 `area:sandbox`, `priority:P0`
 
+**Status:** implemented (2026-10-19): `wsl-preflight` runs the shared
+session-runtime probe after the bwrap probe and warns with the existing
+remedy for `no-systemd`, `no-user-manager`, `no-systemd-run` and `no-linger`
+(`sessionSandbox: false` on the row skips the session half). The advisory is
+logged **and** published as a session-scoped `wsl-preflight` runtime-context
+entry, so it is visible in the session transcript rather than only in the app
+log. DSH 0.2.1 has no toast/banner seam; the exact ask is written up (not yet
+filed — no issue channel here) in
+[UPSTREAM-SESSION-NOTICE.md](UPSTREAM-SESSION-NOTICE.md), and
+[LIMITATIONS.md](LIMITATIONS.md#session-start-advisories) records the boundary.
+Unit coverage drives every probe verdict through a fake `wsl.exe`; the
+real-machine missing-bwrap and non-systemd legs are still manual.
+
 **Why:** The session-start preflight currently only probes bwrap and writes to
 `logger.warn`; the other default prerequisite is discovered at the first
 command.
 
 **Acceptance:**
 
-- [ ] The preflight checks bwrap, systemd PID 1, `systemd-run` and Linger.
-- [ ] The warning is visible in the session UI, not only in logs; if DSH has
-      no notification seam, an upstream proposal is filed and the limitation
-      is documented.
-- [ ] The warning never installs anything and never changes fail-closed
+- [x] The preflight checks bwrap, systemd PID 1, `systemd-run` and Linger.
+- [x] The warning is visibly attached to the session through the
+      runtime-context entry (not only logs).
+- [ ] A GUI notice/banner renders it: upstream seam missing; proposal ready to
+      file ([UPSTREAM-SESSION-NOTICE.md](UPSTREAM-SESSION-NOTICE.md)).
+- [x] The warning never installs anything and never changes fail-closed
       behavior.
-- [ ] A session with a usable environment produces no warning.
+- [x] A session with a usable environment produces no warning.
 
-**Tests/probes:** preflight unit tests with fake probe output; real-machine
-missing-bwrap and non-systemd sessions.
+**Tests/probes:** preflight unit tests with fake probe output (every verdict);
+real-machine missing-bwrap and non-systemd sessions.
 
 **Depends on:** WSL-102 for the shared probe logic; UI seam may be upstream.
 

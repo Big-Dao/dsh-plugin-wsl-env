@@ -387,7 +387,9 @@ export class WslShellExecutor
     this.resolvedShell = config.shell;
     this.resolvedHome = undefined;
     this.mode = config.sandbox ? ctx.sandboxPolicy.defaultMode : undefined;
-    this.sandbox = config.sandbox ? new WslSandbox({ wslPath: config.wslPath }) : undefined;
+    this.sandbox = config.sandbox
+      ? new WslSandbox({ wslPath: config.wslPath, maskWindowsDrive: config.maskWindowsDrive })
+      : undefined;
     this.processFacts = new Map();
     this.sessionRuntimes = sessionRuntimes;
     this.sessionRuntimeEntries = new Map();

@@ -507,6 +507,32 @@ check("the executor reports its mode through sandboxMode", () => {
   assert.equal(makeExecutor({ sandbox: false }).executor.sandboxMode, undefined);
 });
 
+check("maskWindowsDrive reaches the per-command confinement, not only the session runtime", async () => {
+  /** @type {{ mode: "workspace-write", workspaceRoot: string }} */
+  const policy = { mode: "workspace-write", workspaceRoot: WORKSPACE };
+  const ctx = new Context();
+  ctx.provide("sandboxPolicy", { defaultMode: policy.mode, resolve: () => policy });
+  const executor = new WslShellExecutor(ctx, WslShellExecutor.Config({
+    distro: DISTRO,
+    shell: "/bin/zsh",
+    sandbox: true,
+    agent: true,
+    sessionSandbox: false,
+    agentBackend: "shell",
+    maskWindowsDrive: true,
+  }));
+  const sandbox = executor.sandbox;
+  assert.ok(sandbox, "the sandbox core exists while sandbox is on");
+  // The per-command profile is built here, not in a session runtime; only the
+  // bwrap probe (which would spawn wsl.exe) is substituted.
+  sandbox.usable = async () => true;
+  const confined = await sandbox.confine(["sh", "-c", "true"], policy, { distro: DISTRO });
+  const mnt = confined.argv.indexOf("/mnt");
+  assert.notEqual(mnt, -1, "the per-command profile shadows the drive");
+  assert.equal(confined.argv[mnt - 1], "--tmpfs", "the mask is an empty tmpfs");
+  assert.equal(confined.windowsDrive, "masked");
+});
+
 check("a configured shell is cached; a failed probe is retried, not pinned", async () => {
   const { executor } = makeExecutor();
   assert.equal(await executor.shell(), "/bin/zsh");

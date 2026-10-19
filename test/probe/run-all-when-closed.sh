@@ -29,10 +29,25 @@ echo "full probe suite; log: $LOG" >&2
 echo "waiting for the harness application to close..." >&2
 
 # Poll the Windows process list through interop until the app is gone.
-# `grep -q` must not be used here: it exits as soon as it matches, tasklist
-# then dies of SIGPIPE, and `pipefail` turns that into "the app is gone" on
-# the first iteration. The full read keeps the pipeline honest.
-while tasklist.exe 2>/dev/null | tr -d '\0' | grep -i "DeepSeek Harness.exe" >/dev/null; do
+# Three failure modes are kept apart on purpose:
+#   * `grep -q` would exit as soon as it matches, tasklist would die of
+#     SIGPIPE, and `pipefail` would read that as "the app is gone" on the
+#     first iteration — so the list is read fully;
+#   * a tasklist that CANNOT RUN (missing interop, a stripped PATH) must not
+#     be read as "no app" either: it is retried, then aborts the run;
+#   * only a successful read with no matching process ends the wait.
+FAILED=0
+while true; do
+  if listing="$(tasklist.exe 2>/dev/null | tr -d '\0')"; then
+    FAILED=0
+    printf '%s\n' "$listing" | grep -qi "DeepSeek Harness.exe" || break
+  else
+    FAILED=$((FAILED + 1))
+    if [ "$FAILED" -ge 12 ]; then
+      echo "tasklist.exe is unreachable; cannot tell whether the app is closed — aborting instead of guessing" >&2
+      exit 1
+    fi
+  fi
   sleep 5
 done
 echo "harness closed at $(date), starting the suite" >&2

@@ -1,7 +1,8 @@
 # 晋升地图：对照 ssh 家族的预就绪状态
 
 The packaging proposal (layout, seam index, boot-test gaps) is
-[promotion-pack.md](promotion-pack.md).
+[promotion-pack.md](promotion-pack.md). The remote-workspace proposal (POSIX identity for WSL/SSH on Windows) is
+[proposal-remote-workspaces.md](proposal-remote-workspaces.md).
 
 
 > 内部文档。记录"如果上游未来收编（或我们按其架构品味重构），本插件到

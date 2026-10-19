@@ -447,19 +447,31 @@ silently leave an obsolete workaround behind.
 **Priority:** P1 · **Size:** L · **Labels:** `area:file-reference`,
 `type:feature`, `priority:P1`
 
+**Status:** measured and deferred (2026-10-19):
+[UPSTREAM-FILE-REFERENCE-SEAM.md](UPSTREAM-FILE-REFERENCE-SEAM.md) records the
+cost (20 dirs / 520 files: 9p walk median 84.7 ms vs ext4 1.5 ms, ~56×; 9p
+samples 63–192 ms) measured by `pnpm run probe:file-reference`. The seam
+contract (three functions, Dirent/error/coordinate semantics) is already
+written in [rfc-wsl-workspaces.md](upstream/rfc-wsl-workspaces.md); the
+consumer [`src/file-reference-wsl.ts`](../src/file-reference-wsl.ts) is built
+and unit-tested but deliberately unwired. The fallback is to keep the 9p walk
+until upstream exposes the funnel; the trigger and the follow-up probe are
+recorded.
+
 **Why:** `@` completion still walks the 9p share; the WSL traversal module is
 built but unwired.
 
 **Acceptance:**
 
-- [ ] The 9p cost is measured on a representative tree.
-- [ ] The upstream `FileReferenceTraversal` seam is proposed with the three
+- [x] The 9p cost is measured on a representative tree (84.7 ms vs 1.5 ms).
+- [x] The upstream `FileReferenceTraversal` seam is proposed with the three
       function contract and the coordinate/error semantics.
-- [ ] If the seam lands, `file-reference-wsl` is wired and tested; if not, the
-      limitation is stated with the measured cost and a fallback decision.
+- [x] The seam did not land, so the limitation is stated with the measured cost
+      and a fallback decision (keep the 9p walk; wire on the trigger).
 
-**Tests/probes:** existing `file-reference-wsl` unit test; a live completion
-probe; 9p-vs-distro timing.
+**Tests/probes:** `probe:file-reference` (9p-vs-ext4 walk);
+`test/file-reference-wsl.test.mjs` (the consumer); no live completion probe
+until the seam exists.
 
 **Depends on:** upstream seam; no hard block for 1.0 if documented.
 

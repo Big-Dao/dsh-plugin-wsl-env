@@ -26,6 +26,13 @@ were part of the record.
   block to paste when a layer carries the nested id patch. See
   [docs/CONFIGURATION.md](docs/CONFIGURATION.md#overriding-the-rows-inside-preset-wsl).
 
+- **`@`-reference traversal cost measured; seam deferred.** The Windows walk
+  over the WSL share is ~56× the ext4 walk on a 520-entry tree (84.7 ms vs
+  1.5 ms) and is now reproducible with `pnpm run probe:file-reference`.
+  `docs/UPSTREAM-FILE-REFERENCE-SEAM.md` records the three-function seam, the
+  ready (unwired) plugin consumer, and the decision to keep the 9p walk until
+  upstream exposes the funnel.
+
 - **Community loop: issue forms, triage targets and a contributor path.**
   Feature-request and setup-report forms (the setup form requires
   `doctor --json`), a chooser that disables blank issues, SUPPORT's P1

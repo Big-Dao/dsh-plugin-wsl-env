@@ -191,6 +191,7 @@ terminal if you would rather not see the prompt.
 | `pnpm run probe:missing-wsl` | how a `wslPath` that cannot start is reported | yes |
 | `pnpm run probe:picker` | the picker's root level, its refusals and its cap | yes |
 | `pnpm run probe:gui-preview` | the routed backend's stat/listing/1 MiB page-read latency (p50/p95 budgets) | no; inside the distro |
+| `pnpm run probe:file-reference` | the `@`-reference traversal: 9p walk vs the distro's ext4 | no; inside the distro |
 | `pnpm run probe:fs-routing` | the root-plane router: distro coordinate, host plane, cross-distro fence | yes |
 | `pnpm run probe:mode` | which POSIX-mode facts survive the share | no; Windows Node |
 | `pnpm run probe:sandbox-off` | the documented opt-out on both providers | yes |

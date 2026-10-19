@@ -16,6 +16,12 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-10-19
+
+A patch release restoring `wsl-shell-env`: the component mounts again, and the
+managed `DSH_*` facts it contributes now reach commands on the default
+resident-agent path.
+
 ### Changed
 
 - **Upstream proposals filed.** The session-notice seam

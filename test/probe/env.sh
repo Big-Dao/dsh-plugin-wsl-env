@@ -25,8 +25,17 @@ win_value() {
   cmd.exe /c "echo %$1%" 2>/dev/null | tr -d '\r\n'
 }
 
-WIN_HOME="$(wslpath -u "$(win_value USERPROFILE)" 2>/dev/null || true)"
-WIN_LOCAL="$(wslpath -u "$(win_value LOCALAPPDATA)" 2>/dev/null || true)"
+USERPROFILE_WIN="$(win_value USERPROFILE)"
+LOCALAPPDATA_WIN="$(win_value LOCALAPPDATA)"
+# WSL's interop can hand cmd.exe an environment without LOCALAPPDATA — observed
+# with WSL 3.0.3, where `echo %LOCALAPPDATA%` comes back literally — while
+# USERPROFILE is still there. Derive the missing one instead of letting every
+# harness probe fail on a path that starts with "%LOCALAPPDATA%".
+case "$LOCALAPPDATA_WIN" in
+  "%"*"%") LOCALAPPDATA_WIN="${USERPROFILE_WIN}\\AppData\\Local" ;;
+esac
+WIN_HOME="$(wslpath -u "$USERPROFILE_WIN" 2>/dev/null || true)"
+WIN_LOCAL="$(wslpath -u "$LOCALAPPDATA_WIN" 2>/dev/null || true)"
 
 DISTRO="${DSH_WSL_ENV_DISTRO:-${WSL_DISTRO_NAME:-}}"
 if [ -z "$DISTRO" ]; then

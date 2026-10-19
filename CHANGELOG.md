@@ -26,6 +26,13 @@ were part of the record.
   block to paste when a layer carries the nested id patch. See
   [docs/CONFIGURATION.md](docs/CONFIGURATION.md#overriding-the-rows-inside-preset-wsl).
 
+- **The strict profile is documented and probed.** `maskWindowsDrive: true` with
+  `sandbox: true` hides `/mnt` from confined profiles; CONFIGURATION describes
+  the trade-offs and the visible/masked/disabled interop matrix, and
+  `probe:sandbox` now asserts the masked leg (empty `/mnt`, unreachable Windows
+  binary, writable workspace). Enforcement stays `partial`; the binfmt content
+  escape and the distro-level closure are stated.
+
 - **Install/upgrade/uninstall E2E.** `pnpm run e2e:install` packs the tree,
   installs it into a fresh `%TEMP%` `DSH_HOME`, composes `--dump-config`, removes
   it, and upgrades from the previous minor with a marker proving the profile

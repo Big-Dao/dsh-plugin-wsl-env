@@ -186,6 +186,37 @@ a name) pins every session to that distro — a foreign UNC then refuses with
 `FS_OUTSIDE_DISTRO` while `restrictToDistro` holds. A single-distro installation
 needs no configuration.
 
+## The strict profile
+
+`maskWindowsDrive: true` with `sandbox: true` is the strict profile: every
+confined profile shadows `/mnt` with an empty tmpfs, so a confined command can
+neither read the Windows drive nor launch a Windows executable from it. Write it
+into a profile with the preset helper (the rows are nested inside `preset-wsl`):
+
+```bash
+pnpm run preset -- --sandbox true --mask-windows-drive true \
+  --out "$DSH_HOME/profiles/<name>/cordis.patch.yml"
+```
+
+The trade-offs are real: confined commands lose `/mnt/c` entirely — no reading
+Windows files, no running Windows tools, no dev server that expects a Windows
+path. It is also a narrowing, not a closure: a command can still write a Windows
+executable into the workspace and run it there, because WSL's `binfmt_misc`
+dispatches on content, not location. Enforcement therefore stays `partial`, and
+the result reports `windowsDrive: "masked"`. The only complete closure is
+distro-level: `[interop] enabled=false` in `/etc/wsl.conf`, then
+`wsl.exe --shutdown`, which removes interop from the distro entirely.
+
+| Interop state | How | `/mnt` | Windows exe from `/mnt` | Workspace-written `.exe` | Evidence |
+|---|---|---|---|---|---|
+| visible (default) | — | readable | runs, and escapes the Linux sandbox | runs | `pnpm run probe:sandbox` — INFO "interop escape is open" |
+| masked (strict) | `maskWindowsDrive: true` | empty tmpfs | unreachable | still runs (binfmt) | `pnpm run probe:sandbox` — the strict-profile checks |
+| disabled | `[interop] enabled=false`, `wsl --shutdown` | no Windows mounts | n/a | fails (no binfmt) | documented; not probed automatically (needs a distro-level change) |
+
+The masked and visible legs are asserted on the real machine by
+`test/probe/sandbox.sh`; the disabled leg needs a distro configuration change and
+a WSL shutdown, so it stays a manual check recorded here.
+
 ## Turning the sandbox off
 
 `sandbox: false` on `wsl-shell` and `wsl-fs` runs commands and writes without

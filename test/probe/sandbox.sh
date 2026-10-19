@@ -13,6 +13,9 @@
 #   DSH_WSL_ENV_CMD         cmd.exe as this shell sees it (default:
 #                           /mnt/c/Windows/System32/cmd.exe, for the interop check)
 #
+# The strict profile (`maskWindowsDrive`) is covered too: /mnt is hidden, the
+# Windows binary is unreachable, and the workspace stays writable.
+#
 # Exit status: 0 when every behavioural expectation holds. The WSL interop
 # escape is reported as INFO, not FAIL — a Linux sandbox cannot govern a
 # Windows process, and the point of recording it is to keep the claim honest.
@@ -31,17 +34,19 @@ if [ -d "$HOME/.local/share/fnm" ] && ! command -v node >/dev/null 2>&1; then
   export PATH="$HOME/.local/share/fnm/aliases/default/bin:$PATH"
 fi
 command -v node >/dev/null 2>&1 || { echo "sandbox probe: node not found (fnm env not loaded?)" >&2; exit 1; }
-build_profile() { # build_profile <mode> <workspaceRoot> — lib/bwrap.js's argv, one per line
+build_profile() { # build_profile <mode> <workspaceRoot> [mask] — lib/bwrap.js's argv, one per line
   DSH_WSL_ENV_BWRAP_REPO="$REPO" node --input-type=module -e '
 const { bwrapProfileArgs } = await import(`${process.env.DSH_WSL_ENV_BWRAP_REPO}/lib/bwrap.js`);
 const [mode, workspaceRoot] = [process.argv[1], process.argv[2]];
-console.log(bwrapProfileArgs({ mode, workspaceRoot }).join("\n"));
-' "$1" "$2"
+const maskWindowsDrive = process.argv[3] === "mask";
+console.log(bwrapProfileArgs({ mode, workspaceRoot }, { maskWindowsDrive }).join("\n"));
+' "$1" "$2" "${3:-}"
 }
 # The exact profile the plugin ships for each mode: read-only, and the
 # workspace-write grant under this probe's workspace.
 mapfile -t RO < <(build_profile read-only /)
 mapfile -t WW < <(build_profile workspace-write "$WS")
+mapfile -t MASKED < <(build_profile workspace-write "$WS" mask)
 
 OUTSIDE="/home/$USER/dsh-sandbox-probe-outside.txt"
 SCRATCH="$WS/.sandbox-probe"
@@ -116,7 +121,16 @@ expect_status "workspace-write writes its own /tmp" zero WW sh -c 'echo probe > 
 # 5. The Windows filesystem is read-only under both profiles.
 expect_denied "the Windows mount is read-only" WW sh -c 'echo x > /mnt/c/dsh-sandbox-probe-win.txt'
 
-# 6. The interop escape: a Windows binary still runs and still writes on the
+# 6. The strict profile: the Windows drive is hidden, so the observed interop
+#    escape has nothing to launch from /mnt. This is a narrowing, not a closure:
+#    a Linux process can still run a Windows executable written into the
+#    workspace, because WSL's binfmt dispatches on content, not location.
+expect_status "the strict profile hides /mnt" zero MASKED sh -c 'test -z "$(ls -A /mnt)"'
+expect_status "the strict profile makes the Windows binary unreachable" nonzero MASKED test -x "$CMD_EXE"
+expect_status "the strict profile still writes the workspace" zero MASKED sh -c "echo probe > $SCRATCH/masked.txt"
+[ -f "$SCRATCH/masked.txt" ] && report PASS "the strict profile's workspace write reached the disk" || report FAIL "the strict profile's workspace write reached the disk"
+
+# 7. The interop escape: a Windows binary still runs and still writes on the
 #    Windows side, because it is not a Linux process. Recorded, never failed.
 #    The Windows temp directory is asked of cmd.exe rather than guessed from
 #    $USER, which is the DISTRO user and need not match the Windows account.

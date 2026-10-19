@@ -88,8 +88,18 @@ This is a documented design boundary, not a vulnerability by itself. The command
 distro, where `bubblewrap` and `node` must be installed; the README states it in
 its Sandbox section.
 
+The strict profile (`maskWindowsDrive: true` with `sandbox: true`) narrows this:
+confined profiles shadow `/mnt` with an empty tmpfs, so the Windows executables
+cannot be launched from there. It does not close the hole — a Windows executable
+written into the workspace still runs, because WSL's `binfmt_misc` dispatches on
+content, not location — so the reported enforcement stays `partial`. The complete
+closure is distro-level (`[interop] enabled=false` in `/etc/wsl.conf`). The three
+states and their evidence are tabulated in
+[docs/CONFIGURATION.md](docs/CONFIGURATION.md#the-strict-profile).
+
 A report is still welcome if you find an escape that does not depend on interop,
-or if the plugin ever reports `full` while interop is reachable.
+if the masked profile is bypassable from `/mnt`, or if the plugin ever reports
+`full` while interop is reachable.
 
 ## Credentials
 

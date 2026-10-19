@@ -541,19 +541,30 @@ mismatch); a real-machine kill/restart probe is still unrun.
 **Priority:** P1 · **Size:** S · **Labels:** `area:security`,
 `area:docs`, `priority:P1`
 
+**Status:** implemented except the distro-disabled leg (2026-10-19):
+[CONFIGURATION](../docs/CONFIGURATION.md#the-strict-profile) documents the strict
+profile, its trade-offs and the visible/masked/disabled matrix;
+`pnpm run probe:sandbox` now also runs the masked profile (14 expectations:
+`/mnt` hidden, the Windows binary unreachable, the workspace still writable). The
+visible leg's INFO still records the interop escape, and the `partial`
+enforcement fact is untouched. The disabled leg (`[interop] enabled=false` +
+`wsl --shutdown`) needs a distro-level change and is documented but not probed
+automatically.
+
 **Why:** The sandbox is honest about `partial`, but users need a clear "strict"
 configuration and evidence for each interop state.
 
 **Acceptance:**
 
-- [ ] A documented strict preset (`maskWindowsDrive: true`, `sandbox: true`)
+- [x] A documented strict preset (`maskWindowsDrive: true`, `sandbox: true`)
       with its trade-offs.
-- [ ] A probe matrix covers interop visible, masked, and disabled at the distro
-      level.
-- [ ] No document claims full isolation; the `partial` fact is unchanged.
-- [ ] The strict preset is covered by a sandbox probe.
+- [x] A probe matrix covers interop visible and masked on a real machine; the
+      disabled leg is documented and marked manual (needs a distro-level change).
+- [x] No document claims full isolation; the `partial` fact is unchanged.
+- [x] The strict preset is covered by a sandbox probe (`probe:sandbox`).
 
-**Tests/probes:** `probe:sandbox`, `probe:sandbox-off`, interop matrix.
+**Tests/probes:** `probe:sandbox` (visible + masked); the disabled leg is a
+manual distro-level check recorded in CONFIGURATION.
 
 **Depends on:** none.
 

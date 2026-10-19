@@ -26,6 +26,12 @@ were part of the record.
   block to paste when a layer carries the nested id patch. See
   [docs/CONFIGURATION.md](docs/CONFIGURATION.md#overriding-the-rows-inside-preset-wsl).
 
+- **LSP seam researched and deferred.** `docs/UPSTREAM-LSP-SEAM.md` records that
+  the harness ships `dsh-lsp`/`dsh-lsp-stdio`/`dsh-tool-lsp` but the 0.2.1-rc.2
+  base composition mounts none of them, and that a WSL provider needs a
+  preset-scoped subprocess provider plus URI translation. The prototype is
+  deferred behind an explicit trigger; no LSP claim is made in the README.
+
 - **Peer-upgrade canary.** A weekly workflow resolves the `next` dist-tag of
   every pinned peer, tests that line in a scratch copy (`pnpm test` + the
   composition boot test), and publishes the exact version delta in the run

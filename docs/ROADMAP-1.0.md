@@ -468,17 +468,28 @@ probe; 9p-vs-distro timing.
 **Priority:** P1 · **Size:** M · **Labels:** `area:lsp`, `type:research`,
 `priority:P1`
 
+**Status:** researched and deferred (2026-10-19):
+[UPSTREAM-LSP-SEAM.md](UPSTREAM-LSP-SEAM.md) records that `dsh-lsp`,
+`dsh-lsp-stdio` and `dsh-tool-lsp` exist in the harness but are **not** mounted
+in the `0.2.1-rc.2` base composition (verified against the app's bundled
+`dsh-base/cordis.patch.yml`). The stdio provider injects `fs` + `subprocess` and
+assumes one execution world; a WSL session's `ctx.fs` is the distro's while
+`ctx.subprocess` is the host's, so the gap is a preset-scoped subprocess
+provider plus URI/path translation. The prototype is deferred with an explicit
+trigger (the composition mounts the seam, or upstream adds the provider seam).
+
 **Why:** The desktop composition does not mount LSP today, but the WSL family
 would be the natural place to provide it.
 
 **Acceptance:**
 
-- [ ] Document whether the current DSH line mounts `ctx.lsp` and what a
+- [x] Document whether the current DSH line mounts `ctx.lsp` and what a
       WSL-backed provider would need (paired fs + subprocess).
-- [ ] A prototype proves the shape or is explicitly deferred with a trigger.
-- [ ] No user-facing claim until the composition actually mounts it.
+- [x] A prototype proves the shape or is explicitly deferred with a trigger.
+- [x] No user-facing claim until the composition actually mounts it.
 
-**Tests/probes:** composition inspection; prototype test if feasible.
+**Tests/probes:** composition inspection (documented in UPSTREAM-LSP-SEAM.md);
+no prototype while the trigger is unmet.
 
 **Depends on:** upstream composition; not a 1.0 blocker.
 

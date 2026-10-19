@@ -87,6 +87,7 @@ try {
       "docs/LIMITATIONS.md",
       "docs/PEER-PARITY.md",
       "docs/UPSTREAM-SESSION-NOTICE.md",
+      "docs/UPSTREAM-LSP-SEAM.md",
       "README.md",
       "CHANGELOG.md",
       "SECURITY.md",

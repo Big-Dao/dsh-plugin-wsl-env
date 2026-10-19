@@ -16,6 +16,13 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-19
+
+This release ships the P0/P1 hardening batch: session-scoped `auto`
+sandboxing, resident-agent recovery with doctor coverage, the packed-install
+E2E, measured GUI-preview and `@`-reference probes, and the docs/community
+entry points.
+
 ### Added
 
 - **`pnpm run preset` — the `preset-wsl` override helper.** `wsl-shell` and

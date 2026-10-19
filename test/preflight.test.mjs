@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Context } from "@deepseek-ai/cordis";
 import { apply } from "../lib/preflight.js";
 import { bwrapFailure } from "../lib/sandbox-core.js";
 
@@ -94,7 +95,10 @@ const fakeCtx = (live = []) => {
  */
 const wireCtx = (f) => ({
   logger: f.logger,
-  agents: f.agents,
+  // The real context serves a service this row does not inject only through
+  // `get`; a property read throws. The real-cordis check below pins that.
+  /** @param {string} name - the service name. */
+  get: (name) => name === "agents" ? f.agents : undefined,
   on: f.on,
 });
 
@@ -300,6 +304,37 @@ await check("the advisory also lands in the session runtime context", async () =
   assert.equal(contexts.length, 1, "one runtime-context entry");
   assert.equal(contexts[0]?.name, "wsl-preflight");
   assert.match(contexts[0]?.text() ?? "", /loginctl enable-linger/, "the entry carries the remedy");
+});
+
+await check("the mount sweep reads agents without an inject violation", async () => {
+  // A real cordis context is the only place the guard exists: the fake used by
+  // the checks above just answers the property. Read the service as a property
+  // and cordis 4 throws "cannot get property \"agents\" without inject"; the
+  // try/catch around the sweep would then hide it and never probe a session.
+  let listed = 0;
+  const host = {
+    name: "preflight-host",
+    /** @param {Context} ctx - the host plugin's context. */
+    apply(ctx) {
+      ctx.provide("agents", {
+        /** @returns {never[]} an empty live-agent list, recording the sweep. */
+        list() {
+          listed += 1;
+          return [];
+        },
+      });
+    },
+  };
+  const ctx = new Context();
+  await ctx.plugin(host);
+  await ctx.plugin({
+    name: "wsl-preflight",
+    /** @param {Context} pluginCtx - the row's context. */
+    apply(pluginCtx) {
+      return apply(/** @type {never} */ (pluginCtx), { wslPath: "/bin/true" });
+    },
+  });
+  assert.equal(listed, 1, "the mount sweep reached the live-agent list");
 });
 
 await rm(dir, { recursive: true, force: true });

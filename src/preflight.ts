@@ -232,8 +232,14 @@ export async function apply(ctx: PreflightContext, config: PreflightConfig = {})
   // Mount order is not a guarantee: a session created during startup can finish
   // before this service mounts and miss the event entirely (dsh-headless does
   // exactly that, and auto-preset sweeps for the same reason).
+  //
+  // `agents` is optional (this row injects nothing), so read it with `ctx.get`:
+  // a property read of an undeclared service throws in cordis 4, and the catch
+  // below would turn that into a silent no-op — exactly the sweep this block
+  // exists to perform.
   try {
-    for (const agent of ctx.agents?.list() ?? []) void check(agent);
+    const agents = ctx.get("agents") as PreflightContext["agents"];
+    for (const agent of agents?.list() ?? []) void check(agent);
   } catch (error) {
     ctx.logger?.debug?.(`wsl-preflight: could not sweep already-live agents: ${(error as Error)?.message ?? error}`);
   }

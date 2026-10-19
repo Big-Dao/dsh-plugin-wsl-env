@@ -24,6 +24,22 @@ were part of the record.
   (#10260) and the WSL-workspaces RFC (#10264) now point at their discussions;
   the local drafts carry the links.
 
+### Fixed
+
+- **`wsl-shell-env` no longer fails to activate.** The row sweeps the
+  live-agent list at mount to warm facts for sessions that opened before it,
+  but declared only `shellEnv` in `inject` and read `ctx.agents` as a property.
+  Cordis 4 refuses that read — `cannot get property "agents" without inject` —
+  so `apply()` rejected and the plugin manager listed the component as 异常
+  (`包含的组件 → 异常`), with the whole contribution missing from shell calls.
+  The sweep now reads the service through `ctx.get("agents")`, the sanctioned
+  access for a service this row does not inject: activation no longer depends
+  on an agent loop, and the sweep still runs when one is composed.
+  `wsl-preflight` carried the same property read inside a `try`/`catch`, where
+  the throw silently disabled its mount sweep; it gets the same fix.
+  `test/shell-env.test.mjs` and the real-cordis check in
+  `test/preflight.test.mjs` mount both rows against the guard.
+
 ## [0.13.0] - 2026-10-19
 
 This release ships the P0/P1 hardening batch: session-scoped `auto`

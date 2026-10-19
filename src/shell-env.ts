@@ -205,7 +205,14 @@ export async function apply(ctx: ShellEnvContext, config: ShellEnvConfig = {}): 
     ensurePorts(parsed.distro);
   };
   const off = lifecycle.on?.("agent/created", (payload) => consider(payload?.agent));
-  for (const agent of lifecycle.agents?.list?.() ?? []) consider(agent);
+  // The live-agent sweep is a convenience, not a dependency: `inject` names
+  // only `shellEnv`, so reading `ctx.agents` as a property makes cordis 4
+  // throw "cannot get property \"agents\" without inject" and marks the whole
+  // component failed. `ctx.get` is the sanctioned read for a service this
+  // plugin did not inject, and it answers undefined when no agent loop is
+  // composed — the row still activates and resolves facts per shell call.
+  const live = ctx.get("agents") as ShellEnvLifecycle["agents"];
+  for (const agent of live?.list?.() ?? []) consider(agent);
 
   const dispose = ctx.shellEnv.register({
     name: "dsh-plugin-wsl-env",

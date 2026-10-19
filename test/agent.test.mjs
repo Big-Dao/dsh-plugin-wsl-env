@@ -316,9 +316,9 @@ checkReg("a second crash marks the agent dead and rejects in-flight and future c
   await agent.start();
   await assert.rejects(() => agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }), AgentUnavailableError);
   assert.equal(agent.unavailable, true);
-  assert.match(agent.unavailableReason, /falling back permanently/);
-  await assert.rejects(() => agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }), AgentUnavailableError);
-  // No third process may be spawned after the permanent fallback.
+  assert.match(agent.unavailableReason, /reviving in/);
+  await assert.rejects(() => agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }), /agent is down/);
+  // The backoff keeps a third process from spawning before the revival window.
   assert.equal(made.length, 2);
 });
 
@@ -638,8 +638,66 @@ checkReg("a rebuild whose start fails marks the agent dead and fails the carried
   assert.equal(agent.state, "starting");
   broken.emit("error", new Error("spawn failed")); // the rebuild's start fails
   await flush();
-  assert.equal(agent.unavailable, true, "a failed rebuild marks the agent permanently dead");
+  assert.equal(agent.unavailable, true, "a failed rebuild marks the agent dead");
   assert.equal(agent.state, "dead");
+});
+
+checkReg("a dead agent revives after its backoff and does not replay the failed request", async () => {
+  const dying = new FakeAgentProcess();
+  dying.silent = true;
+  const broken = new FakeAgentProcess({ noHello: true });
+  const healthy = new FakeAgentProcess({ helloPid: 77 });
+  const { transport } = scriptedTransport([dying, broken, healthy]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport, revivalBackoffMs: 1 });
+  const failed = agent.exec({ cwd: "/", argv: ["sleep", "1"], timeoutMs: 0 }).then(() => "resolved", (e) => e);
+  await flush();
+  dying.emit("exit", 1, null); // the death spends the rebuild
+  const error = await failed;
+  assert.match(error.message, /state is unknown/, "the in-flight command is never replayed");
+  await flush(); // the rebuild spawned `broken`; its handshake is pending
+  broken.emit("error", new Error("spawn failed")); // the rebuild fails → dead
+  await flush();
+  assert.equal(agent.state, "dead");
+  assert.equal(agent.status().deaths, 1);
+  await new Promise((resolve) => setTimeout(resolve, 10)); // past the 1 ms backoff
+  const result = await agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 });
+  assert.equal(result.exitCode, 0, "the revived transport answers");
+  assert.equal(agent.state, "ready");
+  assert.equal(agent.status().pid, 77);
+  assert.equal(healthy.frames.filter((line) => line.startsWith("EXEC|")).length, 1, "only the new request runs after the revival");
+  await agent.close();
+});
+
+checkReg("the revival budget ends in a named permanent state with the restart remedy", async () => {
+  const child = new FakeAgentProcess();
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport, revivalBackoffMs: 1 });
+  for (let death = 0; death < 4; death += 1) agent.markDead();
+  assert.equal(agent.status().deaths, 4);
+  await assert.rejects(
+    () => agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }),
+    /permanently out after 4 deaths.*restart the DSH app/,
+    "the refusal is named and carries the remedy",
+  );
+});
+
+checkReg("status reports the live pid, state, pending count and last error", async () => {
+  const child = new FakeAgentProcess({ helloPid: 55 });
+  child.silent = true; // the request stays in flight, so `pending` is observable
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  const run = agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }).catch(() => undefined);
+  await flush();
+  assert.deepEqual(agent.status(), {
+    distro: "ubuntu",
+    state: "ready",
+    pid: 55,
+    lastError: "",
+    deaths: 0,
+    pending: 1,
+  });
+  await agent.close();
+  await run;
 });
 
 checkReg("a request that cannot be written is rejected, not stranded", async () => {
@@ -985,10 +1043,9 @@ checkReg("the constructor defaults fill a bare config", async () => {
 checkReg("a dead agent rejects start and fs at the door", async () => {
   const child = new FakeAgentProcess();
   const { transport } = scriptedTransport([child]);
-  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
-  agent.state = "dead";
-  agent.lastError = "out for this process";
-  await assert.rejects(() => agent.start(), (error) => error instanceof AgentUnavailableError && /out for this process/.test(error.message));
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport, revivalBackoffMs: 1 });
+  for (let death = 0; death < 4; death += 1) agent.markDead();
+  await assert.rejects(() => agent.start(), (error) => error instanceof AgentUnavailableError && /permanently out/.test(error.message));
   await assert.rejects(() => agent.fs({ op: "stat", args: [] }), (error) => error instanceof AgentUnavailableError);
 });
 

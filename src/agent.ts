@@ -10,11 +10,13 @@
  *    command or a write that was in flight has UNKNOWN state — replaying it
  *    would run non-idempotent work twice or report a create that actually
  *    succeeded as a refusal — so it fails instead, and the caller re-reads
- *    before retrying. A second failure marks the agent permanently dead and
- *    every future call rejects with {@link AgentUnavailableError} — the
- *    executor's cue to fall back to the one-shot `wsl.exe` path it shipped
- *    with, so the worst case of the agent is "today's behaviour, plus one
- *    failed round trip".
+ *    before retrying. A failure that spends the rebuild leaves the agent
+ *    `dead` with a bounded revival: the next call after a 2/4/8-second backoff
+ *    gets a fresh transport and its own single rebuild; after three deaths the
+ *    state is permanent and every call rejects with a restart remedy. While
+ *    dead, calls reject with {@link AgentUnavailableError} — the executor's cue
+ *    to fall back to the one-shot `wsl.exe` path it shipped with, so the worst
+ *    case of the agent is "today's behaviour, plus one failed round trip".
  * 2. **The in-distro timeout is the real one.** The EXEC frame carries the
  *    timeout in whole seconds and the agent SIGTERMs the child itself, so a
  *    timed-out command dies where it lives instead of leaving an orphan
@@ -119,6 +121,22 @@ export interface RequestMetrics {
   rejected: number;
 }
 
+/** A read-only snapshot of the resident's lifecycle, for diagnostics. */
+export interface AgentStatus {
+  /** The distro served. */
+  distro: string;
+  /** Lifecycle state. */
+  state: "idle" | "starting" | "ready" | "dead";
+  /** The HELLO pid, when one is known and addressable. */
+  pid: number | undefined;
+  /** The last failure, if any. */
+  lastError: string;
+  /** Deaths observed; the revival budget is spent after {@link MAX_REVIVALS}. */
+  deaths: number;
+  /** Requests currently in flight. */
+  pending: number;
+}
+
 /** The agent's cumulative request metrics. */
 export interface AgentMetrics {
   /** FS frames. */
@@ -162,6 +180,13 @@ const HANDSHAKE_TIMEOUT_MS = 15000;
 
 /** Extra time the host watchdog waits past the request's own in-distro timeout. */
 const WATCHDOG_GRACE_MS = 13000;
+/**
+ * How many times a resident that reached `dead` may be revived before the
+ * failure becomes permanent. Each revival gets the one permitted rebuild.
+ */
+const MAX_REVIVALS = 3;
+/** The first revival delay; doubles per death, capped at 30 s. */
+const DEFAULT_REVIVAL_BACKOFF_MS = 2000;
 /**
  * How long a cancel waits before the out-of-band USR1. Long enough for the
  * agent's own timeout kill to answer, short enough that a killed command still
@@ -327,6 +352,12 @@ export class WslAgent {
   declare lastAckedSeq: number;
   /** Whether the one permitted rebuild has been spent. */
   declare rebuildUsed: boolean;
+  /** Deaths observed; each one past the first consumes the revival budget. */
+  declare deaths: number;
+  /** When the next revival may start, epoch ms; 0 when not waiting. */
+  declare deadUntil: number;
+  /** The first revival delay; tests shorten it. */
+  declare revivalBackoffMs: number;
   /** The idle-shutdown timer. */
   declare idleTimer: NodeJS.Timeout | null;
   /** The last failure, for `unavailableReason` and log messages. */
@@ -395,6 +426,8 @@ export class WslAgent {
     maxPending?: number,
     /** Optional async preparation selecting the entry before the first spawn. */
     prepare?: () => Promise<WslAgentPrepared | undefined>,
+    /** The first revival delay in ms; doubles per death. Tests shorten it. */
+    revivalBackoffMs?: number,
   }) {
     this.distro = config.distro;
     this.scriptPath = config.scriptPath;
@@ -417,6 +450,9 @@ export class WslAgent {
     this.pending = new Map();
     this.lastAckedSeq = 0;
     this.rebuildUsed = false;
+    this.deaths = 0;
+    this.deadUntil = 0;
+    this.revivalBackoffMs = config.revivalBackoffMs ?? DEFAULT_REVIVAL_BACKOFF_MS;
     this.idleTimer = null;
     this.lastError = "";
     this.requestMetrics = emptyAgentMetrics();
@@ -438,6 +474,43 @@ export class WslAgent {
   }
 
   /**
+   * Enter the dead state and schedule the next bounded revival attempt.
+   *
+   * The delay doubles per death (2 s, 4 s, 8 s, … capped at 30 s). After
+   * {@link MAX_REVIVALS} deaths the state stays permanent and the refusal
+   * carries the restart remedy.
+   */
+  markDead(): void {
+    this.deaths += 1;
+    this.state = "dead";
+    const delay = Math.min(this.revivalBackoffMs * 2 ** Math.max(0, this.deaths - 1), 30_000);
+    this.deadUntil = this.deaths > MAX_REVIVALS ? 0 : Date.now() + delay;
+    if (this.deaths > MAX_REVIVALS) {
+      this.lastError = `${this.lastError}; permanently out after ${this.deaths} deaths — restart the DSH app`;
+    } else {
+      this.lastError = `${this.lastError}; reviving in ${Math.round(delay / 1000)}s (attempt ${this.deaths}/${MAX_REVIVALS})`;
+    }
+  }
+
+  /**
+   * A read-only lifecycle snapshot for diagnostics. Includes the live pid, the
+   * last failure and the remaining revival budget; it never starts or stops
+   * anything.
+   *
+   * @returns the status snapshot.
+   */
+  status(): AgentStatus {
+    return {
+      distro: this.distro,
+      state: this.state,
+      pid: this.agentPid,
+      lastError: this.lastError,
+      deaths: this.deaths,
+      pending: this.pending.size,
+    };
+  }
+
+  /**
    * Start the process and wait for the handshake. Re-entrant: concurrent
    * callers share the one start.
    *
@@ -445,7 +518,23 @@ export class WslAgent {
    */
   start(): Promise<void> {
     if (this.state === "dead") {
-      return Promise.reject(new AgentUnavailableError(this.lastError));
+      if (this.deaths > MAX_REVIVALS) {
+        return Promise.reject(new AgentUnavailableError(
+          `agent is permanently out after ${this.deaths} deaths (${this.lastError}); restart the DSH app, and delete ~/.cache/dsh-wsl/agent inside the distro if a stale binary is suspected`,
+        ));
+      }
+      const wait = this.deadUntil - Date.now();
+      if (wait > 0) {
+        return Promise.reject(new AgentUnavailableError(
+          `agent is down (${this.lastError}); reviving in ${Math.ceil(wait / 1000)}s, attempt ${this.deaths}/${MAX_REVIVALS}`,
+        ));
+      }
+      // Bounded revival: the next call gets a fresh transport and its own
+      // single rebuild. Frames from the dead generation were settled in
+      // handleProcessExit; nothing is replayed here.
+      this.state = "idle";
+      this.rebuildUsed = false;
+      this.deadUntil = 0;
     }
     if (this.state === "ready") return Promise.resolve();
     if (this.startPromise) return this.startPromise;
@@ -751,12 +840,12 @@ export class WslAgent {
             pending.settled = true;
             pending.reject(error);
           }
-          this.state = "dead";
+          this.markDead();
         });
       return;
     }
-    this.lastError = `agent exited again (code=${code} signal=${signalName ?? "none"}); falling back permanently`;
-    this.state = "dead";
+    this.lastError = `agent exited again (code=${code} signal=${signalName ?? "none"})`;
+    this.markDead();
     for (const pending of this.pending.values()) {
       this.clearPending(pending);
       if (pending.settled) continue;
@@ -918,9 +1007,6 @@ export class WslAgent {
     /** Cancels the request (KILL + reject). */
     signal?: AbortSignal,
   }): Promise<{ exitCode: number, stdout: Buffer, stderr: Buffer, truncated: { stdout: boolean, stderr: boolean } }> {
-    if (this.state === "dead") {
-      throw new AgentUnavailableError(this.lastError);
-    }
     await this.start();
     const id = `r${this.nextRequestId++}`;
     const lines = [
@@ -959,9 +1045,6 @@ export class WslAgent {
     /** Cancels the request (KILL + reject). */
     signal?: AbortSignal,
   }): Promise<{ exitCode: number, stdout: Buffer, stderr: Buffer }> {
-    if (this.state === "dead") {
-      throw new AgentUnavailableError(this.lastError);
-    }
     await this.start();
     const id = `r${this.nextRequestId++}`;
     const lines = encodeFsFrame({ id, op, args, timeoutMs });
@@ -977,7 +1060,6 @@ export class WslAgent {
    * @returns resolved on PONG.
    */
   async ping(signal?: AbortSignal): Promise<void> {
-    if (this.state === "dead") throw new AgentUnavailableError(this.lastError);
     await this.start();
     if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new Error("aborted");
     return new Promise((resolve, reject) => {

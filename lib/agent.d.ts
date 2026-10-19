@@ -10,11 +10,13 @@
  *    command or a write that was in flight has UNKNOWN state — replaying it
  *    would run non-idempotent work twice or report a create that actually
  *    succeeded as a refusal — so it fails instead, and the caller re-reads
- *    before retrying. A second failure marks the agent permanently dead and
- *    every future call rejects with {@link AgentUnavailableError} — the
- *    executor's cue to fall back to the one-shot `wsl.exe` path it shipped
- *    with, so the worst case of the agent is "today's behaviour, plus one
- *    failed round trip".
+ *    before retrying. A failure that spends the rebuild leaves the agent
+ *    `dead` with a bounded revival: the next call after a 2/4/8-second backoff
+ *    gets a fresh transport and its own single rebuild; after three deaths the
+ *    state is permanent and every call rejects with a restart remedy. While
+ *    dead, calls reject with {@link AgentUnavailableError} — the executor's cue
+ *    to fall back to the one-shot `wsl.exe` path it shipped with, so the worst
+ *    case of the agent is "today's behaviour, plus one failed round trip".
  * 2. **The in-distro timeout is the real one.** The EXEC frame carries the
  *    timeout in whole seconds and the agent SIGTERMs the child itself, so a
  *    timed-out command dies where it lives instead of leaving an orphan
@@ -112,6 +114,21 @@ export interface RequestMetrics {
     cancelled: number;
     /** Rejected before tracking: queue full, already aborted, or send failed. */
     rejected: number;
+}
+/** A read-only snapshot of the resident's lifecycle, for diagnostics. */
+export interface AgentStatus {
+    /** The distro served. */
+    distro: string;
+    /** Lifecycle state. */
+    state: "idle" | "starting" | "ready" | "dead";
+    /** The HELLO pid, when one is known and addressable. */
+    pid: number | undefined;
+    /** The last failure, if any. */
+    lastError: string;
+    /** Deaths observed; the revival budget is spent after {@link MAX_REVIVALS}. */
+    deaths: number;
+    /** Requests currently in flight. */
+    pending: number;
 }
 /** The agent's cumulative request metrics. */
 export interface AgentMetrics {
@@ -237,6 +254,12 @@ export declare class WslAgent {
     lastAckedSeq: number;
     /** Whether the one permitted rebuild has been spent. */
     rebuildUsed: boolean;
+    /** Deaths observed; each one past the first consumes the revival budget. */
+    deaths: number;
+    /** When the next revival may start, epoch ms; 0 when not waiting. */
+    deadUntil: number;
+    /** The first revival delay; tests shorten it. */
+    revivalBackoffMs: number;
     /** The idle-shutdown timer. */
     idleTimer: NodeJS.Timeout | null;
     /** The last failure, for `unavailableReason` and log messages. */
@@ -315,6 +338,8 @@ export declare class WslAgent {
         maxPending?: number;
         /** Optional async preparation selecting the entry before the first spawn. */
         prepare?: () => Promise<WslAgentPrepared | undefined>;
+        /** The first revival delay in ms; doubles per death. Tests shorten it. */
+        revivalBackoffMs?: number;
     });
     /**
      * Whether the agent is permanently out — the executor's fallback cue.
@@ -324,6 +349,22 @@ export declare class WslAgent {
     get unavailable(): boolean;
     /** Human-readable reason for the last transition to `dead`, for logging. */
     get unavailableReason(): string;
+    /**
+     * Enter the dead state and schedule the next bounded revival attempt.
+     *
+     * The delay doubles per death (2 s, 4 s, 8 s, … capped at 30 s). After
+     * {@link MAX_REVIVALS} deaths the state stays permanent and the refusal
+     * carries the restart remedy.
+     */
+    markDead(): void;
+    /**
+     * A read-only lifecycle snapshot for diagnostics. Includes the live pid, the
+     * last failure and the remaining revival budget; it never starts or stops
+     * anything.
+     *
+     * @returns the status snapshot.
+     */
+    status(): AgentStatus;
     /**
      * Start the process and wait for the handshake. Re-entrant: concurrent
      * callers share the one start.

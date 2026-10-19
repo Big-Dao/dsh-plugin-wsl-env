@@ -67,6 +67,14 @@ were part of the record.
 
 ### Fixed
 
+- **A dead resident revives with bounded backoff instead of staying dead for
+  the process lifetime.** A failure that spends the one permitted rebuild now
+  leaves the agent `dead` with a revival scheduled (2 s, 4 s, 8 s); the next
+  call after the delay gets a fresh transport and its own single rebuild, and
+  nothing from the dead generation is replayed. After three deaths the state is
+  permanent and the refusal names the restart remedy. `status()` exposes the
+  live state, pid, last error and pending count for diagnostics.
+
 - **A cancelled command's signal can no longer kill the next one.** The
   out-of-band USR1 carries no request id: a signal meant for a timed-out
   command could land after the agent had moved on, and the next command then

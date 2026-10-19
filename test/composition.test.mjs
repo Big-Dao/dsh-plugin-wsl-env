@@ -151,6 +151,39 @@ check("the established host-side disables still land", () => {
   assert.equal(byId.get("directory-picker")?.disabled, true);
 });
 
+check("the routing probe's overlay disables the profile's fs row and inserts the router", () => {
+  const profile = /** @type {NonNullable<Parameters<typeof applyEntryPatches>[1]>} */ (yaml.load(readFileSync(join(HERE, "probe", "wslfs-profile.patch.yml"), "utf8"), { schema: entryListSchema }));
+  const template = readFileSync(join(HERE, "probe", "fs-routing-probe.yml"), "utf8");
+  const overlay = /** @type {NonNullable<Parameters<typeof applyEntryPatches>[1]>} */ (yaml.load(template
+    .replaceAll("@DISTRO@", "ubuntu")
+    .replaceAll("@DISTRO_PATH@", "\\\\wsl.localhost\\ubuntu\\home\\you\\.dsh-routing-probe.txt")
+    .replaceAll("@DISTRO_LINUX@", "/home/you/.dsh-routing-probe.txt")
+    .replaceAll("@DISTRO_TEXT@", "distro-plane-routing-probe")
+    .replaceAll("@HOST_PATH@", "C:\\Users\\you\\.dsh-routing-probe.txt")
+    .replaceAll("@HOST_TEXT@", "host-plane-routing-probe")
+    .replaceAll("@PROBE_UNC@", "\\\\wsl.localhost\\ubuntu\\repo\\test\\probe\\fs-routing-probe.mjs")
+    .replaceAll("@REPORT_UNC@", "\\\\wsl.localhost\\ubuntu\\repo\\test\\probe\\fs-routing-report.txt"), { schema: entryListSchema }));
+  /** @type {string[]} */
+  const localWarnings = [];
+  /**
+   * Collect the loader's patch warnings.
+   * @param {string} message - the warning template.
+   * @param {...unknown} args - the `%C` substitutions.
+   */
+  const warn = (message, ...args) => {
+    localWarnings.push(message.replace(/%C/g, () => JSON.stringify(args.shift())));
+  };
+  const profiled = applyEntryPatches(structuredClone(UPSTREAM), structuredClone(profile), warn);
+  const routed = applyEntryPatches(profiled, overlay, warn);
+  const index = new Map(routed.filter((row) => typeof row.id === "string").map((row) => [row.id, row]));
+  assert.deepEqual(localWarnings, [], "both layers target rows that exist when they apply");
+  assert.equal(index.get("wsl-fs")?.disabled, true, "the profile's distro fs row is off for this probe");
+  assert.equal(index.get("fs-routing")?.name, "dsh-plugin-wsl-env/fs-routing");
+  assert.equal(index.get("fs-routing")?.config?.distro, "ubuntu", "the probe pins the router so the cross-distro fence is observable");
+  assert.equal(index.get("fs-routing")?.config?.restrictToDistro, true);
+  assert.equal(index.get("fs-routing-probe")?.name, "\\\\wsl.localhost\\ubuntu\\repo\\test\\probe\\fs-routing-probe.mjs", "the probe module itself is mounted");
+});
+
 check("the routed root filesystem actually starts through the Loader, not just composes", async () => {
   // Patch algebra proves the row lands in the tree; only a boot proves the
   // name resolves and the Config accepts. The composed row is booted through

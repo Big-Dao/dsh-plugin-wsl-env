@@ -26,6 +26,12 @@ were part of the record.
   block to paste when a layer carries the nested id patch. See
   [docs/CONFIGURATION.md](docs/CONFIGURATION.md#overriding-the-rows-inside-preset-wsl).
 
+- **Peer-upgrade canary.** A weekly workflow resolves the `next` dist-tag of
+  every pinned peer, tests that line in a scratch copy (`pnpm test` + the
+  composition boot test), and publishes the exact version delta in the run
+  summary; a moved line that fails fails the run. `pnpm run canary:peers`
+  performs the check locally.
+
 - **The strict profile is documented and probed.** `maskWindowsDrive: true` with
   `sandbox: true` hides `/mnt` from confined profiles; CONFIGURATION describes
   the trade-offs and the visible/masked/disabled interop matrix, and

@@ -183,6 +183,8 @@ try {
     assert.equal(peerSatisfied("4.0.5", "~4.0.5"), true);
     assert.equal(peerSatisfied("4.1.0", "~4.0.5"), false);
     assert.equal(peerSatisfied("4.0.5", ">=4"), undefined);
+    assert.equal(peerSatisfied("4.0.1", "~4.0.5"), false, "a tilde range is a patch floor, not just major.minor");
+    assert.equal(peerSatisfied("4.0.6", "~4.0.5"), true);
   });
 } finally {
   rmSync(scratch, { recursive: true, force: true });

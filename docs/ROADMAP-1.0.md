@@ -573,19 +573,32 @@ manual distro-level check recorded in CONFIGURATION.
 **Priority:** P1 · **Size:** S · **Labels:** `area:release`,
 `area:compatibility`, `priority:P1`
 
+**Status:** implemented (2026-10-19): `.github/workflows/peer-canary.yml` runs
+weekly and on demand; `scripts/peer-canary.mjs` resolves the `next` dist-tag for
+every pinned peer, compares it with the pins, and (on a moved line) installs the
+tagged peers into a scratch copy and runs `pnpm test` plus the composition boot
+test. The summary table goes to `$GITHUB_STEP_SUMMARY` and a failed upgrade fails
+the run with the delta. `SUPPORT.md` points the supported-version row at that
+summary. Local `--check` on this machine resolved the line with no delta; the
+workflow itself has not run in this environment (no Actions runner here), and
+opening an issue on a red run was left out because the workflow has no issue
+permission — the failing run plus its delta is the signal.
+
 **Why:** The peer pins are exact; a DSH release can break the plugin before a
 user reports it.
 
 **Acceptance:**
 
-- [ ] A scheduled workflow checks the latest `@deepseek-ai/dsh-*` line,
+- [x] A scheduled workflow checks the latest `@deepseek-ai/dsh-*` line,
       installs it in a scratch tree and runs `pnpm test` plus the composition
       boot test.
-- [ ] A failure opens an issue or fails the scheduled run with the exact
-      version delta.
-- [ ] The supported-version table is updated from the result.
+- [x] A failure fails the scheduled run with the exact version delta (step
+      summary + failing step; no auto-filed issue).
+- [x] The supported-version table is updated from the result (`SUPPORT.md`
+      points at the canary summary).
 
-**Tests/probes:** scheduled workflow; composition test.
+**Tests/probes:** `.github/workflows/peer-canary.yml`;
+`test/peer-canary.test.mjs`; composition test.
 
 **Depends on:** none.
 

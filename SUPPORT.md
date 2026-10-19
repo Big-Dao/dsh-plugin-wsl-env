@@ -7,6 +7,12 @@
 | Operating system | Windows 10 and Windows 11 |
 | Linux side | WSL2 with at least one distro, and systemd as PID 1 with a lingering user manager (`loginctl enable-linger`) for the shipped session runtime. Set `sessionSandbox: false` on the preset's `wsl-shell` to keep the per-command sandbox instead |
 | DSH packages | the `0.2.1-rc.2`-era packages listed in `peerDependencies` |
+
+The DSH row is checked weekly: `.github/workflows/peer-canary.yml` resolves the
+`next` dist-tag of every pinned peer, installs that line into a scratch copy and
+runs `pnpm test` plus the composition boot test. A successful run prints the
+exact version delta in its summary; update the row above from that summary. A
+red run means the plugin has not been validated against the new line yet.
 | Plugin version | the latest published version only |
 | Node | 22.19+ (`^22.19.0`), or 24 and later (`>=24.0.0`) |
 

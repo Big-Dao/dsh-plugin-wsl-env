@@ -154,12 +154,41 @@ function parseArgs(argv) {
  */
 export function peerSatisfied(installed, range) {
   if (range.startsWith("~")) {
-    const [major, minor] = range.slice(1).split(".");
-    const [installedMajor, installedMinor] = installed.split(".");
-    return installedMajor === major && installedMinor === minor;
+    const [major, minor, patch] = range.slice(1).split(".");
+    return compareVersions(installed, `${major}.${minor}.${patch ?? "0"}`) >= 0
+      && installed.split(".")[0] === major
+      && installed.split(".")[1] === minor;
   }
   if (/^[0-9]/.test(range)) return installed === range;
   return undefined;
+}
+
+/**
+ * Compare two semver-ish versions (prerelease sorts below its release).
+ * @param {string} left - the first version.
+ * @param {string} right - the second version.
+ * @returns {number} negative, zero or positive like a comparator.
+ */
+export function compareVersions(left, right) {
+  /**
+   * @param {string} value - one version.
+   * @returns {{ major: number, minor: number, patch: number, pre: string }} its parts.
+   */
+  const split = (value) => {
+    const [rawBase, pre = ""] = value.split("-", 2);
+    const base = rawBase ?? "";
+    const parts = base.split(".").map((part) => Number(part.replace(/\D.*$/u, "")) || 0);
+    return { major: parts[0] ?? 0, minor: parts[1] ?? 0, patch: parts[2] ?? 0, pre };
+  };
+  const a = split(left);
+  const b = split(right);
+  if (a.major !== b.major) return a.major - b.major;
+  if (a.minor !== b.minor) return a.minor - b.minor;
+  if (a.patch !== b.patch) return a.patch - b.patch;
+  if (a.pre === b.pre) return 0;
+  if (a.pre === "") return 1;
+  if (b.pre === "") return -1;
+  return a.pre.localeCompare(b.pre);
 }
 
 /**

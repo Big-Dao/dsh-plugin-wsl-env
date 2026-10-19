@@ -36,3 +36,6 @@ test/probe/.scratch/
 
 # Install E2E scratch: packed tarballs, npm cache and logs.
 test/e2e/.scratch/
+
+# Peer-canary run summary (written by scripts/peer-canary.mjs).
+canary-summary.md

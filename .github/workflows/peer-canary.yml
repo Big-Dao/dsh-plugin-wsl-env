@@ -1,0 +1,34 @@
+# Peer-upgrade canary (WSL-209): the plugin pins its peers exactly, so a new
+# upstream release line can break it before a user reports it.
+#
+# Weekly (and on demand) it resolves the `next` dist-tag of every pinned peer,
+# then installs that line into a scratch copy of the checkout and runs
+# `pnpm test` plus the composition boot test. A moved line appends the exact
+# version delta to the run summary; a failing upgrade fails this run.
+name: peer-canary
+
+on:
+  schedule:
+    - cron: "17 4 * * 1" # Mondays, 04:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Resolve the next line and test it in a scratch tree
+        run: node scripts/peer-canary.mjs --apply --tag next
+      - name: Publish the delta table
+        if: always()
+        run: cat canary-summary.md >> "$GITHUB_STEP_SUMMARY" || true

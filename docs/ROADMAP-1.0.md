@@ -683,15 +683,23 @@ documented Tier 1 path, not executed by CI.
 **Priority:** P2 · **Size:** S · **Labels:** `area:community`,
 `priority:P2`
 
+**Status:** implemented (2026-10-19): `.github/ISSUE_TEMPLATE/` now carries a
+feature-request form, a setup-report form that **requires** the `doctor --json`
+output, and a chooser config (blank issues disabled; private security and
+quickstart links). `SUPPORT.md` documents the public roadmap, the
+three-business-day P1 triage target and the two-to-four-week release cadence;
+the `good first issue` label already exists, and `CONTRIBUTING.md` lists the
+usual shapes and how to claim one.
+
 **Acceptance:**
 
-- [ ] Feature-request and setup-report issue templates; setup reports ask for
+- [x] Feature-request and setup-report issue templates; setup reports ask for
       `doctor --json`.
-- [ ] Public roadmap and a predictable release cadence.
-- [ ] Triage target for P1 issues (three days, best effort).
-- [ ] A "good first issue" label and a contributor path for probes/docs.
+- [x] Public roadmap and a predictable release cadence (ROADMAP-1.0 + SUPPORT).
+- [x] Triage target for P1 issues (three days, best effort).
+- [x] A "good first issue" label and a contributor path for probes/docs.
 
-**Tests/probes:** not applicable; process check in the release review.
+**Tests/probes:** `pnpm run lint:links`; a process check in the release review.
 
 **Depends on:** WSL-102.
 

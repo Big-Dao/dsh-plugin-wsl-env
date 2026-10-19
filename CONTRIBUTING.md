@@ -316,6 +316,22 @@ assertions; 15 shell-probe checks; 9 picker checks; 6 missing-executable checks;
 5 mode checks; 5 opt-out checks and 10 sandbox expectations plus the recorded
 escape; and 3 terminal assertions.
 
+## Good first issues and the contributor path
+
+The repository labels self-contained changes `good first issue`. Typical shapes:
+
+- a recipe or troubleshooting row in `README.md` or `docs/QUICKSTART.md`
+  (the link check gates it; one commit);
+- a probe report fixture under `test/probe/` that follows an existing
+  `*-report.txt` shape;
+- an issue-template wording fix, a cross-reference, or a missing error-code row
+  in `docs/ARCHITECTURE.md`.
+
+To claim one, comment on the issue. Before opening a PR run `pnpm test` (and
+`pnpm run test:coverage` for a `lib/` change), then make one logical commit whose
+body records the check results — the conventions below. Probes need a real
+Windows + WSL machine; unit tests, docs and packaging changes do not.
+
 ## Commit and pull request conventions
 
 - Write an imperative subject line: `Fix the npm readme`, not `Fixed` or `Fixes`.

@@ -1,0 +1,62 @@
+name: Setup report
+description: Report a first-run or environment problem, with the doctor report that makes it diagnosable.
+title: "[Setup] "
+labels: ["area:onboarding"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A setup report without the doctor output usually costs a round trip.
+        Run the doctor first and paste its JSON — it covers Windows/WSL versions,
+        the distro, bwrap, systemd/Linger, the tools, peers, the agent handshake
+        and stale scopes. It contains no secrets.
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Doctor report (`--json`)
+      description: |
+        From a checkout: `pnpm run doctor -- --json`.
+        From an installed plugin: `node <plugin>/scripts/doctor.mjs --json`.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      placeholder: "0.12.0 (npm ls dsh-plugin-wsl-env)"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: What you did
+      description: The install command, the profile, and the first action that failed.
+      placeholder: |
+        1. dsh plugin --profile wsl add dsh-plugin-wsl-env
+        2. opened \\wsl.localhost\Ubuntu\home\me\proj
+        3. asked for `pwd`
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual
+      description: The exact error text or code (`SANDBOX_UNAVAILABLE`, `FS_OUTSIDE_DISTRO`, ...), if there is one.
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Profile overrides (redacted)
+      description: Your `cordis.patch.yml` rows for this plugin, if you changed any. Remove tokens and private paths.
+      render: yaml
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the open and closed issues, and the Troubleshooting table.
+          required: true
+        - label: I read docs/LIMITATIONS.md for the known boundaries.
+          required: false

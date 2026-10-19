@@ -26,6 +26,12 @@ were part of the record.
   block to paste when a layer carries the nested id patch. See
   [docs/CONFIGURATION.md](docs/CONFIGURATION.md#overriding-the-rows-inside-preset-wsl).
 
+- **Community loop: issue forms, triage targets and a contributor path.**
+  Feature-request and setup-report forms (the setup form requires
+  `doctor --json`), a chooser that disables blank issues, SUPPORT's P1
+  three-business-day target and two-to-four-week cadence, and a
+  `good first issue` path in CONTRIBUTING.
+
 - **Quickstart and performance entry pages.** `docs/QUICKSTART.md` is the
   five-minute path (prerequisites, install, first session, Node/Python/Rust/Go
   and monorepo recipes, honest Tier 1/Tier 2 table); `docs/PERFORMANCE.md`

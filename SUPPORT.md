@@ -28,9 +28,14 @@ supported configuration.
 
 Open an issue in the repository:
 
-https://github.com/Big-Dao/dsh-plugin-wsl-env/issues
+https://github.com/Big-Dao/dsh-plugin-wsl-env/issues/new/choose
 
-Use it for bug reports and for questions about configuration. Search the open and
+The chooser offers a **feature request** and a **setup report**; the setup
+report requires the `doctor --json` output, which is what makes a first-run
+problem diagnosable without a round trip. For a security issue, use the private
+advisory link instead (see [SECURITY.md](SECURITY.md)).
+
+Use issues for bug reports and for questions about configuration. Search the open and
 the closed issues first, and check whether the answer is already written down:
 [docs/LIMITATIONS.md](docs/LIMITATIONS.md) lists the known design boundaries, and
 the Troubleshooting table in [README.md](README.md#troubleshooting) covers the
@@ -61,6 +66,20 @@ require a new release of this plugin. The exact pins are what make that break
 loudly instead of quietly.
 
 There is no long-term support branch. Fixes go to the latest version.
+
+## Triage and release cadence
+
+- **Roadmap.** The public plan is [docs/ROADMAP-1.0.md](docs/ROADMAP-1.0.md);
+  the open issues #5–#22 map to its WSL-1xx/2xx/3xx blocks.
+- **Triage target.** A `priority:P1` report gets its first response within three
+  business days, best effort. Security reports follow the response targets in
+  [SECURITY.md](SECURITY.md).
+- **Cadence.** Releases ship when there is a change worth shipping, roughly every
+  two to four weeks; the tag workflow and its gates are in
+  [docs/RELEASING.md](docs/RELEASING.md). There is no long-term support branch.
+- **Good first issues.** The `good first issue` label marks changes that need no
+  prior context; [CONTRIBUTING.md](CONTRIBUTING.md#good-first-issues-and-the-contributor-path)
+  lists the usual shapes and how to claim one.
 
 ## What a good bug report contains
 

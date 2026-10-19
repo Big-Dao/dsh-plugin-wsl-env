@@ -1,0 +1,54 @@
+name: Feature request
+description: Propose a capability, a configuration key, or a workflow the plugin does not have yet.
+title: "[Feature] "
+labels: ["type:feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the proposal. The roadmap lives in
+        [docs/ROADMAP-1.0.md](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/ROADMAP-1.0.md);
+        check it first — the item may already be planned, or explicitly out of scope.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and where does the current behavior stop you? Name the command, row or file if you can.
+      placeholder: "Opening a workspace in a second distro refuses with ..."
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What should happen instead? Include an example command, configuration snippet or expected result.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you tried, and why they are not enough.
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - execution (commands, agent)
+        - files and previews
+        - GUI (terminal, picker, ports)
+        - configuration and onboarding
+        - documentation and packaging
+        - not sure
+    validations:
+      required: true
+  - type: textarea
+    id: proof
+    attributes:
+      label: How this could be verified
+      description: A unit test, a probe, or a command whose output would prove the feature works. "No idea" is a fine answer.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Environment facts from `node <plugin>/scripts/doctor.mjs --json` (redact anything private), screenshots, links.

@@ -339,9 +339,9 @@ command.
 - [x] The preflight checks bwrap, systemd PID 1, `systemd-run` and Linger.
 - [x] The warning is visibly attached to the session through the
       runtime-context entry (not only logs).
-- [ ] A GUI notice/banner renders it: upstream seam missing; the filing payload
-      is ready at [proposal-session-notice.md](upstream/proposal-session-notice.md)
-      and has not been submitted (a maintainer action).
+- [ ] A GUI notice/banner renders it: filed upstream as
+      [#10263](https://github.com/deepseek-ai/deepseek-harness/discussions/10263);
+      until a seam lands, the advisory stays in the log and runtime context.
 - [x] The warning never installs anything and never changes fail-closed
       behavior.
 - [x] A session with a usable environment produces no warning.

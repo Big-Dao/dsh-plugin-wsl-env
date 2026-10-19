@@ -1,6 +1,7 @@
 # Issue draft: Workspace validation admits UNC paths the file toolchain cannot serve
 
-> Draft for upstream `GitHub Issues` (bug report). Stock desktop 0.2.0-rc.2,
+> Filed as [deepseek-ai/deepseek-harness#10260](https://github.com/deepseek-ai/deepseek-harness/discussions/10260)
+> (General, bug report). Stock desktop 0.2.0-rc.2,
 > Windows 11, WSL2 (Ubuntu 26.04), no third-party plugins. File/line
 > references are against the 0.2.0-rc.2 source tree — the published tarball
 > ships only `lib/`, so they resolve in the repository, not from an install.

@@ -1,7 +1,8 @@
 # Upstream proposal: export the fsio text helpers from `dsh-fs-local`
 
-Status: draft, not yet filed upstream — no discussion link yet (the filing
-convention is [UPSTREAM-TERMINAL-TITLE.md](UPSTREAM-TERMINAL-TITLE.md)).
+Status: filed upstream as
+[deepseek-ai/deepseek-harness#10262](https://github.com/deepseek-ai/deepseek-harness/discussions/10262)
+(Ideas); the filing convention is [UPSTREAM-TERMINAL-TITLE.md](UPSTREAM-TERMINAL-TITLE.md).
 Targeting `deepseek-harness` @ `packages/fs/fs-local`, the `0.2.1-rc.x` line
 this plugin pins exactly (`@deepseek-ai/dsh-fs-local@0.2.1-rc.2`, in both the
 dev and peer dependency blocks of `package.json`). This is the Shape-A

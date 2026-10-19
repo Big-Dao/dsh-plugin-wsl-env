@@ -1,6 +1,7 @@
 # RFC: WSL workspaces — accidentally usable, accidentally broken
 
-> Draft for upstream `GitHub Discussions` (feature proposal / design discussion).
+> Filed as [deepseek-ai/deepseek-harness#10264](https://github.com/deepseek-ai/deepseek-harness/discussions/10264)
+> (Ideas, design discussion).
 > All measurements below are from a stock desktop build (0.2.0-rc.2, Windows 11,
 > WSL2 Ubuntu 26.04) with **no third-party plugins installed**. File/line
 > references are against the 0.2.0-rc.2 source tree.

@@ -1,8 +1,8 @@
 # Submission payload: session-visible notice seam
 
-Ready to file against `deepseek-ai/deepseek-harness`. **Not filed**: creating a
-public upstream issue is a maintainer action; this file is the exact body so the
-filing is one command.
+Filed upstream as
+[deepseek-ai/deepseek-harness#10263](https://github.com/deepseek-ai/deepseek-harness/discussions/10263)
+(Ideas). The body below is what was posted.
 
 - Repository: `deepseek-ai/deepseek-harness`
 - Title: `Proposal: a session-visible notice seam for plugin advisories`

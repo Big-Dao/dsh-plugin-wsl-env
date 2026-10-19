@@ -16,6 +16,14 @@ were part of the record.
 
 ## [Unreleased]
 
+### Changed
+
+- **Upstream proposals filed.** The session-notice seam
+  ([#10263](https://github.com/deepseek-ai/deepseek-harness/discussions/10263)),
+  the `spawnSpec` seam (#10261), the fsio export (#10262), the UNC-workspace bug
+  (#10260) and the WSL-workspaces RFC (#10264) now point at their discussions;
+  the local drafts carry the links.
+
 ## [0.13.0] - 2026-10-19
 
 This release ships the P0/P1 hardening batch: session-scoped `auto`

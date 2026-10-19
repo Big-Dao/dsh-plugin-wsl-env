@@ -1,8 +1,9 @@
 # Proposal: remote workspaces with a POSIX identity (WSL and SSH)
 
-Status: draft for upstream, **not filed**. Target: `deepseek-ai/deepseek-harness`
-Discussion, category Ideas. The English half is the filing body; the Chinese
-half is the same content for review.
+Status: filed upstream as
+[deepseek-ai/deepseek-harness#10296](https://github.com/deepseek-ai/deepseek-harness/discussions/10296)
+(Ideas). The posted body is bilingual: English first, 中文版 below the divider.
+This file stays as the record.
 
 ---
 

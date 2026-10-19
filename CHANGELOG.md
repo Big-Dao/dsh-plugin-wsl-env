@@ -16,6 +16,17 @@ were part of the record.
 
 ## [Unreleased]
 
+### Added
+
+- **`pnpm run doctor` — one command for the environment prerequisites.** Reports
+  Windows/WSL versions, the distro and its login shell, bubblewrap usability,
+  systemd / the user manager / `systemd-run` / Linger, the optional tools, peer
+  versions, the native-agent cache, stale `dsh-wsl-*.scope` units and the
+  profile-patch trap that silently ignores `wsl-shell`/`wsl-fs` overrides. Each
+  failure carries one copy-paste remedy; `--json` is the machine shape, and
+  `--fix` only sweeps stale scopes unless `--install` plus a confirmation allows
+  a package install. `diagnose` is now the read-only alias.
+
 ### Changed
 
 - **The distro follows the workspace.** `distro: ''`/`'auto'` now selects the

@@ -72,7 +72,7 @@ Install `bubblewrap` before the first command:
 wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap
 ```
 
-From a checkout, `pnpm run bootstrap -- <distro>` checks the four distro tools and prints the install command for the distro's package manager. Add `--install` to run it.
+From a checkout, `pnpm run doctor` is the one-command environment check: Windows/WSL versions, the distro and its shell, bubblewrap usability, systemd / the user manager / Linger, the optional tools, peer versions, the agent cache, stale session scopes and the known profile-patch trap. Each failure prints one copy-paste remedy; `--json` is for scripts, and `--fix` sweeps stale scopes (package installation needs `--fix --install` and an explicit confirmation). `pnpm run diagnose` is its read-only alias. `pnpm run bootstrap -- <distro>` remains the narrower tool-install helper.
 
 Upgrade by running the `add` command again. Uninstall with `dsh plugin --profile wsl remove dsh-plugin-wsl-env`; the agent cache under `~/.cache/dsh-wsl` can then be deleted. If you added a local `workspace-files-wsl` workaround to your profile to restore previews, remove it after upgrading: the plugin no longer mounts that row.
 
@@ -146,7 +146,7 @@ Enforcement is reported as `partial`. A command inside the distro can still star
 | Symptom | Fix |
 |---|---|
 | every command reports `SANDBOX_UNAVAILABLE` | install `bubblewrap` in the distro, or set `sandbox: false` |
-| the session refuses before the first command | enable systemd and linger, or set `sessionSandbox: false` on `wsl-shell` and `wsl-fs` |
+| the session refuses before the first command | run `pnpm run doctor`; enable systemd and linger, or set `sessionSandbox: false` on `wsl-shell` and `wsl-fs` |
 | `glob` and `grep` are slow in the distro | install `ripgrep` with `pnpm run bootstrap -- <distro> --install` |
 | `dsh plugin add` prints nothing | the plugin is already installed; this is success |
 | changes under `lib/` have no effect | run `pnpm run sync:windows`, then restart the app |

@@ -215,6 +215,15 @@ cross-distro refusal leg; composition test through the service proxy.
 
 ### WSL-102 — Doctor and one-command setup
 
+**Status:** implemented (2026-10-19): [`scripts/doctor.mjs`](../scripts/doctor.mjs)
+is the one-command check, exposed as `pnpm run doctor`; `diagnose` is its
+read-only alias (`--read-only` refuses `--fix`/`--install`). The unit suite runs
+the doctor as a subprocess against a fake `wsl.exe`/`cmd.exe` on PATH: a healthy
+machine, missing bubblewrap, no systemd, a stopped distro and stale scopes are
+each asserted end to end. The clean-machine five-minute stopwatch has not been
+run (this machine has one, already-configured distro); it stays on the release
+checklist.
+
 **Priority:** P0 · **Size:** M · **Labels:** `area:onboarding`,
 `type:feature`, `priority:P0`
 
@@ -223,18 +232,21 @@ current diagnostics do not cover the second.
 
 **Acceptance:**
 
-- [ ] One command reports Windows/WSL versions, distro, shell, bwrap
+- [x] One command reports Windows/WSL versions, distro, shell, bwrap
       usability, systemd PID 1, `systemd-run`, Linger, rg/git/inotifywait,
       peer version, agent cache and stale scopes.
-- [ ] Human-readable output and `--json`; each failure includes one
+- [x] Human-readable output and `--json`; each failure includes one
       copy-paste remedy.
-- [ ] `--fix` performs only safe actions; package installation requires
+- [x] `--fix` performs only safe actions; package installation requires
       explicit confirmation and never runs silently.
-- [ ] Clean Win11 + Ubuntu first run is <= 5 minutes; missing bwrap,
-      non-systemd, stopped distro and wrong peer are each classified.
+- [x] Missing bwrap, non-systemd, stopped distro and wrong peer are each
+      classified (fake-`wsl.exe` tests).
+- [ ] Clean Win11 + Ubuntu first run is <= 5 minutes (release checklist; not
+      run on this single configured machine).
 
-**Tests/probes:** shell-level tests against fake `wsl.exe` outputs; real-machine
-run on the Tier 1 image; `diagnose` remains a read-only alias.
+**Tests/probes:** process-level tests against fake `wsl.exe` outputs
+([`test/doctor.test.mjs`](../test/doctor.test.mjs)); real-machine run on the
+Tier 1 image; `diagnose` remains a read-only alias.
 
 **Depends on:** none.
 

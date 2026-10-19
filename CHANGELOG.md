@@ -40,6 +40,17 @@ were part of the record.
   `test/shell-env.test.mjs` and the real-cordis check in
   `test/preflight.test.mjs` mount both rows against the guard.
 
+- **The managed `DSH_*` namespace now reaches commands on the default
+  resident-agent path.** `ShellExecSpec.dshEnv` was forwarded only by the
+  one-shot `wsl.exe` fallback; `executeViaAgent` dropped it before
+  `agent.exec` — after the mount fix above, the row registered its facts but
+  no model shell call could see `DSH_HOME`, `DSH_SESSION_ID` or any
+  `DSH_WSL_*` value (`env | grep '^DSH_'` was empty). The handle now carries
+  the merged map (`env` first, `dshEnv` last — the same order the one-shot
+  path uses) into the agent's `SETENV` frames. `test/agent-exec.test.mjs` and
+  `test/provider.test.mjs` pin the frame, and both checks fail against the
+  previous build.
+
 ## [0.13.0] - 2026-10-19
 
 This release ships the P0/P1 hardening batch: session-scoped `auto`

@@ -78,6 +78,24 @@ check("a completed command shapes the result like the one-shot path", async () =
   assert.equal(result.stderr.truncated, false);
 });
 
+check("the per-request environment reaches the agent's frame", async () => {
+  /** @type {Record<string, string> | undefined} */
+  let seen;
+  const proc = agentExecutionHandle({
+    agent: {
+      exec({ env }) {
+        seen = env;
+        return Promise.resolve({ exitCode: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) });
+      },
+    },
+    cwd: "/tmp",
+    argv: ["printenv", "DSH_WSL_DISTRO"],
+    env: { DSH_SESSION_ID: "s-1", DSH_WSL_DISTRO: "ubuntu" },
+  });
+  await proc.result();
+  assert.deepEqual(seen, { DSH_SESSION_ID: "s-1", DSH_WSL_DISTRO: "ubuntu" }, "the handle forwards the map instead of dropping it");
+});
+
 check("the agent's capture-cap flags surface as per-stream truncated, honestly", async () => {
   /** @type {{maxOutputBytes?: number}} */
   const seen = {};

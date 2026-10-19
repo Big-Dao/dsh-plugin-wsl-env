@@ -120,10 +120,10 @@ function memoryReader(buffer: Buffer): OutputReader {
  * @returns the execution handle (`status`, `exitCode`, `signal`, `observed`,
  *   `done`, `readOutput`, `kill`, `result`).
  */
-export function agentExecutionHandle({ agent, cwd, argv, timeoutMs = 0, maxOutputBytes = 0, signal, onStarted }: {
+export function agentExecutionHandle({ agent, cwd, argv, timeoutMs = 0, maxOutputBytes = 0, env, signal, onStarted }: {
   /**
    * The {@link WslAgent}-like runner: `exec` accepting
-   * `{cwd, argv, timeoutMs, signal}` and resolving `{exitCode, stdout, stderr}`;
+   * `{cwd, argv, timeoutMs, env, signal}` and resolving `{exitCode, stdout, stderr}`;
    * throws `AgentUnavailableError` when out.
    */
   agent: AgentExecRunner,
@@ -141,6 +141,13 @@ export function agentExecutionHandle({ agent, cwd, argv, timeoutMs = 0, maxOutpu
    * stream as `truncated: true`.
    */
   maxOutputBytes?: number,
+  /**
+   * Environment for this command: the caller's entries with the managed
+   * `DSH_*` snapshot merged last. The agent applies it as `SETENV` frames
+   * immediately before the command's `EXEC` (see `WslAgent.exec`); dropping it
+   * here is what kept every managed fact out of the resident-agent path.
+   */
+  env?: Record<string, string>,
   /** The caller's cancellation. */
   signal?: AbortSignal,
   /**
@@ -164,7 +171,7 @@ export function agentExecutionHandle({ agent, cwd, argv, timeoutMs = 0, maxOutpu
     }, timeoutMs).unref?.();
   }
 
-  const settle: Promise<SettledExec> = agent.exec({ cwd, argv, timeoutMs, maxOutputBytes, signal: controller.signal }).then(
+  const settle: Promise<SettledExec> = agent.exec({ cwd, argv, timeoutMs, maxOutputBytes, env, signal: controller.signal }).then(
     (result) => ({ ok: true, result }),
     (error: unknown) => {
       // A workdir the distro cannot enter is the command's own failure, not

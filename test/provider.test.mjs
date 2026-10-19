@@ -67,7 +67,7 @@ const WORKSPACE = "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj";
  * (`onExpiry`/`stdoutMaxBytes` are `resolve()`'s to fill); several checks
  * deliberately pin `execute`'s own defaulting of an unresolved request, so
  * they cannot call `resolve()` first. One bridge keeps that intent visible.
- * @param {{ command: string, workdir: string, timeoutMs?: number, relativeWorkdir?: string, signal?: AbortSignal, env?: Record<string, string>, sandboxPolicy?: { mode: "read-only"|"workspace-write"|"danger-full-access", workspaceRoot: string } }} request - the fields under test.
+ * @param {{ command: string, workdir: string, timeoutMs?: number, relativeWorkdir?: string, signal?: AbortSignal, env?: Record<string, string>, dshEnv?: Record<string, string>, sandboxPolicy?: { mode: "read-only"|"workspace-write"|"danger-full-access", workspaceRoot: string } }} request - the fields under test.
  * @returns {Parameters<WslShellExecutor["withDefaultWorkdir"]>[0]} the same object, in the resolved-spec parameter type.
  */
 const spec = (request) => /** @type {Parameters<WslShellExecutor["withDefaultWorkdir"]>[0]} */ (/** @type {unknown} */ (request));
@@ -790,6 +790,34 @@ check("the agent frame carries the resolved maxOutputBytes, not the volatile wra
   assert.ok(frame !== undefined, "the agent saw the command's frame");
   assert.equal(typeof frame.maxOutputBytes, "number", "the frame carries a number, not the wrapper");
   assert.equal(frame.maxOutputBytes, budget.get(), "and it is the configured budget, resolved");
+});
+
+check("the managed DSH_* snapshot reaches the command frame's environment", async () => {
+  const { executor } = makeExecutor();
+  /** @type {Record<string, string> | undefined} */
+  let seen;
+  executor.executionAgent = () => asAgent({
+    exec: async ({ env }) => {
+      seen = env;
+      return { exitCode: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), truncated: { stdout: false, stderr: false } };
+    },
+  });
+  const execution = await executor.execute(spec({
+    command: "printenv DSH_WSL_DISTRO",
+    workdir: WORKSPACE,
+    timeoutMs: 5000,
+    env: { DSH_HOME: "C:\\Users\\x" },
+    dshEnv: { DSH_SESSION_ID: "s-1", DSH_WSL_DISTRO: "ubuntu" },
+    sandboxPolicy: { mode: "workspace-write", workspaceRoot: WORKSPACE },
+  }));
+  await execution.result();
+  // The one-shot path merges the same two maps in bash-local's spawnSpec;
+  // dropping them here made every managed fact invisible on the default path.
+  assert.deepEqual(seen, {
+    DSH_HOME: "C:\\Users\\x",
+    DSH_SESSION_ID: "s-1",
+    DSH_WSL_DISTRO: "ubuntu",
+  }, "both maps ride the frame, the managed snapshot last");
 });
 
 check("a denial signature on a confined failure reports denied: true", async () => {

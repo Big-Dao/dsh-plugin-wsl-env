@@ -18,6 +18,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+// Windows resolves `npm` to npm.cmd, which execFile cannot spawn without a shell.
+const NPM = process.platform === "win32" ? "npm.cmd" : "npm";
 const cache = mkdtempSync(join(tmpdir(), "dsh-pack-cache-"));
 
 let passed = 0;
@@ -40,10 +42,12 @@ const check = (name, fn) => {
 /** @type {{ files: Array<{ path: string }> } | undefined} */
 let manifest;
 try {
-  const raw = execFileSync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], {
+  const raw = execFileSync(NPM, ["pack", "--dry-run", "--json", "--ignore-scripts"], {
     cwd: ROOT,
     encoding: "utf8",
     env: { ...process.env, npm_config_cache: cache, npm_config_logs_dir: join(cache, "logs") },
+    // `.cmd` shims cannot be spawned directly on Windows; the shell resolves it.
+    shell: process.platform === "win32",
   });
   const parsed = /** @type {Array<{ files: Array<{ path: string }> }>} */ (JSON.parse(raw));
   manifest = parsed[0];

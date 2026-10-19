@@ -29,6 +29,9 @@ import { fileURLToPath } from "node:url";
 import { compareVersions } from "./doctor.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+/** Windows resolves the CLIs to `.cmd`, which execFile cannot spawn without a shell. */
+const NPM = process.platform === "win32" ? "npm.cmd" : "npm";
+const PNPM = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const SUMMARY = join(ROOT, "canary-summary.md");
 
 /** A manifest's dependency blocks. */
@@ -98,7 +101,7 @@ export function rewriteManifest(manifest, tagged) {
  * @returns {string | undefined} the version, or undefined when the package has no such tag.
  */
 function taggedVersion(name, tag) {
-  const tags = JSON.parse(execFileSync("npm", ["view", name, "dist-tags", "--json"], {
+  const tags = JSON.parse(execFileSync(NPM, ["view", name, "dist-tags", "--json"], {
     cwd: ROOT,
     encoding: "utf8",
     env: {
@@ -108,6 +111,7 @@ function taggedVersion(name, tag) {
       npm_config_logs_dir: process.env.npm_config_logs_dir ?? join(tmpdir(), "dsh-peer-canary-npm-logs"),
     },
     timeout: 60_000,
+    shell: process.platform === "win32",
   }));
   const version = /** @type {Record<string, string>} */ (tags)[tag];
   return typeof version === "string" ? version : undefined;
@@ -189,7 +193,7 @@ function main(options) {
      */
     const run = (command, args) => {
       try {
-        execFileSync(command, args, { cwd: scratch, stdio: "inherit", timeout: 600_000 });
+        execFileSync(command, args, { cwd: scratch, stdio: "inherit", timeout: 600_000, shell: process.platform === "win32" });
         results.push(`PASS  \`${command} ${args.join(" ")}\``);
         return true;
       } catch {
@@ -197,8 +201,8 @@ function main(options) {
         return false;
       }
     };
-    const installed = run("pnpm", ["install", "--no-frozen-lockfile"]);
-    const tested = installed && run("pnpm", ["test"]);
+    const installed = run(PNPM, ["install", "--no-frozen-lockfile"]);
+    const tested = installed && run(PNPM, ["test"]);
     const composed = installed && run("node", ["test/composition.test.mjs"]);
     const ok = installed && tested && composed;
     writeSummary(options.tag, delta, results);

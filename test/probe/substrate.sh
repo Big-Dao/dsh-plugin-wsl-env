@@ -156,7 +156,6 @@ await confined.close();
 // a fresh distro's first write happens before anything created it, and bwrap
 // refuses a missing bind source. The factory's prepare creates the root
 // (`mkdir -p`) before bwrap runs; assert that absent-root spawn end to end.
-rm -rf "$FRESH_ROOT"
 const { confinedAgent } = await import(`${REPO}/lib/agent-confined.js`);
 const fresh = confinedAgent({ distro, policy: { mode: "workspace-write", workspaceRoot: freshRoot } });
 const freshFs = new DistroFs({ agent: fresh, distro });
@@ -177,4 +176,5 @@ await agent.close();
 console.log(`\n${passed} substrate probe checks pass`);
 EOF
 
+rm -rf "$FRESH_ROOT"
 node "$JS"

@@ -31,12 +31,51 @@
  *
  * @module dsh-plugin-wsl/agent-confined
  */
+import { spawn } from "node:child_process";
 import { bwrapArgvPrefix } from "./bwrap.js";
 import { toLinuxPath } from "./paths.js";
 import { agentScriptDigest, agentScriptPath } from "./agent-shared.js";
-import { WslAgent } from "./agent.js";
+import { pinnedWindowsEnv, WslAgent } from "./agent.js";
 
 const confinedAgents = new Map<string, WslAgent>();
+
+/**
+ * The spawn function `ensureWorkspaceRoot` uses; injectable so a unit test can
+ * observe the argv without a real `wsl.exe`.
+ */
+type SpawnLike = (file: string, args: string[], options: { stdio: "ignore", windowsHide: boolean, env: NodeJS.ProcessEnv }) => { on: (event: string, handler: (...args: unknown[]) => void) => void };
+
+/**
+ * Make sure the workspace root exists in the distro before the confined
+ * resident's first spawn: the bwrap profile binds the root
+ * (`--bind <root> <root>`) and bwrap refuses a missing bind source — on a
+ * freshly imported distro the first write's workspace may not exist yet, and
+ * the resident would exit during its handshake with a bare code 1 and no
+ * hint (WSL-305). Idempotent (`mkdir -p`), and its outcome is deliberately
+ * ignored here: bwrap remains the authority on whether the profile can be
+ * built, and its refusal now reaches the caller through the handshake
+ * error's stderr tail.
+ *
+ * @param options - the transport, distro, root, and an injectable spawn.
+ * @returns resolves once the `mkdir -p` has been issued (settled, whatever
+ * its result — bwrap decides).
+ */
+export function ensureWorkspaceRoot({ wslPath, distro, root, spawnFn }: { wslPath: string, distro: string, root: string, spawnFn?: SpawnLike }): Promise<void> {
+  return new Promise((resolve) => {
+    const doSpawn = spawnFn ?? ((
+      file: string,
+      args: string[],
+      options: { stdio: "ignore", windowsHide: boolean, env: NodeJS.ProcessEnv },
+    ) => spawn(file, args, options));
+    const child = doSpawn(wslPath, ["-d", distro, "--exec", "mkdir", "-p", root], {
+      stdio: "ignore",
+      windowsHide: true,
+      env: pinnedWindowsEnv(process.env),
+    });
+    child.on("error", () => resolve());
+    child.on("exit", () => resolve());
+  });
+}
 
 /** One confinement request. */
 export interface ConfinedAgentRequest {
@@ -77,6 +116,7 @@ export function confinedAgent({ distro, wslPath = "wsl.exe", policy, maskWindows
   const key = `${wslPath}\0${distro}\0${policy.mode}\0${policy.workspaceRoot}\0${maskWindowsDrive ? "masked" : "visible"}\0${realTmp ? "real" : "ephemeral"}`;
   let agent = confinedAgents.get(key);
   if (agent === undefined) {
+    const linuxRoot = toLinuxPath(policy.workspaceRoot, { distro });
     agent = new WslAgent({
       distro,
       wslPath,
@@ -87,10 +127,15 @@ export function confinedAgent({ distro, wslPath = "wsl.exe", policy, maskWindows
       // `wsl.exe --exec` and the `sh <script>` pair (`lib/agent.js`'s
       // `spawnDefault`). Both confinement sites share that assembly in
       // `lib/bwrap.js`, whose module doc records what happened when they did not.
-      argvPrefix: bwrapArgvPrefix(
-        { mode: policy.mode, workspaceRoot: toLinuxPath(policy.workspaceRoot, { distro }) },
-        { maskWindowsDrive, realTmp },
-      ),
+      argvPrefix: bwrapArgvPrefix({ mode: policy.mode, workspaceRoot: linuxRoot }, { maskWindowsDrive, realTmp }),
+      // workspace-write is the only mode that binds the workspace root, and
+      // bwrap refuses a missing bind source (WSL-305): on a freshly imported
+      // distro the first write's workspace may not exist yet, and the resident
+      // used to exit during its handshake with a bare code 1. Create the root
+      // before the first spawn; every later start re-runs it harmlessly.
+      prepare: policy.mode === "workspace-write"
+        ? () => ensureWorkspaceRoot({ wslPath, distro, root: linuxRoot }).then(() => undefined)
+        : undefined,
     });
     confinedAgents.set(key, agent);
   }

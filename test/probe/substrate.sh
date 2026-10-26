@@ -27,6 +27,8 @@ export DSH_WSL_ENV_SUBSTRATE_REPO="$REPO"
 # A scratch dir inside the checkout: the probe creates real files there.
 mkdir -p "$REPO/test/probe/.scratch"
 export DSH_WSL_ENV_SUBSTRATE_DIR="$(mktemp -d "$REPO/test/probe/.scratch/substrate.XXXXXX")"
+FRESH_ROOT="$(mktemp -u "$REPO/test/probe/.scratch/substrate-fresh.XXXXXX")"
+export FRESH_ROOT
 
 JS="$(mktemp "$REPO/test/probe/.scratch/substrate-probe.XXXXXX.mjs")"
 trap 'rm -f "$JS"' EXIT
@@ -40,6 +42,7 @@ const { AgentSubstrate } = await import(`${REPO}/lib/fs-substrate.js`);
 
 const distro = process.env.WSL_DISTRO_NAME || "ubuntu";
 const root = process.env.DSH_WSL_ENV_SUBSTRATE_DIR;
+const freshRoot = process.env.FRESH_ROOT;
 
 let passed = 0;
 async function check(name, fn) {
@@ -148,6 +151,27 @@ await check("kernel enforcement: a confined write inside the workspace lands, ou
 });
 
 await confined.close();
+
+// WSL-305: the workspace root may not exist when the resident first spawns —
+// a fresh distro's first write happens before anything created it, and bwrap
+// refuses a missing bind source. The factory's prepare creates the root
+// (`mkdir -p`) before bwrap runs; assert that absent-root spawn end to end.
+rm -rf "$FRESH_ROOT"
+const { confinedAgent } = await import(`${REPO}/lib/agent-confined.js`);
+const fresh = confinedAgent({ distro, policy: { mode: "workspace-write", workspaceRoot: freshRoot } });
+const freshFs = new DistroFs({ agent: fresh, distro });
+
+await check("a confined resident starts with a workspace root that does not exist yet (WSL-305)", async () => {
+  await freshFs.writeFileAtomic(join(freshRoot, "first.txt"), "first\n", {});
+  assert.equal(readFileSync(join(freshRoot, "first.txt"), "utf8"), "first\n", "the mkdir -p ran before bwrap, so the write landed");
+  await assert.rejects(
+    freshFs.writeFileAtomic("/usr/local/share/wsl-env-probe-must-not-exist.txt", "nope\n", {}),
+    (error) => codeOf(error) === "FS_SANDBOX_DENIED",
+    "the created root is still fenced",
+  );
+});
+
+await fresh.close();
 
 await agent.close();
 console.log(`\n${passed} substrate probe checks pass`);

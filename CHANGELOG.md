@@ -16,6 +16,23 @@ were part of the record.
 
 ## [Unreleased]
 
+### Fixed
+
+- **WSL-305: the confined resident now creates the workspace root before its
+  first spawn.** The bwrap profile binds the workspace root and bwrap refuses
+  a missing bind source, so on a freshly imported distro the first confined
+  write failed with a bare `FS_IO_ERROR: agent exited during handshake
+  (code=1)` and a misleading remedy. `agent-confined.js` gained a `prepare`
+  hook (workspace-write only — the only mode that binds the root) that runs
+  `mkdir -p` on the Linux-spelled root before bwrap runs, idempotently and
+  ignoring its own outcome: bwrap stays the authority, and a refusal still
+  reaches the caller. That refusal now carries evidence: the handshake
+  failure's message includes a bounded tail of the resident's stderr (the
+  half-day of diagnosis this cost came from it being swallowed). Three new
+  checks cover the prepare hook, its argv, and the stderr ride-on; a
+  fresh-root leg in `substrate.sh` exercises the absent-root spawn end to
+  end on a real distro.
+
 ### Changed
 
 - **Debian is verified end to end, and the run found a first-run trap.**

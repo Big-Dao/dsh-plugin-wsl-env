@@ -18,7 +18,7 @@ import { mock } from "node:test";
 import { AGENT_NAME, PROTOCOL_VERSION, encodeB64 } from "../lib/agent-protocol.js";
 import { AgentUnavailableError, CwdError, SpawnError } from "../lib/agent-errors.js";
 import { WslAgent, agentLeaseEnv, pinnedWindowsEnv } from "../lib/agent.js";
-import { confinedAgent, resetConfinedAgents } from "../lib/agent-confined.js";
+import { confinedAgent, ensureWorkspaceRoot, resetConfinedAgents } from "../lib/agent-confined.js";
 import { bwrapProfileArgs } from "../lib/bwrap.js";
 
 let passed = 0;
@@ -1159,6 +1159,57 @@ await check("an async prepare selects the entry before the first spawn", async (
   assert.equal(agent.expectedDigest, TEST_DIGEST);
   assert.equal(agent.signalable, false);
   assert.equal(made.length, 1);
+  await agent.close();
+});
+
+checkReg("workspace-write prepares the workspace root; read-only does not", () => {
+  resetConfinedAgents();
+  const confined = confinedAgent({ distro: "ubuntu", policy: { mode: "workspace-write", workspaceRoot: "/home/u/ws" } });
+  assert.equal(typeof confined.prepare, "function", "the mode that binds the root must create it first");
+  resetConfinedAgents();
+  const readOnly = confinedAgent({ distro: "ubuntu", policy: { mode: "read-only", workspaceRoot: "/" } });
+  assert.equal(readOnly.prepare, undefined, "read-only binds /, which always exists");
+});
+
+checkReg("prepare issues mkdir -p with the linux-spelled root, ignoring the outcome", async () => {
+  /** @type {{ file: string, args: string[], stdio: string }[]} */
+  const calls = [];
+  /** @param {string} file @param {string[]} args @param {{ stdio: string }} options */
+  const spawnFn = (file, args, options) => {
+    calls.push({ file, args, stdio: options.stdio });
+    return { on: (/** @type {string} */ event, /** @type {(...args: unknown[]) => void} */ handler) => { if (event === "exit") handler(0, null); } };
+  };
+  await ensureWorkspaceRoot({ wslPath: "wsl.exe", distro: "Debian", root: "/home/andy/.dsh-fsprobe", spawnFn });
+  assert.equal(calls.length, 1);
+  const first = calls[0];
+  assert.ok(first, "the mkdir spawn was observed");
+  assert.equal(first.file, "wsl.exe");
+  assert.deepEqual(first.args, ["-d", "Debian", "--exec", "mkdir", "-p", "/home/andy/.dsh-fsprobe"]);
+  assert.equal(first.stdio, "ignore", "the mkdir is quiet: bwrap stays the authority on failure");
+  // A failing spawn resolves instead of rejecting — bwrap decides later.
+  /** @param {string} event @param {(...args: unknown[]) => void} handler */
+  const onErr = (event, handler) => { if (event === "error") handler(new Error("no")); };
+  await ensureWorkspaceRoot({
+    wslPath: "wsl.exe", distro: "Debian", root: "/x",
+    spawnFn: () => ({ on: onErr }),
+  });
+});
+
+checkReg("a handshake exit carries the resident's stderr on the failure", async () => {
+  const child = new FakeAgentProcess({ noHello: true });
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  // Write the refusal first, deliver its "data" event, and only then exit —
+  // the real ordering: bwrap prints, flushes, and dies.
+  child.stderr.write("bwrap: Can't find source path /home/andy/.dsh-fsprobe: No such file or directory\n");
+  await new Promise((resolve) => child.stderr.write("", resolve));
+  setImmediate(() => child.emit("exit", 1, null));
+  const error = await agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }).then(
+    () => { throw new Error("should not have resolved"); },
+    (e) => e,
+  );
+  assert.match(error.message, /exited during handshake/);
+  assert.match(error.message, /stderr=bwrap: Can't find source path/, "the resident's own refusal must ride the failure");
   await agent.close();
 });
 

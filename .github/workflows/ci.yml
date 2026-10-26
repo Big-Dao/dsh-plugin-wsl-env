@@ -138,7 +138,10 @@ jobs:
       # (18/18 under qemu-aarch64, /proc/self/exe still resolves to the target,
       # so the HELLO digest binding holds).
       - name: Install qemu (user-mode aarch64)
-        run: sudo apt-get install -y --no-install-recommends qemu-user-static
+        # Noble dropped the qemu-user-static real package; qemu-user-binfmt
+        # brings the interpreter and the binfmt registration that makes an
+        # exec of the aarch64 ELF transparent.
+        run: sudo apt-get install -y --no-install-recommends qemu-user qemu-user-binfmt
       - name: Test the aarch64 musl binary under qemu
         run: node agent/native/spike/test.mjs agent/native/spike/target/aarch64-unknown-linux-musl/release/dsh-wsl-agent-spike
       - name: Test the committed aarch64 binary under qemu

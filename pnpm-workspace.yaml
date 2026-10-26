@@ -3,6 +3,12 @@ allowBuilds:
   koffi: true
   node-pty: true
 
+# undici rides in as an exact transitive pin of @deepseek-ai/dsh-http-proxy,
+# which upstream controls; the security advisories against 8.11.x are fixed in
+# 8.12.3, so the lockfile carries the override until upstream moves the pin.
+overrides:
+  undici: '>=8.12.3'
+
 # pnpm's release-age policy refuses a package published inside the window. The
 # peer pins name one exact release candidate, so pnpm records the whole closure
 # it had to exempt; the list moves with the pins, as pnpm rewrites it.

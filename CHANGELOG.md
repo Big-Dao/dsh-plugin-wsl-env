@@ -16,6 +16,19 @@ were part of the record.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`undici` in the lockfile moves to the security-fixed `8.12.3` via a pnpm
+  override.** `undici` rides in only as an exact transitive pin of
+  `@deepseek-ai/dsh-http-proxy` — a package upstream controls — so Dependabot's
+  security job could resolve no patched version (it reports "the latest
+  possible version … is 8.11.2" and fails). `pnpm-workspace.yaml` now carries
+  `overrides: { undici: '>=8.12.3' }` (the pnpm 11 settings home; the
+  `package.json` `pnpm` field is no longer read), the lockfile swaps the one
+  package, and the override comment records that it is retired when upstream
+  moves the pin. Nothing under `src/` reads `undici`; the check chain is
+  unaffected.
+
 ### Changed
 
 - **The peer declarations become floor ranges, so a newer harness installs

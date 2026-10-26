@@ -16,6 +16,19 @@ were part of the record.
 
 ## [Unreleased]
 
+### Changed
+
+- **The aarch64 native agent is executed in CI, not only built.** The
+  `native packages` job installs `qemu-user-static` and runs the full
+  18-check spike suite under qemu-user against both the freshly built aarch64
+  musl binary and the committed `agent/native/linux-aarch64/dsh-wsl-agent` —
+  the binary a Windows-on-ARM session would load. User-mode emulation
+  exercises every check (the static musl binary and the v5 frames are
+  host-OS-free), verified locally first: 18/18 under `qemu-aarch64`, with
+  `/proc/self/exe` resolving to the target so the HELLO digest binding holds
+  unchanged. This closes the "build-tested only" gap on WSL-202; a run on
+  real aarch64 hardware remains open.
+
 ## [0.13.2] - 2026-10-26
 
 This release tracks DeepSeek Harness `0.2.1-rc.3`: the peer declarations become

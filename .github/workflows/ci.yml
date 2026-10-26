@@ -131,6 +131,18 @@ jobs:
           node-version: "24"
       - name: Test the x86_64 musl binary
         run: node agent/native/spike/test.mjs agent/native/spike/target/x86_64-unknown-linux-musl/release/dsh-wsl-agent-spike
+      # The aarch64 binary ships to Windows-on-ARM sessions, so "build-tested
+      # only" is not enough: run the full 18-check suite under qemu-user. The
+      # static musl binary and the v5 frames are host-OS-free, so user-mode
+      # emulation on the x86_64 runner exercises every check; verified locally
+      # (18/18 under qemu-aarch64, /proc/self/exe still resolves to the target,
+      # so the HELLO digest binding holds).
+      - name: Install qemu (user-mode aarch64)
+        run: sudo apt-get install -y --no-install-recommends qemu-user-static
+      - name: Test the aarch64 musl binary under qemu
+        run: node agent/native/spike/test.mjs agent/native/spike/target/aarch64-unknown-linux-musl/release/dsh-wsl-agent-spike
+      - name: Test the committed aarch64 binary under qemu
+        run: node agent/native/spike/test.mjs agent/native/linux-aarch64/dsh-wsl-agent
       # The upload action is a tag rather than a SHA because the artifact is a
       # short-lived CI transport, not shipped code; the shipped bytes are the
       # committed binaries after review.

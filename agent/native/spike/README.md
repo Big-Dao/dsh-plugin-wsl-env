@@ -84,6 +84,9 @@ fallback and `agentBackend: shell` forces it.
 - Release binaries: static musl, ~621 KB (x86_64) and ~523 KB (aarch64);
   the crate builds in ~2 s with no dependencies.
 - The shell agent remains the shipped peer and the fallback. The packaged
-  static-musl x86_64/aarch64 binaries are the default; the aarch64 binary is
-  build-tested in CI but its functional run on real aarch64 hardware or qemu
-  is still pending, and v6 (FS concurrency/ERR frames) is future work.
+  static-musl x86_64/aarch64 binaries are the default; both are executed in
+  CI — the aarch64 binary runs the full 18-check suite under qemu-user
+  (user-mode emulation suffices: the static musl binary and the v5 frames are
+  host-OS-free, and `/proc/self/exe` resolves to the target under qemu, so the
+  HELLO digest binding holds). A functional run on real aarch64 hardware is
+  still pending, and v6 (FS concurrency/ERR frames) is future work.

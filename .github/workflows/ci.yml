@@ -157,6 +157,27 @@ jobs:
             agent/native/spike/target/aarch64-unknown-linux-musl/release/dsh-wsl-agent-spike
           if-no-files-found: error
 
+  # WSL-202's container leg: the shell agent runs in the non-Ubuntu families'
+  # own sh — busybox on Alpine, bash elsewhere — so sha256sum, base64 and the
+  # v5 frames are exercised where they actually differ, not assumed from
+  # Ubuntu. The script mounts the checkout read-only and drives the real
+  # agent over stdio; no WSL and no harness.
+  agent-containers:
+    name: shell agent in containers (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["debian:stable-slim", "alpine:3", "fedora:latest", "opensuse/tumbleweed", "archlinux"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - run: docker pull ${{ matrix.image }}
+      - run: node test/agent-container.mjs ${{ matrix.image }}
+
   # The real-machine probes need Windows + WSL2 + the harness app, which no
   # hosted runner has. This job exists for a SELF-HOSTED Windows runner (the
   # development machine): dispatch it from the Actions tab there. On a hosted

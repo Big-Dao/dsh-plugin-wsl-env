@@ -95,5 +95,10 @@ its `distro:` key.
 - Real aarch64 hardware (qemu CI leg covers execution; see above).
 - Non-systemd session scopes driven by a real WSL terminal session (the
   probe's skipped legs).
-- Container images (the roadmap's Tier 2 container matrix) — these rows are
-  real imported distros, which is the stronger form of the same evidence.
+- ~~Container images~~ — closed 2026-10-27: `test/agent-container.mjs` runs
+  the real shell agent inside `debian:stable-slim`, `alpine:3`, `fedora:latest`,
+  `opensuse/tumbleweed` and `archlinux` containers in CI (the
+  `agent-containers` job, one per image), 7 checks each — handshake with the
+  in-place digest, PING, EXEC with exit and both streams, SETENV, and the
+  presence of `sha256sum`/`base64` where the families actually differ
+  (busybox on Alpine vs coreutils elsewhere). 35/35 on first execution.

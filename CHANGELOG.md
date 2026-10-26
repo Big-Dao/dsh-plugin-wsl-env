@@ -18,6 +18,17 @@ were part of the record.
 
 ### Changed
 
+- **Debian is verified end to end, and the run found a first-run trap.**
+  The four harness-level probes pass against a `wslfs-debian` profile on a
+  freshly imported Debian 13.5, completing the full stack on top of the
+  distro-internal suite (`docs/COMPATIBILITY.md`). Getting there surfaced one
+  real finding: the confined resident refuses to start when the workspace
+  root does not exist yet — the bwrap profile binds the root, bwrap requires
+  the bind source to exist, and a fresh distro has nothing to bind. Creating
+  the root first turns all ten failing steps green; prior Ubuntu runs had it
+  left over from earlier probes. The finding is documented in the matrix page
+  with the suggested spawn-preparation fix.
+
 - **The compatibility matrix moves from prose to a measured page.**
   `docs/COMPATIBILITY.md` records the WSL-202 evidence: six real WSL2 distros
   (Ubuntu, Debian 13.5, Fedora 44, openSUSE Tumbleweed, Arch, Alpine 3.22)

@@ -29,6 +29,24 @@ per row follow [`ROADMAP-1.0.md`](ROADMAP-1.0.md): Ubuntu, Debian, Fedora,
 openSUSE and Arch are **supported**; Alpine is **supported** for everything
 the non-systemd scope claims, with the narrower `sessionSandbox: auto` scope.
 
+**Debian is verified end to end**: the four harness-level probes
+(`run.sh`, `terminal.sh`, `picker.sh`, `fs-routing.sh`) also pass against a
+`wslfs-debian` profile (2026-10-26), on top of the distro-internal suite —
+the full stack, not just the in-distro half.
+
+## The found first-run trap: missing workspace root
+
+The Debian harness-level runs surfaced one real finding: **the confined
+resident refuses to start when the workspace root does not exist yet**. The
+bwrap profile binds the workspace root (`--bind <root> <root>`), bwrap
+requires the bind source to exist, and on a freshly imported distro the
+probe's workspace (`~/.dsh-fsprobe`) did not. `mkdir -p` of the root turns
+all ten failing steps green. Every prior Ubuntu run had the directory left
+over from earlier probes, which is why the trap never fired there. Any
+workspace whose directory is created lazily by its first write hits the same
+wall on a fresh distro; the spawn preparation should ensure the bind source
+exists (or treat a missing root as empty) before bwrap is invoked.
+
 ## The two explained differences
 
 - **`session-sandbox.sh`, background-survival leg (Fedora, openSUSE, Arch).**

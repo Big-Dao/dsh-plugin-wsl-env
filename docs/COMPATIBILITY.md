@@ -48,7 +48,8 @@ wall on a fresh distro. Fixed in aa12b49: the confined factory's prepare
 hook now creates the root (`mkdir -p`) before bwrap runs, the handshake
 failure carries the resident's stderr when one still occurs, and
 `substrate.sh` gained a fresh-root leg that spawns the resident against an
-absent workspace root on every run.
+absent workspace root on every run, verified on both Debian (glibc) and
+Alpine (musl).
 
 ## The two explained differences
 

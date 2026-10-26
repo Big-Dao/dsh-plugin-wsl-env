@@ -44,8 +44,11 @@ probe's workspace (`~/.dsh-fsprobe`) did not. `mkdir -p` of the root turns
 all ten failing steps green. Every prior Ubuntu run had the directory left
 over from earlier probes, which is why the trap never fired there. Any
 workspace whose directory is created lazily by its first write hits the same
-wall on a fresh distro; the spawn preparation should ensure the bind source
-exists (or treat a missing root as empty) before bwrap is invoked.
+wall on a fresh distro. Fixed in aa12b49: the confined factory's prepare
+hook now creates the root (`mkdir -p`) before bwrap runs, the handshake
+failure carries the resident's stderr when one still occurs, and
+`substrate.sh` gained a fresh-root leg that spawns the resident against an
+absent workspace root on every run.
 
 ## The two explained differences
 

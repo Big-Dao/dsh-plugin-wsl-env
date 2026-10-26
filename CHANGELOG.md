@@ -16,6 +16,19 @@ were part of the record.
 
 ## [Unreleased]
 
+### Changed
+
+- **The shell agent now runs in CI inside the non-Ubuntu containers it
+  claims to support.** `test/agent-container.mjs` drives the real
+  `wsl-agent.sh` over the v5 frames inside `docker run` for
+  `debian:stable-slim`, `alpine:3`, `fedora:latest`, `opensuse/tumbleweed`
+  and `archlinux` — seven checks each: the HELLO handshake with the
+  in-place script digest, PING, EXEC with exit code and both streams, SETENV
+  reaching later commands, and the presence of `sha256sum`/`base64` where
+  the families actually differ (busybox on Alpine, coreutils elsewhere). The
+  `agent-containers` CI job runs one container per matrix leg. 35/35 on
+  first execution; this closes the container leg of WSL-202's acceptance.
+
 ## [0.14.0] - 2026-10-27
 
 This release fixes the first-run trap the compatibility-matrix run found on a

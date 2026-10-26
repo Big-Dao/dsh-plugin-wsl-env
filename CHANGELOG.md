@@ -16,6 +16,11 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-27
+
+This release fixes the first-run trap the compatibility-matrix run found on a
+freshly imported distro, and ships the measured support table the run produced.
+
 ### Fixed
 
 - **WSL-305: the confined resident now creates the workspace root before its

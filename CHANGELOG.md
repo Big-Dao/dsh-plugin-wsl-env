@@ -18,8 +18,24 @@ were part of the record.
 
 ### Changed
 
+- **The compatibility matrix moves from prose to a measured page.**
+  `docs/COMPATIBILITY.md` records the WSL-202 evidence: six real WSL2 distros
+  (Ubuntu, Debian 13.5, Fedora 44, openSUSE Tumbleweed, Arch, Alpine 3.22)
+  executed the distro-internal probe suite on one machine on 2026-10-26, and
+  the page explains the two observed differences instead of hiding them — the
+  `session-sandbox` background-survival leg races WSL session teardown on
+  three systemd distros (probe artifact, not a plugin claim), and on Alpine
+  the same leg fails by declaration, because non-systemd distros get the
+  narrower `sessionSandbox: auto` scope exactly as P1.1/WSL-201 promises. The
+  page also records the per-distro import traps (Debian OOBE wedge, Alpine
+  minirootfs defaulting to root, busybox mktemp, zypper's interactive prompt)
+  and the reproduction commands. Not yet measured: real aarch64 hardware, the
+  container-image matrix.
+
 - **The aarch64 native agent is executed in CI, not only built.** The
-  `native packages` job installs `qemu-user-static` and runs the full
+  `native packages` job installs qemu's user-mode emulator and binfmt
+  registration (`qemu-user` + `qemu-user-binfmt`; noble has no real
+  `qemu-user-static` package) and runs the full
   18-check spike suite under qemu-user against both the freshly built aarch64
   musl binary and the committed `agent/native/linux-aarch64/dsh-wsl-agent` —
   the binary a Windows-on-ARM session would load. User-mode emulation

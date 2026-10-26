@@ -16,6 +16,13 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.13.2] - 2026-10-26
+
+This release tracks DeepSeek Harness `0.2.1-rc.3`: the peer declarations become
+floor ranges so a newer harness installs the plugin unchanged, and the
+lockfile's transitive `undici` moves past a security advisory that Dependabot
+could not clear on its own.
+
 ### Fixed
 
 - **`undici` in the lockfile moves to the security-fixed `8.12.3` via a pnpm

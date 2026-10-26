@@ -17,7 +17,7 @@ DeepSeek Harness 的 WSL 集成插件：把一个 WSL 发行版配置为会话�
 ## 硬性规则
 
 - `lib/` 整体是 `src/<name>.ts` 的编译产物，产物提交进仓（克隆后免构建即可加载——Harness 无转译层）。改 `src/` 后重新构建；`lint:build` 自动校验逐字节一致与 `lib/`↔`src/` 一一对应。
-- peer 版本与 harness 同步升级，不单独动：`@deepseek-ai/dsh-*` 锁定为 0.2.1-rc.2，另两条 `@deepseek-ai/cordis` 为 `~4.0.5`、`@deepseek-ai/schemastery` 为 `~3.18.5`。本插件以子类扩展 peer：`WslShellExecutor extends LocalBashExecutor`、fs 提供者继承 `LocalFileSystem`；GUI 文件服务不接管，沿用随包的 `workspace-files` 行。
+- peer 版本声明分两层：devDependencies 锁定精确版本（检查链可复现，也是 `docs/PEER-PARITY.md` 对拍的对象）；peerDependencies 只写下限——`@deepseek-ai/dsh-*` 为 `>=0.2.1-rc.3`、`@deepseek-ai/cordis` 为 `^4.0.5`、`@deepseek-ai/schemastery` 为 `^3.18.5`——使同一发布线的 rc 与后续稳定版免于 peer 冲突，应用升级不阻塞插件。下限的抬升仍与 harness 发版同步（在匹配的提交里抬、重跑对拍与检查链），`peer-canary` 周度盯 `next` 线提醒这一步。本插件以子类扩展 peer：`WslShellExecutor extends LocalBashExecutor`、fs 提供者继承 `LocalFileSystem`；GUI 文件服务不接管，沿用随包的 `workspace-files` 行。
 - 代码风格：双引号、2 空格、LF、禁 tab/BOM；包根只有一个 README（中文版在 `docs/`）。
 - 类型收窄用 `assert.ok` 或带注释的 `as`；不用 `any` 与 `!` 非空断言。`.ts` 里 JSDoc `@type` 不是类型断言，必须用 `as`。
 - 类型检查分工：`tsc --noEmit`（checkJs）查 `test/**` 与 `types/*.d.ts`；`src/` 由构建程序查（strict + `noUncheckedIndexedAccess` + `noUnusedLocals`，`noEmitOnError`）；`lib/**` 不参与。

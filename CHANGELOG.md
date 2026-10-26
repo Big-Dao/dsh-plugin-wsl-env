@@ -16,6 +16,53 @@ were part of the record.
 
 ## [Unreleased]
 
+### Changed
+
+- **The peer declarations become floor ranges, so a newer harness installs
+  the plugin unchanged.** The `@deepseek-ai/dsh-*` entries in
+  `peerDependencies` move from the exact pin to `>=0.2.1-rc.3`, and
+  `@deepseek-ai/cordis` / `@deepseek-ai/schemastery` widen from `~` to `^`
+  (`^4.0.5`, `^3.18.5`). An app that ships a newer harness release now
+  satisfies the peers without waiting for a plugin release — same-line rc
+  bumps and every stable release install cleanly; only a brand-new
+  prerelease line (`0.2.2-rc.1` against `>=0.2.1-rc.3`) still warns, because
+  semver admits a prerelease only against a comparator on its own tuple and
+  no range can promise an unpublished line. That residue is what the weekly
+  peer-canary is for: it still resolves the `next` dist-tag into a scratch
+  tree and flags when the line moves past a floor — the signal to re-run the
+  `docs/PEER-PARITY.md` comparison and raise the floor in the commit that
+  matches the harness release. The devDependencies keep their exact pins, so
+  the gates stay reproducible and the parity audit keeps naming one line.
+  `scripts/doctor.mjs` learned the new shapes (`peerSatisfied` now reads `>=`
+  and `^`, and its `compareVersions` orders prerelease identifiers by semver
+  §11 — `rc.10` above `rc.9`), `scripts/peer-canary.mjs` parses and preserves
+  the shapes, and `AGENTS.md`, `CONTRIBUTING.md`, `SUPPORT.md` and
+  `docs/PEER-PARITY.md` state the new policy.
+
+- **The dev pin line moves to DeepSeek Harness `0.2.1-rc.3`.** Every
+  `@deepseek-ai/dsh-*` pin in `devDependencies` goes from `0.2.1-rc.2` to
+  `0.2.1-rc.3` — the release the `next` dist-tag resolves to — and
+  `pnpm-lock.yaml` refreshes with it. `@deepseek-ai/cordis` and
+  `@deepseek-ai/schemastery` stay at `4.0.5` / `3.18.5`: upstream's `vendor/`
+  did not change on this line.
+
+  No module under `src/` changed, and that is the finding. The three peers
+  this plugin subclasses or replicates ship byte-identical `lib/index.js`
+  files on rc.3 — `dsh-fs-local` (the fsio dialect, still 909 lines), `dsh-fs`
+  (the `FsVersion` brand) and `dsh-bash-local` (the spill machinery) — so
+  every line reference in `docs/PEER-PARITY.md` still names the same code;
+  only the tarballs' digests changed, and the parity doc now carries the
+  `0.2.1-rc.3` ones with the re-check dated 2026-10-26. That byte-identity is
+  also the evidence behind the new peer floor: the same code answers above
+  rc.3. Upstream's release notes for the line are UI- and LLM-side
+  (navigation entry customization, analytics, the official `/models`
+  listing): the one composition-visible change is a new `entry-customization`
+  UI row in the app's own `cordis.patch.yml`, which rides with the app's
+  bundle rather than this plugin's layer. `preset-wsl` needed no
+  regeneration — `packages/bundle/web-app/presets/standard.patch.yml` is
+  byte-identical on rc.3 — and the provenance comment in `cordis.patch.yml`
+  now names the rc.3 tree.
+
 ## [0.13.1] - 2026-10-19
 
 A patch release restoring `wsl-shell-env`: the component mounts again, and the

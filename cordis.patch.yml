@@ -185,7 +185,8 @@
     # Generated from the shipped standard preset so the embedded plan-mode
     # section and every nested group survive byte-for-byte: this copy is
     # `packages/bundle/web-app/presets/standard.patch.yml` of the
-    # `dsh-v0.2.1-rc.2` source tree, changed in exactly three ways —
+    # `dsh-v0.2.1-rc.3` source tree (unchanged since `0.2.1-rc.2`), changed
+    # in exactly three ways —
     #   1. every shipped row mounts inside `wsl-env`, so the preset's tools see
     #      the distro's shell and fs (the realm is declared on the group);
     #   2. `tool-bash` is enabled and `tool-pwsh` disabled outright, where the

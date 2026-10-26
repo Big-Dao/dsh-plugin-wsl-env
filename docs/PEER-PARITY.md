@@ -7,18 +7,20 @@ same refusal dialect on both substrates. The **read path** holds end to end;
 the **edit path** carries two declared divergences, listed at the end. This
 file records the verification against the real peers.
 
-- Peers: `@deepseek-ai/dsh-fs-local@0.2.1-rc.2` (the exact version
-  `package.json` pins), plus `@deepseek-ai/dsh-fs@0.2.1-rc.2` for the
+- Peers: `@deepseek-ai/dsh-fs-local@0.2.1-rc.3` (the exact version the
+  devDependencies pin, and the floor the peer range `>=0.2.1-rc.3` was
+  verified against), plus `@deepseek-ai/dsh-fs@0.2.1-rc.3` for the
   `FsVersion` brand the local package imports. Divergence 2 is measured
-  against a third peer, `@deepseek-ai/dsh-bash-local@0.2.1-rc.2` — the shell
+  against a third peer, `@deepseek-ai/dsh-bash-local@0.2.1-rc.3` — the shell
   executor carries the collect-budget/spill machinery; `spill` and
   `maxSpillBytes` do not appear in `dsh-fs-local` at all.
-- The `0.2.1-rc.2` move leaves every line reference below intact: all three
-  peers' shipped `lib/index.js` are **byte-identical** to the `0.2.0-rc.2`
+- The `0.2.1-rc.3` move leaves every line reference below intact: all three
+  peers' shipped `lib/index.js` are **byte-identical** to the `0.2.1-rc.2`
   ones (`cmp` clean; `dsh-fs-local`'s is still 909 lines), so only the
-  tarballs' digests changed. `dsh-fs@0.2.1-rc.2` did drop its unpublished
-  `./invariant` export subpath; this plugin imports neither it nor
-  `dsh-invariants`.
+  tarballs' digests changed — upstream shipped the manifests' version fields
+  and nothing else in these packages. `dsh-fs@0.2.1-rc.3` still has no
+  `./invariant` export subpath (dropped back at `0.2.1-rc.2`); this plugin
+  imports neither it nor `dsh-invariants`.
 - What "not imported" means: the peer's **fsio module** is not reachable from
   the package's exports, so `lib/fsio-text.js` reimplements it and imports
   nothing from it (the export is proposed in `docs/UPSTREAM-FSIO-EXPORT.md`).
@@ -33,24 +35,24 @@ file records the verification against the real peers.
 
 ```sh
 mkdir -p /tmp/peer-audit && cd /tmp/peer-audit
-npm pack @deepseek-ai/dsh-fs-local@0.2.1-rc.2 @deepseek-ai/dsh-fs@0.2.1-rc.2 --pack-destination .
-openssl dgst -sha512 -binary deepseek-ai-dsh-fs-local-0.2.1-rc.2.tgz | base64 -w0
-tar xzf deepseek-ai-dsh-fs-local-0.2.1-rc.2.tgz   # -> package/lib/index.js
+npm pack @deepseek-ai/dsh-fs-local@0.2.1-rc.3 @deepseek-ai/dsh-fs@0.2.1-rc.3 --pack-destination .
+openssl dgst -sha512 -binary deepseek-ai-dsh-fs-local-0.2.1-rc.3.tgz | base64 -w0
+tar xzf deepseek-ai-dsh-fs-local-0.2.1-rc.3.tgz   # -> package/lib/index.js
 wc -l package/lib/index.js                        # expect 909
 ```
 
 The tarballs this audit compared, by content — the same values
-`npm view <pkg>@0.2.1-rc.2 dist.integrity` reports:
+`npm view <pkg>@0.2.1-rc.3 dist.integrity` reports:
 
 ```
-@deepseek-ai/dsh-fs-local@0.2.1-rc.2  sha512-IZPJ12/EpV6fu3CCWtW4w4GthXAKLFjplm4Feoep2HAum7J1aGzHZwiw7ipsPCZiA5/TyK3lDUUAGZ/pcXgRcw==
-@deepseek-ai/dsh-fs@0.2.1-rc.2        sha512-Z6d2ZKsAiJc0FaiES8wC66vuUQMGohl9tCc2p3bAsPFYkJ0+L2zTViQ9Y5BArtRe9Br8qhNjNgLlN0jb/uwv1g==
+@deepseek-ai/dsh-fs-local@0.2.1-rc.3  sha512-bB2CwCqvYAdAKl28+5XXMRRq1NBtRmYX3wNOpJ2JlGBm7uj2Aix9Vl9rFig4AQcXXd5Bk738b5KNsOIkbXy+XQ==
+@deepseek-ai/dsh-fs@0.2.1-rc.3        sha512-tENLWe471WlAXMc13J4cns8xU6lFyu1smwpkSKR85vhGr6FyWZhTlpVohZYm66LbwKTmSWiDhd9Urk7VxN9B9w==
 ```
 
 Each row of the table below names the peer's `lib/index.js` line and the
 literal both sides must produce. Verified 2026-10-03; the read/edit split
 re-verified 2026-10-06; the whole table re-checked against `0.2.1-rc.2`,
-2026-10-17.
+2026-10-17 and against `0.2.1-rc.3`, 2026-10-26.
 
 ## Verdict
 
@@ -93,7 +95,7 @@ declared extensions, listed at the end.
 2. **Per-stream truncation flags.** The EXEC frame carries an output budget;
    the RES line reports which streams the agent cut, surfaced as honest
    `truncated` flags. The collect-budget/spill machinery of the shell peer,
-   `@deepseek-ai/dsh-bash-local@0.2.1-rc.2` (`lib/index.js:30`, `:110`), is the
+   `@deepseek-ai/dsh-bash-local@0.2.1-rc.3` (`lib/index.js:30`, `:110`), is the
    spill-file path we deliberately do not run.
 3. **The transport around the ops** (ACK, KILL, the confined resident) is
    protocol this package owns; the peer has no agent.
@@ -120,9 +122,12 @@ declared extensions, listed at the end.
 
 ## Maintenance
 
-When `package.json` bumps the peer pins, re-run the comparison above — pack the
-new tarballs, check the sha512, and walk the table's peer line references
-against the replicas. The fastest canary: stat a file, list its directory, and
+When a peer floor or dev pin moves in `package.json`, re-run the comparison
+above — pack the new tarballs, check the sha512, and walk the table's peer line
+references against the replicas. The weekly peer-canary resolves the `next`
+dist-tag into a scratch tree and runs the gate chain against it, so the signal
+to raise the floor arrives before a user reports a drift. The fastest canary:
+stat a file, list its directory, and
 compare the versions (`test/fsio-agent.test.mjs` asserts the intra-distro half
 of this); the strings above are the other half. The split dialect has its own
 regression: `test/fs-substrate.test.mjs` asserts the missing-file refusal, and

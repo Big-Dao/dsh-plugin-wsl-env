@@ -177,14 +177,24 @@ try {
     assert.match(String(reachable?.remedy), /wsl\.exe --shutdown/);
   });
 
-  check("peerSatisfied understands exact pins and tilde ranges", () => {
+  check("peerSatisfied understands exact pins, floor ranges and caret ranges", () => {
     assert.equal(peerSatisfied("0.2.1-rc.2", "0.2.1-rc.2"), true);
     assert.equal(peerSatisfied("0.2.2-rc.2", "0.2.1-rc.2"), false);
-    assert.equal(peerSatisfied("4.0.5", "~4.0.5"), true);
-    assert.equal(peerSatisfied("4.1.0", "~4.0.5"), false);
-    assert.equal(peerSatisfied("4.0.5", ">=4"), undefined);
-    assert.equal(peerSatisfied("4.0.1", "~4.0.5"), false, "a tilde range is a patch floor, not just major.minor");
-    assert.equal(peerSatisfied("4.0.6", "~4.0.5"), true);
+    assert.equal(peerSatisfied("0.2.1-rc.2", ">=0.2.1-rc.3"), false);
+    assert.equal(peerSatisfied("0.2.1-rc.3", ">=0.2.1-rc.3"), true);
+    assert.equal(peerSatisfied("0.2.1-rc.10", ">=0.2.1-rc.9"), true, "numeric prerelease identifiers compare numerically, not lexically");
+    assert.equal(peerSatisfied("0.2.1", ">=0.2.1-rc.3"), true, "the release sorts above its own prerelease floor");
+    assert.equal(peerSatisfied("0.2.2-rc.1", ">=0.2.1-rc.3"), true);
+    assert.equal(peerSatisfied("1.0.0", ">=0.2.1-rc.3"), true);
+    assert.equal(peerSatisfied("4.0.4", "^4.0.5"), false);
+    assert.equal(peerSatisfied("4.0.5", "^4.0.5"), true);
+    assert.equal(peerSatisfied("4.9.9", "^4.0.5"), true);
+    assert.equal(peerSatisfied("5.0.0", "^4.0.5"), false);
+    assert.equal(peerSatisfied("0.3.0", "^0.2.1"), false, "a caret on 0.x locks the minor");
+    assert.equal(peerSatisfied("4.0.5", ">=4"), true, "a bare major floor parses as 4.0.0");
+    assert.equal(peerSatisfied("3.9.9", ">=4"), false);
+    assert.equal(peerSatisfied("4.0.5", "<4.0.0"), undefined);
+    assert.equal(peerSatisfied("4.0.5", "*"), undefined, "shapes outside the manifest's vocabulary stay unchecked");
   });
 } finally {
   rmSync(scratch, { recursive: true, force: true });

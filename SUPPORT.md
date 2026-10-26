@@ -6,7 +6,7 @@
 |---|---|
 | Operating system | Windows 10 and Windows 11 |
 | Linux side | WSL2 with at least one distro, and systemd as PID 1 with a lingering user manager (`loginctl enable-linger`) for the shipped session runtime. Set `sessionSandbox: false` on the preset's `wsl-shell` to keep the per-command sandbox instead |
-| DSH packages | the `0.2.1-rc.2`-era packages listed in `peerDependencies` |
+| DSH packages | the `0.2.1-rc.3`-or-newer packages the `peerDependencies` floors declare; an app on a newer harness installs unchanged |
 
 The DSH row is checked weekly: `.github/workflows/peer-canary.yml` resolves the
 `next` dist-tag of every pinned peer, installs that line into a scratch copy and

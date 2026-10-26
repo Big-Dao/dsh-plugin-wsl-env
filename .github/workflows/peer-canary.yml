@@ -1,10 +1,13 @@
-# Peer-upgrade canary (WSL-209): the plugin pins its peers exactly, so a new
-# upstream release line can break it before a user reports it.
+# Peer-upgrade canary (WSL-209): the plugin's peerDependencies are floors, so a
+# newer harness line installs without a plugin release — but a floor is only as
+# good as its last verification.
 #
 # Weekly (and on demand) it resolves the `next` dist-tag of every pinned peer,
 # then installs that line into a scratch copy of the checkout and runs
-# `pnpm test` plus the composition boot test. A moved line appends the exact
-# version delta to the run summary; a failing upgrade fails this run.
+# `pnpm test` plus the composition boot test. A line that moves past a floor
+# appends the exact version delta to the run summary — the signal to re-run the
+# `docs/PEER-PARITY.md` comparison and raise the floor; a failing upgrade fails
+# this run.
 name: peer-canary
 
 on:

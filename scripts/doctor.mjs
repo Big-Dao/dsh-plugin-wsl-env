@@ -145,19 +145,24 @@ function parseArgs(argv) {
 }
 
 /**
- * Whether an installed version satisfies one peer range. The plugin's pins are
- * exact or tilde ranges, so those two shapes are all this understands; anything
- * else is reported as unchecked rather than guessed at.
+ * Whether an installed version satisfies one peer range. The manifest's peer
+ * ranges are floor ranges (`>=`) and caret ranges (`^`), and the
+ * devDependencies carry exact pins — those three shapes are all this
+ * understands; anything else is reported as unchecked rather than guessed at.
+ * The floor is the plugin's own compatibility claim, so it compares plainly
+ * against the floor version; the semver gate that excludes other lines'
+ * prereleases is an installer concern, not this check's.
  * @param {string} installed - the installed version.
  * @param {string} range - the declared peer range.
  * @returns {boolean | undefined} true/false, or undefined for an unsupported shape.
  */
 export function peerSatisfied(installed, range) {
-  if (range.startsWith("~")) {
+  if (range.startsWith(">=")) return compareVersions(installed, range.slice(2)) >= 0;
+  if (range.startsWith("^")) {
     const [major, minor, patch] = range.slice(1).split(".");
     return compareVersions(installed, `${major}.${minor}.${patch ?? "0"}`) >= 0
       && installed.split(".")[0] === major
-      && installed.split(".")[1] === minor;
+      && (major !== "0" || installed.split(".")[1] === minor);
   }
   if (/^[0-9]/.test(range)) return installed === range;
   return undefined;
@@ -188,7 +193,35 @@ export function compareVersions(left, right) {
   if (a.pre === b.pre) return 0;
   if (a.pre === "") return 1;
   if (b.pre === "") return -1;
-  return a.pre.localeCompare(b.pre);
+  return comparePrerelease(a.pre, b.pre);
+}
+
+/**
+ * Compare two prerelease strings by semver §11: dot-separated identifiers,
+ * numeric ones numerically and below alphanumeric ones, the rest lexically,
+ * a longer list above its own prefix. Plain `localeCompare` would order
+ * `rc.10` below `rc.9`.
+ * @param {string} left - the first prerelease.
+ * @param {string} right - the second prerelease.
+ * @returns {number} negative, zero or positive like a comparator.
+ */
+function comparePrerelease(left, right) {
+  const a = left.split(".");
+  const b = right.split(".");
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    const x = a[i];
+    const y = b[i];
+    if (x === undefined) return -1;
+    if (y === undefined) return 1;
+    if (x === y) continue;
+    const numericX = /^\d+$/.test(x);
+    const numericY = /^\d+$/.test(y);
+    if (numericX && numericY) return Number(x) - Number(y);
+    if (numericX) return -1;
+    if (numericY) return 1;
+    return x < y ? -1 : 1;
+  }
+  return 0;
 }
 
 /**

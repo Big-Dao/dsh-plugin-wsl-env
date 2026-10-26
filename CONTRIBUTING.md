@@ -23,13 +23,24 @@ Developing and running the gates do have dependencies. The tests import pinned
 algorithm, and the boot test starts a row through the real Loader — so a fresh
 checkout needs one `pnpm install` before the gates pass.
 
-Those pins are deliberate, and they move with the harness rather than on their
-own: the `@deepseek-ai/dsh-*` peers sit at `0.2.1-rc.2`, `@deepseek-ai/cordis`
-at `~4.0.5` and `@deepseek-ai/schemastery` at `~3.18.5`. The plugin subclasses
-peer classes and mirrors peer protocol, so raising one pin alone is how the
-seams drift: bump them in the commit that matches a harness release, re-run the
-comparison `docs/PEER-PARITY.md` describes, and let the gate chain and the
-probes confirm the result.
+Those pins are deliberate, and they split by role. The `devDependencies` stay
+exact so the gates and the `docs/PEER-PARITY.md` audit name one reproducible
+line. The `peerDependencies` are floors — `>=` for the `@deepseek-ai/dsh-*`
+packages, caret for `@deepseek-ai/cordis` and `@deepseek-ai/schemastery` — so
+an app that ships a newer harness keeps installing the plugin without waiting
+for a plugin release. A floor is still raised on purpose, not by drift: it
+moves in the commit that matches a harness release, with the parity comparison
+and the gate chain re-run, and the weekly peer-canary
+(`.github/workflows/peer-canary.yml`) resolves the `next` dist-tag into a
+scratch tree and flags when the line has moved past the floor. One semver
+limit is worth knowing: a floor range cannot name future prerelease lines —
+`0.2.2-rc.1` does not satisfy `>=0.2.1-rc.3`, because the spec admits a
+prerelease only against a comparator on its own `[major, minor, patch]` tuple
+— so a brand-new rc line warns until the floor rises; same-line rcs and every
+stable release never do.
+
+The plugin subclasses peer classes and mirrors peer protocol, so the range
+says nothing about the parity claims: those are re-verified per floor raise.
 
 pnpm runs the scripts in this repository, pinned through the `packageManager`
 field (corepack resolves it). Treat `pnpm run <script>` as the reference

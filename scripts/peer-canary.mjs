@@ -2,17 +2,20 @@
 /**
  * Peer-upgrade canary (WSL-209).
  *
- * The plugin pins its peers exactly, so a new upstream release line can break it
- * before a user reports it. This script compares the pins in `package.json` with
- * one dist-tag (default `next`, the rc line the plugin tracks), prints the exact
- * version delta, and — with `--apply` — installs that line into a scratch copy
- * and runs `pnpm test` plus the composition boot test. The workflow that calls it
+ * The plugin's peerDependencies are floors (`>=` for the `dsh-*` packages,
+ * caret for cordis/schemastery), so a newer harness line installs without a
+ * plugin release — but a floor is only as good as its last verification. This
+ * script compares the floors in `package.json` with one dist-tag (default
+ * `next`, the rc line the plugin tracks), prints the exact version delta —
+ * the signal to re-run the `docs/PEER-PARITY.md` comparison and raise the
+ * floor — and — with `--apply` — installs that line into a scratch copy and
+ * runs `pnpm test` plus the composition boot test. The workflow that calls it
  * is `.github/workflows/peer-canary.yml` (weekly + manual).
  *
  *   node scripts/peer-canary.mjs --check [--tag next] [--json]
  *   node scripts/peer-canary.mjs --apply [--tag next]
  *
- * `--check` exits 0 when every pin already satisfies the tag, 2 when the line
+ * `--check` exits 0 when the tag does not move past any floor, 2 when the line
  * moved, 1 when the registry could not be queried. `--apply` exits 0 when the
  * line is unchanged or the scratch tree passes, 1 when the upgrade fails.
  *
@@ -52,7 +55,7 @@ const SUMMARY = join(ROOT, "canary-summary.md");
  * Compare each pinned peer against the tag's versions.
  * @param {Record<string, string>} pinned - `peerDependencies`.
  * @param {Record<string, string>} tagged - resolved `name -> version` for the tag.
- * @returns {PeerDelta[]} the peers whose pin the tag does not satisfy, sorted by name.
+ * @returns {PeerDelta[]} the peers whose floor the tag moves past, sorted by name.
  */
 export function peerDelta(pinned, tagged) {
   /** @type {PeerDelta[]} */
@@ -60,8 +63,8 @@ export function peerDelta(pinned, tagged) {
   for (const [name, range] of Object.entries(pinned)) {
     const latest = tagged[name];
     if (latest === undefined) continue;
-    const base = range.startsWith("~") ? range.slice(1) : range;
-    // Only a NEWER tag is a canary event; a pin ahead of the tag (different
+    const base = range.replace(/^[~^>=]+/u, "");
+    // Only a NEWER tag is a canary event; a floor ahead of the tag (different
     // release cadence, e.g. cordis) is not a regression to test.
     if (compareVersions(latest, base) > 0) delta.push({ name, pinned: range, latest });
   }
@@ -69,8 +72,9 @@ export function peerDelta(pinned, tagged) {
 }
 
 /**
- * Move one manifest's peer/dev pins onto the tagged versions, keeping a tilde
- * range a tilde range (a patch canary should not silently widen to a caret).
+ * Move one manifest's peer/dev pins onto the tagged versions, keeping the
+ * declared range shape: a floor stays a floor, a caret or tilde range stays
+ * what it was (a canary pass should not silently widen a range).
  * @param {Manifest} manifest - the parsed manifest.
  * @param {Record<string, string>} tagged - resolved `name -> version` for the tag.
  * @returns {Manifest} a copy with the pins rewritten.
@@ -83,7 +87,10 @@ export function rewriteManifest(manifest, tagged) {
     for (const [name, version] of Object.entries(tagged)) {
       const pinned = next[name];
       if (pinned === undefined) continue;
-      next[name] = pinned.startsWith("~") ? `~${version}` : version;
+      next[name] = pinned.startsWith(">=") ? `>=${version}`
+        : pinned.startsWith("~") ? `~${version}`
+        : pinned.startsWith("^") ? `^${version}`
+        : version;
     }
     return next;
   };

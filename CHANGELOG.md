@@ -16,6 +16,12 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-27
+
+The compatibility-matrix release: the support table and its evidence, the
+container and nightly legs that keep it current, two fresh-distro first-run
+fixes the run surfaced, and the interop stance in one configuration key.
+
 ### Changed
 
 - **WSL-310: `scripts/bootstrap-import.sh` — a rootfs tarball becomes a

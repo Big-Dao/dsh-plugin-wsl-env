@@ -83,6 +83,21 @@ export type WslExecSpec = ShellExecSpec & {
  * wrappers, so they are spelled as their `.get()` shape (the reading
  * {@link configuredCwd} and `hostCwd` perform).
  */
+/**
+ * The effective `/mnt` mask for a config: `interopVisibility` is the stance
+ * key (WSL-314) and takes precedence whenever it names a stance; the legacy
+ * `maskWindowsDrive` boolean answers only when the stance key is left at its
+ * `visible` default. `disabled` masks in-session — the belt — while the
+ * distro-level closure (`[interop] enabled=false` + `wsl --shutdown`)
+ * remains a documented, user-applied step a config key must not perform.
+ *
+ * @param config - anything carrying the two keys.
+ * @returns whether confined profiles shadow `/mnt`.
+ */
+export declare function effectiveMaskWindowsDrive(config: {
+    interopVisibility?: "visible" | "masked" | "disabled";
+    maskWindowsDrive?: boolean;
+}): boolean;
 export interface WslShellExecutorConfig {
     /** The pinned distro; empty means WSL's default. */
     distro: string;
@@ -96,6 +111,8 @@ export interface WslShellExecutorConfig {
     sandbox: boolean;
     /** Whether confined profiles mask `/mnt`. */
     maskWindowsDrive: boolean;
+    /** The interop stance; set at all, it takes precedence over `maskWindowsDrive`. */
+    interopVisibility?: "visible" | "masked" | "disabled";
     /** The volatile default workdir. */
     cwd: {
         get(): string | undefined;
@@ -218,6 +235,26 @@ export declare class WslShellExecutor extends LocalBashExecutor {
          * complete closure is distro-level: `[interop] enabled=false` in
          * `wsl.conf`.
          */
+        /**
+         * The interop stance in one key (WSL-314), expanding to the per-key
+         * values the measured matrix documents:
+         *
+         * - `visible` (default) — nothing masked; a confined command can read
+         *   `/mnt` and launch Windows executables through interop, which escapes
+         *   the Linux sandbox entirely.
+         * - `masked` — `maskWindowsDrive: true`: `/mnt` is shadowed with an empty
+         *   tmpfs; the drive's files and executables are unreachable (binfmt can
+         *   still run a workspace-written .exe, so enforcement stays `partial`).
+         * - `disabled` — `masked`, plus the distro-level closure: `[interop]
+         *   enabled=false` in `/etc/wsl.conf` + `wsl --shutdown`, which the
+         *   doctor's remedy prints as copy-paste (a config key does not write
+         *   distro config; enforcement is the kernel's, not the schema's).
+         *
+         * When set at all it takes precedence over the legacy
+         * `maskWindowsDrive` boolean below (unset — the default — lets that
+         * boolean answer); the boolean remains for existing profiles.
+         */
+        interopVisibility: z<"masked" | "visible" | "disabled", "masked" | "visible" | "disabled", "plain">;
         maskWindowsDrive: z<boolean, boolean, "defined">;
         /**
          * Default workdir for a request that names none; accepts `/home/andy/proj`,
@@ -296,6 +333,26 @@ export declare class WslShellExecutor extends LocalBashExecutor {
          * complete closure is distro-level: `[interop] enabled=false` in
          * `wsl.conf`.
          */
+        /**
+         * The interop stance in one key (WSL-314), expanding to the per-key
+         * values the measured matrix documents:
+         *
+         * - `visible` (default) — nothing masked; a confined command can read
+         *   `/mnt` and launch Windows executables through interop, which escapes
+         *   the Linux sandbox entirely.
+         * - `masked` — `maskWindowsDrive: true`: `/mnt` is shadowed with an empty
+         *   tmpfs; the drive's files and executables are unreachable (binfmt can
+         *   still run a workspace-written .exe, so enforcement stays `partial`).
+         * - `disabled` — `masked`, plus the distro-level closure: `[interop]
+         *   enabled=false` in `/etc/wsl.conf` + `wsl --shutdown`, which the
+         *   doctor's remedy prints as copy-paste (a config key does not write
+         *   distro config; enforcement is the kernel's, not the schema's).
+         *
+         * When set at all it takes precedence over the legacy
+         * `maskWindowsDrive` boolean below (unset — the default — lets that
+         * boolean answer); the boolean remains for existing profiles.
+         */
+        interopVisibility: z<"masked" | "visible" | "disabled", "masked" | "visible" | "disabled", "plain">;
         maskWindowsDrive: z<boolean, boolean, "defined">;
         /**
          * Default workdir for a request that names none; accepts `/home/andy/proj`,

@@ -18,6 +18,7 @@ import { mock } from "node:test";
 import { AGENT_NAME, PROTOCOL_VERSION, encodeB64 } from "../lib/agent-protocol.js";
 import { AgentUnavailableError, CwdError, SpawnError } from "../lib/agent-errors.js";
 import { WslAgent, agentLeaseEnv, pinnedWindowsEnv } from "../lib/agent.js";
+import { effectiveMaskWindowsDrive } from "../lib/index.js";
 import { confinedAgent, resetConfinedAgents, runSpawnChecklist, spawnChecklistScript } from "../lib/agent-confined.js";
 import { bwrapProfileArgs } from "../lib/bwrap.js";
 
@@ -1230,6 +1231,15 @@ checkReg("a handshake exit carries the resident's stderr on the failure", async 
   assert.match(error.message, /exited during handshake/);
   assert.match(error.message, /stderr=bwrap: Can't find source path/, "the resident's own refusal must ride the failure");
   await agent.close();
+});
+
+checkReg("interopVisibility stance takes precedence over the legacy boolean", () => {
+  assert.equal(effectiveMaskWindowsDrive({}), false, "unset stance and no legacy boolean masks nothing");
+  assert.equal(effectiveMaskWindowsDrive({ maskWindowsDrive: true }), true, "the legacy boolean answers while the stance key is unset");
+  assert.equal(effectiveMaskWindowsDrive({ interopVisibility: "masked" }), true);
+  assert.equal(effectiveMaskWindowsDrive({ interopVisibility: "disabled" }), true, "disabled masks in-session: the belt, while the distro-level closure stays a documented user step");
+  assert.equal(effectiveMaskWindowsDrive({ interopVisibility: "visible", maskWindowsDrive: true }), false, "an explicit visible stance overrides the legacy boolean");
+  assert.equal(effectiveMaskWindowsDrive({ interopVisibility: undefined, maskWindowsDrive: true }), true, "undefined keeps the legacy answer");
 });
 
 for (const [name, fn] of checks) {

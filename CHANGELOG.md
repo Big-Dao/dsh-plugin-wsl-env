@@ -16,6 +16,18 @@ were part of the record.
 
 ## [Unreleased]
 
+### Fixed
+
+- **WSL-306: a directory name containing a newline lists as one exact row in
+  the picker.** The picker's distro-side listing was `ls -1ALp` line-parsed —
+  a newline in a name split into two rows or dropped out entirely. The
+  listing is now `find -L <dir> -maxdepth 1 -mindepth 1 -type d -print0`
+  (NUL-separated, `-type d` filtering in the distro where `-L` resolves
+  symlinks), sorted host-side. Busybox find supports every flag — verified on
+  alpine:3, debian:stable-slim and fedora:latest with a newline-named
+  fixture, and the picker probe now carries that fixture against the real
+  composition. The LIMITATIONS entry retires.
+
 ### Changed
 
 - **The real-machine probes now run nightly on the self-hosted runner.** A

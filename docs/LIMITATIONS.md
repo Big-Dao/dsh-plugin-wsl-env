@@ -246,15 +246,12 @@ crosses the 9p share. What to know about the one substrate there is:
 ## The directory picker
 
 - The directory picker lists distro levels from inside the distro — the
-  resident's `ls -1ALp` in one round trip, a one-shot `wsl.exe --exec ls` when
-  it is out, never the 9p walk the host used to pay per entry. The listing is
-  line-parsed and only a line that ends in `/` becomes a row, so a directory
-  name containing a newline cannot be listed correctly: `ls` emits `a\nb` as
-  the two lines `a` and `b/`, and the picker offers the single row `b` at
-  `<parent>/b` — the part after the newline, a different directory or none at
-  all. A name that ends in a newline yields no row at all: the split leaves one
-  segment without a trailing `/` and one empty name, and the parser keeps
-  neither. `/` cannot appear in a name, so nothing else can split one.
+  resident's `find -L <dir> -maxdepth 1 -mindepth 1 -type d -print0` in one
+  round trip, a one-shot `wsl.exe --exec find` when it is out, never the 9p
+  walk the host used to pay per entry. Entries arrive NUL-separated, so a
+  directory name containing a newline lists as one exact row (WSL-306 retired
+  the `ls -1ALp` line parse that used to split such a name into two rows or
+  drop it).
 
 ## Terminals
 

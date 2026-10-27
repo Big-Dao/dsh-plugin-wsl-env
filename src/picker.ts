@@ -57,7 +57,7 @@ import { DirectoryPicker, DirectoryPickerError } from "@deepseek-ai/dsh-host-dir
 import type { Context } from "@deepseek-ai/cordis";
 import type { DirectoryEntry, DirectoryListing, DirectoryPickerBrowseCapability } from "@deepseek-ai/dsh-host-directory-picker";
 import { UNC_PROVIDER_ROOT, distroRoot, isProviderRoot, isWslUnc, uncToPosix } from "./paths.js";
-import { breadcrumbs, boundedInsert, fullyQualified, lsListingArgv, parseLsListing } from "./listing.js";
+import { breadcrumbs, boundedInsert, dirListingArgv, fullyQualified, parseDirListing } from "./listing.js";
 import { listDistros, linuxHome, runCapture } from "./wsl.js";
 import { sharedAgent } from "./agent-shared.js";
 import { AgentUnavailableError } from "./agent-errors.js";
@@ -364,7 +364,7 @@ export class WslDirectoryPicker extends DirectoryPicker {
     try {
       const result = await sharedAgent(parsed.distro).exec({
         cwd: linuxDir,
-        argv: lsListingArgv(linuxDir),
+        argv: dirListingArgv(linuxDir),
         timeoutMs: 15_000,
         signal,
       });
@@ -381,14 +381,14 @@ export class WslDirectoryPicker extends DirectoryPicker {
       if (!(error instanceof AgentUnavailableError)) throw error;
       try {
         stdout = await runCapture(
-          [this.config.wslPath, "-d", parsed.distro, "--cd", linuxDir, "--exec", ...lsListingArgv(linuxDir)],
+          [this.config.wslPath, "-d", parsed.distro, "--cd", linuxDir, "--exec", ...dirListingArgv(linuxDir)],
           signal,
         );
       } catch (fallbackError) {
         throw new DirectoryPickerError("directory-unreadable", target, `cannot list ${target}: ${messageOf(fallbackError)}`);
       }
     }
-    return parseLsListing(stdout, target, this.config.maxEntries);
+    return parseDirListing(stdout, linuxDir, target, this.config.maxEntries);
   }
 
   /**

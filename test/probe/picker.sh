@@ -21,6 +21,9 @@ SCRATCH_LINUX="$DSH_WSL_ENV_HOME/.dsh-pickerprobe"
 # replacing its separators and prefixing the share.
 SCRATCH_UNC="\\\\wsl.localhost\\$DISTRO${SCRATCH_LINUX//\//\\}"
 mkdir -p "$SCRATCH_LINUX/alpha" "$SCRATCH_LINUX/beta" "$SCRATCH_LINUX/gamma"
+# WSL-306: a directory whose name contains a newline — the row the line parse
+# used to split into two. Named to sort first so the capped level offers it.
+mkdir -p "$SCRATCH_LINUX/$(printf '0-has\nnewline')"
 
 OVERLAY="$(write_overlay picker-probe.yml .generated-picker-probe.yml \
   DISTRO "$DISTRO" HOST_HOME "$(win_path "$WIN_HOME")" MAX_ENTRIES "$MAX_ENTRIES" \

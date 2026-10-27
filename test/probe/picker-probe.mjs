@@ -111,6 +111,8 @@ async function run(ctx, config) {
     check("maxEntries caps the level", entries.length <= config.maxEntries, `entries=${entries.length} cap=${config.maxEntries}`);
     check("a capped level says it was truncated", capped.value.truncated === true, `truncated=${capped.value.truncated}`);
     check("only directories are offered", entries.every((entry) => typeof entry.path === "string" && entry.path.length > 0), entries.map((e) => e.name).join(", "));
+    const newlineName = "0-has\nnewline";
+    check("a newline-named directory lists as one exact row (WSL-306)", entries.some((entry) => entry.name === newlineName), JSON.stringify(entries.map((e) => e.name)));
   } else {
     check("the prepared scratch level lists", false, `${(/** @type {CodedError} */ (capped.error)).code} ${(/** @type {CodedError} */ (capped.error)).message}`);
   }

@@ -5,7 +5,7 @@
  *   node test/listing.test.mjs
  */
 import assert from "node:assert/strict";
-import { ancestryCrumbs, boundedInsert, breadcrumbs, fullyQualified, lsListingArgv, parseLsListing } from "../lib/listing.js";
+import { ancestryCrumbs, boundedInsert, breadcrumbs, dirListingArgv, fullyQualified, parseDirListing } from "../lib/listing.js";
 import { UNC_PROVIDER_ROOT, distroRoot, isProviderRoot } from "../lib/paths.js";
 
 let passed = 0;
@@ -129,33 +129,54 @@ check("boundedInsert displaces the largest when a smaller candidate arrives", ()
   );
 });
 
-check("lsListingArgv lists one level with links resolved and directories marked", () => {
-  assert.deepEqual(lsListingArgv("/home/andy"), ["ls", "-1ALp", "--", "/home/andy"]);
+check("dirListingArgv lists one level with links resolved and NUL separation", () => {
+  assert.deepEqual(dirListingArgv("/home/andy"), ["find", "-L", "/home/andy", "-maxdepth", "1", "-mindepth", "1", "-type", "d", "-print0"]);
 });
 
-check("parseLsListing keeps enterable rows and carries the UNC parent into paths", () => {
+check("parseDirListing keeps enterable rows, carries the UNC parent into paths, and sorts", () => {
   // `-L` folds the per-entry stat the host walk paid 9p round trips for:
-  // a symlink to a directory ends with `/`, a file never does, and a broken
-  // link is not listed at all.
-  const { rows, truncated } = parseLsListing(
-    "docs/\nnote.md\n.proj/\nZ/\n",
+  // a symlink to a directory arrives through `-type d`, a file never does,
+  // and a broken link is not listed at all. `find` is unsorted; the parse
+  // sorts host-side.
+  // The fixture is exactly what `find -L -type d -print0` emits: files never
+  // reach the parse — `-type d` filtered them in the distro.
+  const { rows, truncated } = parseDirListing(
+    "/home/andy/docs\0/home/andy/.proj\0/home/andy/Z\0",
+    "/home/andy",
     "\\\\wsl.localhost\\ubuntu\\home\\andy",
     10,
   );
   assert.deepEqual(
     rows.map((row) => row.name),
-    ["docs", ".proj", "Z"],
+    [".proj", "Z", "docs"],
   );
-  const [docsRow, projRow] = rows;
-  assert.ok(docsRow !== undefined && projRow !== undefined, "the parse kept the three rows in order");
+  const [projRow, zRow, docsRow] = rows;
+  assert.ok(docsRow !== undefined && projRow !== undefined && zRow !== undefined, "the parse kept the three rows");
   assert.equal(projRow.hidden, true);
   assert.equal(docsRow.hidden, false);
   assert.equal(docsRow.path, "\\\\wsl.localhost\\ubuntu\\home\\andy\\docs");
   assert.equal(truncated, false);
 });
 
-check("parseLsListing caps rows at maxEntries and flags the remainder", () => {
-  const { rows, truncated } = parseLsListing("a/\nb/\nc/\n", "\\\\wsl.localhost\\ubuntu\\root", 2);
+check("parseDirListing keeps a newline inside a name whole (WSL-306)", () => {
+  const { rows } = parseDirListing(
+    "/home/andy/a\nb\0/home/andy/after\0",
+    "/home/andy",
+    "\\\\wsl.localhost\\ubuntu\\home\\andy",
+    10,
+  );
+  assert.deepEqual(
+    rows.map((row) => row.name),
+    ["a\nb", "after"],
+    "the NUL boundary, not the newline, is what splits entries",
+  );
+  const first = rows[0];
+  assert.ok(first !== undefined);
+  assert.equal(first.path, "\\\\wsl.localhost\\ubuntu\\home\\andy\\a\nb");
+});
+
+check("parseDirListing caps rows at maxEntries and flags the remainder", () => {
+  const { rows, truncated } = parseDirListing("/root/a\0/root/b\0/root/c\0", "/root", "\\\\wsl.localhost\\ubuntu\\root", 2);
   assert.deepEqual(
     rows.map((row) => row.name),
     ["a", "b"],
@@ -163,9 +184,17 @@ check("parseLsListing caps rows at maxEntries and flags the remainder", () => {
   assert.equal(truncated, true);
 });
 
-check("parseLsListing tolerates blank lines and an empty listing", () => {
-  assert.deepEqual(parseLsListing("", "\\\\wsl.localhost\\ubuntu", 5).rows, []);
-  assert.deepEqual(parseLsListing("\n\n", "\\\\wsl.localhost\\ubuntu", 5).rows, []);
+check("parseDirListing tolerates an empty listing and a trailing NUL", () => {
+  assert.deepEqual(parseDirListing("", "/", "\\\\wsl.localhost\\ubuntu", 5).rows, []);
+  assert.deepEqual(parseDirListing("\0", "/", "\\\\wsl.localhost\\ubuntu", 5).rows, []);
+});
+
+check("parseDirListing handles the root listing's single-slash prefix", () => {
+  const { rows } = parseDirListing("/bin\0/etc\0", "/", "\\\\wsl.localhost\\ubuntu", 5);
+  assert.deepEqual(
+    rows.map((row) => row.name),
+    ["bin", "etc"],
+  );
 });
 
 console.log(`\n${passed} checks passed`);

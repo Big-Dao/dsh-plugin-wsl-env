@@ -18,6 +18,20 @@ were part of the record.
 
 ### Fixed
 
+- **WSL-307: the confined resident's spawn preparation is now a named
+  self-heal checklist.** WSL-305 fixed the missing workspace root; the same
+  fresh-distro class has more members (no `sh`, no `base64`, no `sha256sum` —
+  minirootfs ships almost none of this). The confined factory's `prepare` now
+  runs one `sh -c` round trip whose first failing step names itself
+  (`workspace-root`, `interpreter`, `base64`, `sha256sum`), and the failure
+  reaches the caller as `spawn checklist step '<name>' failed in <distro>`
+  instead of a bare handshake code. The root rides as `$1`, never
+  interpolated into the script body. Verified end to end on Debian with an
+  absent workspace root: the checklist creates it and the first confined
+  write lands.
+
+### Fixed
+
 - **WSL-306: a directory name containing a newline lists as one exact row in
   the picker.** The picker's distro-side listing was `ls -1ALp` line-parsed —
   a newline in a name split into two rows or dropped out entirely. The

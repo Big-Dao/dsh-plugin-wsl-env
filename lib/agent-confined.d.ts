@@ -1,35 +1,41 @@
 import { WslAgent } from "./agent.js";
 /**
- * The spawn function `ensureWorkspaceRoot` uses; injectable so a unit test can
- * observe the argv without a real `wsl.exe`.
- */
-type SpawnLike = (file: string, args: string[], options: {
-    stdio: "ignore";
-    windowsHide: boolean;
-    env: NodeJS.ProcessEnv;
-}) => {
-    on: (event: string, handler: (...args: unknown[]) => void) => void;
-};
-/**
- * Make sure the workspace root exists in the distro before the confined
- * resident's first spawn: the bwrap profile binds the root
- * (`--bind <root> <root>`) and bwrap refuses a missing bind source — on a
- * freshly imported distro the first write's workspace may not exist yet, and
- * the resident would exit during its handshake with a bare code 1 and no
- * hint (WSL-305). Idempotent (`mkdir -p`), and its outcome is deliberately
- * ignored here: bwrap remains the authority on whether the profile can be
- * built, and its refusal now reaches the caller through the handshake
- * error's stderr tail.
+ * The resident's spawn checklist, as one `sh -c` body run in the distro.
  *
- * @param options - the transport, distro, root, and an injectable spawn.
- * @returns resolves once the `mkdir -p` has been issued (settled, whatever
- * its result — bwrap decides).
+ * Steps, in order — the first failing step names itself on stderr and exits 1:
+ *
+ * - `workspace-root`: the bwrap profile binds the root (`--bind <root>
+ *   <root>`) and bwrap refuses a missing bind source, so `mkdir -p` it — on a
+ *   freshly imported distro the first write's workspace may not exist yet
+ *   (WSL-305).
+ * - `interpreter`: the resident runs as `sh <script>`; a distro without `sh`
+ *   is not a distro this plugin can serve.
+ * - `base64` and `sha256sum`: the agent script's frames and its HELLO digest
+ *   read through them; coreutils provides both on the glibc families and
+ *   busybox applets on Alpine (verified in the container matrix).
+ *
+ * The root rides as `$1`, so the body carries no interpolated path — the
+ * same body is safe for any (distro, root) pair.
+ *
+ * @param root - the Linux-spelled workspace root.
+ * @returns the `sh -c` body.
  */
-export declare function ensureWorkspaceRoot({ wslPath, distro, root, spawnFn }: {
+export declare function spawnChecklistScript(root: string): string;
+/**
+ * Run the spawn checklist in the distro: one `wsl.exe --exec sh -c` round
+ * trip, the workspace root as `$1`. Resolves when every step passes;
+ * rejects with the named failing step when one does not — the resident
+ * would exit during its handshake with a bare code 1 and no hint (WSL-305),
+ * and a name beats a code.
+ *
+ * @param options - the transport, distro, root, and an injectable run.
+ * @returns resolves when the checklist passes.
+ */
+export declare function runSpawnChecklist({ wslPath, distro, root, runFn }: {
     wslPath: string;
     distro: string;
     root: string;
-    spawnFn?: SpawnLike;
+    runFn?: (argv: string[]) => Promise<unknown>;
 }): Promise<void>;
 /** One confinement request. */
 export interface ConfinedAgentRequest {

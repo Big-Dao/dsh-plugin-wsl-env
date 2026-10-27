@@ -31,50 +31,74 @@
  *
  * @module dsh-plugin-wsl/agent-confined
  */
-import { spawn } from "node:child_process";
 import { bwrapArgvPrefix } from "./bwrap.js";
 import { toLinuxPath } from "./paths.js";
 import { agentScriptDigest, agentScriptPath } from "./agent-shared.js";
-import { pinnedWindowsEnv, WslAgent } from "./agent.js";
+import { WslAgent } from "./agent.js";
 
 const confinedAgents = new Map<string, WslAgent>();
 
-/**
- * The spawn function `ensureWorkspaceRoot` uses; injectable so a unit test can
- * observe the argv without a real `wsl.exe`.
- */
-type SpawnLike = (file: string, args: string[], options: { stdio: "ignore", windowsHide: boolean, env: NodeJS.ProcessEnv }) => { on: (event: string, handler: (...args: unknown[]) => void) => void };
 
 /**
- * Make sure the workspace root exists in the distro before the confined
- * resident's first spawn: the bwrap profile binds the root
- * (`--bind <root> <root>`) and bwrap refuses a missing bind source — on a
- * freshly imported distro the first write's workspace may not exist yet, and
- * the resident would exit during its handshake with a bare code 1 and no
- * hint (WSL-305). Idempotent (`mkdir -p`), and its outcome is deliberately
- * ignored here: bwrap remains the authority on whether the profile can be
- * built, and its refusal now reaches the caller through the handshake
- * error's stderr tail.
+ * The resident's spawn checklist, as one `sh -c` body run in the distro.
  *
- * @param options - the transport, distro, root, and an injectable spawn.
- * @returns resolves once the `mkdir -p` has been issued (settled, whatever
- * its result — bwrap decides).
+ * Steps, in order — the first failing step names itself on stderr and exits 1:
+ *
+ * - `workspace-root`: the bwrap profile binds the root (`--bind <root>
+ *   <root>`) and bwrap refuses a missing bind source, so `mkdir -p` it — on a
+ *   freshly imported distro the first write's workspace may not exist yet
+ *   (WSL-305).
+ * - `interpreter`: the resident runs as `sh <script>`; a distro without `sh`
+ *   is not a distro this plugin can serve.
+ * - `base64` and `sha256sum`: the agent script's frames and its HELLO digest
+ *   read through them; coreutils provides both on the glibc families and
+ *   busybox applets on Alpine (verified in the container matrix).
+ *
+ * The root rides as `$1`, so the body carries no interpolated path — the
+ * same body is safe for any (distro, root) pair.
+ *
+ * @param root - the Linux-spelled workspace root.
+ * @returns the `sh -c` body.
  */
-export function ensureWorkspaceRoot({ wslPath, distro, root, spawnFn }: { wslPath: string, distro: string, root: string, spawnFn?: SpawnLike }): Promise<void> {
-  return new Promise((resolve) => {
-    const doSpawn = spawnFn ?? ((
-      file: string,
-      args: string[],
-      options: { stdio: "ignore", windowsHide: boolean, env: NodeJS.ProcessEnv },
-    ) => spawn(file, args, options));
-    const child = doSpawn(wslPath, ["-d", distro, "--exec", "mkdir", "-p", root], {
-      stdio: "ignore",
-      windowsHide: true,
-      env: pinnedWindowsEnv(process.env),
-    });
-    child.on("error", () => resolve());
-    child.on("exit", () => resolve());
+export function spawnChecklistScript(root: string): string {
+  return [
+    'mkdir -p -- "$1" || { echo workspace-root >&2; exit 1; }',
+    "command -v sh >/dev/null || { echo interpreter >&2; exit 1; }",
+    "command -v base64 >/dev/null || { echo base64 >&2; exit 1; }",
+    "command -v sha256sum >/dev/null || { echo sha256sum >&2; exit 1; }",
+  ].join("\n");
+}
+
+/**
+ * Run the spawn checklist in the distro: one `wsl.exe --exec sh -c` round
+ * trip, the workspace root as `$1`. Resolves when every step passes;
+ * rejects with the named failing step when one does not — the resident
+ * would exit during its handshake with a bare code 1 and no hint (WSL-305),
+ * and a name beats a code.
+ *
+ * @param options - the transport, distro, root, and an injectable run.
+ * @returns resolves when the checklist passes.
+ */
+export async function runSpawnChecklist({ wslPath, distro, root, runFn }: { wslPath: string, distro: string, root: string, runFn?: (argv: string[]) => Promise<unknown> }): Promise<void> {
+  const run = runFn ?? (async (argv: string[]) => {
+    const { runCapture } = await import("./wsl.js");
+    return runCapture([wslPath, "-d", distro, ...argv]);
   });
+  let detail = "";
+  try {
+    await run(["--exec", "sh", "-c", spawnChecklistScript(root), "sh", root]);
+  } catch (error) {
+    // runCapture rejects on the checklist's non-zero exit with the stderr
+    // folded into the message — where the failing step named itself.
+    detail = String(error).trim();
+  }
+  const named = /workspace-root|interpreter|base64|sha256sum/.exec(detail)?.[0];
+  if (named !== undefined) {
+    throw new Error(`spawn checklist step '${named}' failed in ${distro}`);
+  }
+  if (detail !== "") {
+    throw new Error(`spawn checklist could not run in ${distro}: ${detail.slice(0, 200)}`);
+  }
 }
 
 /** One confinement request. */
@@ -134,7 +158,7 @@ export function confinedAgent({ distro, wslPath = "wsl.exe", policy, maskWindows
       // used to exit during its handshake with a bare code 1. Create the root
       // before the first spawn; every later start re-runs it harmlessly.
       prepare: policy.mode === "workspace-write"
-        ? () => ensureWorkspaceRoot({ wslPath, distro, root: linuxRoot }).then(() => undefined)
+        ? () => runSpawnChecklist({ wslPath, distro, root: linuxRoot }).then(() => undefined)
         : undefined,
     });
     confinedAgents.set(key, agent);

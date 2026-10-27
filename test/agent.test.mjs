@@ -18,7 +18,7 @@ import { mock } from "node:test";
 import { AGENT_NAME, PROTOCOL_VERSION, encodeB64 } from "../lib/agent-protocol.js";
 import { AgentUnavailableError, CwdError, SpawnError } from "../lib/agent-errors.js";
 import { WslAgent, agentLeaseEnv, pinnedWindowsEnv } from "../lib/agent.js";
-import { confinedAgent, ensureWorkspaceRoot, resetConfinedAgents } from "../lib/agent-confined.js";
+import { confinedAgent, resetConfinedAgents, runSpawnChecklist, spawnChecklistScript } from "../lib/agent-confined.js";
 import { bwrapProfileArgs } from "../lib/bwrap.js";
 
 let passed = 0;
@@ -1171,28 +1171,47 @@ checkReg("workspace-write prepares the workspace root; read-only does not", () =
   assert.equal(readOnly.prepare, undefined, "read-only binds /, which always exists");
 });
 
-checkReg("prepare issues mkdir -p with the linux-spelled root, ignoring the outcome", async () => {
-  /** @type {{ file: string, args: string[], stdio: string }[]} */
+checkReg("the checklist script names its steps in order and takes the root as $1", () => {
+  const script = spawnChecklistScript("/home/andy/.dsh-fsprobe");
+  assert.match(script, /mkdir -p -- "\$1"/, "the root rides as $1, never interpolated into the body");
+  assert.match(script, /echo workspace-root >&2/);
+  assert.match(script, /echo interpreter >&2/);
+  assert.match(script, /echo base64 >&2/);
+  assert.match(script, /echo sha256sum >&2/);
+});
+
+checkReg("runSpawnChecklist issues one exec round trip with the root as $1", async () => {
+  /** @type {string[][]} */
   const calls = [];
-  /** @param {string} file @param {string[]} args @param {{ stdio: string }} options */
-  const spawnFn = (file, args, options) => {
-    calls.push({ file, args, stdio: options.stdio });
-    return { on: (/** @type {string} */ event, /** @type {(...args: unknown[]) => void} */ handler) => { if (event === "exit") handler(0, null); } };
-  };
-  await ensureWorkspaceRoot({ wslPath: "wsl.exe", distro: "Debian", root: "/home/andy/.dsh-fsprobe", spawnFn });
-  assert.equal(calls.length, 1);
-  const first = calls[0];
-  assert.ok(first, "the mkdir spawn was observed");
-  assert.equal(first.file, "wsl.exe");
-  assert.deepEqual(first.args, ["-d", "Debian", "--exec", "mkdir", "-p", "/home/andy/.dsh-fsprobe"]);
-  assert.equal(first.stdio, "ignore", "the mkdir is quiet: bwrap stays the authority on failure");
-  // A failing spawn resolves instead of rejecting — bwrap decides later.
-  /** @param {string} event @param {(...args: unknown[]) => void} handler */
-  const onErr = (event, handler) => { if (event === "error") handler(new Error("no")); };
-  await ensureWorkspaceRoot({
-    wslPath: "wsl.exe", distro: "Debian", root: "/x",
-    spawnFn: () => ({ on: onErr }),
+  await runSpawnChecklist({
+    wslPath: "wsl.exe", distro: "Debian", root: "/home/andy/.dsh-fsprobe",
+    runFn: async (argv) => { calls.push(argv); },
   });
+  assert.equal(calls.length, 1);
+  const argv = calls[0] ?? [];
+  assert.deepEqual(argv.slice(0, 3), ["--exec", "sh", "-c"]);
+  assert.equal(argv.at(-2), "sh");
+  assert.equal(argv.at(-1), "/home/andy/.dsh-fsprobe");
+});
+
+checkReg("a failing checklist step is named on the rejection", async () => {
+  await assert.rejects(
+    () => runSpawnChecklist({
+      wslPath: "wsl.exe", distro: "Debian", root: "/x",
+      runFn: async () => { throw new Error("wsl.exe failed: base64"); },
+    }),
+    /spawn checklist step 'base64' failed in Debian/,
+  );
+});
+
+checkReg("an unreachable checklist is reported as its own failure", async () => {
+  await assert.rejects(
+    () => runSpawnChecklist({
+      wslPath: "wsl.exe", distro: "Debian", root: "/x",
+      runFn: async () => { throw new Error("wsl.exe failed: WSL is unreachable"); },
+    }),
+    /spawn checklist could not run in Debian/,
+  );
 });
 
 checkReg("a handshake exit carries the resident's stderr on the failure", async () => {

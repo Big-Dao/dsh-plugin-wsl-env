@@ -91,6 +91,15 @@ The harness-level probes (`run.sh`, `terminal.sh`, `picker.sh`,
 profile from `run.sh`'s header; on a second distro, copy that profile and set
 its `distro:` key.
 
+## Scope decisions
+
+- **Windows 10 is not separately verified (decided 2026-10-27).** The plugin's
+  entire surface is `wsl.exe`, the distro, and a UNC share; on WSL2 those are
+  the same components on Windows 10 as on Windows 11, and the version-specific
+  behaviour lives upstream in WSL itself, not in anything this plugin mounts.
+  Windows 11 is what the matrix above measures; a Win10 report is welcomed
+  through the support channels, but no separate verification is planned.
+
 ## Not yet measured
 
 - Real aarch64 hardware (qemu CI leg covers execution; see above).

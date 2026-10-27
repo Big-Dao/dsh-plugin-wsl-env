@@ -44,6 +44,17 @@ were part of the record.
 
 ### Changed
 
+- **The doctor gains a cross-distro sessions view (WSL-309) and marks live
+  residents (WSL-313's observable half).** A new survey after the runtime
+  checks lists every running distro with its `dsh-wsl-*.scope`, the scope
+  state and the resident pids the distro's own cgroup attests — the
+  concurrent-sessions coordinate routing made possible, made visible. The
+  agent.handshake check now notes when a live resident is already running in
+  the surveyed distro (and that its fresh probe cannot read that resident's
+  last error). The scope report records resident pids alongside the stale
+  verdict. Idle countdowns and lastError stay host-side — no IPC exists, and
+  the boundary is documented in LIMITATIONS.
+
 - **The real-machine probes now run nightly on the self-hosted runner.** A
   schedule trigger (21:30 UTC) fires only the `probes` job — every hosted job
   skips the event — so the Tier 1 "probe suite 100%, nightly" metric collects

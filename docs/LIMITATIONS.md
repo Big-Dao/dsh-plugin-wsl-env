@@ -214,6 +214,17 @@ crosses the 9p share. What to know about the one substrate there is:
   the user scopes once; a scope created or stopped a moment later is not
   reflected. `--fix` runs the same sweep the session preflight uses.
 
+## The doctor's sessions table
+
+- **The sessions table shows distro-side facts only.** The cross-distro view
+  (`distro → scope → state → resident pids`) attests what the distro can see:
+  which scopes exist and which pids inside them are agent processes. A
+  resident's idle countdown and its `lastError` live in the host process that
+  owns it — there is no IPC channel from a plugin script to the app, so the
+  table cannot show them (`WSL-313`'s upstream ask). The agent.handshake
+  check notes a live resident's presence when the scope survey sees one, and
+  says that its own probe starts a fresh one.
+
 ## Session-start advisories
 
 - **There is no session-UI notice seam in DSH 0.2.1.** When a distro session

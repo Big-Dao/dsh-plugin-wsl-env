@@ -63,10 +63,10 @@ const STALE_SCOPE_REPORT = [
   '  if [ -n "$cg" ] && [ -r "/sys/fs/cgroup$cg/cgroup.procs" ]; then',
   '    while read -r pid; do',
   '      [ -n "$pid" ] || continue',
-  "      if tr '\\0' ' ' < \"/proc/$pid/cmdline\" 2>/dev/null | grep -q -e 'wsl-agent.sh' -e 'dsh-wsl-agent'; then alive=1; break; fi",
+  "      if tr '\\0' ' ' < \"/proc/$pid/cmdline\" 2>/dev/null | grep -q -e 'wsl-agent.sh' -e 'dsh-wsl-agent'; then alive=1; pids=\"$pids $pid\"; fi",
   '    done < "/sys/fs/cgroup$cg/cgroup.procs"',
   "  fi",
-  '  echo "$unit $([ "$alive" -eq 1 ] && echo active || echo stale)"',
+  '  echo "$unit $([ "$alive" -eq 1 ] && echo active || echo stale) pids:${pids:-none}"',
   "done",
 ].join("\n");
 /** The agent-cache inventory: one `state digest` line per cached binary. */
@@ -385,6 +385,13 @@ async function main(options) {
     check("agent.cache", bad > 0 ? "warn" : "ok", "Agent cache", `${entries.length} cached binary(ies)${bad > 0 ? `, ${bad} not executable` : ""}`, bad > 0 ? `rm -rf ~/.cache/dsh-wsl/agent inside "${distro}"; the next command repopulates it` : undefined);
   }
 
+  const scopes = (await inDistro(distro, STALE_SCOPE_REPORT)).stdout.trim();
+  const scopeLines = scopes === "none" || scopes.length === 0 ? [] : scopes.split(/\r?\n/);
+  const stale = scopeLines.filter((line) => /\sstale(\s|$)/.test(line)).length;
+  const livePids = scopeLines.flatMap((line) => {
+    const m = /\spids:([0-9 ]+)$/.exec(line);
+    return m === null ? [] : m[1].trim().split(/\s+/).filter((p) => p.length > 0);
+  });
   // ---- resident handshake --------------------------------------------------
   const agentScript = join(ROOT, "agent", "wsl-agent.sh");
   if (!agentScript.startsWith("/")) {
@@ -394,8 +401,11 @@ async function main(options) {
   } else {
     const handshake = await probeResident(distro, agentScript);
     if (handshake.ok) {
+      const live = livePids.length > 0
+        ? `; a live resident (pid${livePids.length > 1 ? "s" : ""} ${livePids.join(", ")}) is already running in this distro — this check starts a fresh one, which cannot read its last error`
+        : "";
       check("agent.handshake", handshake.digestMatches ? "ok" : "fail", "Agent handshake",
-        `pid ${handshake.pid}, protocol ${PROTOCOL_VERSION}, digest ${handshake.digestMatches ? "matches" : "MISMATCH — the distro reads a different script than this package"}`,
+        `pid ${handshake.pid}, protocol ${PROTOCOL_VERSION}, digest ${handshake.digestMatches ? "matches" : "MISMATCH — the distro reads a different script than this package"}${live}`,
         handshake.digestMatches ? undefined : "resync the runtime copy (pnpm run sync:windows), then restart the app");
     } else {
       check("agent.handshake", "fail", "Agent handshake", handshake.detail, "restart the DSH app; if it persists, delete ~/.cache/dsh-wsl/agent inside the distro and rerun the doctor");
@@ -403,12 +413,49 @@ async function main(options) {
   }
 
   // ---- stale session scopes ------------------------------------------------
-  const scopes = (await inDistro(distro, STALE_SCOPE_REPORT)).stdout.trim();
-  const scopeLines = scopes === "none" || scopes.length === 0 ? [] : scopes.split(/\r?\n/);
-  const stale = scopeLines.filter((line) => line.endsWith(" stale")).length;
   if (scopeLines.length === 0) check("runtime.scopes", "info", "Session scopes", "none (no user manager, or none left behind)");
   else if (stale === 0) check("runtime.scopes", "ok", "Session scopes", `${scopeLines.length} live, none stale`);
   else check("runtime.scopes", "warn", "Session scopes", `${stale} stale of ${scopeLines.length}`, "--fix stops them (the same sweep the session preflight runs); they are safe to stop when no agent process is inside");
+
+  // ---- sessions across running distros (WSL-309) ----------------------------
+  // The single-distro checks above answer "is this distro healthy?"; this
+  // survey answers "what is running right now, everywhere?" — the concurrent
+  // sessions coordinate routing makes possible, made visible. Idle timers are
+  // the host process's private state and stay out: a scope's presence and its
+  // resident pids are the facts the distro side can attest.
+  if (!options.json) {
+    // `run` settles an object ({ ok, stdout, code }); `-q` prints plain names,
+    // and the running list's header is dropped by the intersection with them.
+    const names = ((await run([WSL, "--list", "-q"])).stdout ?? "").split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
+    // The default distro carries a localized marker ("ubuntu (默认值)" /
+    // "ubuntu (default)") — strip a trailing parenthesized note before the
+    // intersection with the name list.
+    const running = ((await run([WSL, "--list", "--running"])).stdout ?? "").split(/\r?\n/).map((line) => line.trim().replace(/\s+\([^)]*\)$/, "")).filter((line) => names.includes(line));
+    console.log("");
+    console.log("sessions across running distros");
+    if (running.length === 0) {
+      console.log("  (none)");
+    } else {
+      for (const d of running) {
+        const report = (await inDistro(d, STALE_SCOPE_REPORT)).stdout.trim();
+        const lines = report === "none" || report.length === 0 ? [] : report.split(/\r?\n/);
+        if (report === "none") {
+          console.log(`  ${d}  no user manager — scopes unavailable`);
+          continue;
+        }
+        if (lines.length === 0) {
+          console.log(`  ${d}  no session scopes`);
+          continue;
+        }
+        for (const line of lines) {
+          const m = /^(\S+) (active|stale) pids:(.*)$/.exec(line);
+          if (m === null) { console.log(`  ${d}  ${line}`); continue; }
+          const pids = m[3] === "none" ? "" : `  resident pids:${m[3].trim()}`;
+          console.log(`  ${d}  ${m[1]}  ${m[2]}${pids}`);
+        }
+      }
+    }
+  }
 
   // ---- peers ---------------------------------------------------------------
   const manifest = /** @type {{ peerDependencies?: Record<string, string> }} */ (JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")));

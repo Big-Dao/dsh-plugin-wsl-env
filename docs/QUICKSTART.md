@@ -37,12 +37,30 @@ or an UNC path directly. The session's commands, file tools, terminal and previe
 all run in that distro; a Windows folder keeps the normal Windows environment.
 Two distros can be open at once, each with its own environment.
 
+![The directory picker listing a WSL distro's folders](screenshots/picker.png)
+
+The terminal panel runs in the same distro — `uname -a` answers with the
+distro's kernel, not Windows':
+
+![The GUI terminal running inside the distro](screenshots/terminal.png)
+
+And the Sidebar's preview renders WSL files in place:
+
+![The GUI preview rendering a WSL file](screenshots/preview.png)
+
 ## 4. Verify
 
 Ask for a command, e.g. `pwd && uname -a`. Expected: the Linux path and the
 distro kernel. If the first command fails, the error names the remedy; the
 [doctor](CONFIGURATION.md) and the [Troubleshooting table](../README.md#troubleshooting)
 cover the common cases.
+
+The sandbox is enforced by the kernel, not a promise: the probe below runs the
+shipped bwrap profiles live — writes inside the workspace land, writes outside
+are refused with `EROFS`, and the strict profile hides `/mnt` entirely
+([`test/probe/sandbox.sh`](../test/probe/sandbox.sh)):
+
+![The sandbox probe: every expectation holds, the kernel refuses what the profile does not grant](screenshots/sandbox.png)
 
 ## Recipes
 

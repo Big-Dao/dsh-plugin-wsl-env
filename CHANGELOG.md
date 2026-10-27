@@ -18,6 +18,14 @@ were part of the record.
 
 ### Changed
 
+- **The real-machine probes now run nightly on the self-hosted runner.** A
+  schedule trigger (21:30 UTC) fires only the `probes` job — every hosted job
+  skips the event — so the Tier 1 "probe suite 100%, nightly" metric collects
+  its evidence on its own instead of waiting for a manual dispatch. A
+  dedicated concurrency group folds a backlog of missed nights (runner
+  offline) into the newest run. The probes still require the harness app to
+  be closed; a night where it was open reports honestly red.
+
 - **The shell agent now runs in CI inside the non-Ubuntu containers it
   claims to support.** `test/agent-container.mjs` drives the real
   `wsl-agent.sh` over the v5 frames inside `docker run` for

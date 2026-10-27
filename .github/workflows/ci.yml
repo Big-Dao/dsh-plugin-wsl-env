@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # The nightly self-hosted probe run (the Tier 1 north-star metric). A
+  # schedule fires every job in this workflow, so each hosted job skips the
+  # event and only the probes job runs — on whatever night the development
+  # machine's runner is up. The concurrency group below folds a backlog of
+  # missed nights into the newest run.
+  schedule:
+    - cron: "30 21 * * *" # 21:30 UTC — early morning, +08:00
 
 # Least privilege: every job here only reads the repository.
 permissions:
@@ -12,7 +19,7 @@ permissions:
 
 # A newer push to the same branch makes the older run obsolete.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ${{ github.event_name == 'schedule' && 'ci-nightly-probes' || format('ci-{0}', github.ref) }}
   cancel-in-progress: true
 
 # corepack resolves pnpm from the packageManager field and downloads it once per
@@ -29,6 +36,7 @@ env:
 # See docs/RELEASING.md, and the archived record §16.6 for what that gap once cost.
 jobs:
   test:
+    if: github.event_name != 'schedule'
     name: unit (node ${{ matrix.node }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
@@ -60,6 +68,7 @@ jobs:
       - run: pnpm test
 
   coverage:
+    if: github.event_name != 'schedule'
     name: coverage (node 24)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -83,6 +92,7 @@ jobs:
   # host copies into a distro. The runner image already carries Rust; no new
   # action is needed.
   native:
+    if: github.event_name != 'schedule'
     name: native spike (x86_64)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -103,6 +113,7 @@ jobs:
   # goes through cargo-zigbuild so one job can produce both. The artifacts are
   # downloaded and committed (the plugin has no build step on purpose).
   native-package:
+    if: github.event_name != 'schedule'
     name: native packages (musl x86_64 + aarch64)
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -163,6 +174,7 @@ jobs:
   # Ubuntu. The script mounts the checkout read-only and drives the real
   # agent over stdio; no WSL and no harness.
   agent-containers:
+    if: github.event_name != 'schedule'
     name: shell agent in containers (${{ matrix.image }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -186,7 +198,7 @@ jobs:
   probes:
     name: real-machine probes (self-hosted Windows)
     runs-on: windows-latest
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     timeout-minutes: 20
     defaults:
       run:

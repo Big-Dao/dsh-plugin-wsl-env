@@ -6,8 +6,8 @@ Measured evidence for the support tiers in [`ROADMAP-1.0.md`](ROADMAP-1.0.md)
 suite in [`test/probe/`](../test/probe/) run from inside each distro against a
 fresh `--depth 1` clone. The aarch64 native agent is additionally executed per
 push under qemu in CI — see the `native packages` job in
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml); a run on real
-aarch64 hardware is still pending.
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml); VM-only by
+decision — see "Scope decisions" below.
 
 ## The matrix
 
@@ -93,6 +93,14 @@ its `distro:` key.
 
 ## Scope decisions
 
+- **aarch64 is verified in VM only; physical hardware is out of scope
+  (decided 2026-10-27).** The qemu-user CI leg executes the full 18-check
+  suite against the shipped binary on every push, which covers the agent's
+  own code paths; what only real hardware can add is exposure to aarch64
+  silicon's edge cases, which no Windows-on-ARM device in this project's
+  reach provides. The support table marks aarch64 "supported (executed in
+  CI)" and stays that way.
+
 - **Windows 10 is not separately verified (decided 2026-10-27).** The plugin's
   entire surface is `wsl.exe`, the distro, and a UNC share; on WSL2 those are
   the same components on Windows 10 as on Windows 11, and the version-specific
@@ -102,7 +110,6 @@ its `distro:` key.
 
 ## Not yet measured
 
-- Real aarch64 hardware (qemu CI leg covers execution; see above).
 - Non-systemd session scopes driven by a real WSL terminal session (the
   probe's skipped legs).
 - ~~Container images~~ — closed 2026-10-27: `test/agent-container.mjs` runs

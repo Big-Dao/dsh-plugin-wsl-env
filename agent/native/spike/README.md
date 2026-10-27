@@ -88,5 +88,6 @@ fallback and `agentBackend: shell` forces it.
   CI — the aarch64 binary runs the full 18-check suite under qemu-user
   (user-mode emulation suffices: the static musl binary and the v5 frames are
   host-OS-free, and `/proc/self/exe` resolves to the target under qemu, so the
-  HELLO digest binding holds). A functional run on real aarch64 hardware is
-  still pending, and v6 (FS concurrency/ERR frames) is future work.
+  HELLO digest binding holds). Real aarch64 hardware is out of scope by
+  decision (2026-10-27) — qemu is the verification boundary — and v6 (FS
+  concurrency/ERR frames) is future work.

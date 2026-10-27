@@ -221,6 +221,27 @@ the mirror does not, or one that differs.
 That destination is outside a session workspace, so a confined agent session is
 refused there and has to approve a wider permission for the one command.
 
+## 8.5. Announce on the upstream discussion
+
+Every release appends an update comment to the plugin's upstream thread,
+[deepseek-ai/deepseek-harness discussion #8644](https://github.com/deepseek-ai/deepseek-harness/discussions/8644)
+(node id `D_kwDOT3T1g84AptnQ`), so followers of that thread see each version
+without watching this repository:
+
+- One comment per release, in Chinese (the thread's established language for
+  updates; the English original stays as the top post, refreshed on notable
+  releases).
+- Content: the version, the two or three headline changes, the current
+  verification snapshot in one line (unit tests, matrix, container and qemu
+  legs, nightly probes), and the release link.
+- Post it with the same GraphQL mutation the 2026-10-27 update used
+  (`addDiscussionComment` on the discussion's node id) from a session that
+  holds the maintainer's GitHub credentials — the release workflow's
+  `GITHUB_TOKEN` is scoped to this repository and cannot write there.
+
+This is a hard checklist item, not a nicety: the thread is where the DSH
+community found the plugin, and a stale thread reads as an abandoned one.
+
 ## 9. If a version turns out to be bad
 
 npm does not let a published version be replaced, so the fix goes forward:

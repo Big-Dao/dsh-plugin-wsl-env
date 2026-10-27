@@ -158,7 +158,7 @@ step "6. bubblewrap"
 # tarballs strip it, and a written [boot] systemd=true without the package is
 # a boot that never starts.
 case "$FAMILY" in
-  apt-get) INSTALL_CMD="apt-get update -qq && apt-get install -y -qq --no-install-recommends bubblewrap git ripgrep inotify-tools systemd" ;;
+  apt-get) INSTALL_CMD="apt-get update -qq && apt-get install -y -qq --no-install-recommends bubblewrap git ripgrep inotify-tools systemd systemd-sysv" ;;
   dnf) INSTALL_CMD="dnf install -y -q bubblewrap git ripgrep inotify-tools systemd" ;;
   pacman) INSTALL_CMD="pacman -Sy --noconfirm --needed bubblewrap git ripgrep inotify-tools systemd" ;;
   zypper) INSTALL_CMD="zypper --non-interactive install bubblewrap git ripgrep inotify-tools systemd" ;;
@@ -170,9 +170,11 @@ wsl.exe -d "$NAME" --exec bwrap --version >/dev/null 2>&1 && echo "bwrap ok"
 # ---- 7. Linger ----------------------------------------------------------------
 step "7. Linger"
 if [ "$SYSTEMD" = "yes" ]; then
-  wsl.exe -d "$NAME" -u "$USER_NAME" -- loginctl enable-linger "$USER_NAME" 2>/dev/null \
+  # root runs it: the user manager may be up while enable-linger still asks
+  # for the polkit privilege the fresh user does not have.
+  wsl.exe -d "$NAME" -u root -- loginctl enable-linger "$USER_NAME" 2>/dev/null \
     && echo "Linger enabled for $USER_NAME" \
-    || echo "Linger could not be enabled — the session runtime will degrade; run: wsl -d $NAME -u $USER_NAME -- loginctl enable-linger $USER_NAME"
+    || echo "Linger could not be enabled — the session runtime will degrade; run inside the distro: loginctl enable-linger $USER_NAME (as root)"
 else
   echo "skipped (no systemd)"
 fi

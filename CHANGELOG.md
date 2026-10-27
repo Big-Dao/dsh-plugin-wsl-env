@@ -16,6 +16,22 @@ were part of the record.
 
 ## [Unreleased]
 
+### Changed
+
+- **WSL-310: `scripts/bootstrap-import.sh` — a rootfs tarball becomes a
+  plugin-ready distro in one pass.** The command automates the import traps
+  the compatibility-matrix run documented: ELF-header architecture detection
+  (walking bin/ candidates, tolerant of the SIGPIPE an early-exiting dd
+  causes), `wsl --import` with an idempotent already-exists branch, the OOBE
+  wedge unstick, `/etc/wsl.conf` with `[boot] systemd` and `[user] default`
+  (an imported default-root distro makes the agent run as root), per-family
+  package-manager install including `systemd-sysv` — docker-export tarballs
+  strip `/sbin/init`, which is what broke the systemd boot chain — Linger as
+  root, and a final doctor pass. Verified on Debian 13.5 (systemd family:
+  every check green after the one mandated `wsl --shutdown`) and the Alpine
+  minirootfs (OpenRC: the non-systemd profile per WSL-201, systemd checks
+  reported as the declared degradation).
+
 ### Fixed
 
 - **WSL-307: the confined resident's spawn preparation is now a named

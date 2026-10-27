@@ -390,7 +390,8 @@ async function main(options) {
   const stale = scopeLines.filter((line) => /\sstale(\s|$)/.test(line)).length;
   const livePids = scopeLines.flatMap((line) => {
     const m = /\spids:([0-9 ]+)$/.exec(line);
-    return m === null ? [] : m[1].trim().split(/\s+/).filter((p) => p.length > 0);
+    if (m === null) return [];
+    return (m[1] ?? "").trim().split(/\s+/).filter((p) => p.length > 0);
   });
   // ---- resident handshake --------------------------------------------------
   const agentScript = join(ROOT, "agent", "wsl-agent.sh");
@@ -450,8 +451,10 @@ async function main(options) {
         for (const line of lines) {
           const m = /^(\S+) (active|stale) pids:(.*)$/.exec(line);
           if (m === null) { console.log(`  ${d}  ${line}`); continue; }
-          const pids = m[3] === "none" ? "" : `  resident pids:${m[3].trim()}`;
-          console.log(`  ${d}  ${m[1]}  ${m[2]}${pids}`);
+          const scope = m[1] ?? line;
+          const state = m[2] ?? "";
+          const pidNote = m[3] === "none" ? "" : `  resident pids:${(m[3] ?? "").trim()}`;
+          console.log(`  ${d}  ${scope}  ${state}${pidNote}`);
         }
       }
     }

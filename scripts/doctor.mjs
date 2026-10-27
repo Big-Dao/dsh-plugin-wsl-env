@@ -36,6 +36,7 @@ import { fileURLToPath } from "node:url";
 import { parseDistroList } from "../lib/wsl.js";
 import { AGENT_NAME, PROTOCOL_VERSION } from "../lib/agent-protocol.js";
 import { sessionScopeSweepScript } from "../lib/session-scope.js";
+import { parseListeningPorts, procNetScript } from "../lib/ports.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const WSL = "wsl.exe";
@@ -424,14 +425,14 @@ async function main(options) {
   // sessions coordinate routing makes possible, made visible. Idle timers are
   // the host process's private state and stay out: a scope's presence and its
   // resident pids are the facts the distro side can attest.
+  // The distro lists both surveys share: `run` settles an object
+  // ({ ok, stdout, code }); `-q` prints plain names, and the running list's
+  // header is dropped by the intersection with them. The default distro
+  // carries a localized marker ("ubuntu (默认值)" / "ubuntu (default)") —
+  // strip a trailing parenthesized note before the intersection.
+  const distroNames = ((await run([WSL, "--list", "-q"])).stdout ?? "").split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
+  const running = ((await run([WSL, "--list", "--running"])).stdout ?? "").split(/\r?\n/).map((line) => line.trim().replace(/\s+\([^)]*\)$/, "")).filter((line) => distroNames.includes(line));
   if (!options.json) {
-    // `run` settles an object ({ ok, stdout, code }); `-q` prints plain names,
-    // and the running list's header is dropped by the intersection with them.
-    const names = ((await run([WSL, "--list", "-q"])).stdout ?? "").split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
-    // The default distro carries a localized marker ("ubuntu (默认值)" /
-    // "ubuntu (default)") — strip a trailing parenthesized note before the
-    // intersection with the name list.
-    const running = ((await run([WSL, "--list", "--running"])).stdout ?? "").split(/\r?\n/).map((line) => line.trim().replace(/\s+\([^)]*\)$/, "")).filter((line) => names.includes(line));
     console.log("");
     console.log("sessions across running distros");
     if (running.length === 0) {
@@ -458,6 +459,29 @@ async function main(options) {
         }
       }
     }
+  }
+
+  // ---- listening ports across running distros (WSL-308) ----------------------
+  // The port poller serves the model's session (DSH_WSL_PORTS); this survey
+  // serves the human, with the two actions the facts imply: the localhost URL
+  // WSL2's forwarding already makes reachable, and the netsh line that would
+  // extend reach beyond the host (printed, never applied).
+  if (!options.json) {
+    const portScript = procNetScript();
+    let anyPorts = false;
+    for (const d of running) {
+      const answer = await inDistro(d, portScript);
+      const ports = parseListeningPorts(answer.stdout);
+      if (ports.length === 0) continue;
+      anyPorts = true;
+      const ip = ((await inDistro(d, "hostname -I")).stdout ?? "").trim().split(/\s+/)[0] ?? "";
+      console.log("");
+      console.log(`listening ports in ${d}`);
+      for (const port of ports) {
+        console.log(`  :${port}  http://localhost:${port}   (LAN: netsh interface portproxy add v4tov4 listenport=${port} listenaddress=0.0.0.0 connectport=${port} connectaddress=${ip})`);
+      }
+    }
+    if (!anyPorts && running.length > 0) console.log("\nno listening ports in the running distros");
   }
 
   // ---- peers ---------------------------------------------------------------

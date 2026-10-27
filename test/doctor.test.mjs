@@ -38,6 +38,8 @@ mkdirSync(home);
 const FAKE_WSL = `#!/bin/sh
 case "$*" in
   "-l -q") printf 'ubuntu\\n'; exit 0 ;;
+  "--list -q") printf 'ubuntu\n'; exit 0 ;;
+  "--list --running") printf 'hdr\nubuntu\n'; exit 0 ;;
   "--version") printf 'WSL version: 2.0.0\\nKernel version: 6.6.87.2\\n'; exit 0 ;;
 esac
 all="$*"
@@ -68,6 +70,8 @@ case "$all" in
       *'command -v rg'*) printf '/usr/bin/rg' ;;
       *'command -v git'*) printf '/usr/bin/git' ;;
       *'command -v inotifywait'*) printf '/usr/bin/inotifywait' ;;
+      *'cat /proc/net/tcp'*) printf '  sl  local_address rem_address   st tx_queue rx_queue\n   0: 00000000:0BB8 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 0 1\n' ;;
+      *'hostname -I'*) printf '172.20.0.5 ' ;;
       *'uname -m'*) printf 'x86_64' ;;
       *'.cache/dsh-wsl/agent'*) printf 'exec abc123' ;;
       *) : ;;
@@ -114,6 +118,13 @@ const check = (name, fn) => {
 };
 
 try {
+  check("the ports survey lists listeners with their URL and the LAN line", () => {
+    const run = doctor(["--read-only"]);
+    assert.match(run.stdout, /listening ports in ubuntu/);
+    assert.match(run.stdout, /http:\/\/localhost:3000/);
+    assert.match(run.stdout, /netsh interface portproxy add v4tov4 listenport=3000 listenaddress=0\.0\.0\.0 connectport=3000 connectaddress=172\.20\.0\.5/);
+  });
+
   check("a healthy machine reports no failures and exits 0", () => {
     const run = doctor(["--json"]);
     assert.equal(run.status, 0, run.stderr);
@@ -200,4 +211,4 @@ try {
   rmSync(scratch, { recursive: true, force: true });
 }
 
-console.log(`${passed}/8 doctor checks pass`);
+console.log(`${passed}/9 doctor checks pass`);

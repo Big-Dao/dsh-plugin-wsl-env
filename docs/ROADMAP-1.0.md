@@ -6,6 +6,15 @@ The short version: **from "the only WSL plugin" to "the default WSL plugin"** �
 first run works, every distro and workspace is served by its own environment,
 every DSH surface has a story, and every claim has a test or a probe.
 
+## 0. 核心价值（需求裁决标准）
+
+本插件只做两件事，其余一切都是为这两件事服务的适配：
+
+1. **原生 Linux 工具链，LLM 生成的质量更高。** 模型在正确的生态里生成与执行——bash 而非 PowerShell、GNU 工具链、项目真实的构建系统。凡能让 distro 内工具链更完整、对模型更可见的，直接服务此价值（doctor 工具链检查、bootstrap-import、六发行版矩阵）。
+2. **避开 Windows 与 WSL 的跨环境文件操作，大幅提升性能。** 每一次跨 9p/UNC 边界的文件操作都是性能税。凡消除或减少跨界往返的，直接服务此价值（picker 的 agent 化、#31 批量读、workspace-changes 的 git 经 `ctx.subprocess` 在 distro 内原生运行——已与上游实现对账）。
+
+任何新提案先用这两条裁决：不服务者不进路线图。
+
 ## 1. What "must-have" means
 
 "Best" is not "most features". It is five acceptance lines:

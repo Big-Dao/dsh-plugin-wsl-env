@@ -23,6 +23,8 @@ From a Windows PowerShell where the DSH CLI is available:
 
 ```powershell
 dsh plugin --profile <profile> add dsh-plugin-wsl-env
+# 若解析到旧版本（发布当天的元数据缓存），显式指定：
+# dsh plugin --profile <profile> add dsh-plugin-wsl-env@<latest>
 dsh --profile <profile> --dump-config      # the plugin rows must be there
 ```
 

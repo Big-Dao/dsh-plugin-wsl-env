@@ -1,0 +1,11 @@
+PICKERPROBE PASS the root level is crumbed  — crumbs=["WSL"]
+PICKERPROBE PASS the Windows home is offered  — want C:\Users\andyz
+PICKERPROBE PASS every installed distro is offered  — want ubuntu; got C:\Users\andyz, ubuntu, Debian, alpine-bt, Alpine-Test, FedoraLinux-44, openSUSE-Tumbleweed, debian-bt, archlinux
+PICKERPROBE PASS the root level is not truncated  — truncated=false
+PICKERPROBE PASS a relative path is refused with the documented code  — code=directory-unreadable
+PICKERPROBE PASS a directory that does not exist is refused with the documented code  — code=directory-unreadable
+PICKERPROBE PASS maxEntries caps the level  — entries=2 cap=2
+PICKERPROBE PASS a capped level says it was truncated  — truncated=true
+PICKERPROBE PASS only directories are offered  — alpha, beta
+PICKERPROBE FAIL a newline-named directory lists as one exact row (WSL-306)  — ["alpha","beta"]
+PICKERPROBE RESULT: 1 check(s) failed

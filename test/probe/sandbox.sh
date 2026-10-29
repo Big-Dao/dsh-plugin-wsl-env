@@ -36,7 +36,10 @@ fi
 command -v node >/dev/null 2>&1 || { echo "sandbox probe: node not found (fnm env not loaded?)" >&2; exit 1; }
 build_profile() { # build_profile <mode> <workspaceRoot> [mask] — lib/bwrap.js's argv, one per line
   DSH_WSL_ENV_BWRAP_REPO="$REPO" node --input-type=module -e '
-const { bwrapProfileArgs } = await import(`${process.env.DSH_WSL_ENV_BWRAP_REPO}/lib/bwrap.js`);
+const { pathToFileURL } = await import("node:url");
+// The runner workspace may sit on any drive: a raw Windows path is not a
+// valid ESM specifier (protocol "d:"), so convert it to a file URL first.
+const { bwrapProfileArgs } = await import(pathToFileURL(`${process.env.DSH_WSL_ENV_BWRAP_REPO}/lib/bwrap.js`).href);
 const [mode, workspaceRoot] = [process.argv[1], process.argv[2]];
 const maskWindowsDrive = process.argv[3] === "mask";
 console.log(bwrapProfileArgs({ mode, workspaceRoot }, { maskWindowsDrive }).join("\n"));

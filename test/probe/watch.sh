@@ -34,7 +34,8 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 
 import { join } from "node:path";
-const { armDistroWatcher } = await import(`${process.env.DSH_WSL_ENV_WATCH_REPO}/lib/watcher.js`);
+const { pathToFileURL } = await import("node:url");
+const { armDistroWatcher } = await import(pathToFileURL(`${process.env.DSH_WSL_ENV_WATCH_REPO}/lib/watcher.js`).href);
 
 const distro = process.env.WSL_DISTRO_NAME || "ubuntu";
 const dir = process.env.DSH_WSL_ENV_WATCH_DIR;

@@ -64,6 +64,15 @@ fixes the run surfaced, and the interop stance in one configuration key.
   fixture, and the picker probe now carries that fixture against the real
   composition. The LIMITATIONS entry retires.
 
+### Fixed
+
+- **The nightly sandbox probe no longer crashes when the runner workspace sits
+  outside the C: drive.** The probe's bwrap-profile builder imported
+  `lib/bwrap.js` by a raw Windows path; on a self-hosted runner whose
+  workspace is on another drive the ESM loader rejects the `d:` scheme and
+  the first nightly run failed. The import now goes through
+  `pathToFileURL` (same hardening applied to the watcher probe).
+
 ### Changed
 
 - **The doctor gains a cross-distro sessions view (WSL-309) and marks live

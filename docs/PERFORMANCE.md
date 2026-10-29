@@ -57,4 +57,5 @@ is a red probe rather than a claim in prose.
   scope for these probes).
 - 9p numbers for large files or many small files beyond the A6 sample above;
   the A6 measurement is the recorded baseline, not a re-runnable benchmark.
-- aarch64; the binary is built but not executed in CI.
+- Physical aarch64 WSL latency (the native 18-check suite runs under qemu in
+  CI; that is functional correctness, not a host-round-trip measurement).

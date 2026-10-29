@@ -125,8 +125,8 @@ executed here.
 
 | Tier | Configuration | Status |
 |---|---|---|
-| 1 | Ubuntu 24.04 or Debian 12, systemd, x86_64 | Probed on Ubuntu (the project's development machine; the real-machine suite is manual). Debian is a Tier 1 target, probe pending |
-| 2 | Other systemd distros, aarch64 | The aarch64 native binary is built by CI but not executed here; aarch64 WSL or qemu is the pending leg |
+| 1 | Ubuntu / Debian, systemd, x86_64 | Probed. Debian harness-level probes pass against a `wslfs-debian` profile (2026-10-26). |
+| 2 | Fedora, openSUSE, Arch, Alpine; aarch64 native agent | Distro matrix in [COMPATIBILITY.md](COMPATIBILITY.md). aarch64 18-check runs under qemu in CI; physical aarch64 WSL is out of scope. |
 | Unsupported | WSL 1, Linux/macOS hosts, Windows without WSL 2 | Not supported; the plugin attaches to `wsl.exe` |
 
 With `sessionSandbox: auto` a distro without systemd/Linger still gets the

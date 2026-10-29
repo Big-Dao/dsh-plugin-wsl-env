@@ -5,10 +5,10 @@
   distro's architecture), with the shipped shell agent as the fallback and the
   `native`/`shell` overrides. The concurrency/KILL/FS surface, the copy/verify,
   the HELLO digest, the packaged x86_64/aarch64 binaries and the real-machine
-  probe are in place. **A7 is in place** (the shared reads are native); **A8**
-  (aarch64 functional validation) remains; **v6 is deferred** — the measured
-  lock-removal gain is marginal, and the shared shell read agent is the real
-  batch bottleneck
+  probe are in place. **A7 is in place** (the shared reads are native); **A8
+  is in place** (aarch64 18-check under qemu-user in CI; physical aarch64 WSL
+  is out of scope); **v6 is deferred** — the measured lock-removal gain is
+  marginal, and A7 removed the shared-shell batch bottleneck
 - **Date:** 2026-10-18
 - **Related:** [ADR 0001](0001-session-scoped-sandbox.md) (session runtime),
   `agent/wsl-agent.sh`, `src/agent.ts`, `src/agent-protocol.ts`
@@ -215,7 +215,8 @@ One process per agent, an event loop over stdin plus child pipes and timers:
    groups, the FS surface and the expected-version/mode matrix are done in
    `agent/native/spike` (18/18 manual checks, ~673 KB release binary). The
    host wiring, the packaged static-musl x86_64/aarch64 binaries and the
-   default rollout are in place; the aarch64 hardware/qemu run and v6 remain.
+   default rollout are in place; v6 remains deferred. aarch64 runs under
+   qemu in CI (A8).
 3. **v6 (deferred).** The A6 measurement shows the lock-removal gain is
    marginal (~2-3 ms per 16 ops) and the shared shell read agent is the batch
    bottleneck. v6 stays unimplemented; A7 addresses the measured bottleneck
@@ -233,8 +234,10 @@ One process per agent, an event loop over stdin plus child pipes and timers:
 6. **Native shared read agent (A7, next).** The shared unconfined read agent
    selects the native binary (v5) with the shell as fallback; the A6 probe is
    the acceptance measurement (~30x on batch reads).
-7. **aarch64 functional validation (A8).** Real hardware or qemu; the 18-check
-   suite and the native-session probe on an aarch64 distro.
+7. **aarch64 functional validation (A8, done).** The CI `native packages` job
+   runs the 18-check suite under qemu-user against the freshly built aarch64
+   musl binary and the committed `agent/native/linux-aarch64/dsh-wsl-agent`.
+   Physical aarch64 WSL is out of scope ([COMPATIBILITY.md](../COMPATIBILITY.md)).
 
 ## Spike result (stage 2, partial)
 
@@ -262,8 +265,8 @@ x86_64-unknown-linux-gnu and builds in ~2 s with no dependencies.
 What this proves: the event loop removes the shell's serial-request stall and
 the `USR1`/second-transport cancellation shape is unnecessary, and the core
 FS surface (stat/lstat/read/write/list/realpath, version re-check, modes) can
-be reproduced in the native process. What it does not prove: the aarch64
-binary's functional run on real hardware/qemu (CI only builds it), v6
+be reproduced in the native process. What it does not prove: a native-session
+probe on physical aarch64 WSL (qemu covers the 18-check suite in CI), v6
 concurrency/env framing, or the event stream. The host copy/verify, the
 session-runtime factory, the packaged binaries and the default are in place;
 the shell agent remains the fallback and the shipped peer.

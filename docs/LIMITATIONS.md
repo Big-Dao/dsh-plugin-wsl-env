@@ -143,6 +143,20 @@ crosses the 9p share. What to know about the one substrate there is:
   shipped row's own caps (`maxBytes`, `maxFileBytes`, `maxLines`, `maxEntries`)
   can be overridden on the `workspace-files` row.
 
+## `@` completion
+
+- **`@` references still walk the 9p share.** The shipped
+  `file-reference-local` service uses `node:fs/promises` from the Windows
+  harness process, so a WSL workspace pays a 9p `readdir`/`lstat` per
+  directory. On a 20-directory / 520-file tree the walk was **84.7 ms**
+  median over 9p versus **1.5 ms** on ext4 (~56×;
+  [`probe:file-reference`](../test/probe/file-reference-9p.sh), 2026-10-19).
+  [`src/file-reference-wsl.ts`](../src/file-reference-wsl.ts) is the distro-side
+  traversal (built and unit-tested) but is **not** in `cordis.patch.yml`: the
+  funnels it would replace are module-internal. The fallback is the 9p walk
+  until upstream exposes `FileReferenceTraversal`. Cost, seam and wire
+  trigger: [UPSTREAM-FILE-REFERENCE-SEAM.md](UPSTREAM-FILE-REFERENCE-SEAM.md).
+
 ## The sandbox
 
 - **The one-shot fallback has only the host deadline.** With `agent: false`, or
@@ -158,12 +172,14 @@ crosses the 9p share. What to know about the one substrate there is:
   pays the native preparation/cache cost (~70 ms once); `agentBackend: shell`
   forces the shell reads. v6's FS concurrency would only shave the native
   runtime's 7.7 ms/16 writes and is deferred.
-- **The native backend is the default; aarch64 is build-tested only.** The
-  packaged x86_64 musl binary runs the 18-check suite in CI. The same job
-  builds the aarch64 binary, but the runner cannot execute it, so its
-  functional validation on real aarch64 hardware (or qemu) is still pending.
-  `agentBackend: auto` still selects it on an aarch64 distro; `native` refuses
-  if preparation fails, and `shell` forces the shell agent.
+- **The native backend is the default; aarch64 is executed under qemu in CI.**
+  The `native packages` job builds static-musl x86_64 and aarch64 binaries and
+  runs the 18-check suite against both the freshly built aarch64 artifact and
+  the committed `agent/native/linux-aarch64/dsh-wsl-agent` under qemu-user.
+  Physical aarch64 WSL is out of scope (no Windows-on-ARM machine in reach);
+  see [COMPATIBILITY.md](COMPATIBILITY.md#scope-decisions).
+  `agentBackend: auto` still selects the packaged binary on an aarch64 distro;
+  `native` refuses if preparation fails, and `shell` forces the shell agent.
 - **The session runtime needs systemd and a lingering user manager.** The
   shipped preset sets `sessionSandbox: true`; a distro without systemd as PID 1,
   a reachable `systemd --user`, `systemd-run`, or `Linger` is refused on the
@@ -299,3 +315,14 @@ crosses the 9p share. What to know about the one substrate there is:
   `unknown` activity, which never accumulates idle.
 - Windows-folder host terminals (the `powershell.exe` branch) keep the shipped
   behaviour: `unknown` activity, no reclamation.
+
+## Host "Open in app"
+
+- **Opening VS Code (or another Electron editor) from the host "Open in app"
+  menu can fail independently of this plugin.** The DSH Host process runs with
+  `ELECTRON_RUN_AS_NODE=1`. The open-in-app launcher inherits that variable, so
+  `Code.exe` starts as Node, exits 1, and the UI reports launch-failed. File
+  Explorer and other non-Electron launchers are unaffected; the failure is the
+  same on a Windows folder and on a WSL UNC workspace. This repository does
+  not own that spawn path. The record and the upstream fix are in
+  [UPSTREAM-OPEN-IN-APP.md](UPSTREAM-OPEN-IN-APP.md).

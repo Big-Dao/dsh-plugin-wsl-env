@@ -78,13 +78,14 @@ shows the composed value.
 | Packed install/upgrade/uninstall | `pnpm run e2e:install` (temp `DSH_HOME`, 0.11.0 → current, marker) | manual, this machine (10/10 on 2026-10-19) |
 | Real-machine probe suite | `test/probe/run-all-when-closed.sh` (needs the app closed) | manual; **not run in this environment** since the last batch's targeted probes |
 | Clean Win11 + Ubuntu first run ≤ 5 min | a clean machine, a stopwatch | **not run** (the project's machine is already configured) |
-| aarch64 executed | the native suite on aarch64 WSL or qemu | **not run** (CI builds the binary only) |
+| aarch64 executed | the native 18-check suite under qemu in CI | **run in CI** (physical aarch64 WSL is out of scope; see COMPATIBILITY.md) |
 | No open P0 bug for 30 days | issue tracker | time-based; cannot be asserted from a checkout |
 
-The last four rows are deliberately marked as unrun rather than assumed: a
-release note must not claim them, and [ROADMAP-1.0.md](ROADMAP-1.0.md#wsl-304--10-readiness)
-tracks them. A release that skips the manual rows still ships through the tag
-workflow, but its notes say which gates were executed.
+The clean-machine first-run timing and the 30-day P0 window stay unrun until
+someone measures them; aarch64 qemu is a CI gate. A release note must not
+claim an unrun row, and [ROADMAP-1.0.md](ROADMAP-1.0.md#wsl-304--10-readiness)
+tracks the 1.0 leftovers. A release that skips the remaining manual rows still
+ships through the tag workflow, but its notes say which gates were executed.
 
 ## Verifying a migration locally
 

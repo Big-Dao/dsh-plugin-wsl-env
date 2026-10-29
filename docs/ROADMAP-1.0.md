@@ -1,6 +1,7 @@
 # Roadmap 1.0: the WSL plugin the DSH ecosystem should have
 
-Status: working plan, 2026-10-19. Baseline: `0.12.0`.
+Status: working plan, last refreshed 2026-10-30 against `0.15.0`.
+The 0.12.0 baseline that motivated the plan is kept below as history.
 Audience: maintainers and contributors. This is a plan, not a release promise.
 The short version: **from "the only WSL plugin" to "the default WSL plugin"** —
 first run works, every distro and workspace is served by its own environment,
@@ -43,25 +44,41 @@ North-star metrics:
 | Real-machine probe suite | 100% on Tier 1, nightly |
 | Known documentation drift | 0 |
 
-## 2. Where 0.12.0 stands
+## 2. Where 0.15.0 stands
 
-> WSL-101 is implemented in the working tree (2026-10-19): the distro follows the
-> workspace and the per-distro caches are in place. The table below records the
-> 0.12.0 baseline that motivated the plan.
+> WSL-101 landed on 2026-10-19: the distro follows the workspace and the
+> per-distro caches are in place. 0.15.0 (2026-10-27) shipped the compatibility
+> matrix, container legs, qemu aarch64, doctor, preset helper, and
+> `interopVisibility`. The table that *motivated* the plan is frozen as the
+> 0.12.0 baseline; the 0.15.0 row is what a reader should act on.
 
-| Area | Strong today | Gap to "must-have" |
+### 0.15.0 (current)
+
+| Area | Strong today | Remaining gap |
 |---|---|---|
-| Execution | Native agent is the default; systemd session scope; background processes survive | The distro is pinned by configuration. The picker lists every distro, but a workspace in a non-default distro hits the cross-distro guard ([`src/index.ts:838`](../src/index.ts), [`src/paths.ts:227`](../src/paths.ts)) |
-| Files | ext4 substrate, root-plane `fs-routing`, kernel-enforced confined writes | GUI previews take roughly four to six agent round trips ([`LIMITATIONS.md:122`](LIMITATIONS.md)); `@` completion still reads through 9p |
-| Sandbox | `bubblewrap`, fail-closed, honest `enforcement: partial`, `maskWindowsDrive` | systemd and Linger are default prerequisites, but neither `diagnose` nor `bootstrap` checks them |
-| Onboarding | `bootstrap`, `diagnose`, session-start preflight, package-family install commands | No single "check and fix" command; the preflight only probes bwrap; the preset override is a trap |
-| Configuration | Every shipped key is documented | `wsl-shell` and `wsl-fs` are nested in `preset-wsl`; an id patch only logs a warning and changes nothing ([`CONFIGURATION.md:64`](CONFIGURATION.md)) |
-| Quality | 33 unit-test files, 12 real-machine probes, build/type/coverage gates | Probes are manual; aarch64 is build-only ([`ROADMAP.md:45`](ROADMAP.md)); `fs-routing` is outside `test:unit`/`test:coverage` ([`REQUIREMENTS.zh.md:72`](REQUIREMENTS.zh.md)) |
-| Ecosystem | npm package, bundle patch, bilingual locale, substantial docs | The upstream seams are fragile: the `ensureSession` monkey patch, argv-shape search interception, and the missing `FileReferenceTraversal` seam ([`upstream/promotion-map.md`](upstream/promotion-map.md)) |
+| Execution | Native agent default; systemd session scope; `distro: auto` coordinate routing; concurrent distros | Physical aarch64 WSL (out of scope); non-systemd real-machine session probe unrun |
+| Files | ext4 substrate, root-plane `fs-routing` in unit+coverage, kernel-enforced confined writes | GUI previews still extra agent round trips (measured, deferred); `@` completion still 9p until the upstream seam |
+| Sandbox | `bubblewrap`, fail-closed, `enforcement: partial`, `interopVisibility` / `maskWindowsDrive` | Interop is not closable from a plugin key; distro `[interop] enabled=false` remains the full closure |
+| Onboarding | `doctor`, `bootstrap` / `bootstrap-import`, session preflight, `profile-preset` helper | Clean-machine first-run timing still unmeasured; session UI has no toast seam |
+| Configuration | Every shipped key documented; nested `preset-wsl` rows edited through the helper | An id patch of `wsl-shell` / `wsl-fs` still only warns |
+| Quality | Unit files including `fs-routing`; coverage 85/84/70; qemu aarch64 18-check; five-family container agent; COMPATIBILITY.md | Nightly `probes` job is GitHub-hosted `windows-latest` (skips without WSL); physical aarch64 out of scope |
+| Ecosystem | npm package, bundle patch, bilingual locale, issue templates | Upstream seams remain: `ensureSession` monkey patch, argv-shape search interception, missing `FileReferenceTraversal` |
 
-The engineering base is already in the top tier of comparable projects. The
-remaining gap is productization: **multi-distro correctness, first-run
-friction, configuration ergonomics, and ecosystem presence**.
+### 0.12.0 baseline (historical)
+
+| Area | Strong then | Gap that motivated the plan |
+|---|---|---|
+| Execution | Native agent is the default; systemd session scope; background processes survive | Distro pinned by configuration; non-default workspace hit the cross-distro guard |
+| Files | ext4 substrate, root-plane `fs-routing`, kernel-enforced confined writes | GUI extra round trips; `@` completion through 9p |
+| Sandbox | `bubblewrap`, fail-closed, honest `enforcement: partial`, `maskWindowsDrive` | systemd and Linger unchecked by diagnose/bootstrap |
+| Onboarding | `bootstrap`, `diagnose`, session-start preflight | No single doctor; preflight only probed bwrap; preset override trap |
+| Configuration | Every shipped key documented | Nested `preset-wsl` rows; an id patch warned and changed nothing |
+| Quality | 33 unit-test files, 12 real-machine probes, build/type/coverage gates | Probes manual; aarch64 build-only; `fs-routing` outside `test:unit` / `test:coverage` |
+| Ecosystem | npm package, bundle patch, bilingual locale | Fragile upstream seams (same three as today) |
+
+The remaining gap after 0.15.0 is **upstream seams, honest probe collection,
+and 1.0 empirical legs** (clean-machine timing, 30 days without a P0) — not
+the 0.12.0 productization list.
 
 ## 3. Design principles
 
@@ -150,12 +167,12 @@ may move if the compatibility matrix exposes a higher-severity failure.
 |---|---|---|---|
 | Time to first command | Not systematically measured | p50 <= 5 min, p90 <= 15 min | Ten clean-machine runs |
 | Tier 1 first-run success | Not measured | >= 95% | Compatibility matrix |
-| Real-machine probes | 14, manual | 100%, nightly | Self-hosted Windows runner |
+| Real-machine probes | 14; nightly job on hosted `windows-latest` skips without WSL | 100% on a Windows+WSL runner | Dispatch or a self-hosted runner that actually has WSL |
 | FS single-op p95 | ~22ms host round trip | <= 30ms | `fs-queue.mjs` |
 | 16 concurrent reads p95 | 2.4-8.2ms | <= 20ms | `fs-queue.mjs` |
 | GUI preview p95 | Backend 63.5 ms/MiB (service round trips on top) | <= 1s/MiB | `probe:gui-preview` |
 | Agent recovery | One rebuild | < 2s | Fault injection |
-| Documentation drift | Three known | 0 | Release checklist |
+| Documentation drift | Closed 2026-10-30 (aarch64 qemu, 0.15 baseline, WSL-202 boxes) | 0 | Release checklist |
 | Release cadence | Ad hoc | Every 2-4 weeks | Calendar |
 | Adoption (lagging) | Not established | +50% per quarter | npm download stats |
 
@@ -400,20 +417,30 @@ probe remains unrun (no non-systemd distro here).
 **Priority:** P1 · **Size:** L · **Labels:** `area:compatibility`,
 `area:quality`, `priority:P1`
 
-**Why:** The support matrix is prose, and the aarch64 binary is built but never
-executed.
+**Status:** implemented (0.15.0 / 2026-10-27) except the scope decisions in
+[COMPATIBILITY.md](COMPATIBILITY.md#scope-decisions): physical aarch64 WSL and
+a separate Windows 10 matrix are out of scope; the non-systemd real WSL
+terminal-session legs remain unrun (Alpine is covered for the in-distro
+suite and `sessionSandbox: auto`).
+
+**Why:** The support matrix used to be prose, and the aarch64 binary was built
+but never executed.
 
 **Acceptance:**
 
-- [ ] Tier 1 and Tier 2 are defined and tested: Ubuntu LTS, Debian stable,
-      Fedora, Arch, Alpine (musl), openSUSE; systemd and non-systemd;
-      x86_64 and aarch64; Windows 10/11; current WSL.
-- [ ] The native 18-check suite runs for aarch64 under qemu in CI.
-- [ ] The shell agent runs in Linux containers for the non-Ubuntu families.
-- [ ] The support table states "supported", "partial" and "unsupported" with
-      evidence.
+- [x] Tier 1 and Tier 2 are defined and tested on x86_64 WSL2 / Windows 11:
+      Ubuntu, Debian stable, Fedora, Arch, Alpine (musl), openSUSE; systemd
+      and non-systemd (Alpine). Evidence: [COMPATIBILITY.md](COMPATIBILITY.md).
+- [x] The native 18-check suite runs for aarch64 under qemu in CI (built
+      artifact and committed `linux-aarch64` binary).
+- [x] The shell agent runs in Linux containers for the non-Ubuntu families
+      (`agent-containers` job, 35/35).
+- [x] The support table states "supported", "partial" and "unsupported" with
+      evidence (COMPATIBILITY.md). Physical aarch64 and Windows 10 are
+      documented as out of scope rather than untested claims.
 
-**Tests/probes:** container matrix, qemu spike, self-hosted nightly.
+**Tests/probes:** container matrix, qemu spike, COMPATIBILITY.md; nightly
+`probes` job is GitHub-hosted `windows-latest` and skips without WSL.
 
 **Depends on:** WSL-201 for non-systemd; WSL-203 for packaging.
 
@@ -750,17 +777,19 @@ removals need a boot-time refusal, meaning changes need a migration note; exact
 peer pins are tested by the canary), the deprecation path with the
 `substrate: "share"` and `distro: ''` cases, and the release-gate table with the
 manual legs marked unrun. RELEASING and SUPPORT link it. The empirical legs
-(Tier 1 matrix, aarch64 execution, 30 days without a P0) and the final `1.0.0`
-release notes remain open.
+(clean-machine first-run timing, 30 days without a P0) and the final `1.0.0`
+release notes remain open. The Tier 1 matrix and aarch64 qemu execution
+closed in 0.15.0.
 
 **Acceptance:**
 
 - [x] Configuration schema frozen; new keys require a minor.
 - [x] Migration and deprecation policy documented.
-- [ ] Tier 1 green, aarch64 executed, install E2E green, no P0 bugs for 30
-      days (install E2E is 10/10; the other three are open/unrun).
+- [x] Tier 1 matrix green and aarch64 executed under qemu (0.15.0);
+      install E2E is 10/10. Physical aarch64 WSL is out of scope.
+- [ ] No P0 bugs for 30 days; clean-machine first-run timing still unrun.
 - [ ] `1.0.0` release notes list the supported matrix and the known
-      limitations (draft waits for the matrix).
+      limitations (COMPATIBILITY.md + LIMITATIONS.md are the draft).
 
 **Tests/probes:** [MIGRATION.md](MIGRATION.md#gates-a-release-must-clear);
 release gate; full probe suite.

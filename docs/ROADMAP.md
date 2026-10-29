@@ -20,6 +20,8 @@ section.
 | A4 | the native-session probe (scope, EXEC, FS, KILL, digest, teardown, 8/8) in the real-machine suite; the warm-cache and stdin-EPIPE fixes |
 | A5 | the native agent is the documented default; 0.10.0 published (npm + GitHub Release) |
 | A6 | `WslAgent.metrics()` and `test/probe/fs-queue.mjs`; the shared shell read agent is the measured batch bottleneck |
+| A7 | native shared read agent (v5); 16 concurrent shared reads 2.4–4.1 ms; shell remains the fallback |
+| A8 | aarch64 18-check under qemu-user in CI (built binary and committed `linux-aarch64` artifact); physical aarch64 WSL out of scope, see COMPATIBILITY.md |
 
 ## Next
 
@@ -46,11 +48,13 @@ shell as the fallback:
   pays the ensure/cache cost (~70 ms once). The shell still serves the reads
   under `agentBackend: shell` and after a native failure.
 
-### A8 — aarch64 functional validation
+### A8 — aarch64 functional validation — done
 
-The aarch64 binary is built by CI but never executed there. Run the 18-check
-spike suite and the native-session probe on real aarch64 WSL or qemu; record
-the result in the ADR.
+The `native packages` job in CI builds static-musl aarch64 and runs the
+18-check spike suite under qemu-user against both the freshly built binary
+and the committed `agent/native/linux-aarch64/dsh-wsl-agent`. Physical
+aarch64 WSL is out of scope (COMPATIBILITY.md). The native-session probe on
+real aarch64 hardware is not planned.
 
 ### A9 — maintenance
 
@@ -66,8 +70,9 @@ the result in the ADR.
   measurably or the ERR/env framing is needed for another reason.
 - **Event stream.** No current consumer: the `fs.watch` contract is coarse and
   the inotify watcher satisfies it; terminal activity and ports poll.
-- **Shell retirement.** Not planned. The shell agent remains the fallback and
-  the shared read path until A7 lands, and the protocol/script stays supported.
+- **Shell retirement.** Not planned. The shell agent remains the fallback
+  (`agentBackend: shell`, and after a native HELLO/prepare failure) and the
+  protocol/script stays supported.
 
 ## Not planned
 

@@ -5,11 +5,13 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
-  # The nightly self-hosted probe run (the Tier 1 north-star metric). A
-  # schedule fires every job in this workflow, so each hosted job skips the
-  # event and only the probes job runs — on whatever night the development
-  # machine's runner is up. The concurrency group below folds a backlog of
-  # missed nights into the newest run.
+  # The nightly probes job (the Tier 1 north-star metric). A schedule fires
+  # every job in this workflow, so each *other* job skips the event and only
+  # `probes` runs. The `windows-latest` label is fulfilled by the
+  # development machine's self-hosted runner (which has WSL2), so the
+  # nightly collects real evidence when that machine is up; on a
+  # GitHub-hosted runner the same job skips green. The concurrency group
+  # below folds a backlog of missed nights into the newest run.
   schedule:
     - cron: "30 21 * * *" # 21:30 UTC — early morning, +08:00
 
@@ -190,13 +192,15 @@ jobs:
       - run: docker pull ${{ matrix.image }}
       - run: node test/agent-container.mjs ${{ matrix.image }}
 
-  # The real-machine probes need Windows + WSL2 + the harness app, which no
-  # hosted runner has. This job exists for a SELF-HOSTED Windows runner (the
-  # development machine): dispatch it from the Actions tab there. On a hosted
-  # runner every probe reports skipped and the job stays green, so the branch
-  # protection on `main` can require this job without stranding PRs.
+  # The real-machine probes need Windows + WSL2 + the harness app, which
+  # GitHub-hosted Windows does not have. This job is scheduled and
+  # dispatchable; `runs-on` is hosted `windows-latest`. Without `wsl.exe` the
+  # first step exits 0 (skip all). With WSL but no bubblewrap, `sandbox.sh`
+  # fails rather than skips (see CONTRIBUTING.md). Dispatch on a development
+  # machine, or point `runs-on` at a self-hosted Windows+WSL runner, to
+  # collect evidence. The job does not run on pull_request.
   probes:
-    name: real-machine probes (self-hosted Windows)
+    name: real-machine probes (Windows, WSL when present)
     runs-on: windows-latest
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     timeout-minutes: 20

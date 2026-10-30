@@ -73,6 +73,16 @@ fixes the run surfaced, and the interop stance in one configuration key.
   the first nightly run failed. The import now goes through
   `pathToFileURL` (same hardening applied to the watcher probe).
 
+### Added
+
+- **`scripts/open-wsl-vscode.ps1` — open a WSL folder in VS Code through
+  Remote-WSL.** Opening the UNC share in VS Code is the degraded mode: files
+  cross 9p, the terminal is PowerShell, extensions run on Windows. The
+  helper translates a WSL UNC path (or a Linux path + distro) into the
+  `vscode-remote://wsl+<distro>` folder URI, so VS Code's server runs inside
+  the distro — local ext4, distro shell, distro extensions. The quickstart
+  documents it next to the workspace-opening step.
+
 ### Changed
 
 - **The doctor gains a cross-distro sessions view (WSL-309) and marks live

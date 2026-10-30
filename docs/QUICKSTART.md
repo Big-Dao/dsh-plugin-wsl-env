@@ -39,6 +39,23 @@ or an UNC path directly. The session's commands, file tools, terminal and previe
 all run in that distro; a Windows folder keeps the normal Windows environment.
 Two distros can be open at once, each with its own environment.
 
+### Open the workspace in VS Code (Remote-WSL)
+
+Opening the WSL folder as a Windows UNC share works but is the degraded mode:
+files cross 9p, the terminal is PowerShell, extensions run on Windows. The full
+integration is VS Code's Remote-WSL — the server runs inside the distro, the
+integrated terminal is the distro shell, and file operations are local ext4:
+
+```powershell
+# from the plugin checkout:
+scripts/open-wsl-vscode.ps1 -Path "\\wsl.localhost\ubuntu\home\me\proj"
+# or by hand:
+code --folder-uri "vscode-remote://wsl+ubuntu/home/me/proj"
+```
+
+Requires the `code` shim on PATH (VS Code installer adds it) and the
+Remote-WSL extension.
+
 ![The directory picker listing a WSL distro's folders](screenshots/picker.png)
 
 The terminal panel runs in the same distro — `uname -a` answers with the

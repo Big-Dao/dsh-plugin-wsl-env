@@ -20,6 +20,9 @@
 # Nothing here is wired into `pnpm test`; the systemd leg needs a real session.
 set -u
 
+USER="${USER:-$(id -un 2>/dev/null || echo root)}"
+export USER
+
 passed=0
 failed=0
 skipped=0

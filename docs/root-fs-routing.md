@@ -3,6 +3,9 @@
 > 状态：已实现，随 0.7.2 发布。源码是 `src/fs-routing.ts`，
 > `lib/fs-routing.js` 是其编译产物；当前开发依赖及 peer 范围以
 > `package.json` 为准。
+> 时效：§5 的验证与回退小节于 2026-10-31 对照现行测试与探针清单复核
+> （组合测试 12 项、单测 4 项、真机套件 15 项含 `fs-routing.sh`）；
+> 其余章节保留设计时的历史表述。
 > 关联：promotion-map 附录 C（workspace-files 接管评审）、附录 B（剩余 9P
 > 消费者）、`docs/upstream/rfc-wsl-workspaces.md` 增补（根平面路由 fs 的
 > 上游 seam 提案）。
@@ -148,14 +151,15 @@ export `./fs-routing`）。config 承载两侧旋钮：宿主侧 `cwd`/`diffBasi
   `ctx.fs` 解析会话 cwd 时，正是这条路径第一次被真实消费者执行——
   cordis 的影子接收者会让 `#private` 字段抛错，二次注册 `fs` 会让后端构造
   抛错，缺 `sandboxPolicy` 注入会让构造抛错，三处回归都由该检查钉住。
-  10/10 通过。
-- `node test/fs-routing.test.mjs`：只覆盖纯谓词与路径助手（`targetIsDistro`/
-  `inputIsDistro`/`linuxJoin`）；类本体改由上一项的组合测试经服务代理覆盖，
-  本文件仍不在 `test:unit`/`test:coverage` 清单里
-  （`docs/REQUIREMENTS.zh.md` 的 OI-7）。
-- 真机探针全套（`test/probe/run-all-when-closed.sh --include-fs`，12 项）覆盖
-  agent、watch、substrate 等底座，但没有一项针对本路由
-  （`grep -rn "fs-routing" test/probe/*.sh` 无命中）。
+  12/12 通过。
+- `node test/fs-routing.test.mjs`：覆盖纯谓词与路径助手（`targetIsDistro`/
+  `distroContains`/`inputIsDistro`/`linuxJoin`）；类本体改由上一项的组合测试经
+  服务代理覆盖。该文件自 2026-10-19 起已在 `test:unit` 与 `test:coverage`
+  清单里（`docs/REQUIREMENTS.zh.md` 的 OI-7，已解决）。
+- 真机探针全套（`test/probe/run-all-when-closed.sh --include-fs`，14 项常规
+  + `run.sh` 共 15 项）覆盖 agent、watch、substrate 等底座，并包含本路由的
+  `test/probe/fs-routing.sh`：临时 profile 以本路由为根 `fs`，经 UNC 坐标读
+  distro 内 ext4 文件、经盘符路径读 Windows 文件，并拒绝另一 distro 的 UNC。
 
 真机上判断目标是哪个后端：在 distro 工作区里停掉 distro
 （`wsl.exe --terminate <distro>`），根级对 UNC 目标的调用应 fail-closed 报

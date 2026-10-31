@@ -227,12 +227,13 @@ distro terminal with Node available, and they reach `wsl.exe` through interop.
 
 Two conveniences for the real-machine set. `test/probe/run-all-when-closed.sh
 --include-fs` runs all twelve probes once the app has exited. And `ci.yml` has a
-`probes` job you dispatch by hand: `sandbox` runs whenever WSL is present, then
-`mode`, `terminal`, `picker` and `missing-wsl` where the harness app is
-installed. It is named for a self-hosted Windows runner although its `runs-on`
-carries the hosted `windows-latest` label, and it is not a green no-op on a
-hosted runner — the `sandbox` leg fails, not skips, where the default distro has
-no bubblewrap.
+`probes` job you dispatch by hand: `sandbox` runs whenever a default distro
+actually launches, then `mode`, `terminal`, `picker` and `missing-wsl` where the
+harness app is installed. It is named for a self-hosted Windows runner although
+its `runs-on` carries the hosted `windows-latest` label; a hosted runner ships
+`wsl.exe` with no distro behind it, so there the job is an honest green no-op
+(`skip all`) until a self-hosted runner carries that label. Where a default
+distro launches without bubblewrap, the `sandbox` leg fails, not skips.
 
 ## Adding a test
 

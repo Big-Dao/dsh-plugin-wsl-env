@@ -194,10 +194,12 @@ jobs:
 
   # The real-machine probes need Windows + WSL2 + the harness app, which
   # GitHub-hosted Windows does not have. This job is scheduled and
-  # dispatchable; `runs-on` is hosted `windows-latest`. Without `wsl.exe` the
-  # first step exits 0 (skip all). With WSL but no bubblewrap, `sandbox.sh`
-  # fails rather than skips (see CONTRIBUTING.md). Dispatch on a development
-  # machine, or point `runs-on` at a self-hosted Windows+WSL runner, to
+  # dispatchable; `runs-on` is hosted `windows-latest`. The step skips whole
+  # unless the default distro actually launches: `wsl.exe` is on PATH of
+  # every Windows image, but hosted runners carry it with no distro behind
+  # it. With WSL but no bubblewrap, `sandbox.sh` fails rather than skips
+  # (see CONTRIBUTING.md). Dispatch on a development machine, or attach a
+  # self-hosted Windows+WSL runner with the `windows-latest` label, to
   # collect evidence. The job does not run on pull_request.
   probes:
     name: real-machine probes (Windows, WSL when present)
@@ -231,22 +233,35 @@ jobs:
               echo "skip probe:$name (no harness app at $APP — configure it or dispatch on the dev machine)"
             fi
           }
-          command -v wsl.exe >/dev/null 2>&1 || { echo "skip all (no WSL on this runner)"; exit 0; }
+          command -v wsl.exe >/dev/null 2>&1 || { echo "skip all (no wsl.exe on this runner)"; exit 0; }
+          # wsl.exe ships with every modern Windows image, so its presence on
+          # PATH proves nothing: a hosted runner carries the binary with no
+          # distro behind it, and every invocation dies inside wsl.exe itself
+          # (UTF-16 bytes and a nonzero exit — fatal under -e -o pipefail when
+          # piped). The topology test is whether the default distro launches.
+          if ! WSL_UTF8=1 wsl.exe -e true >/dev/null 2>&1; then
+            echo "skip all (wsl.exe resolves but the default distro does not launch — hosted runners ship the binary without a distro; dispatch on a development machine or attach a self-hosted Windows+WSL runner with the windows-latest label)"
+            exit 0
+          fi
           # sandbox.sh is a distro probe (its header: "Run it from INSIDE the
           # distro"): bubblewrap exists only there, and a non-login distro
           # shell is the documented context (CONTRIBUTING: "run them from a
-          # distro terminal with Node available"). The workspace rides through
-          # wslpath, so an unmounted drive fails the leg with a named cause
-          # instead of the probe dying on a wrong cwd.
+          # distro terminal with Node available"). WSL_UTF8 keeps wsl.exe's
+          # own errors readable, and the wslpath translation is guarded, not
+          # piped into a bare assignment — under -e -o pipefail a failing
+          # pipe aborts the step before the named cause prints.
           run_or_skip_distro() {
             local name="$1" script="$2" wsl_ws
             echo "::group::probe:$name"
-            wsl_ws="$(wsl.exe -e wslpath -u "$(cygpath -w "$PWD")" 2>/dev/null | tr -d '\r\n')"
-            if [ -z "$wsl_ws" ]; then
-              echo "probe:$name: could not translate the workspace into the default distro (drive not mounted?)"
+            if ! wsl_ws="$(WSL_UTF8=1 wsl.exe -e wslpath -u "$(cygpath -w "$PWD")" | tr -d '\r\n\0')"; then
+              echo "probe:$name: could not translate the workspace into the default distro (wsl.exe's error is above; drive not mounted?)"
               echo "::endgroup::"; exit 1
             fi
-            wsl.exe -e bash -c "cd '$wsl_ws' && bash test/probe/$script" || { echo "::endgroup::"; exit 1; }
+            if [ -z "$wsl_ws" ]; then
+              echo "probe:$name: the workspace translation came back empty"
+              echo "::endgroup::"; exit 1
+            fi
+            WSL_UTF8=1 wsl.exe -e bash -c "cd '$wsl_ws' && bash test/probe/$script" || { echo "::endgroup::"; exit 1; }
             echo "::endgroup::"
           }
           run_or_skip_distro sandbox sandbox.sh

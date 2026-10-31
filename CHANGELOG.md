@@ -73,18 +73,24 @@ fixes the run surfaced, and the interop stance in one configuration key.
   the first nightly run failed. The import now goes through
   `pathToFileURL` (same hardening applied to the watcher probe).
 
-- **The nightly sandbox probe now runs where its header and CONTRIBUTING
-  place it: inside the default distro.** The probes job executed
-  `sandbox.sh` from the runner's Git Bash — a context where bubblewrap
-  cannot exist — so even past the two latent issues the first nights
-  surfaced (the `d:` ESM scheme, then the missing `USER`), the leg could
-  never pass. The job now translates the workspace through `wslpath` and
-  runs the probe via `wsl.exe -e`; an unmounted drive fails the leg with a
-  named cause instead of a wrong cwd. The `USER` resolution also lands here:
-  the hardening that preceded this fix claimed `sandbox.sh` but changed only
-  `session-sandbox.sh`, and a non-login `wsl.exe -e` shell would have hit
-  the same unbound variable anyway. The probe holds all 14 expectations
-  under `env -u USER` in a distro.
+- **The nightly probes job now tests the WSL topology, not the presence of
+  the binary.** The scheduled runs land on GitHub-hosted `windows-latest`
+  runners — no self-hosted runner carries that label, so the hosted fleet
+  picks the job up — and a hosted Windows image ships `wsl.exe` on PATH with
+  no distro behind it. The old `command -v wsl.exe` guard therefore always
+  passed, and the sandbox leg died inside wsl.exe itself: the last run
+  aborted on the `wslpath` translation with wsl.exe's own UTF-16 "no
+  installed distributions" surfacing as null bytes and exit 127 under the
+  step's `-e -o pipefail`. The guard now requires the default distro to
+  actually launch (`WSL_UTF8=1 wsl.exe -e true`); where it does not, the job
+  reports `skip all` — the honest no-op CONTRIBUTING now states. Where a
+  default distro does launch, the sandbox probe runs inside it through
+  `wsl.exe -e`, which is where the script's header and CONTRIBUTING already
+  place it: bubblewrap exists only there, so the leg could never pass from
+  Git Bash. The leg also picks up the `USER` resolution its sibling got in
+  the preceding fix (that hardening claimed `sandbox.sh` but changed only
+  `session-sandbox.sh`; a non-login `wsl.exe -e` shell needs it too). The
+  probe holds all 14 expectations under `env -u USER` in a distro.
 
 ### Added
 

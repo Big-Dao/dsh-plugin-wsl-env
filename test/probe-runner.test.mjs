@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { runInteropChecks } from "./probe/interop-shell-probe.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -71,4 +72,123 @@ shellTest("filesystem launcher rejects an incomplete or contradictory report", (
     const result = runProbe({ report });
     assert.equal(result.status, 1, result.stdout);
   }
+});
+
+/**
+ * Run the interop matrix launcher with a simulated harness.
+ * @param {{outcome?: string, stale?: string}} options - Simulated report outcome.
+ */
+function runInteropProbe(options = {}) {
+  const dir = mkdtempSync(join(tmpdir(), "wsl-interop-runner-"));
+  try {
+    mkdirSync(join(dir, "profile"));
+    mkdirSync(join(dir, "app"));
+    writeFileSync(join(dir, "profile", "cordis.patch.yml"), "");
+    copyFileSync(join(root, "test", "probe", "interop-shell.sh"), join(dir, "interop-shell.sh"));
+    writeFileSync(join(dir, "env.sh"), 'PROFILE="$HERE/profile"\nAPP="$HERE/app"\nCLI=cli\nUNC=unc\nDISTRO=ubuntu\nDSH_WSL_ENV_HOME="$HERE"\nwrite_overlay() { echo "$2"; }\n');
+    writeFileSync(join(dir, "sync-to-windows.sh"), "#!/bin/sh\nexit 0\n");
+    chmodSync(join(dir, "sync-to-windows.sh"), 0o755);
+    const app = join(dir, "app", "DeepSeek Harness.exe");
+    writeFileSync(app, `#!/bin/sh
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = --patch ]; then overlay="$2"; break; fi
+  shift
+done
+case "$overlay" in
+  *resident-visible*) mode=resident; mask=visible ;;
+  *resident-masked*) mode=resident; mask=masked ;;
+  *oneshot-visible*) mode=oneshot; mask=visible ;;
+  *oneshot-masked*) mode=oneshot; mask=masked ;;
+  *) exit 9 ;;
+esac
+case "$TEST_OUTCOME" in
+  missing) exit 0 ;;
+  late-missing) if [ "$mask" = masked ]; then exit 0; fi; printf 'INTEROPPROBE RESULT: pass %s %s\\n' "$mode" "$mask" > "$REPORT_PATH" ;;
+  bad) printf 'INTEROPPROBE FAIL simulated failure\\nINTEROPPROBE RESULT: pass %s %s\\n' "$mode" "$mask" > "$REPORT_PATH" ;;
+  wrong) printf 'INTEROPPROBE RESULT: pass wrong wrong\\n' > "$REPORT_PATH" ;;
+  exit) exit 7 ;;
+  *) printf 'INTEROPPROBE RESULT: pass %s %s\\n' "$mode" "$mask" > "$REPORT_PATH" ;;
+esac
+`);
+    chmodSync(app, 0o755);
+    const report = join(dir, "interop-shell-report.txt");
+    if (options.stale !== undefined) writeFileSync(report, options.stale);
+    return spawnSync("bash", [join(dir, "interop-shell.sh")], {
+      encoding: "utf8",
+      env: { ...process.env, REPORT_PATH: report, TEST_OUTCOME: options.outcome ?? "pass" },
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+shellTest("interop launcher runs all four path and mask combinations", () => {
+  const result = runInteropProbe();
+  assert.equal(result.status, 0, result.stderr);
+  for (const mode of ["resident", "oneshot"]) {
+    for (const mask of ["visible", "masked"]) assert.match(result.stdout, new RegExp(`RESULT: pass ${mode} ${mask}`));
+  }
+});
+
+shellTest("interop launcher rejects missing, stale, contradictory, and mismatched reports", () => {
+  for (const outcome of ["missing", "late-missing", "bad", "wrong"]) {
+    const result = runInteropProbe({ outcome, stale: "INTEROPPROBE RESULT: pass resident visible\n" });
+    assert.notEqual(result.status, 0, `${outcome} was accepted`);
+  }
+});
+
+shellTest("interop launcher fails when the harness exits unsuccessfully", () => {
+  const result = runInteropProbe({ outcome: "exit" });
+  assert.notEqual(result.status, 0);
+});
+
+/**
+ * @param {{mode: "resident" | "oneshot", mask: "visible" | "masked", scope?: string, escaped?: boolean, baseline?: boolean, pathVisible?: boolean, enforcement?: string, verifyCommand?: boolean}} options - Simulated execution.
+ */
+async function checkInterop(options) {
+  const dir = mkdtempSync(join(tmpdir(), "wsl-interop-check-"));
+  const marker = join(dir, "marker.txt");
+  try {
+    return await runInteropChecks(async (command, policy) => {
+      const baseline = policy === "danger-full-access";
+      const existence = command.startsWith("test ! -e ");
+      if (options.verifyCommand && !existence) assert.match(command, /\/c echo DSH_INTEROP_PROBE '>' '/);
+      const launch = baseline ? options.baseline !== false : options.escaped ?? options.mask === "visible";
+      if (!existence && launch) writeFileSync(marker, "DSH_INTEROP_PROBE\r\n");
+      return {
+        exitCode: existence ? options.pathVisible ? 1 : 0 : launch ? 0 : 1,
+        sandbox: baseline ? undefined : {
+          mode: "workspace-write",
+          enforcement: options.enforcement ?? "partial",
+          windowsDrive: options.mask,
+          sessionScope: options.scope ?? (options.mode === "resident" ? "session" : "per-command"),
+        },
+      };
+    }, options, marker);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("interop checks accept the intended path and mask combinations", async () => {
+  for (const mode of ["resident", "oneshot"]) {
+    for (const mask of ["visible", "masked"]) {
+      const typedMode = /** @type {"resident" | "oneshot"} */ (mode);
+      const typedMask = /** @type {"visible" | "masked"} */ (mask);
+      assert.deepEqual(await checkInterop({ mode: typedMode, mask: typedMask }), []);
+    }
+  }
+});
+
+test("interop checks reject fallback and missing evidence", async () => {
+  assert.notDeepEqual(await checkInterop({ mode: "resident", mask: "visible", scope: "per-command" }), []);
+  assert.notDeepEqual(await checkInterop({ mode: "oneshot", mask: "visible", escaped: false }), []);
+  assert.notDeepEqual(await checkInterop({ mode: "oneshot", mask: "masked", baseline: false }), []);
+  assert.notDeepEqual(await checkInterop({ mode: "oneshot", mask: "masked", pathVisible: true }), []);
+  assert.notDeepEqual(await checkInterop({ mode: "oneshot", mask: "masked", escaped: true }), []);
+  assert.notDeepEqual(await checkInterop({ mode: "resident", mask: "visible", enforcement: "full" }), []);
+});
+
+test("interop launch passes redirection and the Windows path as separate arguments", async () => {
+  assert.deepEqual(await checkInterop({ mode: "resident", mask: "visible", verifyCommand: true }), []);
 });

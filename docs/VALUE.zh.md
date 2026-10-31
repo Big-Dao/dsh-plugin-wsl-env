@@ -109,7 +109,7 @@ DSH 是 Windows 桌面应用，项目在 WSL 的 ext4 里。不做集成，三�
 |---|---|
 | 每次提交 | `pnpm test`：风格、语法、构建逐字节一致、`tsc --noEmit`、单测全过 |
 | 覆盖率 | `pnpm run test:coverage`，门限 85/84/70（行/分支/函数） |
-| 真机 | 12 项探针（`test/probe/run-all-when-closed.sh --include-fs`），含沙箱边界演示、agent/one-shot 双路径对拍、文件基座、终端、选择器 |
+| 真机 | 探针套件（`test/probe/run-all-when-closed.sh --include-fs`），含沙箱边界演示、agent/one-shot 双路径对拍、文件基座、终端、选择器 |
 | CI | Node 22 / 24 × Linux / Windows 跑 `pnpm test`；覆盖率在 Node 24 |
 | 上游接缝 | peer 钉版逐字节比对，[PEER-PARITY.md](PEER-PARITY.md)、[upstream/promotion-map.md](upstream/promotion-map.md) |
 | 行为承诺 | [REQUIREMENTS.zh.md](REQUIREMENTS.zh.md) 的 24 条登记与追溯矩阵 |

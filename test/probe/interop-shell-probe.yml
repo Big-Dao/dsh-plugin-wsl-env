@@ -1,0 +1,23 @@
+- id: bash-sandbox
+  disabled: true
+
+- id: pwsh-sandbox
+  disabled: true
+
+- insert:
+    - id: wsl-shell
+      name: 'dsh-plugin-wsl-env'
+      config:
+        distro: '@DISTRO@'
+        sandbox: true
+        agent: @AGENT@
+        sessionSandbox: @SESSION@
+        maskWindowsDrive: @MASKED@
+
+    - id: interop-shell-probe
+      name: '@PROBE_UNC@'
+      config:
+        workspaceRoot: '@WORKSPACE@'
+        report: '@REPORT_UNC@'
+        mode: '@MODE@'
+        mask: '@MASK@'

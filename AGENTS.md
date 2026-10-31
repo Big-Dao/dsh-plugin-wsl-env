@@ -23,7 +23,7 @@ DeepSeek Harness 的 WSL 服务插件：将会话的 shell、文件系统、子�
 | `pnpm run build` | 将 `src/*.ts` 编译到 `lib/`；修改源码后运行。 |
 | `pnpm run test:coverage` | 覆盖率门槛：行 85%、分支 84%、函数 70%。 |
 | `pnpm run sync:windows` | 修改 `lib/` 后同步 Windows 运行副本；使用新代码前重启 DSH。 |
-| `test/probe/run-all-when-closed.sh --include-fs` | Windows + WSL 真机全套 14 项探针；须在 Harness 关闭后运行。 |
+| `test/probe/run-all-when-closed.sh --include-fs` | Windows + WSL 真机全套 15 项探针；须在 Harness 关闭后运行。 |
 
 工具链：Node `^22.19.0 || >=24.0.0`（Harness 宿主版本，不支持 Node 20）；pnpm 版本由 `packageManager` 锁定并通过 Corepack 解析。CI 在 Node 22、24 的 Linux 和 Windows 环境运行。新克隆后先执行 `pnpm install`。
 

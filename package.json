@@ -139,6 +139,7 @@
     "probe:terminal": "bash test/probe/terminal.sh",
     "probe:sandbox": "bash test/probe/sandbox.sh",
     "probe:sandbox-shell": "bash test/probe/sandbox-shell.sh",
+    "probe:interop-shell": "bash test/probe/interop-shell.sh",
     "sync:windows": "bash test/probe/sync-to-windows.sh",
     "probe:watch": "bash test/probe/watch.sh",
     "probe:agent": "bash test/probe/agent.sh",

@@ -194,6 +194,7 @@ terminal if you would rather not see the prompt.
 | `pnpm run probe` | filesystem behaviour against a real distro | yes |
 | `pnpm run probe:sandbox` | what bubblewrap confines and what it does not | no |
 | `pnpm run probe:sandbox-shell` | the confined executor through a real boot | yes |
+| `pnpm run probe:interop-shell` | resident and one-shot interop behaviour, with and without the `/mnt` mask | yes |
 | `pnpm run probe:terminal` | the terminal provider | yes |
 | `pnpm run probe:substrate` | the agent filesystem substrate over a real `wsl.exe` transport | no; inside the distro |
 | `pnpm run probe:watch` | the in-distro watcher over a real directory | no; inside the distro |
@@ -226,7 +227,9 @@ still need Windows and WSL2, but no harness boot and no profile: run them from a
 distro terminal with Node available, and they reach `wsl.exe` through interop.
 
 Two conveniences for the real-machine set. `test/probe/run-all-when-closed.sh
---include-fs` runs all twelve probes once the app has exited. And `ci.yml` has a
+--include-fs` runs all fifteen probes once the app has exited. The interop shell
+matrix uses the `wslfs` profile, systemd and a lingering user manager; it fails
+when Windows interop or its temporary marker cannot be verified. And `ci.yml` has a
 `probes` job you dispatch by hand: `sandbox` runs whenever a default distro
 actually launches, then `mode`, `terminal`, `picker` and `missing-wsl` where the
 harness app is installed. It is named for a self-hosted Windows runner although

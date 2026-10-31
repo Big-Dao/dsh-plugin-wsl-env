@@ -105,7 +105,8 @@ this order:
 
 1. Checks that the tag matches `version` in `package.json`, using
    `scripts/check-release-tag.mjs`.
-2. Runs the gates, `pnpm test` and `pnpm run test:coverage`.
+2. Runs `pnpm test`, `pnpm run test:coverage`, and the shipped x86_64 and
+   aarch64 native-agent tests (the latter under QEMU).
 3. Asks the registry whether this version is already published, and skips the
    upload when it is. Re-pushing the same tag therefore does not publish again —
    it only gets you as far as the GitHub Release.

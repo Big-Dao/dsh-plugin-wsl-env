@@ -51,6 +51,12 @@ jobs:
           pnpm install --frozen-lockfile
       - name: Gates
         run: pnpm test && pnpm run test:coverage
+      - name: Test shipped native agents
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-user qemu-user-binfmt
+          node agent/native/spike/test.mjs agent/native/linux-x86_64/dsh-wsl-agent
+          node agent/native/spike/test.mjs agent/native/linux-aarch64/dsh-wsl-agent
       # Re-running a release after a partial failure must not end at a 409. Ask the
       # registry whether this version is already published, and skip the upload when
       # it is, so the job still gets to create the GitHub Release.

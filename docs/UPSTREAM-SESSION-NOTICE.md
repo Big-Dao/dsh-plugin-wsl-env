@@ -1,10 +1,10 @@
 # Upstream proposal: a session-visible notice seam for plugin advisories
 
-Status: proposed upstream; **not filed yet** — this environment has no issue
-channel, so the text below is ready for the maintainers to file against
-`deepseek-ai/deepseek-harness` (version line `0.2.1-rc.x`; the gap was checked
+Status: filed upstream as
+[deepseek-ai/deepseek-harness#10263](https://github.com/deepseek-ai/deepseek-harness/discussions/10263)
+(version line `0.2.1-rc.x`; the gap was checked
 against `dsh-v0.2.1-rc.2` on 2026-10-19). The exact filing payload (title, body,
-command) is [proposal-session-notice.md](upstream/proposal-session-notice.md). The plugin ships the workaround
+command) is [proposal-session-notice.md](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/upstream/proposal-session-notice.md). The plugin ships the workaround
 described at the end: the advisory goes to the log **and** into the session's
 runtime context, which is model-visible and appears in the session transcript,
 but is not a dedicated banner.

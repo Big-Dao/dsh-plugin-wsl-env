@@ -32,9 +32,10 @@ The shared unconfined read agent was the only remaining measured bottleneck
 0.2-0.3 ms). A7 swaps its shell for the native binary (v5) while keeping the
 shell as the fallback:
 
-- **selection:** the same `agentBackend` semantics — `auto` prepares the
-  packaged binary for the distro's architecture, `native` refuses instead of
-  falling back, `shell` forces the shell; the dev override still wins;
+- **selection:** `shell` forces the shell; otherwise the shared agent tries
+  the packaged binary for the distro's architecture (or the dev override).
+  Unlike session-runtime preparation with `agentBackend: native`, shared reads
+  fall back to the shell when native preparation fails;
 - **preparation:** `ensureNativeBackend` once per distro (cache/digest/exec
   probe); the `WslAgent` with `expectedDigest` and `signalable: false`; on a
   preparation or HELLO failure the shell agent serves the reads — fail-open to

@@ -91,9 +91,8 @@ Three patterns keep the check honest:
   upstream seam gap, carries the reason inline, and the gap is written up — in a
   `docs/UPSTREAM-*.md` tracking doc when the fix is an upstream ask (the
   `LocalBashExecutor.spawnSpec` seam has one), or in the source comment itself
-  when the honest fix needs a protocol decision this package owns (the exit-4
-  relay's unknown entry kind is the other site, deliberately left visible). It
-  is a published finding, not a silencer.
+  when the honest fix needs a protocol decision this package owns. The current
+  exception is the `spawnSpec` seam; it is a published finding, not a silencer.
 
 ## The build
 
@@ -230,12 +229,11 @@ Two conveniences for the real-machine set. `test/probe/run-all-when-closed.sh
 --include-fs` runs all fifteen probes once the app has exited. The interop shell
 matrix uses the `wslfs` profile, systemd and a lingering user manager; it fails
 when Windows interop or its temporary marker cannot be verified. And `ci.yml` has a
-`probes` job you dispatch by hand: `sandbox` runs whenever a default distro
+scheduled and manually dispatched `probes` job: `sandbox` runs whenever a default distro
 actually launches, then `mode`, `terminal`, `picker` and `missing-wsl` where the
 harness app is installed. It is named for a self-hosted Windows runner although
-its `runs-on` carries the hosted `windows-latest` label; a hosted runner ships
-`wsl.exe` with no distro behind it, so there the job is an honest green no-op
-(`skip all`) until a self-hosted runner carries that label. Where a default
+its `runs-on` carries the GitHub-hosted `windows-latest` label; when the hosted
+runner has no usable distro the job is a green no-op (`skip all`). Where a default
 distro launches without bubblewrap, the `sandbox` leg fails, not skips.
 
 ## Adding a test
@@ -249,19 +247,13 @@ Choose the layer by what the test needs.
 
 Unit tests run under `node --test`. The `test:unit` and the `test:coverage` lists
 in `package.json` name their files explicitly; a test that only touches this
-repository belongs in both. Two lags in those lists today are hygiene to fix in
-passing, not a pattern to copy: each names one file twice
-(`test/fsio-text.test.mjs` in `test:unit`, `test/fs.boot.test.mjs` in
-`test:coverage`), and `test/fs-routing.test.mjs` is in neither
-(`docs/REQUIREMENTS.zh.md` tracks that as OI-7).
+repository belongs in both. Keep the lists synchronized without duplicate entries.
 
 A test that imports a pinned `@deepseek-ai/*` package goes in the same lists and
 needs no guarding — CI runs `pnpm install --frozen-lockfile` over the locked tree
-before `pnpm test`. Five files import such packages at runtime today —
+before `pnpm test`. For example,
 `test/provider.test.mjs` is what covers the assembled service rows, and
-`test/composition.test.mjs` runs the loader's real patch algorithm — and a sixth
-(`test/terminal-activity.test.mjs`) reaches a peer only through a JSDoc type
-import, which `checkJs` still resolves.
+`test/composition.test.mjs` runs the loader's real patch algorithm.
 
 Where a peer-free seam exists, prefer it. `test/sandbox.test.mjs` runs against
 `lib/sandbox-core.js`, with a stand-in for the peer's `SandboxUnavailableError`
@@ -273,14 +265,13 @@ must skip itself — print a `SKIP` line and exit 0 — the way that file does o
 `win32`, where its fake `wsl.exe` (a POSIX script) cannot execute.
 
 Probes are shell scripts, plus the small plugin files they load: the `*-probe.mjs`
-and `*-probe.yml` files in the same directory. Two shapes. The harness probes
-(`run.sh`, `terminal.sh`, `sandbox-shell.sh`, `picker.sh`, `fs-routing.sh`,
-`missing-wsl.sh`, `sandbox-off.sh`) boot a throwaway profile whose setup steps
-are in the header of `test/probe/run.sh`; the six others reuse the profile
-`run.sh` creates rather than making their own. The distro probes (`substrate.sh`, `watch.sh`, `agent.sh`,
-`exec.sh`) boot nothing: they run from a distro terminal and drive the resident
-agent through the `wsl.exe` interop transport. `sandbox.sh` and `mode.sh` sit
-outside both groups — no harness boot, no profile.
+and `*-probe.yml` files in the same directory. Harness probes including `run.sh`,
+`terminal.sh`, `sandbox-shell.sh`, `interop-shell.sh`, `picker.sh`,
+`fs-routing.sh`, `missing-wsl.sh` and `sandbox-off.sh` use the throwaway profile
+whose setup is documented in the header of `test/probe/run.sh`. The distro probes
+(`substrate.sh`, `watch.sh`, `agent.sh`, `exec.sh`) boot no harness: they run
+from a distro terminal and drive the resident agent through the `wsl.exe` interop
+transport. `sandbox.sh` and `mode.sh` need neither a harness boot nor a profile.
 
 Keep probe output idempotent. Several probes delete their scratch files at the
 start, because a leftover file from an earlier run changes the result.
@@ -325,12 +316,9 @@ On Windows 11 + WSL2 (Ubuntu 26.04) the following has been verified:
   outside the session workspace is refused inside the distro and the following
   wider-permission request succeeds.
 
-Counts: 33 unit test files under `test/` — 32 of them registered in the
-`test:unit` list, see the OI-7 note above — which need the pinned packages
-installed, and over 1000 `assert` call sites across them; 19 filesystem-probe
-assertions; 15 shell-probe checks; 9 picker checks; 6 missing-executable checks;
-5 mode checks; 5 opt-out checks and 10 sandbox expectations plus the recorded
-escape; and 3 terminal assertions.
+The current unit and coverage test lists are in `package.json`; probe assertions
+and prerequisites are in the individual scripts. Verification results describe
+the tested environment and are not a substitute for rerunning the applicable gates.
 
 ## Good first issues and the contributor path
 

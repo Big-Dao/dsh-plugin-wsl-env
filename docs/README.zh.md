@@ -16,7 +16,7 @@ Harness 进程仍在 Windows 上。命令、文件操作、文件夹选择器和
 
 Windows 上的编程工具要在 WSL 项目中工作，有三条路：把整个工具装进发行版、连接发行版内的辅助服务，或由插件直接提供发行版环境。本插件是第三条。两类会话共用一套流程，同时保留发行版的真实工具和命令沙箱。
 
-- **真实的 Linux 环境。** 命令在发行版自己的登录 shell 中运行，`PATH`、`nvm`、`cargo`、`pyenv` 和 rc 文件都生效。文件工具直接读写发行版 ext4 上的真实文件。
+- **真实的 Linux 环境。** 命令在发行版自己的登录 shell 中运行，`PATH`、`nvm`、`cargo`、`pyenv` 和 rc 文件都生效。文件工具通过发行版内的 agent 访问发行版路径，底层文件系统取决于路径。
 - **发行版内没有服务。** 没有辅助服务、没有守护进程、没有监听端口。唯一持久化的内容是 `~/.cache/dsh-wsl/agent/` 下按内容寻址的原生 agent 副本。
 - **默认有沙箱。** 受限命令在发行版内的 `bubblewrap` 中运行。缺少 `bubblewrap` 时命令直接失败，不会脱箱运行。
 - **按会话生效。** 打开发行版文件夹的会话获得发行版环境；打开 Windows 文件夹的会话保留 Windows 工具。两者可同时运行在一个 harness 进程中。
@@ -72,7 +72,7 @@ dsh --profile wsl                                  # 启动
 wsl.exe -d <发行版> -u root -- apt-get install -y bubblewrap
 ```
 
-在插件检出目录中，`pnpm run bootstrap -- <发行版>` 检查四个发行版工具，并按包管理器打印安装命令；加 `--install` 直接执行。
+在插件检出目录中，`pnpm run bootstrap <发行版>` 检查四个发行版工具，并按包管理器打印安装命令；加 `--install` 仅在缺少 bubblewrap 时执行该命令。若只缺少其他工具，请自行执行打印的命令。
 
 升级：再次执行 `add` 命令。卸载：`dsh plugin --profile wsl remove dsh-plugin-wsl-env`；之后可删除 `~/.cache/dsh-wsl`。如果你为了恢复预览在 profile 里加过 `workspace-files-wsl` 的临时覆盖，升级后请删掉：插件不再挂载该行。
 
@@ -135,11 +135,11 @@ wsl preset（每个会话）
 | `workspace-write` | 上面的权限，加上会话工作区；会话 runtime 下 `/tmp` 是发行版真实 `/tmp` |
 | `danger-full-access` | 不经过沙箱 |
 
-设置 `sessionSandbox: false` 时，每条命令使用私有的 `/tmp`，而不是发行版的真实 `/tmp`。
+设置 `sessionSandbox: false` 时，`workspace-write` 命令使用私有的 `/tmp`，而不是发行版的真实 `/tmp`；`read-only` 不挂载可写的 `/tmp`。
 
 `bubblewrap` 是必需项。缺失或损坏时，受限命令报 `SANDBOX_UNAVAILABLE`，不会运行。在对应的行设置 `sandbox: false` 可关闭沙箱；模型会收到"该操作无沙箱"的说明。
 
-隔离上报为 `partial`。发行版内的命令仍可通过 `/mnt/c` 启动 Windows 程序，`bubblewrap` 无法控制 Windows 进程。`maskWindowsDrive: true` 让受限视图看不到 `/mnt`，能收窄这个洞但不能关死。彻底关闭要在发行版层面设置 `[interop] enabled=false`（`/etc/wsl.conf`）。见 [docs/ARCHITECTURE.md](ARCHITECTURE.md#sandbox) 和 [SECURITY.md](../SECURITY.md)。
+隔离上报为 `partial`。发行版内的命令仍可通过 `/mnt/c` 启动 Windows 程序，`bubblewrap` 无法控制 Windows 进程。`maskWindowsDrive: true` 让受限视图看不到 `/mnt`，但会被 `interopVisibility: visible` 覆盖；遮罩只能收窄这个洞，不能关死。关闭 WSL interop 需要另行在发行版的 `/etc/wsl.conf` 中设置 `[interop] enabled=false`。见 [docs/ARCHITECTURE.md](ARCHITECTURE.md#sandbox) 和 [SECURITY.md](../SECURITY.md)。
 
 ## 常见问题
 
@@ -147,7 +147,7 @@ wsl preset（每个会话）
 |---|---|
 | 每条命令都报 `SANDBOX_UNAVAILABLE` | 在发行版内安装 `bubblewrap`，或设置 `sandbox: false` |
 | 会话在第一条命令前就被拒绝 | 启用 systemd 和 linger，或在 `wsl-shell`、`wsl-fs` 上设置 `sessionSandbox: false` |
-| 发行版内 `glob`、`grep` 很慢 | 运行 `pnpm run bootstrap -- <发行版> --install` 安装 `ripgrep` |
+| 发行版内 `glob`、`grep` 很慢 | 运行 `pnpm run bootstrap <发行版>`，使用打印的安装命令安装 `ripgrep` |
 | `dsh plugin add` 没有输出 | 插件已安装；这是成功 |
 | 改了 `lib/` 但不生效 | 运行 `pnpm run sync:windows`，然后重启应用 |
 

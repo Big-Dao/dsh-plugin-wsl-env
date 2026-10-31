@@ -6,11 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 The reasoning and the measurements behind each entry are in the archived
 engineering record,
-[docs/archive/engineering-record.zh.md](docs/archive/engineering-record.zh.md)
+[docs/archive/engineering-record.zh.md](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/archive/engineering-record.zh.md)
 (Chinese, repository only — it is history, never a second README). A `§`
 reference below points at that record's numbering unless it names another
 document: the 0.1.0 entry's `design-history §` references are to
-[docs/archive/design-history.zh.md](docs/archive/design-history.zh.md), which
+[docs/archive/design-history.zh.md](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/archive/design-history.zh.md), which
 keeps the superseded designs under the section numbers they had while they
 were part of the record.
 
@@ -319,7 +319,7 @@ entry points.
   complete `preset-wsl` block, applies `distro`/`sessionSandbox`/`sandbox`/
   `maskWindowsDrive`/`agentBackend`, and `--check` fails loudly with the exact
   block to paste when a layer carries the nested id patch. See
-  [docs/CONFIGURATION.md](docs/CONFIGURATION.md#overriding-the-rows-inside-preset-wsl).
+  [docs/CONFIGURATION.md](docs/CONFIGURATION.md#configure-wsl-shell-and-wsl-fs).
 
 - **Session-notice upstream payload ready.** The exact title, body and `gh`
   command for the session-visible notice proposal are in
@@ -620,7 +620,7 @@ from it.
   longer the mechanism. The three deliberate deviations from the shipped copy
   — the `wsl-env` realm wrapping every row, the fixed shell-tool choice, and
   the preset's identity — are unchanged, and the transformation is now
-  [scripts/build-preset-wsl.mjs](scripts/build-preset-wsl.mjs) rather than the
+  [scripts/build-preset-wsl.mjs](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/scripts/build-preset-wsl.mjs) rather than the
   machine-local generator the block used to name: it takes the shipped file and
   prints the row, and its output is the committed block byte for byte.
 - `docs/UPSTREAM-TERMINAL-FONT.md` closes: the `0.2.1-rc.2` line made the
@@ -2222,7 +2222,7 @@ could not work, and one where the cause of a failure was invisible.
   is re-probed on the next command, and concurrent first commands share one probe. The
   policy lives in [`lib/probe-cache.js`](lib/probe-cache.js), which is pure, so the
   regression is pinned on every platform including CI
-  ([`test/probe-cache.test.mjs`](test/probe-cache.test.mjs)).
+  ([`test/probe-cache.test.mjs`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe-cache.test.mjs)).
 - `restrictToDistro` refused another distro's share with `FS_SANDBOX_DENIED`. The
   file-tool layer turns that code into a denial marker plus an escalation offer
   (`mapError` in `dsh-tool-fs`), and no wider permission can lift this fence: it is a
@@ -2297,7 +2297,7 @@ Repository and release engineering. No runtime behaviour changed.
 
 ### Added
 
-- `npm run lint:style` ([`test/style.mjs`](test/style.mjs)): a dependency-free gate
+- `npm run lint:style` ([`test/style.mjs`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/style.mjs)): a dependency-free gate
   over the rules `.editorconfig` states, plus three packaging checks — every `files`
   entry still matches tracked content, every `exports` target exists, and exactly one
   readme candidate sits at the package root. That last one is the regression guard
@@ -2307,14 +2307,14 @@ Repository and release engineering. No runtime behaviour changed.
   spawning half of `lib/wsl.js` and the four service modules are covered by the
   probes instead, which is why the function threshold is lower than the others.
 - `.github/workflows/release.yml`: a `v*` tag is checked against `package.json`
-  ([`scripts/check-release-tag.mjs`](scripts/check-release-tag.mjs)), gated, then
+  ([`scripts/check-release-tag.mjs`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/scripts/check-release-tag.mjs)), gated, then
   published with `--provenance` through npm trusted publishing, and the GitHub
   Release is created from the changelog section
-  ([`scripts/changelog-section.mjs`](scripts/changelog-section.mjs)). No npm token is
+  ([`scripts/changelog-section.mjs`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/scripts/changelog-section.mjs)). No npm token is
   stored in the repository.
 - The governance files a public repository is expected to carry:
   [`SECURITY.md`](SECURITY.md), [`CONTRIBUTING.md`](CONTRIBUTING.md),
-  [`SUPPORT.md`](SUPPORT.md), [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md),
+  [`SUPPORT.md`](SUPPORT.md), [`CODE_OF_CONDUCT.md`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/CODE_OF_CONDUCT.md),
   `CODEOWNERS`, a pull-request template, bug-report and contact-link issue templates,
   and a Dependabot configuration for the pinned workflow actions.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) describes the plugin as it is
@@ -2323,16 +2323,16 @@ Repository and release engineering. No runtime behaviour changed.
   has to be reconstructed from a changelog and a historical record.
 - [`docs/RELEASING.md`](docs/RELEASING.md): the release checklist, including the
   operational facts that cost time to learn.
-- [`docs/archive/README.en.md`](docs/archive/README.en.md): an English index of the
+- [`docs/archive/README.en.md`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/archive/README.en.md): an English index of the
   Chinese archive.
 - `.nvmrc` names the Node version the coverage job uses.
 
 ### Changed
 
 - The probes no longer carry a user name, a home directory or a distro name.
-  [`test/probe/env.sh`](test/probe/env.sh) derives them from the machine
+  [`test/probe/env.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/env.sh) derives them from the machine
   (`%USERPROFILE%`, `%LOCALAPPDATA%`, `WSL_DISTRO_NAME`) and
-  [`test/probe/env.mjs`](test/probe/env.mjs) does the same for the Node-side probes,
+  [`test/probe/env.mjs`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/env.mjs) does the same for the Node-side probes,
   which learn their own location from `import.meta.url`. The YAML overlays are now
   templates with `@NAME@` placeholders, and the scripts substitute real values into
   generated copies that `.gitignore` keeps out of the tree. The two profile layers
@@ -2554,7 +2554,7 @@ and the package installs as a bundle that contributes its own profile layer.
 - The README is now **current state only**. The five sections describing designs
   that this one replaced — the per-process `DSH_WSL` switch and the three
   abandoned tool-naming routes — moved to
-  [docs/archive/design-history.zh.md](docs/archive/design-history.zh.md), which
+  [docs/archive/design-history.zh.md](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/archive/design-history.zh.md), which
   keeps their original numbering and records where each conclusion lives now.
   The README renumbered accordingly; its §0.1 explains the split. The one part of
   the old desktop section that is still current (regenerating the generated
@@ -2631,7 +2631,7 @@ Documentation that a reader would have acted on, and that was no longer true:
   current description of the plugin while its conclusions had been superseded
   three times over — most sharply by the sandbox work below — which is exactly
   the ambiguity a second README creates. It is now
-  [docs/archive/engineering-record.zh.md](docs/archive/engineering-record.zh.md):
+  [docs/archive/engineering-record.zh.md](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/archive/engineering-record.zh.md):
   the same content, renamed out of the README slot and banner-headed as history,
   with README.md the single statement of current state. Nothing was deleted from
   the record; §0.1 names the conclusions that are now historical.

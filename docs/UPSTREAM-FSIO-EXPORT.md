@@ -3,9 +3,9 @@
 Status: filed upstream as
 [deepseek-ai/deepseek-harness#10262](https://github.com/deepseek-ai/deepseek-harness/discussions/10262)
 (Ideas); the filing convention is [UPSTREAM-TERMINAL-TITLE.md](UPSTREAM-TERMINAL-TITLE.md).
-Targeting `deepseek-harness` @ `packages/fs/fs-local`, the `0.2.1-rc.x` line
-this plugin pins exactly (`@deepseek-ai/dsh-fs-local@0.2.1-rc.2`, in both the
-dev and peer dependency blocks of `package.json`). This is the Shape-A
+Targeting `deepseek-harness` @ `packages/fs/fs-local`, the `0.2.1-rc.x` line.
+The proposal was measured against `@deepseek-ai/dsh-fs-local@0.2.1-rc.2`;
+the current development pin and peer range are in `package.json`. This is the Shape-A
 upstream half of the in-distro I/O refactor: with the fsio text mechanics
 importable, `dsh-plugin-wsl-env` deletes its copies of them.
 
@@ -146,13 +146,13 @@ import("koffi")`, `:25`), so no native dependency is evaluated at import time.
   layer maps the `code` token and the message, not the error class.
 - Semver: an additive export. On the `0.2.0-rc.x` line it ships in the next
   pre-release — the `0.2` position does not move, so this is not a minor bump
-  of a released line; and because the consuming plugin pins the exact version,
-  adoption is an explicit pin bump, never an automatic upgrade.
+  of a released line. Adoption by the plugin requires an explicitly verified
+  development pin and a peer minimum that includes the export.
 
 ## Landing it (consumer side)
 
-1. Bump both pins in `package.json` (`devDependencies` and `peerDependencies`)
-   to the peer that carries the export.
+1. Update the development pin and peer minimum in `package.json` to a verified
+   version that carries the export.
 2. `pnpm run build` — `lib/` is committed, and `test/build-freshness.mjs`
    enforces that it is a byte-identical, closed image of `src/`.
 3. Re-run the comparison in [PEER-PARITY.md](PEER-PARITY.md) (its Maintenance

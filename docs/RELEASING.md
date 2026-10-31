@@ -55,31 +55,16 @@ CI-coverable code. Do not raise the branch number without either covering
 the `wsl.exe` tail on the Windows CI legs or moving the coverage job to
 `windows-latest`.
 
-Run the probes as well when behaviour changed, and keep their output for the pull
-request or the release notes:
+Run the full real-machine suite when behaviour changed, and keep its output for
+the pull request or the release notes. The harness application must be closed;
+the runner waits until it exits:
 
 ```bash
-pnpm run probe
-pnpm run probe:sandbox
-pnpm run probe:sandbox-shell
-pnpm run probe:sandbox-off
-pnpm run probe:terminal
-pnpm run probe:picker
-pnpm run probe:missing-wsl
-pnpm run probe:mode
-pnpm run probe:substrate
-pnpm run probe:watch
-pnpm run probe:agent
-pnpm run probe:exec
+bash test/probe/run-all-when-closed.sh --include-fs
 ```
 
-`pnpm run probe:sandbox` runs from inside the distro and needs neither the harness
-nor a profile. `pnpm run probe:mode` uses the harness executable as its Windows
-Node, so it needs no harness boot and no profile. `probe:substrate`,
-`probe:watch`, `probe:agent` and `probe:exec` also run from inside the distro.
-The rest — `probe`, `probe:sandbox-shell`, `probe:terminal`, `probe:picker`,
-`probe:missing-wsl` and `probe:sandbox-off` — need Windows, WSL2, a mounted
-profile and a linked checkout.
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for individual probes, prerequisites,
+and optional performance probes not included in the suite.
 
 `npm publish` runs the `prepublishOnly` script, which is `pnpm test`. The local
 gates therefore run again during the release step.
@@ -128,9 +113,13 @@ person in front of every publish.
 
 ### Manual fallback
 
-Use this when the workflow cannot run. Publish from a machine that holds a granular
-access token with write access to the package. The token needs `bypass 2FA`
-enabled if the account requires 2FA.
+Use this when the workflow cannot run. On a trusted machine, authenticate with
+`npm login --registry=https://registry.npmjs.org/` and complete the interactive
+authentication and publishing challenges required by the npm account and package.
+See [npm's two-factor authentication guidance](https://docs.npmjs.com/requiring-2fa-for-package-publishing-and-settings-modification/).
+Keep credentials outside the repository and never put them in command arguments
+or shell history. If a granular token is used instead, follow npm's package policy
+and revoke the token after the release.
 
 Run the same tag check the workflow runs, against the tag you are about to push,
 then publish:
@@ -138,12 +127,8 @@ then publish:
 ```bash
 node scripts/check-release-tag.mjs vx.y.z
 
-npm publish --registry=https://registry.npmjs.org/ \
-  --//registry.npmjs.org/:_authToken=<token>
+npm publish --registry=https://registry.npmjs.org/ --access public
 ```
-
-Pass the token on the command line. Never write it into a file in the repository,
-and revoke it once the release is verified.
 
 Set `--registry` explicitly. A local `~/.npmrc` may point at a mirror, and a
 release published to a mirror is not a release.
@@ -269,4 +254,4 @@ npm does not let a published version be replaced, so the fix goes forward:
 | A repeated publish of the same version is refused | npm checks the registry first and stops with `You cannot publish over the previously published versions: x.y.z.`; a registry-side conflict surfaces as `EPUBLISHCONFLICT` ("Cannot publish over existing version."). Either one means the first publish landed. Verify it instead of publishing again — the release workflow's already-published check exists for the same reason. |
 | The npm readme is chosen from the candidate files at the package root, and the rule is not fully explained. With `README.md` and `README.zh.md` side by side, version 0.1.1 published as `readmeFilename: README.zh.md`, so its npm page rendered Chinese — even though the tarball listed `README.md` first. Both names match the npm CLI's own selection code (`@npmcli/package-json/lib/normalize.js` globs `{README,README.*}` and accepts `/\.m?a?r?k?d?o?w?n?$/i`, which does match `.md`), so neither name is screened out. | Do not rely on the rule. Keep exactly one readme candidate at the package root, which `pnpm run lint:style` checks. The Chinese README lives in `docs/` for this reason. |
 | A local `~/.npmrc` may point at a mirror | Pass `--registry=https://registry.npmjs.org/` on every publish and every verification. |
-| The npm token is a credential | Pass it per command, never commit it, and revoke it after the release. |
+| The npm token is a credential | Keep it out of command arguments and the repository; revoke a temporary token after the release. |

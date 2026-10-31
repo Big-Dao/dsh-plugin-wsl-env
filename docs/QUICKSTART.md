@@ -1,6 +1,6 @@
 # Quickstart
 
-Five minutes from a clean Windows + WSL 2 machine to a working WSL session.
+Steps from a Windows + WSL 2 machine to a working WSL session.
 This page is the entry point; every claim links to the document that owns it.
 
 ## 1. Prerequisites
@@ -11,10 +11,11 @@ This page is the entry point; every claim links to the document that owns it.
 | A distro | one line in the list above | `wsl.exe --install -d Ubuntu` |
 | `bubblewrap` | `wsl.exe -d <distro> -- which bwrap` | `wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap` |
 | systemd + Linger (for the session runtime) | `node <plugin>/scripts/doctor.mjs` (installed) or `pnpm run doctor` (checkout) | `[boot] systemd=true` in `/etc/wsl.conf`, `wsl --shutdown`, then `loginctl enable-linger "$USER"`; or set `sessionSandbox: auto`/`false` |
-| Node 22.19+ or 24 | only needed for source/development work | not needed to use the published plugin |
+| Node `^22.19.0` or `>=24.0.0` | only needed for source/development work | not needed inside the distro to use the published plugin |
 
-The doctor (`scripts/doctor.mjs`, or `pnpm run doctor` from a checkout) covers all
-of the above in one pass and prints a copy-paste remedy per failure. It is read-only unless you pass `--fix` (stale scopes) or
+The doctor (`scripts/doctor.mjs`, or `pnpm run doctor` from a checkout) checks
+the environment and prints remedies for detected failures. Confirm the distro's
+WSL version separately with `wsl.exe -l -v`. Doctor is read-only unless you pass `--fix` (stale scopes) or
 `--fix --install` (packages, after a confirmation).
 
 ## 2. Install
@@ -74,10 +75,13 @@ distro kernel. If the first command fails, the error names the remedy; the
 [doctor](CONFIGURATION.md) and the [Troubleshooting table](../README.md#troubleshooting)
 cover the common cases.
 
-The sandbox is enforced by the kernel, not a promise: the probe below runs the
-shipped bwrap profiles live — writes inside the workspace land, writes outside
-are refused with `EROFS`, and the strict profile hides `/mnt` entirely
-([`test/probe/sandbox.sh`](../test/probe/sandbox.sh)):
+The probe below runs the shipped kernel-enforced bwrap profiles live — writes
+inside the workspace land, tested writes outside are refused with `EROFS`, and
+the strict profile hides `/mnt` entirely
+([`test/probe/sandbox.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/sandbox.sh)):
+
+This is partial isolation, not a Windows security boundary: Windows interop
+can still launch executables outside `/mnt`. See [LIMITATIONS.md](LIMITATIONS.md).
 
 ![The sandbox probe: every expectation holds, the kernel refuses what the profile does not grant](screenshots/sandbox.png)
 
@@ -94,8 +98,9 @@ pnpm test
 pnpm dev            # a dev server survives the command that started it with sessionSandbox: true
 ```
 
-The server's port appears in `DSH_WSL_PORTS` on the next snapshot (10 s by
-default); open it from Windows at `http://localhost:<port>`.
+The server's port can appear in `DSH_WSL_PORTS` after a successful snapshot
+(refreshed every 10 s by default); open a forwarded port from Windows at
+`http://localhost:<port>`.
 
 ### Python
 
@@ -125,14 +130,16 @@ go build ./...
 go test ./...
 ```
 
-The module cache lives in the distro's `$GOPATH`, so builds stay on ext4.
+The module cache normally lives under the distro user's `$GOPATH`; its actual
+location and backing filesystem depend on the Go environment and mounts.
 
 ### Monorepo
 
 Open the repository root as the workspace. Each package's commands run from the
 same distro; `pnpm -r`, `turbo`, `nx` and `make` see one Linux filesystem. The
-file watcher uses inotify inside the distro (`watchMaxDepth: 0`). If a change is
-missed, see the watcher bounds in [CONFIGURATION.md](CONFIGURATION.md).
+file watcher uses inotify for unbounded directories when `inotifywait` is
+available; otherwise it falls back to polling. If a change is missed, see the
+watcher bounds in [CONFIGURATION.md](CONFIGURATION.md).
 
 ## Compatibility
 
@@ -148,15 +155,14 @@ executed here.
 
 With `sessionSandbox: auto` a distro without systemd/Linger still gets the
 per-command `bubblewrap` sandbox and the result reports the narrower scope;
-`true` refuses. See [CONFIGURATION.md](CONFIGURATION.md#the-strict-profile) for
+`true` refuses. See [CONFIGURATION.md](CONFIGURATION.md#sandbox-and-preflight) for
 the sandbox trade-offs and [PERFORMANCE.md](PERFORMANCE.md) for the measured
 latency.
 
 ## Demo
 
-There is no GIF or screenshot in this repository yet: producing one needs a
-capture of the GUI, which this project has not recorded. The
-[Troubleshooting table](../README.md#troubleshooting) and the probe output
-(`pnpm run probe:sandbox`, `pnpm run probe:gui-preview`) are the reproducible
-evidence in the meantime; the absence is recorded in
+The screenshots above show the picker, terminal, preview and sandbox probe.
+There is no GIF yet. The [Troubleshooting table](../README.md#troubleshooting)
+and the probe output (`pnpm run probe:sandbox`, `pnpm run probe:gui-preview`)
+provide reproducible evidence; the remaining demo work is tracked in
 [ROADMAP-1.0.md](ROADMAP-1.0.md#wsl-302--discoverability-and-docs-entry).

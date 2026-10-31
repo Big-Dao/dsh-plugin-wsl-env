@@ -1,8 +1,8 @@
 # 根平面按坐标路由的 fs — 设计文档
 
-> 状态：已实现，随 0.7.2 发布（本仓当前 0.9.x）。源码是 `src/fs-routing.ts`，
-> `lib/fs-routing.js` 是其编译产物；对照的 peer 为 `package.json` 锁定的
-> 0.2.1-rc.2。
+> 状态：已实现，随 0.7.2 发布。源码是 `src/fs-routing.ts`，
+> `lib/fs-routing.js` 是其编译产物；当前开发依赖及 peer 范围以
+> `package.json` 为准。
 > 关联：promotion-map 附录 C（workspace-files 接管评审）、附录 B（剩余 9P
 > 消费者）、`docs/upstream/rfc-wsl-workspaces.md` 增补（根平面路由 fs 的
 > 上游 seam 提案）。
@@ -32,7 +32,7 @@ workspace root。对一个 `\\wsl.localhost\<distro>` 工作区，它的每一�
 ```
 targetKey（或 path/cwd）是 \\wsl.localhost\<distro> UNC
   → distro substrate（懒加载的 WslFileSystem 实例：常驻 agent 上的
-    canonical/stat/读/listDir/watch，全在 ext4 上）
+    canonical/stat/读/listDir/watch，使用目标路径所在的发行版文件系统）
 否则（盘符、相对路径解析到盘符）
   → super（宿主 LocalFileSystem：NTFS 原生，含 chokidar watch）
 ```
@@ -51,7 +51,7 @@ home 缓存，所以同一个根平面可以同时服务多个发行版；`distr
 |---|---|---|---|
 | resolve / lstat | path 或 cwd 的坐标 | substrate resolve/lstat | super |
 | stat / listDir / readText / streamText / readBytes / readByteRange | targetKey 坐标 | substrate 对应操作 | super |
-| watch | targetKey 坐标 | distro `find -newer` 轮询（真实事件） | chokidar |
+| watch | targetKey 坐标 | distro inotify 或轮询（粗粒度失效） | chokidar |
 | writeText / editText | targetKey 坐标 | distro 写（substrate 守卫 + confined agent 内核强制） | super |
 | contains / processPath | parent/targetKey 坐标 | Linux 路径语义（`contains` 按两个目标的 `processPath` 做 POSIX 包含判定） | super |
 
@@ -83,9 +83,9 @@ home 缓存，所以同一个根平面可以同时服务多个发行版；`distr
   接管把 `stat` 的 `absolutePath` 合成 UNC，已随该行删除。
   `fileUrl` 不在覆写之列（§2.1 注）：它由 `processPath` 派生，同样不能假定为
   `file:///home/...`。
-- **watch 的事件粒度**：distro 侧是 `find -newer` 轮询（粗粒度失效 + 已知
-  盲点：mtime 早于 stamp 的文件），不是逐文件事件——与 preset 侧 watch 同一
-  后端、同一限制。
+- **watch 的事件粒度**：无限深目录且有 `inotifywait` 时，distro 侧优先使用
+  inotify；文件目标、限深目录或缺少工具时回退轮询。回调是粗粒度失效而非
+  逐文件事件；轮询的 mtime 盲点见 [LIMITATIONS.md](LIMITATIONS.md)。
 
 ### 2.3 懒加载与失败语义
 

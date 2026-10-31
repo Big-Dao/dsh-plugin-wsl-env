@@ -20,10 +20,10 @@ still move in a **minor**. Within that freedom:
 - **Changing a key's meaning is a minor with a migration note**, because a profile
   written for the old meaning keeps booting. The note must say what changed, how
   to keep the old posture, and where the behavior differs.
-- **Peer pins are exact.** A new upstream peer line is tested by the
-  [peer canary](../.github/workflows/peer-canary.yml) and lands as a minor with
-  the delta in the release note (or as a patch if the plugin code needs no
-  change).
+- **Peer compatibility is ranged.** DSH peer dependencies declare a minimum;
+  development dependencies are pinned exactly. A new upstream peer line is
+  tested by the [peer canary](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/.github/workflows/peer-canary.yml); changes to
+  the tested baseline or supported range belong in the release note.
 - **Tool names and error codes are API.** `FS_OUTSIDE_DISTRO`,
   `SANDBOX_UNAVAILABLE`, `FS_STALE_VERSION` and the diagnostic scripts
   (`doctor`, `diagnose`, `preset`, `bootstrap`) keep their names and contracts;
@@ -62,7 +62,9 @@ the old meaning keeps booting, but now behaves differently. The migration:
           distro: default
 ```
 
-`pnpm run preset -- --distro default --out …` writes that block. The CHANGELOG
+`pnpm run preset --distro default` prints that block for manual merging.
+`--out` replaces the whole destination file, including unrelated overrides;
+see [CONFIGURATION.md](CONFIGURATION.md#configure-wsl-shell-and-wsl-fs). The CHANGELOG
 entry for 0.12.0 states the change; this page is the durable copy. `doctor`
 reports the effective distro mode in its host/distro rows, and `--dump-config`
 shows the composed value.
@@ -76,7 +78,7 @@ shows the composed value.
 | `pnpm run test:coverage` | lines 85 / branches 84 / functions 70 | CI (Node 24, Ubuntu) |
 | Peer line tested | `peer-canary` workflow resolves `next` and runs the scratch upgrade | CI schedule/manual |
 | Packed install/upgrade/uninstall | `pnpm run e2e:install` (temp `DSH_HOME`, 0.11.0 → current, marker) | manual, this machine (10/10 on 2026-10-19) |
-| Real-machine probe suite | `test/probe/run-all-when-closed.sh` (needs the app closed) | manual; **not run in this environment** since the last batch's targeted probes |
+| Real-machine probe suite | `test/probe/run-all-when-closed.sh --include-fs` (needs the app closed) | manual; 15 probes passed on this Windows/WSL machine on 2026-10-31 |
 | Clean Win11 + Ubuntu first run ≤ 5 min | a clean machine, a stopwatch | **not run** (the project's machine is already configured) |
 | aarch64 executed | the native 18-check suite under qemu in CI | **run in CI** (physical aarch64 WSL is out of scope; see COMPATIBILITY.md) |
 | No open P0 bug for 30 days | issue tracker | time-based; cannot be asserted from a checkout |
@@ -90,8 +92,8 @@ ships through the tag workflow, but its notes say which gates were executed.
 ## Verifying a migration locally
 
 ```bash
-pnpm run preset -- --distro default --check <profile>/cordis.patch.yml  # no nested-row trap
-pnpm run doctor -- --json                                               # effective environment facts
+pnpm run preset --distro default --check <profile>/cordis.patch.yml  # no nested-row trap
+pnpm run doctor --json                                               # effective environment facts
 dsh --profile <name> --dump-config                                      # composed rows
 ```
 

@@ -12,13 +12,13 @@ The harness process stays on Windows. Commands, file operations, the folder pick
 
 Windows + WSL 2 only.
 
-**New here?** Start with [docs/QUICKSTART.md](docs/QUICKSTART.md) — five minutes, prerequisites, recipes and the honest compatibility table.
+**New here?** Start with [docs/QUICKSTART.md](docs/QUICKSTART.md) — prerequisites, recipes and the compatibility table.
 
 ## Why this plugin
 
 A Windows coding tool that works on WSL projects has three options: run the whole tool inside the distro, connect to a helper server inside the distro, or let the plugin provide the distro environment. This plugin is the third option. One workflow covers both kinds of session, with the distro's real tools and the command sandbox intact.
 
-- **Real Linux environment.** Commands run in the distro's own login shell. Its `PATH`, `nvm`, `cargo`, `pyenv` and rc files apply. File tools read and write the distro's real files on ext4.
+- **Real Linux environment.** Commands run in the distro's own login shell. Its `PATH`, `nvm`, `cargo`, `pyenv` and rc files apply. File tools access distro paths through an in-distro agent; the backing filesystem depends on the path.
 - **No service in the distro.** There is no helper server, no daemon and no listening port. The only persisted artifact is a content-addressed copy of the native agent in `~/.cache/dsh-wsl/agent/`.
 - **Sandboxed by default.** Confined commands run under `bubblewrap` inside the distro. If `bubblewrap` is missing, the command fails; it does not run unconfined.
 - **Per-session.** A session opened on a distro folder gets the distro environment. A session opened on a Windows folder keeps the normal Windows tools. Both can run in one harness process.
@@ -74,7 +74,7 @@ Install `bubblewrap` before the first command:
 wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap
 ```
 
-From a checkout, `pnpm run doctor` is the one-command environment check: Windows/WSL versions, the distro and its shell, bubblewrap usability, systemd / the user manager / Linger, the optional tools, peer versions, the agent cache, a fresh-agent handshake, stale session scopes and the known profile-patch trap. Each failure prints one copy-paste remedy; `--json` is for scripts, and `--fix` sweeps stale scopes (package installation needs `--fix --install` and an explicit confirmation). `pnpm run diagnose` is its read-only alias. `pnpm run bootstrap -- <distro>` remains the narrower tool-install helper.
+From a checkout, `pnpm run doctor` is the one-command environment check: Windows/WSL versions, the distro and its shell, bubblewrap usability, systemd / the user manager / Linger, the optional tools, peer versions, the agent cache, a fresh-agent handshake, stale session scopes and the known profile-patch trap. Each failure prints one copy-paste remedy; `--json` is for scripts, and `--fix` sweeps stale scopes (package installation needs `--fix --install` and an explicit confirmation). `pnpm run diagnose` is its read-only alias. `pnpm run bootstrap <distro>` remains the narrower tool-install helper.
 
 Upgrade by running the `add` command again. Uninstall with `dsh plugin --profile wsl remove dsh-plugin-wsl-env`; the agent cache under `~/.cache/dsh-wsl` can then be deleted. If you added a local `workspace-files-wsl` workaround to your profile to restore previews, remove it after upgrading: the plugin no longer mounts that row.
 
@@ -137,11 +137,11 @@ wsl preset (per session)
 | `workspace-write` | the above, plus the session workspace; `/tmp` is the distro's real `/tmp` with the session runtime |
 | `danger-full-access` | no sandbox |
 
-With `sessionSandbox: false`, each command gets a private `/tmp` instead of the distro's real one.
+With `sessionSandbox: false`, a `workspace-write` command gets a private `/tmp` instead of the distro's real one. `read-only` does not mount a writable `/tmp`.
 
 `bubblewrap` is required. If it is missing or broken, confined commands report `SANDBOX_UNAVAILABLE` and do not run. Setting `sandbox: false` on the owning row disables confinement; the model is told that the operation is unsandboxed.
 
-Enforcement is reported as `partial`. A command inside the distro can still start a Windows executable through `/mnt/c`, and `bubblewrap` cannot control Windows processes. `maskWindowsDrive: true` hides `/mnt` from the confined view, which narrows the hole but does not close it. The complete fix is distro-level: set `[interop] enabled=false` in `/etc/wsl.conf`. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#sandbox) and [SECURITY.md](SECURITY.md).
+Enforcement is reported as `partial`. A command inside the distro can still start a Windows executable through `/mnt/c`, and `bubblewrap` cannot control Windows processes. `maskWindowsDrive: true` hides `/mnt` from the confined view unless overridden by `interopVisibility: visible`; this narrows the hole but does not close it. Disabling WSL interop requires a separate distro-level change: set `[interop] enabled=false` in `/etc/wsl.conf`. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#sandbox) and [SECURITY.md](SECURITY.md).
 
 ## Troubleshooting
 
@@ -149,9 +149,9 @@ Enforcement is reported as `partial`. A command inside the distro can still star
 |---|---|
 | every command reports `SANDBOX_UNAVAILABLE` | install `bubblewrap` in the distro, or set `sandbox: false` |
 | the session refuses before the first command | run `pnpm run doctor`; enable systemd and linger, or set `sessionSandbox: false` on `wsl-shell` and `wsl-fs` |
-| `glob` and `grep` are slow in the distro | install `ripgrep` with `pnpm run bootstrap -- <distro> --install` |
+| `glob` and `grep` are slow in the distro | run `pnpm run bootstrap <distro>` and use its printed install command to install `ripgrep` |
 | `dsh plugin add` prints nothing | the plugin is already installed; this is success |
-| a profile patch for `wsl-shell`/`wsl-fs` changes nothing | those rows are nested inside `preset-wsl`. Run `pnpm run preset -- --check <patch>`; it fails with the complete block to paste |
+| a profile patch for `wsl-shell`/`wsl-fs` changes nothing | those rows are nested inside `preset-wsl`. Run `pnpm run preset --check <patch>`; it fails with the complete block to paste |
 | changes under `lib/` have no effect | run `pnpm run sync:windows`, then restart the app |
 
 More error codes and refusals are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#error-codes). Everything the plugin does not do is in [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
@@ -174,7 +174,7 @@ Real-machine probes run on Windows + WSL only. See [CONTRIBUTING.md](CONTRIBUTIN
 
 | Document | Content |
 |---|---|
-| [docs/QUICKSTART.md](docs/QUICKSTART.md) | five-minute first run, recipes, compatibility |
+| [docs/QUICKSTART.md](docs/QUICKSTART.md) | first run, recipes, compatibility |
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | ext4 agent vs 9p, measured latency, how to reproduce |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | every configuration key and how to override it |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | services, path routing, sandbox, error codes |

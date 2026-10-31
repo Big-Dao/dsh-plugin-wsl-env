@@ -3,7 +3,7 @@
 This file describes the plugin as it is today. It covers what the code does and
 where each piece lives. The reasoning behind the design, including the designs that
 were rejected, is recorded in [`CHANGELOG.md`](../CHANGELOG.md) and in
-[`archive/engineering-record.zh.md`](archive/engineering-record.zh.md).
+[`archive/engineering-record.zh.md`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/archive/engineering-record.zh.md).
 
 ## What "provider" means here
 
@@ -19,7 +19,7 @@ root-plane services, and adds three smaller integrations.
 | Service | Class | File | What it does |
 |---|---|---|---|
 | `ctx.shell` | `WslShellExecutor` | [`lib/index.js`](../lib/index.js) | Runs each command in the distro's login shell over the resident in-distro agent (the default), wrapped in a distro-side `bwrap` sandbox; while the agent is out, or with `agent: false`, the same command falls back to one `wsl.exe -d <distro> --cd <linux dir> --exec <login shell> -lc <cmd>` process. |
-| `ctx.fs` | `WslFileSystem` | [`lib/index.js`](../lib/index.js) | Serves the file tools from real distro files on the resident in-distro agent, on ext4 — the former Windows-side share substrate is retired (see below). |
+| `ctx.fs` | `WslFileSystem` | [`lib/index.js`](../lib/index.js) | Serves WSL-routed file operations through the resident in-distro agent; the former Windows-side share substrate is retired (see below). |
 | `ctx.subprocess` | `WslSubprocessRuntime` | [`lib/subprocess.js`](../lib/subprocess.js) | Opens the GUI terminal inside the distro, in the session workspace, and rewrites the file-search and git-snapshot spawns into the distro (see below). |
 
 `WslShellExecutor` extends the shipped `LocalBashExecutor`, and `WslFileSystem`
@@ -34,7 +34,7 @@ a subclass that routes by coordinate:
 
 | Service | Class | File | What it does |
 |---|---|---|---|
-| `ctx.fs` (root plane) | `WslRoutingFileSystem` | [`lib/fs-routing.js`](../lib/fs-routing.js) | The root filesystem, routed by coordinate: a distro UNC identity is served by the resident agent (real watch events, ext4 reads), a drive path stays host-native. Replaces the shipped `fs-sandbox` row, whose write fence has no root-plane consumers — the model's writes ride the preset filesystems. [`root-fs-routing.md`](root-fs-routing.md) is the design. |
+| `ctx.fs` (root plane) | `WslRoutingFileSystem` | [`lib/fs-routing.js`](../lib/fs-routing.js) | The root filesystem, routed by coordinate: a distro UNC identity is served inside the distro (inotify where available, polling otherwise), a drive path stays host-native. Replaces the shipped `fs-sandbox` row, whose write fence has no root-plane consumers — the model's writes ride the preset filesystems. [`root-fs-routing.md`](root-fs-routing.md) is the design. |
 
 The GUI file tree and previews keep the shipped `workspace-files` row. Its
 client half is the browser `file` resource provider the Sidebar previews need,
@@ -56,7 +56,7 @@ One further module ships built but deliberately unwired:
 [`lib/file-reference-wsl.js`](../lib/file-reference-wsl.js), the distro-side
 traversal strategy for `@` completion. It is built and tested, but **not** wired
 into `cordis.patch.yml` — the seam it consumes is an upstream proposal
-([`upstream/rfc-wsl-workspaces.md`](upstream/rfc-wsl-workspaces.md)), and
+([`upstream/rfc-wsl-workspaces.md`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/upstream/rfc-wsl-workspaces.md)), and
 reaching the funnels without it would mean subclassing past module-internal
 functions.
 
@@ -64,7 +64,7 @@ functions.
 
 | Subpath | Class or name | File | What it does |
 |---|---|---|---|
-| `dsh-plugin-wsl-env/picker` | `WslDirectoryPicker` | [`lib/picker.js`](../lib/picker.js) | Adds the installed distros to the folder picker, next to the Windows home directory, and lists distro levels from inside the distro (the resident's `ls`, one-shot `wsl.exe` when it is out). |
+| `dsh-plugin-wsl-env/picker` | `WslDirectoryPicker` | [`lib/picker.js`](../lib/picker.js) | Adds the installed distros to the folder picker, next to the Windows home directory, and lists distro levels from inside the distro (the resident's `find`, one-shot `wsl.exe` when it is out). |
 | `dsh-plugin-wsl-env/auto-preset` | `auto-preset` | [`lib/auto-preset.js`](../lib/auto-preset.js) | Binds the `wsl` agent preset when a new session's workspace is inside a distro. |
 | `dsh-plugin-wsl-env/shell-env` | `wsl-shell-env` | [`lib/shell-env.js`](../lib/shell-env.js) | Contributes `DSH_WSL_DISTRO`, `DSH_WSL_SHELL`, `DSH_WSL_HOME` and `DSH_WSL_PORTS` to the managed `DSH_*` namespace, choosing the session workspace's distro (default/pinned facts are probed at mount; other distros are warmed when their session appears). The port list is a snapshot per active distro, refreshed every `portsRefreshMs` (10000 by default), so a server started moments ago may not be listed yet. |
 
@@ -146,9 +146,10 @@ The former Windows-side share backend (`substrate: "share"`) is retired — a
 profile carrying the value is refused at boot, and no file tool crosses the
 9p share. The substrate's facts:
 
-- **Reads, writes, identities** run on ext4 through the resident; symlinks and
-  mode bits are native (every identity is a distro-side `realpath`; the
-  publication rename is the kernel's).
+- **Reads, writes, identities** run through the resident on the filesystem
+  backing the distro path, typically ext4 for distro-owned files. Symlink and
+  mode behavior also depends on that filesystem; identities use distro-side
+  `realpath` and publication uses the kernel's rename or link.
 - **Guarded writes** carry their intent to the publication: a `createIfAbsent`
   publishes with a no-replace link, closing the check-then-write window for
   creates outright; an overwrite or edit carries its version into the write op
@@ -245,12 +246,14 @@ selector read that value.
 distro can still run a Windows program through WSL interop, for example
 `/mnt/c/.../*.exe`. Bubblewrap does not govern that process.
 
-`maskWindowsDrive` is the one mitigation the profile can offer, and it is a
-narrowing rather than a closure: it takes the drive's data and its executables
-off the table, but `binfmt` interop dispatches on file *content*, so a command
+`maskWindowsDrive` or the `masked` and `disabled` `interopVisibility` stances
+shadow `/mnt` in confined commands, a narrowing rather than a closure. Other
+mounts and unrestricted file reads are not covered by the mask, and `binfmt`
+interop dispatches on file *content*, so a command
 that can write the workspace can still write a PE there and have it launched as
-a Windows process. Either way the provider reports `partial` — the complete
-closure is distro-level (`[interop] enabled=false` in `wsl.conf`). The mask is
+a Windows process. Either way the provider reports `partial`. Disabling WSL
+interop requires a separate distro-level change (`[interop] enabled=false` in
+`wsl.conf`); the `disabled` stance does not make that change. The mask is
 reported on the result's sandbox fact as `windowsDrive: "masked"` (or
 `"visible"`), but that is this plugin's own extra field: the pinned harness's
 sandbox type and its model-facing notes carry `mode`, `denied`, `enforcement` and
@@ -338,35 +341,35 @@ and pnpm rewrites `link:\\wsl.localhost\...` into a broken
 distro checkout.
 
 The Windows copy at `default-workspace/dsh-plugin-wsl` is a runtime mirror.
-[`test/probe/sync-to-windows.sh`](../test/probe/sync-to-windows.sh) keeps it in
+[`test/probe/sync-to-windows.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/sync-to-windows.sh) keeps it in
 step with the checkout, and `pnpm run sync:windows` runs that script.
 
 ## Test layers
 
 | Layer | Location | Needs a harness |
 |---|---|---|
-| Style and packaging checks | [`test/style.mjs`](../test/style.mjs) | no |
-| Syntax pass | [`test/syntax.mjs`](../test/syntax.mjs) | no |
-| Build consistency | [`test/build-freshness.mjs`](../test/build-freshness.mjs) | no; it re-runs the real build and byte-compares the committed `lib/`, so it also catches an orphan there |
+| Style and packaging checks | [`test/style.mjs`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/style.mjs) | no |
+| Syntax pass | [`test/syntax.mjs`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/syntax.mjs) | no |
+| Build consistency | [`test/build-freshness.mjs`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/build-freshness.mjs) | no; it re-runs the real build and byte-compares the committed `lib/`, so it also catches an orphan there |
 | Type check | `tsc --noEmit` over `test/**` and `types/*.d.ts` (`src/` is checked by the build itself) | no |
 | Unit tests | `test/*.test.mjs` | no |
-| Sandbox probe | [`test/probe/sandbox.sh`](../test/probe/sandbox.sh) | no; it applies the profile arguments directly |
-| Harness probes | [`test/probe/run.sh`](../test/probe/run.sh), `terminal.sh`, `sandbox-shell.sh`, `picker.sh`, `fs-routing.sh`, `missing-wsl.sh`, `sandbox-off.sh` | yes: Windows, WSL2, a mounted profile, and a linked checkout |
-| Distro probes | [`test/probe/substrate.sh`](../test/probe/substrate.sh), `watch.sh`, `agent.sh`, `exec.sh` | Windows and WSL2, but no harness boot and no profile: they run from a distro terminal with Node available, reaching `wsl.exe` through interop |
-| Host probe | [`test/probe/mode.sh`](../test/probe/mode.sh) | Windows Node, no harness |
+| Sandbox probe | [`test/probe/sandbox.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/sandbox.sh) | no; it applies the profile arguments directly |
+| Harness probes | [`test/probe/run.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/run.sh), `terminal.sh`, `sandbox-shell.sh`, `interop-shell.sh`, `picker.sh`, `fs-routing.sh`, `missing-wsl.sh`, `sandbox-off.sh` | yes: Windows, WSL2, a mounted profile, and a linked checkout |
+| Distro probes | [`test/probe/substrate.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/substrate.sh), `watch.sh`, `agent.sh`, `exec.sh` | Windows and WSL2, but no harness boot and no profile: they run from a distro terminal with Node available, reaching `wsl.exe` through interop |
+| Host probe | [`test/probe/mode.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/mode.sh) | Windows Node, no harness |
 | Probe plugins | the `*-probe.mjs` and `*-probe.yml` files in `test/probe/` | loaded by the scripts above |
 
-`pnpm test` runs the first five rows in order: `lint:style`, `test:syntax`,
-`lint:build`, `lint:types`, `test:unit`.
-[`test/probe/run-all-when-closed.sh`](../test/probe/run-all-when-closed.sh)
+`pnpm test` runs `lint:style`, `lint:links`, `test:syntax`, `lint:build`,
+`lint:types` and `test:unit`, in that order.
+[`test/probe/run-all-when-closed.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/run-all-when-closed.sh)
 waits for the app to exit and then runs the whole real-machine suite once —
 `--include-fs` prepends `run.sh`.
 
 The unit tests come in two kinds: most import only Node builtins, while
-[`test/composition.test.mjs`](../test/composition.test.mjs),
-[`test/fs.boot.test.mjs`](../test/fs.boot.test.mjs),
-[`test/fsio-agent.test.mjs`](../test/fsio-agent.test.mjs) and
-[`test/provider.test.mjs`](../test/provider.test.mjs) import
+[`test/composition.test.mjs`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/composition.test.mjs),
+[`test/fs.boot.test.mjs`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/fs.boot.test.mjs),
+[`test/fsio-agent.test.mjs`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/fsio-agent.test.mjs) and
+[`test/provider.test.mjs`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/provider.test.mjs) import
 pinned `@deepseek-ai/*` development dependencies (the composition and boot tests run
 the loader's real patch algorithm). One `pnpm install` reproduces that tree before
 the first run; the runtime package itself still ships zero dependencies. CI runs
@@ -376,9 +379,9 @@ Node 24 only — the threshold flags need Node 22.8. Node 20 is absent on purpos
 probes are a manual step, because a hosted runner has no WSL distro and no profile to
 mount.
 
-The probe scripts share [`test/probe/env.sh`](../test/probe/env.sh), which derives
+The probe scripts share [`test/probe/env.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/env.sh), which derives
 the Windows user, the distro name and the UNC spelling of the checkout from the
-machine, and [`test/probe/env.mjs`](../test/probe/env.mjs) for the Node-side probes.
+machine, and [`test/probe/env.mjs`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/env.mjs) for the Node-side probes.
 No probe carries a user name, and the YAML overlays are templates with `@NAME@`
 placeholders that the scripts substitute into generated copies.
 
@@ -431,9 +434,11 @@ src/fsio-text.ts             the peer's pure text mechanics, replicated pending
 src/git-route.ts             which git spawns belong inside the distro (pure)
 src/index.ts                 WslShellExecutor (ctx.shell) and WslFileSystem (ctx.fs)
 src/listing.ts               pure directory listing and breadcrumb helpers
+src/native-agent.ts          native binary selection and preparation
 src/paths.ts                 pure conversion between the three path formats
 src/picker.ts                WslDirectoryPicker (ctx.directoryPicker)
 src/ports.ts                 the listening-port snapshot behind DSH_WSL_PORTS
+src/preflight.ts             session-start environment advisories
 src/preset-choice.ts         whether a new session adopts the WSL preset (pure)
 src/probe-cache.ts           which probe verdicts may be remembered (pure)
 src/sandbox.ts               the distro-side bwrap confinement shared by both
@@ -441,6 +446,8 @@ src/sandbox.ts               the distro-side bwrap confinement shared by both
 src/sandbox-core.ts          the probe-and-confinement core, free of DSH peers
 src/search-exec.ts           the agent-backed execution handle for a search
 src/search-route.ts          which execution world a search spawn belongs to (pure)
+src/session-runtime.ts       shared session runtime and agent lifecycle
+src/session-scope.ts         systemd scope creation and cleanup
 src/shell.ts                 the ctx.shell subpath entry point
 src/shell-env.ts             registers the DSH_WSL_* environment variables
 src/subprocess.ts            WslSubprocessRuntime (ctx.subprocess), the GUI
@@ -462,11 +469,11 @@ src/wsl.ts                   wsl.exe interop primitives (no DSH imports)
 - [`REQUIREMENTS.zh.md`](REQUIREMENTS.zh.md) is the requirements register: every
   documented behaviour commitment numbered, with where it is specified and what
   verifies it, plus the open items (Chinese, maintainer-facing, not packaged).
-- [`archive/engineering-record.zh.md`](archive/engineering-record.zh.md) is the
+- [`archive/engineering-record.zh.md`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/archive/engineering-record.zh.md) is the
   full engineering record, in Chinese: measured contracts, debugging rounds, and
   the conclusions as they stood then.
-- [`archive/README.md`](archive/README.md) and
-  [`archive/README.en.md`](archive/README.en.md) are two English indexes of the
+- [`archive/README.md`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/archive/README.md) and
+  [`archive/README.en.md`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/archive/README.en.md) are two English indexes of the
   same three archived files, the second so a reader who does not read Chinese can
   still tell what is there; the records themselves are Chinese.
 - [`README.md`](../README.md) is the only statement of current state.

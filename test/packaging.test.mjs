@@ -12,9 +12,9 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -105,6 +105,20 @@ try {
     }
   });
 
+  check("relative links in packaged Markdown resolve inside the tarball", () => {
+    const broken = [];
+    for (const file of files.filter((entry) => entry.endsWith(".md"))) {
+      const text = readFileSync(join(ROOT, file), "utf8");
+      for (const match of text.matchAll(/\[[^\]]*\]\(([^)\s]+)\)/g)) {
+        const target = match[1];
+        if (target === undefined || /^(?:[a-z][a-z\d+.-]*:|#)/i.test(target)) continue;
+        const path = posix.normalize(posix.join(posix.dirname(file), decodeURIComponent(target.split("#")[0] ?? "")));
+        if (!has(path) && !files.some((entry) => entry.startsWith(`${path}/`))) broken.push(`${file}: ${target}`);
+      }
+    }
+    assert.deepEqual(broken, []);
+  });
+
   check("locale catalogs ship", () => {
     assert.ok(files.some((path) => path.startsWith("locale/") && path.endsWith(".json")), "at least one locale JSON is packaged");
   });
@@ -122,4 +136,4 @@ try {
   rmSync(cache, { recursive: true, force: true });
 }
 
-console.log(`${passed}/6 packaging checks pass`);
+console.log(`${passed}/7 packaging checks pass`);

@@ -9,6 +9,9 @@
 
 ## Context
 
+This section describes the per-command design that preceded the decision;
+current runtime behavior is documented in [LIMITATIONS.md](../LIMITATIONS.md).
+
 The plugin's first principle is fidelity: the model and the GUI should be able
 to treat the distro as a real Linux development environment, and only discover
 the plugin when a policy denies something. The current execution unit is one
@@ -89,7 +92,7 @@ wsl.exe --exec systemd-run --user --scope --quiet --unit=dsh-wsl-<session>
 
 ## Runtime ownership
 
-The agent is a process-global singleton per distro today (`src/agent-shared.ts`):
+Before session runtimes, the agent was a process-global singleton per distro (`src/agent-shared.ts`):
 the shell executor, the filesystem provider and the port snapshot share one
 resident, deliberately, so startup is paid once. A **session** scope forces a
 decision this ADR cannot defer:
@@ -179,5 +182,5 @@ provider-local identity, so separate providers do not share their runtimes.
   need re-verification).
 - Unit naming and collision handling (`dsh-wsl-<session>` length, session
   identity source).
-- Whether the FS resident and the command runtime should share a scope, and
-  how a mid-session escalation retires the old one.
+- How a mid-session escalation retires the old runtime. The shell and confined
+  FS mutations now share a session runtime when their runtime keys match.

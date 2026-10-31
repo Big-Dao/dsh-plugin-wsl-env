@@ -6,15 +6,15 @@
 |---|---|
 | Operating system | Windows 10 and Windows 11 |
 | Linux side | WSL2 with at least one distro, and systemd as PID 1 with a lingering user manager (`loginctl enable-linger`) for the shipped session runtime. Set `sessionSandbox: false` on the preset's `wsl-shell` to keep the per-command sandbox instead |
-| DSH packages | the `0.2.1-rc.3`-or-newer packages the `peerDependencies` floors declare; an app on a newer harness installs unchanged |
+| DSH packages | `peerDependencies` declares a `0.2.1-rc.3` floor; newer versions require compatibility validation |
+| Plugin version | the latest published version only |
+| Node | 22.19+ (`^22.19.0`), or 24 and later (`>=24.0.0`) |
 
 The DSH row is checked weekly: `.github/workflows/peer-canary.yml` resolves the
 `next` dist-tag of every pinned peer, installs that line into a scratch copy and
 runs `pnpm test` plus the composition boot test. A successful run prints the
 exact version delta in its summary; update the row above from that summary. A
 red run means the plugin has not been validated against the new line yet.
-| Plugin version | the latest published version only |
-| Node | 22.19+ (`^22.19.0`), or 24 and later (`>=24.0.0`) |
 
 Node 20 is outside the range on purpose: the floor is the harness host's own, and
 CI covers 22 and 24. `engines` in `package.json` is the authoritative statement,
@@ -60,10 +60,10 @@ issue for one.
 
 ## Compatibility expectations
 
-The upstream packages are a release candidate, so the peer versions are pinned
-exactly. One example is `@deepseek-ai/dsh-fs: 0.2.1-rc.2`. An upstream change can
-require a new release of this plugin. The exact pins are what make that break
-loudly instead of quietly.
+The DSH peer ranges start at `0.2.1-rc.3`; development dependencies pin that
+version exactly for testing. Cordis and Schemastery use caret peer ranges.
+The accepted range does not guarantee compatibility with every newer release:
+an upstream change can require a new release of this plugin.
 
 There is no long-term support branch. Fixes go to the latest version.
 
@@ -93,7 +93,7 @@ what it cannot see:
 
 | Item | How to get it |
 |---|---|
-| The diagnose report | `pnpm run diagnose -- <distro>` (read-only; safe to paste) |
+| The diagnose report | `pnpm run diagnose <distro>` (read-only; review and redact before sharing) |
 | Plugin version | `npm ls dsh-plugin-wsl-env`, or the git tag you built from |
 | DSH version | the version of the harness you run |
 | The composed configuration | `dsh --profile <name> --dump-config`, in particular the `dsh-plugin-wsl-env` layer and the rows it patches |

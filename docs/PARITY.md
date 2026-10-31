@@ -5,9 +5,10 @@ against, and the phase checklist with each phase's current status. The plan
 has landed; the rows below record where each phase ended up and what
 deviation, if any, still stands.
 
-Verified against: `dsh-plugin-wsl-env@0.8.0` / peer `0.2.0-rc.2` / agent
-protocol v4, 2026-10-06. Update this line when the peer pin or the agent
-protocol moves. The peer pin moved to `0.2.1-rc.2` on 2026-10-17 with every
+Historical verification: `dsh-plugin-wsl-env@0.8.0` / peer `0.2.0-rc.2` / agent
+protocol v4, 2026-10-06. These rows are not a fresh verification of the current
+release or protocol; see [PEER-PARITY.md](PEER-PARITY.md) for the peer
+comparison. The peer pin moved to `0.2.1-rc.2` on 2026-10-17 with every
 seam package's shipped artifact byte-identical to the ones these rows were
 measured against; the real-machine probes were not re-run in that move.
 

@@ -10,10 +10,14 @@
   is out of scope); **v6 is deferred** — the measured lock-removal gain is
   marginal, and A7 removed the shared-shell batch bottleneck
 - **Date:** 2026-10-18
-- **Related:** [ADR 0001](0001-session-scoped-sandbox.md) (session runtime),
+- **Related:** [ADR 0001](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/adr/0001-session-scoped-sandbox.md) (session runtime),
   `agent/wsl-agent.sh`, `src/agent.ts`, `src/agent-protocol.ts`
 
 ## Context
+
+This section records the shell-only baseline and original design motivation.
+The status and migration sections describe what was subsequently shipped;
+v6 structured errors and concurrent FS remain deferred.
 
 The resident peer inside the distro is a POSIX shell script,
 `agent/wsl-agent.sh`. It speaks protocol v5 over the `wsl.exe` stdio pipe:
@@ -44,10 +48,9 @@ tests, and the real-machine probes. Its hard edges are real though:
    deployed script is refused by digest, which is correct but means every
    protocol change is a synchronized deploy and an app restart.
 
-This ADR designs the native replacement without committing to build it now.
-The decision to defer is deliberate: the shell agent is correct enough, and a
-binary adds build, distribution, architecture and supply-chain costs that must
-be paid before the first user-visible win.
+The original design deferred implementation because a binary adds build,
+distribution, architecture and supply-chain costs. Subsequent measurements
+justified shipping the native agent as described below.
 
 ## Goals
 
@@ -231,7 +234,7 @@ One process per agent, an event loop over stdin plus child pipes and timers:
 5. **Enabled by default** on x86_64 and aarch64 (0.10.0); the shell fallback
    and the flag stay. Retiring the shell is not planned; the shell remains the
    fallback and the shared read path until A7.
-6. **Native shared read agent (A7, next).** The shared unconfined read agent
+6. **Native shared read agent (A7, done).** The shared unconfined read agent
    selects the native binary (v5) with the shell as fallback; the A6 probe is
    the acceptance measurement (~30x on batch reads).
 7. **aarch64 functional validation (A8, done).** The CI `native packages` job

@@ -12,6 +12,7 @@ DeepSeek Harness 的 WSL 服务插件：将会话的 shell、文件系统、子�
 
 按改动范围阅读相关资料：
 
+- 文档关系与时效：`docs/DOCUMENTATION-MAP.md`。
 - 构建、类型检查和测试：`CONTRIBUTING.md`。
 - 架构与路由：`docs/root-fs-routing.md`、`docs/upstream/promotion-map.md`。
 - 行为边界与版本兼容：`docs/LIMITATIONS.md`、`docs/PEER-PARITY.md`。

@@ -57,8 +57,8 @@ North-star metrics:
 | Area | Strong today | Remaining gap |
 |---|---|---|
 | Execution | Native agent default; systemd session scope; `distro: auto` coordinate routing; concurrent distros | Physical aarch64 WSL (out of scope); non-systemd real-machine session probe unrun |
-| Files | ext4 substrate, root-plane `fs-routing` in unit+coverage, kernel-enforced confined writes | GUI previews still extra agent round trips (measured, deferred); `@` completion still 9p until the upstream seam |
-| Sandbox | `bubblewrap`, fail-closed, `enforcement: partial`, `interopVisibility` / `maskWindowsDrive` | Interop is not closable from a plugin key; distro `[interop] enabled=false` remains the full closure |
+| Files | in-distro agent substrate, root-plane `fs-routing` in unit+coverage, kernel-enforced confined writes | GUI previews still extra agent round trips (measured, deferred); `@` completion still 9p until the upstream seam |
+| Sandbox | `bubblewrap`, fail-closed, `enforcement: partial`, `interopVisibility` / `maskWindowsDrive` | Plugin keys do not disable WSL interop; distro `[interop] enabled=false` must be configured separately |
 | Onboarding | `doctor`, `bootstrap` / `bootstrap-import`, session preflight, `profile-preset` helper | Clean-machine first-run timing still unmeasured; session UI has no toast seam |
 | Configuration | Every shipped key documented; nested `preset-wsl` rows edited through the helper | An id patch of `wsl-shell` / `wsl-fs` still only warns |
 | Quality | Unit files including `fs-routing`; coverage 85/84/70; qemu aarch64 18-check; five-family container agent; COMPATIBILITY.md | Nightly `probes` job is GitHub-hosted `windows-latest` (skips without WSL); physical aarch64 out of scope |
@@ -271,7 +271,7 @@ current diagnostics do not cover the second.
       run on this single configured machine).
 
 **Tests/probes:** process-level tests against fake `wsl.exe` outputs
-([`test/doctor.test.mjs`](../test/doctor.test.mjs)); real-machine run on the
+([`test/doctor.test.mjs`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/doctor.test.mjs)); real-machine run on the
 Tier 1 image; `diagnose` remains a read-only alias.
 
 **Depends on:** none.
@@ -305,7 +305,7 @@ failure.
 
 **Tests/probes:** generated YAML compared byte-for-byte against the shipped
 block (the row the real composition loads); the CLI's print/write/check paths
-run in [`test/profile-preset.test.mjs`](../test/profile-preset.test.mjs).
+run in [`test/profile-preset.test.mjs`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/profile-preset.test.mjs).
 
 **Depends on:** none.
 
@@ -349,15 +349,15 @@ remedy for `no-systemd`, `no-user-manager`, `no-systemd-run` and `no-linger`
 (`sessionSandbox: false` on the row skips the session half). The advisory is
 logged **and** published as a session-scoped `wsl-preflight` runtime-context
 entry, so it is visible in the session transcript rather than only in the app
-log. DSH 0.2.1 has no toast/banner seam; the exact ask is written up (not yet
-filed — no issue channel here) in
+log. DSH 0.2.1 has no toast/banner seam; the exact ask was filed as
+[#10263](https://github.com/deepseek-ai/deepseek-harness/discussions/10263) and is recorded in
 [UPSTREAM-SESSION-NOTICE.md](UPSTREAM-SESSION-NOTICE.md), and
 [LIMITATIONS.md](LIMITATIONS.md#session-start-advisories) records the boundary.
 Unit coverage drives every probe verdict through a fake `wsl.exe`; the
 real-machine missing-bwrap and non-systemd legs are still manual.
 
-**Why:** The session-start preflight currently only probes bwrap and writes to
-`logger.warn`; the other default prerequisite is discovered at the first
+**Why:** Before this work, session-start preflight only probed bwrap and wrote
+to `logger.warn`; the other default prerequisite was discovered at the first
 command.
 
 **Acceptance:**
@@ -449,7 +449,7 @@ but never executed.
 **Priority:** P1 · **Size:** M · **Labels:** `area:release`,
 `area:quality`, `priority:P1`
 
-**Status:** implemented (2026-10-19): [`test/e2e/install.sh`](../test/e2e/install.sh)
+**Status:** implemented (2026-10-19): [`test/e2e/install.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/e2e/install.sh)
 (`pnpm run e2e:install`) packs the tree, creates a fresh `DSH_HOME` under
 `%TEMP%`, initializes a profile from the shipped `web` template, installs the
 tarball, asserts `--dump-config` composes the plugin rows with no skipped-patch
@@ -458,7 +458,7 @@ installs the previous minor (0.11.0), plants a marker in the profile layer,
 upgrades to the packed version, and asserts the marker survives, the installed
 version is current, and the installed CHANGELOG carries the migration note.
 The run passed 10/10 on this machine (the app may stay running: plugin
-management is local). [`test/packaging.test.mjs`](../test/packaging.test.mjs)
+management is local). [`test/packaging.test.mjs`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/packaging.test.mjs)
 guards the packed file list in `pnpm test`. A self-hosted Windows runner job is
 still unconfigured; the local command is the documented path.
 
@@ -489,8 +489,8 @@ silently leave an obsolete workaround behind.
 cost (20 dirs / 520 files: 9p walk median 84.7 ms vs ext4 1.5 ms, ~56×; 9p
 samples 63–192 ms) measured by `pnpm run probe:file-reference`. The seam
 contract (three functions, Dirent/error/coordinate semantics) is already
-written in [rfc-wsl-workspaces.md](upstream/rfc-wsl-workspaces.md); the
-consumer [`src/file-reference-wsl.ts`](../src/file-reference-wsl.ts) is built
+written in [rfc-wsl-workspaces.md](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/upstream/rfc-wsl-workspaces.md); the
+consumer [`src/file-reference-wsl.ts`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/src/file-reference-wsl.ts) is built
 and unit-tested but deliberately unwired. The fallback is to keep the 9p walk
 until upstream exposes the funnel; the trigger and the follow-up probe are
 recorded.
@@ -547,7 +547,7 @@ no prototype while the trigger is unmet.
 **Priority:** P1 · **Size:** M · **Labels:** `area:performance`,
 `area:gui`, `priority:P1`
 
-**Status:** implemented (2026-10-19): [`test/probe/gui-preview.sh`](../test/probe/gui-preview.sh)
+**Status:** implemented (2026-10-19): [`test/probe/gui-preview.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/gui-preview.sh)
 (`pnpm run probe:gui-preview`) measures the three routed backend operations a
 preview pays — `stat`, `listDir`, and a 1 MiB `readByteRange` — with p50/p95 and
 budgets (stat 100 ms, listing 500 ms, page 1 s/MiB). Measured on this machine
@@ -614,7 +614,7 @@ mismatch); a real-machine kill/restart probe is still unrun.
 `area:docs`, `priority:P1`
 
 **Status:** implemented except the distro-disabled leg (2026-10-19):
-[CONFIGURATION](../docs/CONFIGURATION.md#the-strict-profile) documents the strict
+[CONFIGURATION](../docs/CONFIGURATION.md#windows-interop) documents the strict
 profile, its trade-offs and the visible/masked/disabled matrix;
 `pnpm run probe:sandbox` now also runs the masked profile (14 expectations:
 `/mnt` hidden, the Windows binary unreachable, the workspace still writable). The
@@ -656,8 +656,8 @@ workflow itself has not run in this environment (no Actions runner here), and
 opening an issue on a red run was left out because the workflow has no issue
 permission — the failing run plus its delta is the signal.
 
-**Why:** The peer pins are exact; a DSH release can break the plugin before a
-user reports it.
+**Why:** The development peer pins are exact, while accepted peer ranges can
+admit newer releases; a DSH release can break the plugin before a user reports it.
 
 **Acceptance:**
 
@@ -683,7 +683,7 @@ user reports it.
 fragile parts.
 
 **Status:** packaging plan written (2026-10-19):
-[docs/upstream/promotion-pack.md](upstream/promotion-pack.md) records the
+[docs/upstream/promotion-pack.md](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/upstream/promotion-pack.md) records the
 `packages/wsl/*` layout (ten capability packages plus a thin integration
 package, each with its existing tests), the seam/RFC index with the current
 state of each seam, what `test/composition.test.mjs` boots today and the gaps a
@@ -719,18 +719,17 @@ install, first session, recipes for Node/Python/Rust/Go and a monorepo, an
 honest Tier 1/Tier 2 table); [docs/PERFORMANCE.md](PERFORMANCE.md) is the
 9p-vs-agent page with the A6/A7 numbers and the GUI-preview baseline, and
 `pnpm run probe:gui-preview` / `fs-queue.mjs` reproduce the latter. No GIF or
-screenshot exists yet (capturing the GUI is not something this repository has
-recorded), so that acceptance item is explicitly open. No DSH plugin
+screenshot existed on 2026-10-19. Four screenshots were added on 2026-10-27;
+a GIF remains open. No DSH plugin
 marketplace was identified, so nothing was submitted.
 
 **Why:** "Best" also means easy to find and evaluate.
 
 **Acceptance:**
 
-- [x] A one-page entry with a five-minute quickstart, compatibility table and
-      screenshots (text only; screenshots are the open item).
-- [ ] A demo or GIF showing the picker, terminal, preview and sandbox fact
-      (not produced; recorded here and in QUICKSTART).
+- [x] A one-page entry with a quickstart, compatibility table and screenshots.
+      The five-minute clean-machine target remains unmeasured.
+- [ ] A GIF showing the picker, terminal, preview and sandbox fact.
 - [x] Recipes for Node, Python, Rust/Go and a monorepo; a 9p-vs-plugin
       benchmark page.
 - [ ] The DSH plugin directory/marketplace is updated if one exists (none
@@ -814,5 +813,5 @@ A 1.0 release additionally requires the WSL-304 checklist.
 - Known boundaries: [LIMITATIONS.md](LIMITATIONS.md)
 - Current technical roadmap: [ROADMAP.md](ROADMAP.md)
 - Requirements traceability: [REQUIREMENTS.zh.md](REQUIREMENTS.zh.md)
-- Upstream mapping: [upstream/promotion-map.md](upstream/promotion-map.md)
-- Real-machine suite: [`test/probe/run-all-when-closed.sh`](../test/probe/run-all-when-closed.sh)
+- Upstream mapping: [upstream/promotion-map.md](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/upstream/promotion-map.md)
+- Real-machine suite: [`test/probe/run-all-when-closed.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/run-all-when-closed.sh)

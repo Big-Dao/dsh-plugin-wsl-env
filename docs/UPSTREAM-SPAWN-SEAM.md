@@ -4,7 +4,7 @@ Status: filed upstream as
 [deepseek-ai/deepseek-harness#10261](https://github.com/deepseek-ai/deepseek-harness/discussions/10261)
 (Ideas); targeting `deepseek-harness` @ `packages/shell/bash-local`
 (version line `0.2.1-rc.x`; the declarations and the diff below were checked
-against `dsh-v0.2.1-rc.2`, the version the peer dependency pins, on
+against `dsh-v0.2.1-rc.2` on
 2026-10-17 — the shipped `lib/index.js` is byte-identical to the
 `0.2.0-rc.2` one this seam was first measured on, so every line reference
 below still holds). This is the record of a seam this plugin must override

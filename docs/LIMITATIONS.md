@@ -5,11 +5,12 @@ boundary; one that is not is a bug report waiting to happen.
 
 ## The filesystem substrate (`wsl-fs`)
 
-The file tools run on one substrate: the resident in-distro agent, on ext4 —
-reads, writes and identities happen where the files live. The former
+The WSL-routed file tools use one substrate: the resident in-distro agent —
+reads, writes and identities happen on the filesystem backing the target path
+(typically ext4 for a distro's own files, but other mounts are possible). The former
 Windows-side share backend (`substrate: "share"`) is retired: a profile still
-carrying the value is refused at boot with the migration, and no file tool
-crosses the 9p share. What to know about the one substrate there is:
+carrying the value is refused at boot with the migration, and WSL-routed file
+operations do not use the Windows-side 9p share. What to know about the substrate:
 
 - **A new file publishes with mode 0600.** That is the host backend's own POSIX
   publication semantics (a private 0600 staging file, renamed into place), which
@@ -38,13 +39,11 @@ crosses the 9p share. What to know about the one substrate there is:
   serial shell fallback removes requests cancelled while waiting on the host;
   a request already sent to the agent may still take effect even if it has not
   yet acknowledged the request.
-- **A write is durable against process death, not machine death.** The
-  publication fsyncs the staged file before its atomic rename, but the
-  containing directory is not fsynced afterwards: a kernel panic or power loss
-  immediately after a successful write can lose the rename, and the file
-  reverts to its pre-write content. The peer backend fsyncs its staged file the
-  same way, but neither fsyncs the containing directory — the exposure is the
-  peer's too, and it stays short of a crash-consistent store.
+- **A successful write is not guaranteed durable across a crash.** The native
+  agent syncs the staged file before publication; the shell agent attempts
+  `sync -f` but ignores failure. Neither syncs the containing directory after
+  the rename or link. A kernel panic or power loss can therefore lose data or
+  the published directory entry; the operation is not a crash-consistent store.
 - **A Linux filename containing a backslash cannot be addressed.** The UNC
   display form (`\\wsl.localhost\<distro>\...`) is the file's identity
   everywhere - the session header, the GUI, the caches - and the backslash is
@@ -135,7 +134,7 @@ crosses the 9p share. What to know about the one substrate there is:
   slower than a direct agent call, especially on large files; the model's own
   file operations are unaffected — they use the preset filesystem and the
   resident agent directly. Measured 2026-10-19 with
-  [`test/probe/gui-preview.sh`](../test/probe/gui-preview.sh) (20 iterations on
+  [`test/probe/gui-preview.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/gui-preview.sh) (20 iterations on
   this machine): the routed backend's `stat` p95 2.7 ms, `listDir` p95 5.1 ms,
   and a 1 MiB `readByteRange` p95 **63.5 ms/MiB** — the service's own round
   trips sit on top of those, and the 1 s/MiB budget has a wide margin. No
@@ -157,8 +156,8 @@ crosses the 9p share. What to know about the one substrate there is:
   harness process, so a WSL workspace pays a 9p `readdir`/`lstat` per
   directory. On a 20-directory / 520-file tree the walk was **84.7 ms**
   median over 9p versus **1.5 ms** on ext4 (~56×;
-  [`probe:file-reference`](../test/probe/file-reference-9p.sh), 2026-10-19).
-  [`src/file-reference-wsl.ts`](../src/file-reference-wsl.ts) is the distro-side
+  [`probe:file-reference`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/file-reference-9p.sh), 2026-10-19).
+  [`src/file-reference-wsl.ts`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/src/file-reference-wsl.ts) is the distro-side
   traversal (built and unit-tested) but is **not** in `cordis.patch.yml`: the
   funnels it would replace are module-internal. The fallback is the 9p walk
   until upstream exposes `FileReferenceTraversal`. Cost, seam and wire
@@ -202,13 +201,15 @@ crosses the 9p share. What to know about the one substrate there is:
   Windows program, which escapes the Linux-side boundary. The plugin reports this as
   `enforcement: partial`. See [ARCHITECTURE.md](ARCHITECTURE.md#reported-enforcement).
   The `maskWindowsDrive` key on `wsl-shell`, `wsl-fs` and `fs-routing` narrows the
-  hole: the confined profile shadows `/mnt` with an empty tmpfs, so the drive's files
-  cannot be read or exfiltrated and its executables cannot be launched. It is not a
+  hole: the confined profile shadows `/mnt` with an empty tmpfs, so files and
+  executables at paths under `/mnt` are hidden. Other mounts, alternate access
+  paths and unrestricted file reads are not covered by this mask. It is not a
   closure — a command that can write the workspace can write an executable there and
   run it (binfmt interop dispatches on file content, not location) — so enforcement
   stays `partial`, the result's sandbox fact reports `windowsDrive: "masked"`, and
-  the only complete closure remains distro-level (`[interop] enabled=false` in
-  `wsl.conf`).
+  distro-level disabling of WSL interop (`[interop] enabled=false` in
+  `wsl.conf`) must be configured separately. On `wsl-shell`, an explicitly set
+  `interopVisibility` takes precedence over `maskWindowsDrive`.
 - **`bubblewrap` must be installed**, or both providers fail immediately. The
   usability probe re-runs after a failure, so installing bubblewrap while the app
   runs is believed on the next command; only a success is cached. The refusal

@@ -3,10 +3,10 @@
 Measured evidence for the support tiers in [`ROADMAP-1.0.md`](ROADMAP-1.0.md)
 (WSL-202). Every row below was executed on real WSL2 distros on one machine
 (x86_64, Windows 11, WSL 2, kernel 6.18) on **2026-10-26**, with the probe
-suite in [`test/probe/`](../test/probe/) run from inside each distro against a
+suite in [`test/probe/`](https://github.com/Big-Dao/dsh-plugin-wsl-env/tree/main/test/probe/) run from inside each distro against a
 fresh `--depth 1` clone. The aarch64 native agent is additionally executed per
 push under qemu in CI — see the `native packages` job in
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml); VM-only by
+[`.github/workflows/ci.yml`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/.github/workflows/ci.yml); VM-only by
 decision — see "Scope decisions" below.
 
 ## The matrix

@@ -47,10 +47,10 @@ docs/ 各篇里的行为承诺登记成带编号的需求条目，并给每条�
 | R17 | 常驻 agent 协议：ACK 计时看门狗、只读帧才重放、逐流输出上限、sha256 部署校验、租约存活、进程组两段杀 | CHANGELOG 0.3.0/0.6.0/0.7.3；PARITY Phase 1/Phase 3 | ①②④：每条健壮性属性有规格出处与实证记录；「EXEC/变异 FS 帧禁止盲重发」是写明的不变量 | `agent-protocol.test.mjs`（HELLO 版本+摘要）、`agent.test.mjs`、`agent-exec.test.mjs`（truncated 旗标）、`agent-fs-script.test.mjs`；probe:agent、probe:exec | — |
 | R18 | 配置面：每键默认值成文；层组合语义（整行替换、不深合并、后层胜） | CONFIGURATION；`cordis.patch.yml` 头注 | ⑤：随发键成表、未列表键点名；覆盖方式的正确心智模型（整行替换）成文 | `composition.test.mjs`（层组合）；`style.mjs`（`files` 契约） | — |
 | R19 | 非目标集：不做什么与为什么 | LIMITATIONS 开篇原则；PARITY「Not applicable」 | ③：已知极限入册；不适用项「记下来免得像遗漏」 | —（文档性） | — |
-| R20 | 验证策略：三层（fake → 真脚本过真线 → 真机探针）+ CI 矩阵 + 覆盖率阈值 | ARCHITECTURE「Test layers」；README「Development」 | ④：CI 在 Node 22/24 × Linux/Windows 上跑 `pnpm test`，`pnpm run test:coverage` 只在 Node 24 上跑（门槛旗标需 Node 22.8）；Node 20 有意排除（`engines` 下限）；覆盖率阈值 85/84/70（行/分支/函数），测量集合覆盖 `test/` 下 34 个测试文件 | `pnpm test`、`pnpm run test:coverage`；CI（ci.yml） | 真机腿仅手动（OI-2）；非功能无量化目标（OI-1） |
+| R20 | 验证策略：三层（fake → 真脚本过真线 → 真机探针）+ CI 矩阵 + 覆盖率阈值 | ARCHITECTURE「Test layers」；README「Development」 | ④：CI 在 Node 22/24 × Linux/Windows 上跑 `pnpm test`，`pnpm run test:coverage` 只在 Node 24 上跑（门槛旗标需 Node 22.8）；Node 20 有意排除（`engines` 下限）；覆盖率阈值 85/84/70（行/分支/函数），测量集合覆盖 `test/` 下 40 个测试文件 | `pnpm test`、`pnpm run test:coverage`；CI（ci.yml） | 真机验证依赖 Windows 和可用的 WSL 发行版；非功能无量化目标（OI-1） |
 | R21 | 安全过程：范围内外、响应时限、partial 属设计边界、凭据政策 | SECURITY 全文 | ②③⑥：范围、3/10/30 个工作日时限（标注「目标非合同」）、partial 定性、凭据零容忍成文 | —（过程性） | — |
-| R22 | 支持矩阵：Windows 10/11 + WSL2 + Node `^22.19.0 \|\| >=24.0.0` + 精确钉版 | SUPPORT 全文 | ⑥：支持与不受支持清单、精确钉版的「断得响」兼容预期成文；Node 20 在范围外（理由见 SUPPORT，`engines` 为准） | `peerDependencies` 与 `engines` 钉版（`package.json`）；CI 矩阵（ci.yml） | — |
-| R23 | 根平面 `ctx.fs` 按坐标路由：发行版 UNC 由常驻 agent 服务（ext4 读、真实 watch 事件），盘符路径留在宿主；接替随发的 `fs-sandbox` 行 | README「Architecture」；ARCHITECTURE「The root-plane filesystem takeover」；CONFIGURATION `fs-routing` 行；root-fs-routing.md（设计） | ①②③⑤：路由判定与接替理由（写围栏在根平面无消费者）成文；`distro` 的 `auto`/`default`/pin 三态、每个 UNC 目标由自身 distro 服务、pin 下拒外来路径，以及 `distroCwd`/`restrictToDistro`/`sandbox`/`maskWindowsDrive`/`watchMaxDepth` 逐键成表，且自成一行、不与会话级行联动；`sandbox` 失败关闭成文 | `fs-routing.test.mjs`（纯谓词与路径助手）、`provider.test.mjs`（per-distro substrate/worldPath） | 类本体无单测（需 DSH peers 与实机）；由组合测试与真机探针覆盖 |
+| R22 | 支持矩阵：Windows 10/11 + WSL2 + Node `^22.19.0 \|\| >=24.0.0` + peer 版本范围 | SUPPORT 全文 | ⑥：支持与不受支持清单、peer 范围及精确开发依赖成文；Node 20 在范围外（理由见 SUPPORT，`engines` 为准） | `peerDependencies`、`devDependencies` 与 `engines`（`package.json`）；CI 矩阵（ci.yml） | 新 peer 版本仍需验证 |
+| R23 | 根平面 `ctx.fs` 按坐标路由：发行版 UNC 由发行版内 agent 服务（inotify 或轮询 watch），盘符路径留在宿主；接替随发的 `fs-sandbox` 行 | README「Architecture」；ARCHITECTURE「The root-plane filesystem takeover」；CONFIGURATION `fs-routing` 行；root-fs-routing.md（设计） | ①②③⑤：路由判定与接替理由（写围栏在根平面无消费者）成文；`distro` 的 `auto`/`default`/pin 三态、每个 UNC 目标由自身 distro 服务、pin 下拒外来路径，以及 `distroCwd`/`restrictToDistro`/`sandbox`/`maskWindowsDrive`/`watchMaxDepth` 逐键成表，且自成一行、不与会话级行联动；`sandbox` 失败关闭成文 | `fs-routing.test.mjs`（纯谓词与路径助手）、`provider.test.mjs`（per-distro substrate/worldPath） | 类本体无单测（需 DSH peers 与实机）；由组合测试与真机探针覆盖 |
 | R24 | GUI 文件树与预览在发行版内服务：沿用随包 `workspace-files` 行（server/client 成对），经根级 `fs-routing` 读写 distro UNC；盘符 scope 交宿主 | README「Architecture」；ARCHITECTURE「The root-plane filesystem takeover」；CONFIGURATION `workspace-files` 行 | ①②③⑤：沿用官方 server/client，浏览器 `file` provider 不丢，预览可用；路由与宿主/发行版 scope 成文；容量键由官方行承载、可覆盖；较直连多 4–6 次往返及其取舍在 LIMITATIONS 成文 | `fs-routing.test.mjs`、组合测试（`workspace-files` 保持启用、接管行不存在） | — |
 
 登记覆盖面：上表登记 README 与 docs/ 中对外成文的行为承诺（含随发的服务面）。
@@ -68,7 +68,7 @@ docs/ 各篇里的行为承诺登记成带编号的需求条目，并给每条�
 | OI-2 | 真机回归（协议/基座/沙箱的最高风险面）仅手动探针；CI runner 无 WSL distro | 环境受限决策，已如实记录 | ARCHITECTURE「Test layers」 |
 | OI-3 | 默认翻转（substrate、协议 v3→v4）无灰度、无遥测；迁移安全押在 boot 拒绝与响亮错误上 | OSS 取舍，企业语境缺口 | CHANGELOG 0.3.0 / 0.7.3 |
 | OI-4 | 端口轮询经共享 agent 使常驻进程永不闲置回收（LIMITATIONS 已记）；工程修复＝移出共享 agent 或改 one-shot | 工程项 | `lib/shell-env.js:79` |
-| OI-5 | 写发布后无目录 fsync，机器崩溃可丢 rename（LIMITATIONS 已记）；修复＝rename 后对父目录 fsync | 工程项 | `agent/wsl-agent.sh:490` |
+| OI-5 | 发布后无目录 fsync，shell agent 忽略 `sync -f` 失败；机器崩溃可能丢失数据或目录项（见 LIMITATIONS） | 工程项 | `agent/wsl-agent.sh`、`agent/native/spike/src/main.rs` |
 
 OI-7 已解决（2026-10-19）：`test/fs-routing.test.mjs` 已进入 `test:unit` 与
 `test:coverage` 两个清单；新增的 `test/distro-route.test.mjs` 也同步加入。

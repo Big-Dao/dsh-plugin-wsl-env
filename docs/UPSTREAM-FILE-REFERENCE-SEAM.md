@@ -10,7 +10,7 @@ decision.
 
 ## The measured cost
 
-Probe: [`test/probe/file-reference-9p.sh`](../test/probe/file-reference-9p.sh)
+Probe: [`test/probe/file-reference-9p.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/file-reference-9p.sh)
 (three runs, `node:fs` readdir walk, no ranking engine). Tree: 20 directories,
 520 files, one level of subdirectories; the same tree walked from Windows over
 `\\wsl.localhost\<distro>` and from inside the distro on ext4.
@@ -31,7 +31,7 @@ seam must keep.
 
 ## The seam
 
-RFC addendum ① (in [rfc-wsl-workspaces.md](upstream/rfc-wsl-workspaces.md))
+RFC addendum ① (in [rfc-wsl-workspaces.md](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/upstream/rfc-wsl-workspaces.md))
 proposes exposing the three module-internal funnels as an injectable strategy:
 
 ```ts
@@ -55,7 +55,7 @@ with three semantics that matter for a remote world:
 
 ## The plugin side is ready
 
-[`src/file-reference-wsl.ts`](../src/file-reference-wsl.ts) implements that
+[`src/file-reference-wsl.ts`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/src/file-reference-wsl.ts) implements that
 interface over the resident agent: one `find -printf` per directory, a
 single-exec segment walk for `resolveDisplayDirectory` (instead of N sequential
 `lstat`s), and the UNC/POSIX conversions. It is unit-tested against a fake

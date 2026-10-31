@@ -26,15 +26,17 @@ These rows are nested inside `preset-wsl`. Use the helper to change their
 settings:
 
 ```bash
-pnpm run preset -- --distro Ubuntu --session-sandbox false --out "$DSH_HOME/profiles/<name>/cordis.patch.yml"
+pnpm run preset --distro Ubuntu --session-sandbox false
 ```
 
 Supported edits are `--distro`, `--session-sandbox`, `--sandbox`,
 `--mask-windows-drive`, and `--agent-backend`. Without `--out`, the helper
-prints the full `preset-wsl` block. Use `pnpm run preset -- --check <file>`
-to detect profile layers that target nested rows directly; it prints the block
-to use. The helper will not overwrite a file that has no `preset-wsl` row
-unless you pass `--force`.
+prints the full `preset-wsl` block to merge into the profile manually. Use
+`pnpm run preset --check <file>` to detect profile layers that target nested
+rows directly; on detecting them it prints the block to use. `--out` replaces
+the entire destination file, including other overrides, even when it already
+contains a `preset-wsl` row. It refuses to replace an existing file without
+that row unless you pass `--force`. Prefer manual merging for existing profiles.
 
 To edit the preset manually, replace the entire `preset-wsl` row. Its config is
 not deep-merged: preserve `id`, `order`, and every item in `plugins`. Copy the
@@ -175,15 +177,15 @@ share is refused with `FS_OUTSIDE_DISTRO`. The Windows drive mounted at
 
 ## Windows interop
 
-`interopVisibility` controls access to Windows files and executables from
-confined commands. If unset, `maskWindowsDrive: false` gives the `visible`
-behavior.
+`interopVisibility` controls whether `/mnt` is masked for confined commands;
+it does not itself disable Windows interop. If unset, `maskWindowsDrive: false`
+gives the `visible` behavior.
 
 | Value | Effect |
 |---|---|
 | `visible` | Leaves `/mnt` visible. Confined commands can read Windows files and launch Windows executables through WSL interop. |
-| `masked` | Mounts an empty tmpfs over `/mnt` in confined profiles. Commands cannot access Windows files or launch executables from `/mnt`. |
-| `disabled` | Applies the masked profile and prints the distro-level steps for disabling interop. It does not edit `wsl.conf`. |
+| `masked` | Mounts an empty tmpfs over `/mnt` in confined profiles. Commands cannot access paths under `/mnt`; other mounts and unrestricted file reads are not covered. |
+| `disabled` | Applies the same `/mnt` mask as `masked`; it does not disable interop or edit `wsl.conf`. Configure the distro separately as described below. |
 
 `maskWindowsDrive: true` is equivalent to `interopVisibility: masked`.
 When `interopVisibility` is set, it takes precedence over
@@ -206,12 +208,13 @@ interop.
 To apply the masked profile to both nested rows:
 
 ```bash
-pnpm run preset -- --sandbox true --mask-windows-drive true --out "$DSH_HOME/profiles/<name>/cordis.patch.yml"
+pnpm run preset --sandbox true --mask-windows-drive true
 ```
 
-The `visible` and `masked` behavior is covered by
-`test/probe/sandbox.sh`. The distro-level disabled state requires a manual
-check because it changes WSL configuration.
+Merge the printed block into the profile. The `visible` and `masked` behavior
+is covered by `test/probe/interop-shell.sh` for both resident and one-shot
+commands. The distro-level disabled state requires a manual check because it
+changes WSL configuration.
 
 ## Sandbox and preflight
 
@@ -261,7 +264,7 @@ without booting it. The output shows whether a row override applied. Use
 | Command cannot start in the selected distro | `WSL_E_*` code naming the distro. | Start that distro or change `distro`. Wider permissions do not resolve a stopped distro. |
 | `wsl.exe` cannot start | Error names the executable and the row's `wslPath`. | Correct `wslPath` and confirm WSL is installed. |
 | WSL hangs during a command | Command reaches its deadline without completion. | Retry once, then run `wsl.exe --shutdown` and reopen the session. |
-| A watched path does not notify | `FS_IO_ERROR` from `watch`. | Watch a path inside the selected distro. |
+| A watched change does not notify | Polling can miss changes that preserve the observed metadata; no error is guaranteed. | Check the watcher limits in [LIMITATIONS.md](LIMITATIONS.md). |
 | A path in another distro is refused | `FS_OUTSIDE_DISTRO`. | Use `distro: ''` or `auto` to follow the workspace, or open the session in the target distro. |
 
 See [ARCHITECTURE.md — Error codes](ARCHITECTURE.md#error-codes) for the full

@@ -194,7 +194,7 @@ terminal if you would rather not see the prompt.
 | `pnpm run probe` | filesystem behaviour against a real distro | yes |
 | `pnpm run probe:sandbox` | what bubblewrap confines and what it does not | no |
 | `pnpm run probe:sandbox-shell` | the confined executor through a real boot | yes |
-| `pnpm run probe:interop-shell` | resident and one-shot interop behaviour, with and without the `/mnt` mask | yes |
+| `pnpm run probe:interop-shell` | resident and one-shot interop for drive and copied executables, with and without the `/mnt` mask | yes |
 | `pnpm run probe:terminal` | the terminal provider | yes |
 | `pnpm run probe:substrate` | the agent filesystem substrate over a real `wsl.exe` transport | no; inside the distro |
 | `pnpm run probe:watch` | the in-distro watcher over a real directory | no; inside the distro |

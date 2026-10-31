@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { runInteropChecks } from "./probe/interop-shell-probe.mjs";
+import { runCopiedInteropChecks, runInteropChecks } from "./probe/interop-shell-probe.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -191,4 +191,90 @@ test("interop checks reject fallback and missing evidence", async () => {
 
 test("interop launch passes redirection and the Windows path as separate arguments", async () => {
   assert.deepEqual(await checkInterop({ mode: "resident", mask: "visible", verifyCommand: true }), []);
+});
+
+/**
+ * @param {{mode: "resident" | "oneshot", mask: "visible" | "masked", setup?: boolean, baseline?: boolean, escaped?: boolean, marker?: boolean, markerValue?: string, enforcement?: string, scope?: string}} options - Simulated execution.
+ */
+async function checkCopiedInterop(options) {
+  const dir = mkdtempSync(join(tmpdir(), "wsl-interop-copy-check-"));
+  const marker = join(dir, "marker.txt");
+  try {
+    return await runCopiedInteropChecks(async (command, policy) => {
+      if (command.startsWith("cp -- ")) {
+        assert.equal(policy, "danger-full-access");
+        assert.match(command, /\/mnt\/c\/Windows\/System32\/cmd\.exe/);
+        assert.ok(command.includes(`/tmp/probe workspace/copied-cmd-${options.mode}-${options.mask}.exe`));
+        return { exitCode: options.setup === false ? 1 : 0 };
+      }
+      assert.ok(command.startsWith(`'/tmp/probe workspace/copied-cmd-${options.mode}-${options.mask}.exe' /d /v:off /c echo DSH_INTEROP_PROBE '>' '`));
+      const baseline = policy === "danger-full-access";
+      const launch = baseline ? options.baseline !== false : options.escaped !== false;
+      if (launch && (baseline || options.marker !== false)) writeFileSync(marker, baseline ? "DSH_INTEROP_PROBE\r\n" : options.markerValue ?? "DSH_INTEROP_PROBE\r\n");
+      return {
+        exitCode: launch ? 0 : 1,
+        sandbox: baseline ? undefined : {
+          mode: "workspace-write",
+          enforcement: options.enforcement ?? "partial",
+          windowsDrive: options.mask,
+          sessionScope: options.scope ?? (options.mode === "resident" ? "session" : "per-command"),
+        },
+      };
+    }, { ...options, workspaceRoot: "/tmp/probe workspace" }, marker);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("copied interop verifies escape in both execution paths with and without the drive mask", async () => {
+  for (const mode of ["resident", "oneshot"]) {
+    for (const mask of ["visible", "masked"]) {
+      const typedMode = /** @type {"resident" | "oneshot"} */ (mode);
+      const typedMask = /** @type {"visible" | "masked"} */ (mask);
+      assert.deepEqual(await checkCopiedInterop({ mode: typedMode, mask: typedMask }), []);
+    }
+  }
+});
+
+test("copied interop uses a distinct executable for each matrix leg", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "wsl-interop-copy-matrix-"));
+  const paths = new Set();
+  try {
+    for (const mode of ["resident", "oneshot"]) {
+      for (const mask of ["visible", "masked"]) {
+        const marker = join(dir, `${mode}-${mask}.txt`);
+        const typedMode = /** @type {"resident" | "oneshot"} */ (mode);
+        const typedMask = /** @type {"visible" | "masked"} */ (mask);
+        const result = await runCopiedInteropChecks(async (command, policy) => {
+          if (command.startsWith("cp -- ")) {
+            const match = command.match(/^cp -- '[^']+' '([^']+)'/);
+            assert.ok(match);
+            assert.ok(match[1]);
+            if (paths.has(match[1])) return { exitCode: 1 };
+            paths.add(match[1]);
+            return { exitCode: 0 };
+          }
+          writeFileSync(marker, "DSH_INTEROP_PROBE\r\n");
+          return {
+            exitCode: 0,
+            sandbox: policy === "danger-full-access" ? undefined : {
+              mode: "workspace-write", enforcement: "partial", windowsDrive: mask,
+              sessionScope: mode === "resident" ? "session" : "per-command",
+            },
+          };
+        }, { mode: typedMode, mask: typedMask, workspaceRoot: "/tmp/workspace" }, marker);
+        assert.deepEqual(result, []);
+      }
+    }
+    assert.equal(paths.size, 4);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("copied interop rejects failed setup, unavailable baseline, blocked launch, and incorrect sandbox facts", async () => {
+  const config = /** @type {const} */ ({ mode: "resident", mask: "masked" });
+  for (const options of [{ setup: false }, { baseline: false }, { escaped: false }, { marker: false }, { markerValue: "incorrect" }, { enforcement: "full" }, { scope: "per-command" }]) {
+    assert.notDeepEqual(await checkCopiedInterop({ ...config, ...options }), []);
+  }
 });

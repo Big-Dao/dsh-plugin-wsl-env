@@ -30,6 +30,7 @@
  *
  * @module dsh-plugin-wsl/fs-routing
  */
+import z from "@deepseek-ai/schemastery";
 import { LocalFileSystem } from "@deepseek-ai/dsh-fs-local";
 import { WslFileSystem } from "./index.js";
 import type { Context } from "@deepseek-ai/cordis";
@@ -91,7 +92,7 @@ export declare function inputIsDistro(value: string | undefined): boolean;
  * mode the distro side reports through `sandboxMode`).
  */
 export declare class WslRoutingFileSystem extends LocalFileSystem {
-    static Config: import("@deepseek-ai/schemastery").default<import("@deepseek-ai/dsh-fs-local").Config>;
+    static Config: z<RoutingConfig>;
     /**
      * The routed backend's constructor reads the deployment default mode from
      * `ctx.sandboxPolicy`, exactly as the shipped `fs-sandbox` row this class

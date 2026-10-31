@@ -301,6 +301,82 @@ check("the routed root filesystem actually starts through the Loader, not just c
   }
 });
 
+/**
+ * Mount one routing row through the real Loader and inspect its context.
+ * @param {Record<string, unknown>} config - the raw row config.
+ * @param {(context: Context) => void | Promise<void>} inspect - the assertion callback.
+ * @returns {Promise<void>} when the inspection and cleanup finish.
+ */
+async function inspectRoutingConfig(config, inspect) {
+  const root = await mkdtemp(join(tmpdir(), "dsh-wsl-routing-config-"));
+  try {
+    const configPath = join(root, "cordis.yml");
+    await writeFile(configPath, JSON.stringify([{ id: "fs-routing", name: "fs-routing-under-test", config }]));
+    const context = new Context();
+    context.baseUrl = pathToFileURL(root).href + "/";
+    await context.plugin({
+      name: "sandbox-policy-stub",
+      apply(/** @type {Context} */ pluginCtx) {
+        pluginCtx.provide("sandboxPolicy", { defaultMode: "workspace-write", resolve: () => ({ mode: "workspace-write", workspaceRoot: "/" }) });
+      },
+    });
+    await context.plugin(Loader);
+    context.loader.builtins.include = Include;
+    stubLoaderInternal(context.loader, async (specifier) => {
+      if (specifier === "fs-routing-under-test") return WslRoutingFileSystem;
+      throw new Error(`unexpected Loader import: ${specifier}`);
+    });
+    await context.loader.create({ name: "cordis:include", config: { path: pathToFileURL(configPath).href } });
+    await context.loader.await();
+    await inspect(context);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+check("the routing Loader preserves defaults and accepts explicit settings", async () => {
+  /** @type {Array<[Record<string, unknown>, Record<string, unknown>]>} */
+  const cases = [
+    [{}, { distro: "", wslPath: "wsl.exe", cwd: "", sandbox: true, maskWindowsDrive: false, restrictToDistro: true, watchMaxDepth: 0 }],
+    [{ sandbox: null, restrictToDistro: null }, { sandbox: true, restrictToDistro: true }],
+    [{ cwd: "host-dir", diffBasisMaxBytes: 512, distro: "ubuntu", wslPath: "custom-wsl", distroCwd: "/work", sandbox: false, maskWindowsDrive: true, restrictToDistro: false, watchMaxDepth: 2 },
+      { distro: "ubuntu", wslPath: "custom-wsl", cwd: "/work", diffBasisMaxBytes: 512, sandbox: false, maskWindowsDrive: true, restrictToDistro: false, watchMaxDepth: 2 }],
+  ];
+  for (const [config, expected] of cases) {
+    await inspectRoutingConfig(config, (context) => {
+      const router = context.get("fs");
+      assert.ok(router instanceof WslRoutingFileSystem);
+      const backend = rawService(router.distro());
+      assert.ok(backend instanceof WslFileSystem);
+      const backendConfig = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (backend.config));
+      for (const [key, value] of Object.entries(expected)) assert.equal(backendConfig[key], value, key);
+      if ("cwd" in config) assert.equal(router.config.cwd, config.cwd);
+      if ("diffBasisMaxBytes" in config) assert.equal(router.config.diffBasisMaxBytes, config.diffBasisMaxBytes);
+    });
+  }
+});
+
+check("the routing Loader rejects invalid host and distro settings", async () => {
+  /** @type {Array<[string, unknown]>} */
+  const cases = [
+    ["cwd", []],
+    ["diffBasisMaxBytes", "512"],
+    ["sandbox", 0],
+    ["distro", 42],
+    ["wslPath", false],
+    ["distroCwd", []],
+    ["maskWindowsDrive", "false"],
+    ["restrictToDistro", 0],
+    ["watchMaxDepth", -1],
+    ["watchMaxDepth", 1.5],
+  ];
+  for (const [key, value] of cases) {
+    await inspectRoutingConfig({ [key]: value }, (context) => {
+      assert.equal(context.get("fs") === undefined, true, `${key}=${JSON.stringify(value)} must fail to mount`);
+    });
+  }
+});
+
 let failed = 0;
 for (const [name, fn] of checks) await runCheck(name, fn);
 failed = checks.length - passed;

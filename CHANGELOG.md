@@ -16,6 +16,19 @@ were part of the record.
 
 ## [Unreleased]
 
+### Changed
+
+- **`fs-routing` row config is now validated at load time.**
+  `WslRoutingFileSystem.Config` no longer blindly reuses
+  `LocalFileSystem.Config`: it is a `z.intersect` of the host row's schema and
+  the distro-side keys (`distro`, `wslPath`, `distroCwd`, `sandbox`,
+  `maskWindowsDrive`, `restrictToDistro`, `watchMaxDepth`). The Loader now
+  refuses to mount the row when a key fails its schema — previously a typo or
+  a wrong type was silently ignored and the distro side ran on defaults. A
+  `null` field value still falls back to the schema default, which matches how
+  the Loader treats optional keys. Composition tests mount the row through the
+  real Loader to assert both the accepted defaults and the rejected values.
+
 ## [0.15.0] - 2026-10-27
 
 The compatibility-matrix release: the support table and its evidence, the

@@ -83,6 +83,9 @@ after a plugin upgrade that changes the preset.
 This top-level row serves root-level `ctx.fs` calls. It routes distro UNC paths
 to the agent-backed filesystem and drive paths to the host filesystem. Its
 distro settings are independent of `wsl-fs`.
+The Loader validates the host and distro settings before mounting this row;
+values rejected by the schema prevent the router from starting. A `null`
+field value uses its schema default.
 
 | Key | Default / shipped value | Description |
 |---|---|---|

@@ -32,6 +32,7 @@
  */
 
 import { isWslUnc, uncToPosix } from "./paths.js";
+import z from "@deepseek-ai/schemastery";
 import { LocalFileSystem } from "@deepseek-ai/dsh-fs-local";
 import { WslFileSystem } from "./index.js";
 import type { Context } from "@deepseek-ai/cordis";
@@ -134,7 +135,18 @@ export function inputIsDistro(value: string | undefined): boolean {
  * mode the distro side reports through `sandboxMode`).
  */
 export class WslRoutingFileSystem extends LocalFileSystem {
-  static Config = LocalFileSystem.Config;
+  static Config: z<RoutingConfig> = z.intersect([
+    LocalFileSystem.Config,
+    z.object({
+      distro: z.string().default(""),
+      wslPath: z.string().default("wsl.exe"),
+      distroCwd: z.string().default(""),
+      sandbox: z.boolean().default(true),
+      maskWindowsDrive: z.boolean().default(false),
+      restrictToDistro: z.boolean().default(true),
+      watchMaxDepth: z.natural().default(0),
+    }),
+  ]);
   /**
    * The routed backend's constructor reads the deployment default mode from
    * `ctx.sandboxPolicy`, exactly as the shipped `fs-sandbox` row this class

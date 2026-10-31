@@ -39,3 +39,7 @@ test/e2e/.scratch/
 
 # Peer-canary run summary (written by scripts/peer-canary.mjs).
 canary-summary.md
+
+# Copilot Superpowers — installed skills (local only, not tracked by git)
+.agent/skills/
+.agent/skills-catalog.md

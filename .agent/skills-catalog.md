@@ -50,7 +50,7 @@
 - **qoder-delegate**: Delegate coding tasks to the Qoder CLI (`qodercli`) only when the user explicitly requests it, while the orchestrator retains review and landing responsibility. _(risk: critical)_
 - **ralph-loop-yylo**: Execute exactly one explicitly assigned YYLO Ledger task through the Ralph loop to a validated queued commit. Use only when the user explicitly requests ralph-loop-yylo. _(risk: critical)_
 - **review-multi-agent-orchestration**: Use when a supervisor, swarm, graph, planner-worker system, or parallel agent workflow needs review for task boundaries, shared state, branch joins, retries, cancellation, context handoffs, budgets, deadlocks, or human escalation before implementation or production rollout. _(risk: safe)_
-- **subagent-orchestrator**: Coordinate quota-aware parallel subagents for large, multi-file Antigravity tasks. _(risk: safe)_
+- **subagent-orchestrator**: Coordinate quota-aware parallel subagents for large, multi-file Antigravity tasks. _(risk: critical)_
 - **vibe-delegate**: Delegate coding tasks to the Mistral Vibe CLI (`vibe`) only when the user explicitly requests it, while the orchestrator retains review and landing responsibility. _(risk: critical)_
 - **warp-delegate**: Delegate coding tasks to the Warp Agent CLI (`oz`) only when the user explicitly requests it, while the orchestrator retains review and landing responsibility. _(risk: critical)_
 - **zcode-delegate**: Delegate coding tasks to the Z.AI ZCode CLI only when the user explicitly requests it, while the orchestrator retains review and landing responsibility. _(risk: critical)_
@@ -79,14 +79,14 @@
 
 ## ai
 
-- **weaviate-cookbooks**: Build Weaviate AI apps from official cookbook blueprints for RAG, agentic RAG, data exploration, multimodal PDF search, async clients, and frontends. _(risk: safe)_
+- **weaviate-cookbooks**: Build Weaviate AI apps from official cookbook blueprints for RAG, agentic RAG, data exploration, multimodal PDF search, async clients, and frontends. _(risk: critical)_
 
 ## ai-agents
 
 - **accint-frames**: Drain acc's deliberation queue — open/waiting brain_frames checkpointed by headless runs — via acc_act(runtime="continue"). _(risk: critical)_
 - **accint-solve**: Route a goal through acc's scored-memory loop via acc_act(runtime="solve"); deliberate any returned brain_frame and submit via continue. _(risk: critical)_
 - **lambda-lang**: Native agent-to-agent language for compact multi-agent messaging. A shared tongue agents speak directly, not a translation layer. 340+ atoms across 7 domains; 3x smaller than natural language. _(risk: safe)_
-- **llm-council**: Run Fireworks-hosted open-weight model councils that compare responses and synthesize a final answer. _(risk: safe)_
+- **llm-council**: Run Fireworks-hosted open-weight model councils that compare responses and synthesize a final answer. _(risk: critical)_
 - **loop-library**: Find, compare, adapt, and design bounded AI-agent feedback loops with explicit checks, stop rules, guardrails, and handoffs. _(risk: safe)_
 - **open-dynamic-workflows**: Plan, orchestrate, and adversarially verify parallel AI coding agents with a dynamic multi-agent workflow engine. _(risk: critical)_
 - **pilot-protocol**: Give an AI agent a permanent network address, encrypted P2P messaging, and an installable app store via Pilot Protocol _(risk: critical)_
@@ -241,19 +241,20 @@ Chat widget, Messages, PromptInput, Avatar, LLM _(risk: unknown)_
 - **ai-native-cli**: Design spec with 98 rules for building CLI tools that AI agents can safely use. Covers structured JSON output, error handling, input contracts, safety guardrails, exit codes, and agent self-description. _(risk: safe)_
 - **ai-seo**: Optimize content for AI search and LLM citations across AI Overviews, ChatGPT, Perplexity, Claude, Gemini, and similar systems. Use when improving AI visibility, answer engine optimization, or citation readiness. _(risk: critical)_
 - **aomi-transact**: Build natural-language crypto/DeFi agents and EVM MCP plugins (Claude Code, Cursor, Codex, Gemini). Aomi turns prompts into wallet-signed txs on Ethereum, Base, Arbitrum, Optimism, Polygon, Linea — non-custodial, fork-simulated. 40+ apps: Uniswap, Aave, Lido, Morpho, GMX, Hyperliquid, Polymarket. _(risk: critical)_
+- **bifrost-gateway**: Run and configure Bifrost, the open-source AI gateway: one OpenAI-compatible API for 20+ LLM providers with fallbacks, virtual keys and budgets, semantic caching, observability and an MCP gateway. _(risk: safe)_
 - **brave-man**: Runs a structured clarifying interview for new project requests before building. Instead of writing code, it outputs a fully specified prompt.md for a fresh agent session to execute, preventing expensive mistakes. _(risk: critical)_
 - **claude-api**: Build apps with the Claude API or Anthropic SDK. TRIGGER when: code imports `anthropic`/`@anthropic-ai/sdk`/`claude_agent_sdk`, or user asks to use Claude API, Anthropic SDKs, or Agent SDK. DO NOT TRIGGER when: code imports `openai`/other AI SDK, general programming, or ML/data-science tasks. _(risk: critical)_
 - **context-engineering**: Optimizes agent context setup. Use when starting a new session, when agent output quality degrades, when switching between tasks, or when you need to configure rules files and context for a project. _(risk: critical)_
 - **ejentum-reasoning-harness**: MCP server exposing four cognitive harness modes (reasoning, code, anti-deception, memory). Each call returns an engineered scaffold (failure pattern, procedure, suppression vectors, falsification test) the agent ingests before generating. _(risk: critical)_
 - **faf-go**: Guided interview to Gold Code (100% AI-Readiness). Use when helping users improve their .faf file through questions. Leverages Claude Code's AskUserQuestion for seamless integration. Just type /faf-go and answer questions till done. _(risk: critical)_
-- **hf-cli**: Curated upstream guidance for Hf Cli; use when the workflow matches the user goal. _(risk: unknown)_
+- **hf-cli**: Curated upstream guidance for Hf Cli; use when the workflow matches the user goal. _(risk: critical)_
 - **hf-mcp**: Use Hugging Face Hub via MCP server tools. Search models, datasets, Spaces, papers. Get repo details, fetch documentation, run compute jobs, and use Gradio Spaces as AI tools. Available when connected to the HF MCP server. _(risk: critical)_
 - **hf-mem**: Hugging Face CLI to estimate the required memory to load Safetensors or GGUF model weights for inference from the Hugging Face Hub _(risk: critical)_
 - **hugging-face-community-evals**: Run evaluations for Hugging Face Hub models using inspect-ai and lighteval on local hardware. Use for backend selection, local GPU evals, and choosing between vLLM / Transformers / accelerate. _(risk: critical)_
 - **hugging-face-gradio**: Build Gradio web UIs and demos in Python. Use when creating or editing Gradio apps, components, event listeners, layouts, or chatbots. _(risk: critical)_
 - **hugging-face-papers**: Look up and read Hugging Face paper pages in markdown, and use the papers API for structured metadata such as authors, linked models/datasets/spaces, Github repo and project page. _(risk: critical)_
 - **hugging-face-trackio**: Track and visualize ML training experiments with Trackio. Use when logging metrics during training (Python API), firing alerts for training diagnostics, or retrieving/analyzing logged metrics (CLI). _(risk: critical)_
-- **hugging-face-vision-trainer**: Train object detection, image classification, and SAM or SAM2 segmentation models locally or on Hugging Face Jobs, with dataset validation and results saved to the Hub. _(risk: critical)_
+- **hugging-face-vision-trainer**: Train object detection, image classification, and SAM or SAM2 segmentation models locally or on Hugging Face Jobs, with bounded dataset pilots and explicit artifact persistence. _(risk: critical)_
 - **huggingface-best**: Use when the user asks about finding the best, top, or recommended model for a task, wants to know what AI model to use, or wants to compare models by benchmark scores. _(risk: critical)_
 - **huggingface-local-models**: Use to select models to run locally with llama.cpp and GGUF on CPU, Mac Metal, CUDA, or ROCm. Covers finding GGUFs, quant selection, running servers, exact GGUF file lookup, conversion, and OpenAI-compatible local serving. _(risk: critical)_
 - **huggingface-lora-space-builder**: Build and publish a Gradio demo on Hugging Face Spaces for a user-provided LoRA. _(risk: critical)_
@@ -263,7 +264,7 @@ Chat widget, Messages, PromptInput, Avatar, LLM _(risk: unknown)_
 - **loopy**: Discover, find, compare, audit, repair, adapt, craft, run, debrief, and prepare repeatable AI-agent loops for publication. _(risk: critical)_
 - **manage-skills**: Discover, list, create, edit, toggle, copy, move, and delete AI agent skills across 11 tools (Cursor, Claude, Agents, Windsurf, Copilot, Codex, Cline, Aider, Continue, Roo Code, Augment) _(risk: critical)_
 - **mesh-memory**: Self-hosted semantic memory for AI agents via MCP. Save worklogs, decisions, and notes, then recall them across sessions by meaning, not keyword. Postgres + pgvector with auto-tagging. _(risk: safe)_
-- **mmx-cli**: Use mmx to generate text, images, video, speech, and music via the MiniMax AI platform. Use when the user wants to create media content, chat with MiniMax models, perform web search, or manage MiniMax API resources from the terminal. _(risk: safe)_
+- **mmx-cli**: Use mmx to generate text, images, video, speech, and music via the MiniMax AI platform. Use when the user wants to create media content, chat with MiniMax models, perform web search, or manage MiniMax API resources from the terminal. _(risk: critical)_
 - **monte-carlo-monitoring-advisor**: Analyze data coverage, create monitors for warehouse tables and AI agents. Covers coverage gaps, use-case analysis, data monitor creation, and agent observability. _(risk: critical)_
 - **moyu**: Anti-over-engineering guardrail that activates when an AI coding agent expands scope, adds abstractions, or changes files the user did not request.
  _(risk: safe)_
@@ -278,7 +279,6 @@ Chat widget, Messages, PromptInput, Avatar, LLM _(risk: unknown)_
 - **unified-ai-gateway**: Operate and evaluate Unified AI System through fifteen governed MCP tools, including provider-free prompt enhancement, while preserving fake-provider, authorization, and evidence boundaries. _(risk: critical)_
 - **unslop-commit**: Rewrites commit messages so they sound like a careful human engineer wrote them. Strips AI/marketing slop ("comprehensive solution", "robust implementation", "leverage", "enhance", "seamlessly", "This commit..."). Keeps Conventional Commits format. _(risk: critical)_
 - **unsloth-finetuning**: Fine-tune and post-train LLMs with Unsloth Core on a single consumer GPU: VRAM sizing, LoRA/QLoRA, GRPO/DPO, chat-template correctness, and GGUF export. _(risk: critical)_
-- **bifrost-gateway**: Run and configure Bifrost, the open-source AI gateway: one OpenAI-compatible API for 20+ LLM providers with fallbacks, virtual keys and budgets, semantic caching, observability and an MCP gateway. _(risk: safe)_
 
 ## ai-powered seo
 
@@ -326,10 +326,10 @@ Chat widget, Messages, PromptInput, Avatar, LLM _(risk: unknown)_
 ## api-integration
 
 - **pakistan-payments-stack**: Design and implement production-grade Pakistani payment integrations (JazzCash, Easypaisa, bank/PSP rails, optional Raast) for SaaS with PKR billing, webhook reliability, and reconciliation. _(risk: safe)_
-- **2slides-ppt-generator**: AI-powered presentation generation via the 2slides API — create slides from text, match a reference image style, summarize documents into decks, add AI voice narration, and export pages/audio. Use for any "make slides", "create a deck", or "slides from this document" request. _(risk: safe)_
+- **2slides-ppt-generator**: AI-powered presentation generation via the 2slides API — create slides from text, match a reference image style, summarize documents into decks, add AI voice narration, and export pages/audio. Use for any "make slides", "create a deck", or "slides from this document" request. _(risk: critical)_
 - **adhx**: Fetch any X/Twitter post as clean LLM-friendly JSON. Converts x.com, twitter.com, or adhx.com links into structured data with full article content, author info, and engagement metrics. No scraping or browser required. _(risk: safe)_
 - **aident-loadout**: Run multi-step work across apps the user connected in Aident Loadout: live action schemas, connection checks, cost preflight, and approval before side effects. _(risk: critical)_
-- **connection-auth-rules**: Build a Connection Auth Rules for a Monte Carlo connection type. Fetches live connector schemas and transform steps from the apollo-agent repo. _(risk: unknown)_
+- **connection-auth-rules**: Build a Connection Auth Rules for a Monte Carlo connection type. Fetches live connector schemas and transform steps from the apollo-agent repo. _(risk: critical)_
 - **curlshot**: Capture web page screenshots, PDFs and scrolling videos, or render HTML/Markdown to images, with the hosted CurlShot API. _(risk: safe)_
 - **famulor-skill**: Operate Famulor assistants, communication history, campaigns, knowledge, automations, telephony, and workspace administration through its hosted MCP server. _(risk: critical)_
 - **gemini-interactions-api**: Build with the Gemini Interactions API for text, chat, multimodal generation, streaming, managed or background agents, function calling, structured output, and generateContent migrations. _(risk: critical)_
@@ -345,7 +345,7 @@ Chat widget, Messages, PromptInput, Avatar, LLM _(risk: unknown)_
 - **sendblue-cli**: Send iMessage and SMS from the shell via the @sendblue/cli npm package — outbound sends, contact management, and account setup with no API client or webhook server required. _(risk: critical)_
 - **us-property-data**: Use when a task needs real U.S. residential property data: valuation, listings, price or tax history, schools, or a zillow.com URL. _(risk: safe)_
 - **youtube-full**: Fetch YouTube transcripts, search videos, browse channels, and extract playlists via TranscriptAPI — no yt-dlp, no Google API key, works from any cloud server. _(risk: safe)_
-- **youtube-transcript-skills**: Fetch YouTube video transcripts, search videos/channels, browse channels, and extract playlists via the getyoutubetranscript.com API - free tier, no card required. _(risk: safe)_
+- **youtube-transcript-skills**: Fetch YouTube video transcripts, search videos/channels, browse channels, and extract playlists via the getyoutubetranscript.com API; verify current account terms. _(risk: safe)_
 
 ## app-builder
 
@@ -386,7 +386,7 @@ Chat widget, Messages, PromptInput, Avatar, LLM _(risk: unknown)_
 - **eol-resistor-calculator**: Calculates and validates end-of-line (EOL, SEOL, DEOL, TEOL) resistor loops for intrusion alarm panels (Honeywell, DSC, Paradox, Bosch) with wire gauge drop and state tables. Trigger phrases: eol resistor, deol wiring, alarm zone resistor, calculate end of line, double eol tamper. _(risk: safe)_
 - **esl-price-sync**: Synchronizes retail prices between ERP/POS systems and Electronic Shelf Labels (SES-imagotag, ZKONG, Pricer, Hanshow, SOLUM) with delta watermarking, idempotency, and battery modeling. Trigger phrases: esl price sync, electronic shelf labels, zkong sync, ses imagotag price, ghost pricing audit. _(risk: critical)_
 - **monopoly**: MONOPOLY is a Senior System Design Engineer skill for architecting, reviewing, and scaling systems. Triggers on requests involving architecture, databases, scaling, microservices, or infrastructure design. Proactively engages to design resilient backend systems.
-
+ _(risk: critical)_
 - **site-architecture**: Plan or restructure website hierarchy, navigation, URL patterns, breadcrumbs, and internal linking. Use when mapping pages, sections, and site structure, but not for XML sitemap auditing or schema markup. _(risk: safe)_
 
 ## auth
@@ -486,8 +486,8 @@ Matrix 集成, 聊天客户端 _(risk: unknown)_
 - **yes-md**: 6-layer AI governance: safety gates, evidence-based debugging, anti-slack detection, and machine-enforced hooks. Makes AI safe, thorough, and honest. _(risk: safe)_
 - **zapier-make-patterns**: No-code automation democratizes workflow building. Zapier and Make (formerly Integromat) let non-developers automate business processes without writing code. But no-code doesn't mean no-complexity ... _(risk: unknown)_
 - **zendesk-automation**: Automate Zendesk tasks via Rube MCP (Composio): tickets, users, organizations, replies. Always search tools first for current schemas. _(risk: unknown)_
-- **apify-generate-output-schema**: Generate output schemas (dataset_schema.json, output_schema.json, key_value_store_schema.json) for an Apify Actor by analyzing its source code. Use when creating or updating Actor output schemas. _(risk: unknown)_
-- **apify-integration-development**: Curated upstream guidance for Apify Integration Development; use when the workflow matches the user goal. _(risk: unknown)_
+- **apify-generate-output-schema**: Generate output schemas (dataset_schema.json, output_schema.json, key_value_store_schema.json) for an Apify Actor by analyzing its source code. Use when creating or updating Actor output schemas. _(risk: critical)_
+- **apify-integration-development**: Curated upstream guidance for Apify Integration Development; use when the workflow matches the user goal. _(risk: critical)_
 - **auto-research**: Research uncertain questions with an explicit, user-approved web search or ChatGPT consultation, then present options and wait for implementation approval. _(risk: critical)_
 - **browser-bridge**: Inspect, control, and automate tasks in your real Microsoft Edge or Google Chrome browser via Chrome DevTools Protocol (CDP) with bilingual UI, native tab grouping, and self-healing daemon. _(risk: critical)_
 - **flowhunt-skill**: Automation discovery audit skill. Walks through a 5-question workflow intake, then audits Gmail/Calendar/Slack/task trackers to identify automation opportunities. Use when a user wants to discover what processes in their business can be automated. _(risk: safe)_
@@ -556,7 +556,7 @@ applications.
 - **atlas-contract**: Goal-integrity skill. Use for backend/API/persistence, preserve/do-not-change, tests/validation, mocks, rework, multi-part requests. Emits Goal Contracts, Deviation Notices, Phase Checks, Final Audits. Skip for Q&A or trivial edits. _(risk: critical)_
 - **cohesivity**: Provision headless backend services for AI agents through Cohesivity: hosting, databases, storage, LLMs, and third-party APIs over one HTTP API. Use when a trusted .cohesivity file exists or the user approves a new backend. _(risk: critical)_
 - **graphql-schema**: GraphQL queries, mutations, and code generation patterns. Use when creating GraphQL operations, working with Apollo Client, or generating types. _(risk: critical)_
-- **hono**: Build ultra-fast web APIs and full-stack apps with Hono — runs on Cloudflare Workers, Deno, Bun, Node.js, and any WinterCG-compatible runtime. _(risk: safe)_
+- **hono**: Build ultra-fast web APIs and full-stack apps with Hono — runs on Cloudflare Workers, Deno, Bun, Node.js, and any WinterCG-compatible runtime. _(risk: critical)_
 - **neon-functions**: Long-running, serverless Node.js HTTP functions deployed onto your Neon branch, with DATABASE_URL injected automatically and compute that runs next to your data. _(risk: critical)_
 - **openapi-spec-generator**: Generate complete, production-ready OpenAPI 3.x and Swagger 2.0 specifications from natural language descriptions, code, or partial specs. _(risk: critical)_
 - **supabase**: Use when doing ANY task involving Supabase. _(risk: critical)_
@@ -581,7 +581,7 @@ applications.
 - **chord-onchain-trading**: Read DEX market data and prepare best-route swap quotes and unsigned swap transactions on eight EVM chains with the Chord API. Never signs or moves funds. _(risk: critical)_
 - **maxia**: Connect to MAXIA AI-to-AI marketplace on Solana. Discover, buy, sell AI services. Earn USDC. 13 MCP tools, A2A protocol, DeFi yields, sentiment analysis, rug detection. _(risk: critical)_
 - **meteora-dlmm-pool-screening**: Screen and rank Meteora DLMM pools for LP quality using public Meteora APIs (fee/TVL, bin step, organic score). Read-only: never deploys, swaps, or signs.
- _(risk: safe)_
+ _(risk: critical)_
 - **moltnode-chain-reader**: Read 31 blockchains over keyless JSON-RPC with MoltNode (balances, blocks, contract calls) and get Chord swap quotes with an unsigned transaction and simulation. _(risk: critical)_
 
 ## blockchain-web3
@@ -594,11 +594,11 @@ applications.
 
 - **browser-act**: Use BrowserAct for authenticated browser automation, JS-rendered extraction, screenshots, parallel sessions, verification handling, and human handoff. _(risk: critical)_
 - **browser-harness**: Drive an existing browser through CDP for authenticated, visual, or interactive web automation. _(risk: critical)_
-- **hasdata**: Use HasData APIs for web scraping and structured web data extraction. _(risk: safe)_
-- **hasdata-cli**: Command-line access to search, scraping, and structured web data. _(risk: safe)_
+- **hasdata**: Use HasData APIs for web scraping and structured web data extraction. _(risk: critical)_
+- **hasdata-cli**: Command-line access to search, scraping, and structured web data. _(risk: critical)_
 - **jet-browser**: Verify or integrate Jet Browser when a project needs isolated WPE WebKit sessions, native input, screenshots, ordered JSONL automation, or reproducible runtime checks. _(risk: critical)_
 - **puppeteer-skill**: Generates Puppeteer scripts for browser automation, scraping, and PDF generation. Triggers on: "Puppeteer", "headless Chrome", "page.goto", "scrape", "PDF generation". _(risk: critical)_
-- **reverse-browser-automation**: Automate browsers (Playwright) and Windows desktop applications (UI automation) for reverse-engineering evidence collection, UI-driven workflows, and network observation during analysis. _(risk: safe)_
+- **reverse-browser-automation**: Automate browsers (Playwright) and Windows desktop applications (UI automation) for reverse-engineering evidence collection, UI-driven workflows, and network observation during analysis. _(risk: offensive)_
 - **skyvern-browser-automation**: AI-powered browser automation — navigate sites, fill forms, extract structured data, log in with stored credentials, and build reusable workflows. _(risk: safe)_
 
 ## business
@@ -618,7 +618,7 @@ applications.
 - **audit-preparation**: Audit preparation register: required document, period covered, request and receipt dates, preparer and reviewer, auditor queries and adjustments. Use for assembling an audit file. _(risk: safe)_
 - **board-governance**: Board and governance register: meeting date, agenda, decision, resolution number, vote result, action owner and due date. Use for board packs and action tracking. _(risk: safe)_
 - **brand-growth-system-builder**: Route requests across 13 brand and growth modules. Use when an SME needs help choosing branding, website, local SEO, content, or cloud-planning workflows. _(risk: safe)_
-- **brand-kit-print-collateral**: Print collateral spec: item, finished and trim size, bleed, colour mode, stock and GSM, finish, safe margin, print method, quantity and unit cost. Use for cards and letterhead. _(risk: safe)_
+- **brand-kit-print-collateral**: Print collateral spec: item, finished/trim size and artwork size including bleed, bleed, colour mode, stock and GSM, finish, safe margin, print method, quantity and unit cost. Use for cards and letterhead. _(risk: safe)_
 - **buddy-program-manager**: Buddy programme register: new hire, assigned buddy, department, start and end dates, check-ins planned and done, and feedback score. Use for onboarding buddy schemes. _(risk: safe)_
 - **budget-cash-flow**: Budget against actual by department, category and period, with budget and actual amounts, variance, percentage used and linked expenses. Use for budget tracking or cash-flow reviews. _(risk: safe)_
 - **business-email-template**: Business email template register: trigger, sender and recipient type, subject pattern, body structure, personalisation tokens and send checks. Use for repeatable outbound email. _(risk: safe)_
@@ -687,6 +687,7 @@ applications.
 - **policy-library**: Policy register: name, version, category, owner and approver, applies to, compliance framework, acknowledgement requirement, effective date and next review. Use for policy management. _(risk: safe)_
 - **pre-boarding**: Pre-boarding checklist: task, employee and department, owner, category, joining and due dates, documents received, laptop, email and account-record readiness, status. Use for pre-boarding. _(risk: safe)_
 - **presentation-deck**: Build an evidence-linked slide register after context-first intake. Use when an SME needs a presentation deck, speaker notes, or a structured business story. _(risk: safe)_
+- **pro-launch**: Build an app or product from 0 to 1, taste-first, with phase gates: references, naming, style frames, UI loop, launch video, GTM and shipping. Use for 做产品, 起名, 找参考, UI 太丑, launch plans. _(risk: safe)_
 - **probation-tracker**: Probation register: employee, start and end dates, 30, 60 and 90-day review scores, overall score and confirmation letter. Use for probation tracking. _(risk: safe)_
 - **product-marketing**: When the user wants to create or update their product marketing context document. _(risk: critical)_
 - **product-marketing-context**: Create or update a reusable product marketing context document with positioning, audience, ICP, use cases, and messaging. Use at the start of a project to avoid repeating core marketing context across tasks. _(risk: critical)_
@@ -705,6 +706,7 @@ applications.
 - **salary-wage-accounting**: Payroll register: gross, allowances, TDS and provident fund deductions, net pay, payment date and statutory reconciliation. Use for salary accounting. _(risk: safe)_
 - **sales-accounting**: Sales register: customer, invoice, gross amount, discount, VAT and TDS, net receivable, credit terms and balance. Use for sales accounting. _(risk: safe)_
 - **sales-enablement**: Create sales collateral such as decks, one-pagers, objection docs, demo scripts, playbooks, and proposal templates. Use when a sales team needs assets that help reps move deals forward and close. _(risk: safe)_
+- **second-deposit-igaming**: Explore local casino deposit exports with heuristic signals and descriptive comparisons. Sensitive player data; contact lists and country-rule use require separate operator verification. _(risk: critical)_
 - **seo-directory-backlinks**: Directory and backlink register: platform, domain, target URL, follow attribute, authority and spam scores, approval and NAP-match status. Use for SEO citation tracking. _(risk: safe)_
 - **shark**: Pitch a business idea to a Shark Tank-style panel of Claude sub-agent investors who grill it, hear a founder agent answer, and each go IN or OUT with a practice offer. _(risk: safe)_
 - **skill-gap-analysis**: Skill gap register: employee, skill area, current against required level, gap severity and recommended training. Use for capability planning. _(risk: safe)_
@@ -720,8 +722,6 @@ applications.
 - **time-tracking**: Time entry register: employee, project, client, task, hours, billable flag, rate and amount, invoice and approver. Use for time tracking. _(risk: safe)_
 - **usage-based-pricing**: Design pricing models that developers understand, accept, and can predict. Trigger phrases: usage-based pricing, API pricing, metered billing, developer pricing, pricing page, cost calculator, pay as you go, pricing transparency, competitive pricing, developer billing _(risk: critical)_
 - **vendor-contractor-management**: Vendor register: name, type, services, contact, linked contract dates, payment terms and rating. Use for vendor and contractor management. _(risk: safe)_
-- **pro-launch**: Build an app or product from 0 to 1, taste-first, with phase gates: references, naming, style frames, UI loop, launch video, GTM and shipping. Use for 做产品, 起名, 找参考, UI 太丑, launch plans. _(risk: safe)_
-- **second-deposit-igaming**: Explore local casino deposit exports with heuristic signals and descriptive comparisons. Sensitive player data; contact lists and country-rule use require separate operator verification. _(risk: critical)_
 
 ## business-strategy
 
@@ -989,13 +989,13 @@ GitHub Actions, CI, action, marketplace _(risk: unknown)_
 - **clean-code-guard**: Review generated or changed production code with Clean Code, SOLID, DRY, KISS, YAGNI, and LLM-specific failure-mode checks. _(risk: critical)_
 - **complexity-cuts**: Lower Big-O on existing code via a one-transformation-at-a-time playbook with verify-revert-stop. For new code use lemmaly; for math-level wins escalate to mathguard. _(risk: safe)_
 - **constraint-driven-development**: Write the project quality bar as enforced CONSTRAINTS.md so agents stop quietly lowering it: coverage, performance, accessibility thresholds watched on every diff. _(risk: safe)_
-- **debate-review**: Two-model debate review of a GitHub PR, GitLab MR, Azure DevOps PR, or local working tree, posted as inline comments or printed. Use for any PR/MR review request, or a local review before a PR exists. _(risk: safe)_
+- **debate-review**: Two-model debate review of a GitHub PR, GitLab MR, Azure DevOps PR, or local working tree, posted as inline comments or printed. Use for any PR/MR review request, or a local review before a PR exists. _(risk: critical)_
 - **doubt-driven-development**: Subjects every non-trivial decision to a fresh-context adversarial review before it stands. _(risk: critical)_
 - **invariant-guard**: Correctness-first: forces writing the function contract, loop invariant, termination argument, and edge cases BEFORE code. Catches Boyer-Moore, leftmost binary search, QuickSelect traps. _(risk: safe)_
 - **logic-diff**: Compare two code versions for semantic equivalence via semi-formal tracing of both versions side-by-side. _(risk: safe)_
 - **logic-fix-all**: Autonomous repository-wide audit-and-fix pipeline: health → review → locate/explain → fix → diff-verify → iterate until clean. Starts with a mandatory consent prompt (token-intensive); after consent runs hands-free. _(risk: critical)_
 - **logic-review**: Find logic bugs in a single file or function via semi-formal execution tracing (Premises → Trace → Divergence → Trigger → Remedy). _(risk: critical)_
-- **lovable-cleanup**: Audits and strips Lovable scaffolding from Vite + React projects — removes lovable-tagger, swaps placeholder assets, prunes unused Radix deps, cleans generated docs, and neutralizes stale favicon/CDN caching so the codebase ships as yours. _(risk: safe)_
+- **lovable-cleanup**: Audits and strips Lovable scaffolding from Vite + React projects — removes lovable-tagger, swaps placeholder assets, prunes unused Radix deps, cleans generated docs, and neutralizes stale favicon/CDN caching so the codebase ships as yours. _(risk: critical)_
 - **orchestrate-batch-refactor**: Plan and execute large refactors with dependency-aware work packets and parallel analysis. _(risk: safe)_
 - **review-and-simplify-changes**: Review a git diff or explicit file scope for reuse, code quality, efficiency, clarity, and standards issues, then optionally apply safe Codex-driven fixes. _(risk: critical)_
 - **review-swarm**: Parallel read-only multi-agent review of a current git diff or explicit file scope to find behavioral regressions, security or privacy risks, performance or reliability issues, and contract or test coverage gaps. _(risk: safe)_
@@ -1015,7 +1015,7 @@ GitHub Actions, CI, action, marketplace _(risk: unknown)_
 
 ## collaboration
 
-- **viboscope**: Psychological compatibility matching — find cofounders, collaborators, and friends through validated psychometrics _(risk: safe)_
+- **viboscope**: Psychological compatibility matching — find cofounders, collaborators, and friends with explicit consent and unverified provider scoring _(risk: safe)_
 
 ## communication
 
@@ -1058,13 +1058,14 @@ GitHub Actions, CI, action, marketplace _(risk: unknown)_
 - **developer-onboarding**: Get developers to "Hello World" fast with optimized quickstarts, tutorials, and sample apps. _(risk: critical)_
 - **developer-seo**: SEO strategy for technical queries and developer audiences. Covers keyword research for "how to X in language" queries, error message SEO, Stack Overflow-style content, technical long-tail keywords, and competing with official documentation sites. _(risk: critical)_
 - **devrel-content**: When the user wants to create technical content for developers including blog posts, tutorials, and documentation. _(risk: critical)_
-- **docs-generator**: Generate technical deliverables from completed analysis: reverse-engineering reports, penetration-test reports, CTF write-ups, and signature-analysis documentation with evidence-backed structure. _(risk: safe)_
+- **docs-generator**: Generate technical deliverables from completed analysis: reverse-engineering reports, penetration-test reports, CTF write-ups, and signature-analysis documentation with evidence-backed structure. _(risk: critical)_
 - **docs-guard**: Review generated or changed documentation before it ships, including READMEs, API references, docstrings, changelogs, tutorials, and documentation sites. _(risk: critical)_
 - **documentation-and-adrs**: Records decisions and documentation. Use when making architectural decisions, changing public APIs, shipping features, or when you need to record context that future engineers and agents will need to understand the codebase. _(risk: critical)_
 - **emotional-arc-designer**: Map the emotional progression of a narrative, page, or campaign when content needs a coherent path from attention to action. _(risk: safe)_
 - **hugo-to-markdown**: Convert Hugo documentation sites and Hugo-managed content into standard Markdown. _(risk: critical)_
 - **humanize-chinese**: Detect and rewrite AI-like Chinese text with a practical workflow for scoring, humanization, academic AIGC reduction, and style conversion. Use when the user asks to 去AI味, 降AIGC, 去除AI痕迹, 论文降重, 知网检测, 维普检测, humanize chinese, detect AI text, or make Chinese text sound more natural. _(risk: safe)_
 - **internal-comms**: Write internal communications such as status reports, leadership updates, 3P updates, newsletters, FAQs, incident reports, and project updates using repeatable internal formats. _(risk: safe)_
+- **renhua**: Write Chinese social posts and product copy in a real person's voice, removing AI tells. Use for 小红书, X 帖子, 日记, 朋友圈, 产品介绍, 去 AI 味, 说人话. _(risk: safe)_
 - **seo**: Run a broad SEO audit across technical SEO, on-page SEO, schema, sitemaps, content quality, AI search readiness, and GEO. Use as the umbrella skill when the user asks for a full SEO analysis or strategy. _(risk: critical)_
 - **seo-aeo-blog-writer**: Writes search-intent-led long-form articles with answer-first structure, FAQ coverage, internal links, and conversion paths for SEO and AEO. _(risk: safe)_
 - **seo-aeo-content-cluster**: Builds a topical authority map from business goals, search intent, existing content, and gaps, then prioritises foundational and supporting pages. _(risk: safe)_
@@ -1083,7 +1084,6 @@ GitHub Actions, CI, action, marketplace _(risk: unknown)_
 - **writing-guidelines**: Curated upstream guidance for Writing Guidelines; use when the workflow matches the user goal. _(risk: unknown)_
 - **youtube-seo-optimizer**: Generate complete YouTube & podcast SEO packages with live-researched keywords — titles, descriptions, tags, hashtags, chapters, and audit fixes. Use for new or underperforming content.
  _(risk: safe)_
-- **renhua**: Write Chinese social posts and product copy in a real person's voice, removing AI tells. Use for 小红书, X 帖子, 日记, 朋友圈, 产品介绍, 去 AI 味, 说人话. _(risk: safe)_
 
 ## content seo
 
@@ -1175,26 +1175,32 @@ market, solution, financials, and strategy
 - **apify-youtube-transcript-scraper**: Get YouTube captions, timestamped quotations, SRT/VTT and translated transcripts for videos, channels and playlists through the harshmaur/youtube-transcript-scraper Apify Actor. _(risk: critical)_
 - **arrowspace**: Spectral vector search using graph Laplacian eigenstructure. Use when cosine/L2 similarity misses latent structure in your embeddings. _(risk: safe)_
 - **datacircle**: Every GTM API plan on datacircle.dev, as one file you download and query. Use it to compare or price a GTM data API. _(risk: critical)_
+- **datawebot**: Find products for sale across online shops, list returned sellers' prices with direct links, and run Amazon and Shopify extraction Jobs through the hosted datawebot MCP server. _(risk: critical)_
+- **footval-follow-matches-and-tables**: Football scores, fixtures, match centres and league tables through FootVal: live and past results, a team's next or last matches, events, statistics, line-ups and standings. _(risk: safe)_
+- **footval-scout-and-rank-players**: Scout and rank footballers with FootVal: shortlists by league, position, age, foot and value; undervalued, overvalued, rising and young players; club, league and national squads. _(risk: safe)_
+- **footval-stats-and-transfer-news**: Football season leaderboards and transfer news from FootVal: top scorers, assists, minutes and appearances per competition, plus confirmed transfers and rumours with reliability. _(risk: safe)_
+- **footval-value-and-compare-players**: Explain what a footballer is worth with FootVal: its own transfer value next to the market value, the factors behind the gap, and comparisons of two to four players. _(risk: safe)_
 - **glasser**: Search, inspect, and run third-party data APIs through one CLI when the environment has no suitable integration. _(risk: critical)_
 - **huggingface-datasets**: Use this skill for Hugging Face Dataset Viewer API workflows that fetch subset/split metadata, paginate rows, search text, apply filters, download parquet URLs, and read size or statistics. _(risk: unknown)_
 - **invokely-statistics**: Use Invokely MCP to find official statistics, retrieve values and series, compare or rank places, and report each figure with its period, unit, and source citation. _(risk: safe)_
 - **looot**: Search, price and run 2,500+ data API endpoints (work emails, company search, SERP, web pages) from one prepaid balance via the looot MCP server. _(risk: critical)_
 - **monte-carlo-asset-health**: Curated upstream guidance for Monte Carlo Asset Health; use when the workflow matches the user goal. _(risk: critical)_
-- **monte-carlo-context-detection**: Route data-related requests to the right Monte Carlo skill or workflow. USE WHEN alerts, incidents, data broken, stale, coverage gaps, data quality, or any ambiguous data observability request. _(risk: unknown)_
+- **monte-carlo-context-detection**: Route data-related requests to the right Monte Carlo skill or workflow. USE WHEN alerts, incidents, data broken, stale, coverage gaps, data quality, or any ambiguous data observability request. _(risk: critical)_
 - **monte-carlo-monitor-creation**: Guides creation of Monte Carlo monitors via MCP tools, producing monitors-as-code YAML for CI/CD deployment. _(risk: safe)_
 - **monte-carlo-performance-diagnosis**: Diagnoses pipeline performance issues -- slow jobs, expensive queries, latency trends -- using Monte Carlo's cross-platform observability. Uses a tiered investigation approach: discover problems, bridge to affected tables, then drill into root causes. _(risk: critical)_
-- **monte-carlo-prevent**: Surfaces Monte Carlo data observability context (table health, alerts, lineage, blast radius) before SQL/dbt edits. _(risk: safe)_
-- **monte-carlo-push-ingestion**: Expert guide for pushing metadata, lineage, and query logs to Monte Carlo from any data warehouse. _(risk: safe)_
+- **monte-carlo-prevent**: Surfaces Monte Carlo data observability context (table health, alerts, lineage, blast radius) before SQL/dbt edits. _(risk: critical)_
+- **monte-carlo-push-ingestion**: Review and adapt warehouse metadata, lineage and query-log collection templates for an explicitly authorized Monte Carlo destination. _(risk: critical)_
 - **monte-carlo-remediation**: Investigate and remediate data quality alerts using Monte Carlo MCP tools. Runs root cause analysis, assesses blast radius, discovers available tools (MCP/CLI/API), proposes and executes fixes, or escalates with full context when uncertain. _(risk: critical)_
 - **monte-carlo-storage-cost-analysis**: Analyze a warehouse for stale, unused, or redundant tables via the analyze_storage_costs MCP tool. Classifies waste patterns and table categories, computes safety tiers, and handles category drill-downs and lineage follow-ups. _(risk: critical)_
-- **monte-carlo-validation-notebook**: Generates SQL validation notebooks for dbt PR changes with before/after comparison queries. _(risk: safe)_
+- **monte-carlo-validation-notebook**: Generates SQL validation notebooks for dbt PR changes with before/after comparison queries. _(risk: critical)_
 - **nexrad-mosaic-access**: Access official NOAA/NCEP MRMS radar and multisensor composites for a region and time; validate product, grid, domain, quality, timestamp, and provenance. _(risk: safe)_
 - **nexrad-product-access**: Discover and access NEXRAD data for a selected radar site, time, product, or Level II moment using completed archive volumes, real-time chunks, or supported Level III sources with metadata validation. _(risk: safe)_
 - **noaa-radar-satellite-fetching**: Retrieve NOAA NEXRAD and GOES products from public cloud archives using verified site, product, channel, sector, and scan-time selection. _(risk: safe)_
 - **optim-agent**: Guide agent-driven parameter optimization for configurable systems with measurable objectives. Use for HPO, inference tuning, simulations, or RL/control experiments. _(risk: safe)_
 - **pangolinfo-amazon-data-research**: Plan and run read-only Amazon product, review, category, seller, and market research through Pangolinfo's documented MCP bridge. _(risk: safe)_
-- **postgres-readonly-queries**: Execute safe read-only SQL queries against PostgreSQL databases with multi-connection support and defense-in-depth write protection. _(risk: safe)_
+- **postgres-readonly-queries**: Execute safe read-only SQL queries against PostgreSQL databases with multi-connection support and defense-in-depth write protection. _(risk: critical)_
 - **sql-sentinel**: Audit SQL for the cost & performance anti-patterns that burn warehouse credits. Scores warehouse health 0-100 and outputs a prioritized cost-reduction plan for BigQuery, Snowflake, Redshift, and Postgres. _(risk: critical)_
+- **us-watchlist-alerts**: Free US stock watchlists, price alerts and daily briefs; no API key, NYSE-holiday aware. Informational only, never places trades. _(risk: safe)_
 - **warehouse**: Plan and review read-only data warehouse analysis with explicit scope, privacy, provenance, and validation checks. _(risk: critical)_
 - **weather-data-lifecycle-management**: Manage ownership, retention, and cleanup of downloaded weather data across one-shot jobs, interactive viewers, caches, failures, and cancellation. _(risk: safe)_
 - **weather-data-reproducibility**: Record and verify provenance manifests for weather-data inputs and derived artifacts, including object identity, selections, software versions, transformations, and hashes. _(risk: safe)_
@@ -1202,19 +1208,13 @@ market, solution, financials, and strategy
 - **weather-model-run-discovery**: Resolve the newest complete numerical weather prediction cycle and forecast objects across provider mirrors without downloading full payloads. _(risk: safe)_
 - **weather-observation-fetching**: Retrieve surface and upper-air weather observations from authoritative APIs and archives with station identity, time, units, and quality flags preserved. _(risk: safe)_
 - **weather-pipeline-performance-diagnosis**: Diagnose slow weather-data workflows by measuring discovery, transfer, parsing, scientific processing, and rendering separately before changing code. _(risk: safe)_
-- **datawebot**: Find products for sale across online shops, list returned sellers' prices with direct links, and run Amazon and Shopify extraction Jobs through the hosted datawebot MCP server. _(risk: critical)_
-- **footval-follow-matches-and-tables**: Football scores, fixtures, match centres and league tables through FootVal: live and past results, a team's next or last matches, events, statistics, line-ups and standings. _(risk: safe)_
-- **footval-scout-and-rank-players**: Scout and rank footballers with FootVal: shortlists by league, position, age, foot and value; undervalued, overvalued, rising and young players; club, league and national squads. _(risk: safe)_
-- **footval-stats-and-transfer-news**: Football season leaderboards and transfer news from FootVal: top scorers, assists, minutes and appearances per competition, plus confirmed transfers and rumours with reliability. _(risk: safe)_
-- **footval-value-and-compare-players**: Explain what a footballer is worth with FootVal: its own transfer value next to the market value, the factors behind the gap, and comparisons of two to four players. _(risk: safe)_
-- **us-watchlist-alerts**: Free US stock watchlists, price alerts and daily briefs; no API key, NYSE-holiday aware. Informational only, never places trades. _(risk: safe)_
 
 ## data-ai
 
 - **local-llm-expert**: Master local LLM inference, model selection, VRAM optimization, and local deployment using Ollama, llama.cpp, vLLM, and LM Studio. Expert in quantization formats (GGUF, EXL2) and local AI privacy. _(risk: unknown)_
 - **seek-and-analyze-video**: Seek and analyze video content using Memories.ai Large Visual Memory Model for persistent video intelligence _(risk: safe)_
 - **ai-engineering-toolkit**: Overview of six AI engineering workflows: prompt evaluation (8-dimension scoring), context budget planning, RAG pipeline design, agent security audit (65-point checklist), eval harness building, and product sense coaching. _(risk: offensive)_
-- **recsys-pipeline-architect**: Designs composable recommendation, ranking, and feed pipelines using the six-stage Source→Hydrator→Filter→Scorer→Selector→SideEffect framework _(risk: safe)_
+- **recsys-pipeline-architect**: Designs composable recommendation, ranking, and feed pipelines using the six-stage Source→Hydrator→Filter→Scorer→Selector→SideEffect framework _(risk: critical)_
 
 ## data-engineering
 
@@ -1286,8 +1286,8 @@ market, solution, financials, and strategy
 - **neon-postgres-egress-optimizer**: Diagnose and fix excessive Postgres egress (network data transfer) in a codebase. _(risk: critical)_
 - **postgresql-cli**: PostgreSQL interactive terminal (psql) reference and usage guide. _(risk: critical)_
 - **redis-cli**: Redis command-line interface (redis-cli) reference and usage guide. Use this skill whenever the user mentions redis-cli, Redis CLI, or any task involving querying, inspecting, debugging, or managing Redis from the command line. _(risk: critical)_
-- **saas-multi-tenant**: Design and implement multi-tenant SaaS architectures with row-level security, tenant-scoped queries, shared-schema isolation, and safe cross-tenant admin patterns in PostgreSQL and TypeScript. _(risk: safe)_
-- **supabase-postgres-best-practices**: Postgres performance optimization and best practices from Supabase. Use this skill when writing, reviewing, or optimizing Postgres queries, schema designs, or database configurations. _(risk: safe)_
+- **saas-multi-tenant**: Design and implement multi-tenant SaaS architectures with row-level security, tenant-scoped queries, shared-schema isolation, and safe cross-tenant admin patterns in PostgreSQL and TypeScript. _(risk: critical)_
+- **supabase-postgres-best-practices**: Postgres performance optimization and best practices from Supabase. Use this skill when writing, reviewing, or optimizing Postgres queries, schema designs, or database configurations. _(risk: critical)_
 
 ## database-processing
 
@@ -1297,7 +1297,7 @@ market, solution, financials, and strategy
 
 - **drizzle-migration-conflict**: Diagnose, repair, and prevent Drizzle Kit migration conflicts involving generated SQL, snapshots, journals, merge queues, and team workflows. _(risk: critical)_
 - **pixeltable**: Build Pixeltable apps in app.py with tables, computed columns, embedding search, and HTTP routes. Use for RAG, media pipelines, and tool-calling agents. _(risk: critical)_
-- **weaviate**: Search, query, inspect, create, and import data into Weaviate vector database collections using official scripts and references. _(risk: critical)_
+- **weaviate**: Search, query, inspect, create, and import data into Weaviate vector database collections using bundled adapted scripts and references. _(risk: critical)_
 
 ## debugging
 
@@ -1332,7 +1332,7 @@ makepad 字体, makepad 文字, makepad 排版, makepad 字形
 - **lookdev**: Human-in-the-loop web studio to tune AI-generated output by eye. Stand up a local interactive studio (sliders, pickers, drag handles) or an inline edit/highlight/comment annotation studio for prose & media, instead of guessing values or shipping a static comparison grid. _(risk: safe)_
 - **lookdev-auto**: Automated visual tuning: a vision or video model rates rendered variants in a loop. Render several labeled variants into one artifact, ask the model to rate them and suggest better values, render the suggestions, ask it to pick the best, repeat until good — the model is the eye, you run the loop. _(risk: safe)_
 - **loss-aversion-designer**: Compare gain and loss framing and describe credible costs of inaction when an offer needs urgency without fearmongering. _(risk: safe)_
-- **qrx**: Make branded, print-ready art QR codes that always scan with QRX (qrx.codes). Use when a link needs a QR code that looks like artwork or matches a brand for print, packaging, signs, slides or event badges, and to list or re-point QRX codes. Not for plain QR codes the agent makes locally. _(risk: critical)_
+- **qrx**: Make branded, print-ready art QR codes to validate before use with QRX (qrx.codes). Use when a link needs a QR code that looks like artwork or matches a brand for print, packaging, signs, slides or event badges, and to list or re-point QRX codes. Not for plain QR codes the agent makes locally. _(risk: critical)_
 - **rayden-use**: Build and maintain Rayden UI components and screens in Figma via Figma MCP with full design token enforcement _(risk: safe)_
 - **ui-page**: Scaffold a new mobile page/screen using the StyleSeed layout patterns _(risk: critical)_
 - **ui-pattern**: Generate a composed UI pattern (card layout, list, form section, grid, etc.) using design system primitives _(risk: critical)_
@@ -1480,6 +1480,7 @@ api docs, reference,... _(risk: unknown)_
 - **skill-check**: Validate Claude Code skills against the agentskills specification. Catches structural, semantic, and naming issues before users do. _(risk: safe)_
 - **agent-harness-fault-injection**: Use when an agent workflow needs deterministic recovery evidence for sandbox, MCP/tool, worker, checkpoint, memory, or orchestration failures. _(risk: safe)_
 - **agenttrace-session-audit**: Audit local AI coding-agent sessions with agenttrace for cost, tool failures, latency, anomalies, health, diffs, and CI gates. _(risk: safe)_
+- **animated-github-profile**: Build high-impact, animated GitHub profile READMEs that play like mini-movies using pure SVG, CSS, and SMIL animations. Covers dark/light theme switching, swinging lanyard ID badges, tech orbits, local stat cards, and automated contribution graphs. _(risk: safe)_
 - **api-contract-testing**: Design and review API contract tests across providers and consumers. Use for schema changes, compatibility regressions and client integration failures. _(risk: safe)_
 - **api-rate-limit-handler**: Implement bounded, idempotency-aware API throttling, backoff, and retry handling for 429 and transient 5xx responses. _(risk: safe)_
 - **ask-copilot**: Use GitHub Copilot CLI in non-interactive mode to ask questions, review code, or generate snippets without manual interaction. _(risk: critical)_
@@ -1507,8 +1508,9 @@ api docs, reference,... _(risk: unknown)_
 - **debugging-toolkit**: Use when working with debugging toolkit smart debug (Alias for debugging-toolkit-smart-debug) _(risk: critical)_
 - **diagnosing-bugs**: Diagnosis loop for hard bugs and performance regressions. Use when the user says "diagnose"/"debug this", or reports something broken/throwing/failing/slow. _(risk: safe)_
 - **distribute-skill-to-all-agents**: Distribute a skill across configured agent skill folders while respecting local symlink layouts. _(risk: critical)_
-- **ecl-harness-engineer**: Create or audit ECL Agent Harness infrastructure: AGENTS.md, change tracking, repository guidance, lint checks, CI gates, and agent handoff docs. _(risk: safe)_
+- **ecl-harness-engineer**: Create or audit ECL Agent Harness infrastructure: AGENTS.md, change tracking, repository guidance, lint checks, CI gates, and agent handoff docs. _(risk: critical)_
 - **effective-agent-skills**: Author and review high-quality agent skills with triggers, progressive disclosure, and safety notes. _(risk: safe)_
+- **faber-language**: Write, check and run Faber programs, an experimental statically typed language for coding agents and human authors. Uses version-matched faberlang.dev language documentation. _(risk: critical)_
 - **five-axis-code-review**: Five-axis code review checklist (correctness, security, readability, performance, test coverage) producing actionable comments instead of style nitpicks. Use when the user asks to review code, a diff, or a pull request. _(risk: safe)_
 - **folder-specific-claude-and-agents-md**: Create folder-scoped CLAUDE.md and AGENTS.md guidance for future agents working in that area. _(risk: critical)_
 - **gdb-cli**: GDB debugging assistant for AI agents - analyze core dumps, debug live processes, investigate crashes and deadlocks with source code correlation _(risk: critical)_
@@ -1529,14 +1531,14 @@ api docs, reference,... _(risk: unknown)_
 - **logic-lens**: AI-powered Claude Code skill that performs deep code review using formal logic and reasoning frameworks to detect bugs, anti-patterns, and security risks beyond what linters catch. _(risk: safe)_
 - **lore**: Markdown project memory for AI agents. Use for decisions, architecture, conventions, monorepo scopes, `.lore/`, or `lore` commands; not native `/init`/`/compact` or generic init/compress/audit/query. _(risk: safe)_
 - **macos-menubar-tuist-app**: Build, refactor, or review SwiftUI macOS menubar apps that use Tuist. _(risk: safe)_
-- **macos-spm-app-packaging**: Scaffold, build, sign, and package SwiftPM macOS apps without Xcode projects. _(risk: safe)_
-- **makepad-2-0-animation**: Makepad 2.0 guidance for animation; use when building or debugging Makepad UI code. _(risk: unknown)_
+- **macos-spm-app-packaging**: Scaffold, build, sign, and package SwiftPM macOS apps without Xcode projects. _(risk: critical)_
+- **makepad-2-0-animation**: Makepad 2.0 guidance for animation; use when building or debugging Makepad UI code. _(risk: safe)_
 - **makepad-2-0-dsl**: Makepad 2.0 guidance for dsl; use when building or debugging Makepad UI code. _(risk: unknown)_
 - **makepad-2-0-events**: Makepad 2.0 guidance for events; use when building or debugging Makepad UI code. _(risk: unknown)_
 - **makepad-2-0-layout**: Makepad 2.0 guidance for layout; use when building or debugging Makepad UI code. _(risk: unknown)_
 - **makepad-2-0-widgets**: Makepad 2.0 guidance for widgets; use when building or debugging Makepad UI code. _(risk: unknown)_
 - **marlin-bed-leveling**: Calibrates Marlin 2.x 3D printer firmware bed leveling: Unified Bed Leveling (UBL), Bilinear ABL, M420 S1 post-homing, Z-probe offsets, G26 mesh prints, and EEPROM slots. Trigger phrases: marlin bed leveling, ubl calibration, m420 s1, z probe offset, g29 bed level, first layer adhesion. _(risk: critical)_
-- **obsess**: Perfectionist mode for one target: checked attempts on a UI detail or hot path, keeps the best version, stops on a budget. Only on explicit /obsess. _(risk: safe)_
+- **obsess**: Perfectionist mode for one target: checked attempts on a UI detail or hot path, keeps the best version, stops on a budget. Only on explicit /obsess. _(risk: critical)_
 - **ontoly-software-graph**: Use Ontoly's deterministic Software Graph, MCP server, and agent skills for architecture review, request tracing, impact analysis, and dependency analysis. _(risk: critical)_
 - **openhook**: Creates private callback inboxes with Openhook. Use when an agent needs to wait for a webhook, inspect received HTTP/email/DNS events, or verify a test callback's contents. _(risk: critical)_
 - **orca-replay**: Answers questions about a past agent run from its recording rather than from memory, and replays or forks that run. Use when asked why an earlier run did something, or to reproduce a failure. _(risk: critical)_
@@ -1554,6 +1556,7 @@ api docs, reference,... _(risk: unknown)_
 - **runapi-cli**: Generate AI images, videos, and music/audio from agents using the RunAPI CLI. _(risk: critical)_
 - **setup-matt-pocock-skills**: Configure this repo for the engineering skills — set up its issue tracker, triage label vocabulary, and domain doc layout. Run once before first use of the other engineering skills. _(risk: safe)_
 - **shipvela-publish**: Publish an explicitly selected website through the user's connected Shipvela MCP account, track the exact deployment, and return its live HTTPS URL after success. _(risk: critical)_
+- **shopify-firebase-app**: Scaffold, extend and deploy Shopify embedded apps on Firebase with Nitrogen. Use for a Shopify app on Cloud Functions, Firestore and Hosting, or inside a Nitrogen project. _(risk: critical)_
 - **since-cutoff**: Find which APIs of a project's pinned Python dependencies changed after the model's training cutoff, where the code uses them, and write short AGENTS.md or CLAUDE.md notes. _(risk: safe)_
 - **source-driven-development**: Grounds every implementation decision in official documentation. Use when you want authoritative, source-cited code free from outdated patterns. Use when building with any framework or library where correctness matters. _(risk: critical)_
 - **spec-driven-loop**: Freeze PRD, technical design, and acceptance criteria before medium-to-large Codex work; coordinate agents with explicit ownership, then judge delivery from diffs, tests, and evidence. _(risk: safe)_
@@ -1570,9 +1573,6 @@ api docs, reference,... _(risk: unknown)_
 - **using-lwc**: Use when project decisions, code structure, research, incidents, or verified context must survive future coding-agent sessions through LWC memory and graph indexes. _(risk: critical)_
 - **what-could-break**: Find what a change breaks outside its own diff, then prove the one fact that makes it safe by running real code. Use before any multi-file edit or an edit to a shared path. _(risk: safe)_
 - **wp-site-health-auditor**: Turns a WordPress Site Health report into a risk-tiered, backup-first fix plan with exact WP-CLI/PHP snippets. Use for site health, recommended improvements, or critical issue reports. _(risk: critical)_
-- **animated-github-profile**: Build high-impact, animated GitHub profile READMEs that play like mini-movies using pure SVG, CSS, and SMIL animations. Covers dark/light theme switching, swinging lanyard ID badges, tech orbits, local stat cards, and automated contribution graphs. _(risk: safe)_
-- **faber-language**: Write, check and run Faber programs, an experimental statically typed language for coding agents and human authors. Uses version-matched faberlang.dev language documentation. _(risk: critical)_
-- **shopify-firebase-app**: Scaffold, extend and deploy Shopify embedded apps on Firebase with Nitrogen. Use for a Shopify app on Cloud Functions, Firestore and Hosting, or inside a Nitrogen project. _(risk: critical)_
 
 ## development-and-testing
 
@@ -1624,30 +1624,30 @@ api docs, reference,... _(risk: unknown)_
 - **database-backups**: Implement database backup strategies. Configure automated backups, retention, and recovery testing. Use when designing backup and recovery procedures. _(risk: critical)_
 - **datadog**: Implement Datadog monitoring and APM for infrastructure and applications. _(risk: critical)_
 - **deed-page**: Publish an HTML file or static folder to a permanent public https://<slug>.deed.page/ URL with one curl request. No account; the first publish returns a token for updates. _(risk: critical)_
-- **deploy-to-vercel**: Deploy applications and websites to Vercel. Use when the user requests deployment actions like "deploy my app", "deploy and give me the link", "push this live", or "create a preview deployment". _(risk: safe)_
+- **deploy-to-vercel**: Deploy applications and websites to Vercel. Use when the user requests deployment actions like "deploy my app", "deploy and give me the link", "push this live", or "create a preview deployment". _(risk: critical)_
 - **devcontainers-nix**: Create reproducible development environments with Dev Containers, Nix flakes, and Devbox for consistent toolchains across teams. _(risk: critical)_
-- **devops-pipeline-builder**: Design and implement CI/CD pipelines, Docker configurations, deployment strategies, and infrastructure automation with production-ready patterns. _(risk: unknown)_
+- **devops-pipeline-builder**: Design and implement CI/CD pipelines, Docker configurations, deployment strategies, and infrastructure automation with production-ready patterns. _(risk: critical)_
 - **dns-management**: Configure DNS zones and records. Manage Route53, Cloud DNS, and self-hosted DNS. Use when setting up DNS infrastructure. _(risk: critical)_
 - **docker-compose**: Define and run multi-container Docker applications using Docker Compose. _(risk: critical)_
 - **docker-management**: Build, optimize, and troubleshoot Docker containers and images. _(risk: critical)_
 - **dropthehassle-publish**: Publish a finished static site to a free HTTPS link with DropTheHassle: build it if needed, deploy, hand over the claim link, verify it is live, never spend money. _(risk: critical)_
-- **eas-hosting**: Curated upstream guidance for Eas Hosting; use when the workflow matches the user goal. _(risk: unknown)_
-- **eas-observe**: Curated upstream guidance for Eas Observe; use when the workflow matches the user goal. _(risk: unknown)_
+- **eas-hosting**: Curated upstream guidance for Eas Hosting; use when the workflow matches the user goal. _(risk: critical)_
+- **eas-observe**: Curated upstream guidance for Eas Observe; use when the workflow matches the user goal. _(risk: critical)_
 - **ebpf-observability**: Use eBPF for deep kernel-level observability — trace syscalls, network flows, and application behavior without code changes using Cilium, Tetragon, and bpftrace. _(risk: critical)_
 - **elk-stack**: Deploy and manage the ELK Stack (Elasticsearch, Logstash, Kibana) for log aggregation and analysis. _(risk: critical)_
 - **feature-flags**: Implement feature flags for progressive feature rollout using LaunchDarkly, Unleash, or custom solutions. _(risk: critical)_
 - **fedora-hyprland-installer**: Install, configure, verify, repair, update, and uninstall Hyprland on Fedora Linux with GPU-aware detection (NVIDIA/AMD/Intel). _(risk: critical)_
 - **firebase-app-platform**: Build and operate apps on Firebase using Auth, Firestore, Cloud Functions, and Hosting. Use when building mobile/web backends with managed services, real-time data sync, or serverless APIs. _(risk: critical)_
-- **frontend-observability**: A portable, framework-agnostic field-side observability system for any React or React Native app. _(risk: critical)_
+- **frontend-observability**: A portable, framework-agnostic field-side observability pattern for React or React Native integrations. _(risk: critical)_
 - **gcp-cloud-functions**: Deploy serverless functions on Google Cloud Functions. Configure triggers and manage deployments. Use when implementing serverless workloads on GCP. _(risk: critical)_
-- **gcp-cloud-sql**: Provision Cloud SQL and Spanner databases. Configure high availability, backups, and security. Use when deploying managed databases on GCP. _(risk: critical)_
+- **gcp-cloud-sql**: Provision Cloud SQL databases. Configure high availability, backups, and security. Use when deploying managed databases on GCP. _(risk: critical)_
 - **gcp-compute**: Manage Compute Engine instances and instance templates. Configure managed instance groups and preemptible VMs. Use when deploying compute resources on GCP. _(risk: critical)_
 - **gcp-gke**: Deploy and manage Google Kubernetes Engine clusters. Configure node pools, networking, and workload identity. Use when running Kubernetes on GCP. _(risk: critical)_
 - **gcp-networking**: Configure VPCs, firewall rules, and Cloud NAT. Implement shared VPC and private service connect. Use when designing GCP network infrastructure. _(risk: critical)_
 - **git-workflow**: Implement Git branching strategies, PR workflows, and release management patterns. _(risk: critical)_
 - **github-actions**: Build, test, and deploy applications using GitHub Actions workflows. _(risk: critical)_
 - **github-actions-advanced**: Design, debug, and harden GitHub Actions CI/CD workflows, including reusable workflows, matrix builds, self-hosted runners, OIDC authentication, caching, environments, secrets, and release automation.
- _(risk: safe)_
+ _(risk: critical)_
 - **github-actions-debugger**: Specialized skill for diagnosing, analyzing, and fixing failing GitHub Actions workflows by parsing run logs and pipeline definitions. _(risk: critical)_
 - **gitlab-ci**: Configure GitLab CI/CD pipelines and runners for automated building, testing, and deployment. _(risk: critical)_
 - **gpu-kubernetes-operations**: Operate GPU-backed Kubernetes clusters for AI inference and training with scheduling, autoscaling, node health, MIG partitioning, and cost controls. _(risk: critical)_
@@ -1715,11 +1715,11 @@ api docs, reference,... _(risk: unknown)_
 - **vector-database-ops**: Deploy, manage, and optimize vector databases for AI applications. _(risk: critical)_
 - **vercel-cli-with-tokens**: Deploy and manage projects on Vercel using token-based authentication. Use when working with Vercel CLI using access tokens rather than interactive login — e.g. "deploy to vercel", "set up vercel", "add environment variables to vercel". _(risk: safe)_
 - **vercel-deployments**: Deploy frontend and full-stack apps on Vercel with previews, edge functions, environment promotion, and production guardrails. _(risk: critical)_
-- **vercel-optimize**: Audit deployed Vercel apps for cost and performance issues using metrics, project config, code scans, and version-aware recommendations. _(risk: safe)_
-- **vibecode-production-qa-validator**: 13-phase production QA for fullstack Next.js apps: build verification, SEO tags, OG images, favicon, route regression, API auth, page speed, lazy load, vulnerability scan, UI/UX cards, error boundaries, database, secure rendering, and cleanup. _(risk: safe)_
+- **vercel-optimize**: Audit deployed Vercel apps for cost and performance issues using metrics, project config, code scans, and version-aware recommendations. _(risk: critical)_
+- **vibecode-production-qa-validator**: 13-phase production QA for fullstack Next.js apps: build verification, SEO tags, OG images, favicon, route regression, API auth, page speed, lazy load, vulnerability scan, UI/UX cards, error boundaries, database, secure rendering, and cleanup. _(risk: critical)_
 - **vllm-server**: Deploy and manage vLLM for high-throughput LLM inference. Configure continuous batching, tensor parallelism, quantization, and OpenAI-compatible API endpoints for production LLM serving. _(risk: critical)_
-- **windows-server**: Administer Windows Server systems. Manage IIS, Active Directory, and PowerShell automation. Use when administering Windows infrastructure. _(risk: critical)_
 - **webly**: Publish a website or share files at a live URL in seconds with no account, then let the person claim it, edit it over Webly's MCP server, and publish drafts they approve. _(risk: critical)_
+- **windows-server**: Administer Windows Server systems. Manage IIS, Active Directory, and PowerShell automation. Use when administering Windows infrastructure. _(risk: critical)_
 
 ## document-processing
 
@@ -1802,15 +1802,15 @@ api docs, reference,... _(risk: unknown)_
 - **longbridge-derivatives**: Curated upstream guidance for Longbridge Derivatives; use when the workflow matches the user goal. _(risk: unknown)_
 - **longbridge-fundamentals**: Financial statements, business segments, dividends, valuation multiples (PE/PB/PS), industry comparison, operating data, corporate actions, company and executive profiles, cross-stock comparison, and valuation ranking via Longbridge. _(risk: critical)_
 - **longbridge-market-data**: Real-time quotes, K-line charts, order book, trade ticks, intraday capital flow, market sentiment temperature, trading session schedule, security lists, exchange rates, and IPO calendar for HK/US/A-share/SG via Longbridge. Also covers ADR premium and FX carry frameworks. _(risk: critical)_
-- **longbridge-quant**: Curated upstream guidance for Longbridge Quant; use when the workflow matches the user goal. _(risk: unknown)_
-- **options-flow-analyzer**: Real vs lottery call separation for options P/C ratio analysis — prevents signal inversion from deep OTM noise _(risk: safe)_
+- **longbridge-quant**: Curated upstream guidance for Longbridge Quant; use when the workflow matches the user goal. _(risk: critical)_
+- **options-flow-analyzer**: Compare raw and explicitly filtered options put/call ratios with documented premium, delta and expiry assumptions _(risk: safe)_
 - **traderspy-market-briefing**: Crypto market briefing from live TraderSpy data: majors, funding, open interest, top-trader lean, fresh AI signals and screener movers. Use for "what's happening in crypto" or a recap. _(risk: safe)_
 - **traderspy-market-screener**: Scan the most-traded crypto futures pairs for up to 3 technical conditions in one TraderSpy call, compare coins, and backtest what followed a condition. Use for "which coins are oversold". _(risk: safe)_
 - **traderspy-position-check**: Health-check crypto futures positions the user describes, with TraderSpy data: liquidation and stop distance, multi-timeframe read, funding and top-trader side. Reports only; never tells the user to close or add. _(risk: safe)_
 - **traderspy-smart-money**: Track what top crypto futures traders hold on Binance, Hyperliquid, Bybit and OKX with TraderSpy: elite leaderboard, positions, trader profiles and history. Use for "what are whales doing". _(risk: safe)_
-- **traderspy-technical-analysis**: Read one crypto futures pair with TraderSpy: 19 indicators on up to 3 timeframes in one call, key levels, funding, open interest and positioning. Use for "analyse BTC" or "is SOL oversold". _(risk: safe)_
+- **traderspy-technical-analysis**: Read one crypto futures pair with TraderSpy: 19 indicators on up to 3 timeframes in one call, key levels, funding, open interest and positioning. Use for "analyse BTC" or "is SOL oversold". _(risk: critical)_
 - **traderspy-trading-signals**: Fetch and explain TraderSpy's AI crypto futures signals: entry, take-profit ladder, stop, triggers, status against the live price, and how recent signals resolved. Use for "latest signals". _(risk: safe)_
-- **xvary-stock-research**: Thesis-driven equity analysis from public SEC EDGAR and market data; /analyze, /score, /compare workflows with bundled Python tools (Claude Code, Cursor, Codex). _(risk: safe)_
+- **xvary-stock-research**: Thesis-driven equity analysis from public SEC EDGAR and market data; /analyze, /score, /compare workflows with bundled Python tools (Claude Code, Cursor, Codex). _(risk: critical)_
 - **yield-intelligence**: Passive income portfolio analysis — activate when user asks about dividend yields, Treasury rates, REIT income, monthly passive income goals, or portfolio yield optimization. Scans 4 asset classes, ranks by risk-adjusted return, and builds allocations targeting a specific monthly income. _(risk: safe)_
 
 ## fintech
@@ -1828,8 +1828,8 @@ api docs, reference,... _(risk: unknown)_
 
 ## front-end
 
-- **landing-page-generator**: Generates high-converting Next.js/React landing pages with Tailwind CSS. Uses PAS, AIDA, and BAB frameworks for optimized copy/components (Heroes, Features, Pricing). Focuses on Core Web Vitals/SEO. _(risk: safe)_
-- **progressive-web-app**: Build Progressive Web Apps (PWAs) with offline support, installability, and caching strategies. Trigger whenever the user mentions PWA, service workers, web app manifests, Workbox, 'add to home screen', or wants their web app to work offline, feel native, or be installable. _(risk: safe)_
+- **landing-page-generator**: Generates high-converting Next.js/React landing pages with Tailwind CSS. Uses PAS, AIDA, and BAB frameworks for optimized copy/components (Heroes, Features, Pricing). Focuses on Core Web Vitals/SEO. _(risk: critical)_
+- **progressive-web-app**: Build Progressive Web Apps (PWAs) with offline support, installability, and caching strategies. Trigger whenever the user mentions PWA, service workers, web app manifests, Workbox, 'add to home screen', or wants their web app to work offline, feel native, or be installable. _(risk: critical)_
 
 ## frontend
 
@@ -1918,7 +1918,7 @@ makepad Markdown, makepad Html, TextFlow, rich... _(risk: unknown)_
 - **webapp-testing**: Toolkit for interacting with and testing local web applications using Playwright. Supports verifying frontend functionality, debugging UI behavior, capturing browser screenshots, and viewing browse... _(risk: unknown)_
 - **zod-validation-expert**: Expert in Zod — TypeScript-first schema validation. Covers parsing, custom errors, refinements, type inference, and integration with React Hook Form, Next.js, and tRPC. _(risk: safe)_
 - **zustand-store-ts**: Create Zustand stores with TypeScript, subscribeWithSelector middleware, and proper state/action separation. Use when building React state management, creating global stores, or implementing reacti... _(risk: unknown)_
-- **anti-slop-design**: Autonomous Principal Design Technologist. Cures vibe-coded software from AI frontend slop using curated token archetypes and 7-axis quality gating. _(risk: safe)_
+- **anti-slop-design**: Autonomous Principal Design Technologist. Cures vibe-coded software from AI frontend slop using curated token archetypes and 7-axis quality gating. _(risk: critical)_
 - **anti-ui-slop**: Stop coding agents from shipping generic UI. Extend the product's design system, use UIZZE evidence only when useful, cover required states, and inspect the rendered result. _(risk: safe)_
 - **astro**: Build content-focused websites with Astro — zero JS by default, islands architecture, multi-framework components, and Markdown/MDX support. _(risk: safe)_
 - **build-ui**: Step-by-step workflow for UI work: read the project, follow the plan for the job (new screen, dashboard, polish, simplify, review), then render, fix and check again. _(risk: safe)_
@@ -1935,6 +1935,7 @@ makepad Markdown, makepad Html, TextFlow, rich... _(risk: unknown)_
 - **high-end-visual-design**: Use when designing expensive agency-grade interfaces with premium fonts, spatial rhythm, soft depth, and fluid microinteractions. _(risk: safe)_
 - **industrial-brutalist-ui**: Use when creating raw industrial or tactical telemetry UIs with rigid grids, stark typography, CRT effects, and high-density data. _(risk: safe)_
 - **ios-screens**: Build iPhone app screens that feel native: navigation, sheets, Dynamic Type, dark mode, permissions and paywalls, checked on small and large iPhones. _(risk: safe)_
+- **landing-page**: Build landing, home and pricing pages that look like a real product instead of AI output: honest copy, one design system, checked on phone and desktop. _(risk: safe)_
 - **markstream-angular**: Integrate the alpha markstream-angular renderer into Angular 20+ applications with standalone components, signals, safe HTML defaults, and optional peer features. _(risk: critical)_
 - **markstream-custom-components**: Override Markstream node renderers and add trusted custom tags across Vue, React, Svelte, and Angular using scoped or renderer-local mappings. _(risk: critical)_
 - **markstream-install**: Install and configure Markstream streaming Markdown renderers for Vue, React, Svelte, Angular, Nuxt, Next.js, and Vue 2 applications. _(risk: critical)_
@@ -1956,10 +1957,9 @@ makepad Markdown, makepad Html, TextFlow, rich... _(risk: unknown)_
 - **ui-from-screenshot**: Turn a screenshot or mockup into matching UI with the project's own components, then compare the result side by side with the image and fix the differences. _(risk: safe)_
 - **ui-states**: Design and build the UI states agents forget: first use, empty, loading, error, offline, no results, long content, permission denied and success. _(risk: safe)_
 - **uxkin-research**: Research how real products handle a screen, flow or visual style before designing it: search UXKIN's real iOS screens, user journeys and website design systems, compare several and report what they share. _(risk: safe)_
-- **write-design-md**: Write or update a project's DESIGN.md from the colors, type, spacing and components it really uses, with rules agents follow so new screens match. _(risk: safe)_
-- **landing-page**: Build landing, home and pricing pages that look like a real product instead of AI output: honest copy, one design system, checked on phone and desktop. _(risk: safe)_
 - **web-design-system**: Choose a design direction for a website from real sites and write it down as a DESIGN.md: colors with roles, type, spacing, radius, shadows and components, in light and dark. _(risk: safe)_
 - **web-review**: Review a website or landing page and list what to fix, most important first: message, generic AI look, consistency, copy, mobile, accessibility, speed and missing states. _(risk: safe)_
+- **write-design-md**: Write or update a project's DESIGN.md from the colors, type, spacing and components it really uses, with rules agents follow so new screens match. _(risk: safe)_
 
 ## fullstack
 
@@ -2241,9 +2241,10 @@ pageflip, 组件设计, 组件模式 _(risk: unknown)_
 - **churn-prevention**: Reduce voluntary and involuntary churn with cancel flows, save offers, dunning, win-back tactics, and retention strategy. Use when users are cancelling, failed payments are rising, or subscription retention needs improvement. _(risk: critical)_
 - **co-marketing**: When the user wants to find co-marketing partners, plan joint campaigns, or brainstorm partnership opportunities. _(risk: safe)_
 - **cold-email**: Write B2B cold emails and follow-up sequences that earn replies. Use when creating outbound prospecting emails, SDR outreach, personalized opening lines, subject lines, CTAs, and multi-touch follow-up sequences. _(risk: safe)_
+- **comment-to-dm-cta**: Plan the "Comment KEYWORD" CTA of an Instagram Reel (keyword, overlay, caption, DM copy), then, after explicit user confirmation, set up the matching auto-DM in CommentKeyword. _(risk: critical)_
 - **community-building**: When the user wants to build, grow, or improve a developer community on Discord, Slack, or forums. _(risk: critical)_
 - **competitor-ad-intelligence**: Research public competitor ads, analyze creative patterns and landing pages, and produce an evidence-labeled strategic teardown. _(risk: critical)_
-- **competitor-analysis**: Research competitors with Browserbase discovery, enrichment lanes, screenshots, matrices, and HTML reports. _(risk: safe)_
+- **competitor-analysis**: Research competitors with Browserbase discovery, enrichment lanes, screenshots, matrices, and HTML reports. _(risk: critical)_
 - **competitor-profiling**: When the user wants to research, profile, or analyze competitors from their URLs. _(risk: critical)_
 - **competitor-tracking**: Systematic competitor analysis for developer tools. Track features, pricing, positioning, content strategy, and community sentiment for direct and indirect competitors. _(risk: critical)_
 - **content-strategy**: Plan a content strategy, topic clusters, editorial roadmap, and content mix for traffic, authority, and lead generation. Use when deciding what to publish, what topics to prioritize, or how to structure a content program. _(risk: critical)_
@@ -2267,8 +2268,8 @@ pageflip, 组件设计, 组件模式 _(risk: unknown)_
 - **identity-mirror**: Map an audience's current and aspirational identity into credible messaging when copy needs stronger personal relevance. _(risk: safe)_
 - **jobs-to-be-done-analyst**: Uncover the functional, emotional and social jobs a customer hires a product to do: progress state, hiring trigger, alternatives, success criteria, JTBD map. Use when you need to understand why users buy, switch or churn, or to anchor positioning, messaging and onboarding in real jobs. _(risk: safe)_
 - **lead-magnets**: Plan and optimize lead magnets for email capture and lead generation. Use when designing gated content, checklists, templates, downloadable resources, or other offers that convert visitors into subscribers. _(risk: safe)_
-- **linkedin-content-generator**: AI-powered LinkedIn content suite: generate posts, carousels, newsletters, and 30-day calendars with niche-specific SEO rules and a reinforcement-learning personal memory system. _(risk: safe)_
-- **linkedin-post-writer**: Draft LinkedIn posts from 16 tested hook formulas mapped to engagement goals (comments, reposts, likes, saves), with 2026 algorithm formatting rules and an AI-tell scrub pass before publishing.
+- **linkedin-content-generator**: AI-powered LinkedIn content suite: generate posts, carousels, newsletters, and 30-day calendars with niche-specific SEO rules and a feedback-based personal memory system. _(risk: critical)_
+- **linkedin-post-writer**: Draft LinkedIn posts from 16 illustrative hook formulas mapped to engagement goals (comments, reposts, likes, saves), with optional formatting conventions and an AI-tell scrub pass before publishing.
 - **mailtrap-managing-contacts**: Manage Mailtrap contacts, lists, segments, custom fields, imports, CRM syncs, and campaign audiences through the UI or API. _(risk: critical)_
 - **marketing-mindset**: Use when a user asks how to win first customers, whether doing X will produce Y, how to write an ad or judge a marketing test — a marketer's decision framework, not a tactic library. _(risk: safe)_
 - **marketing-plan**: When the user needs a comprehensive marketing plan for a client, a company they advise, or their own product. _(risk: critical)_
@@ -2280,6 +2281,8 @@ pageflip, 组件设计, 组件模式 _(risk: unknown)_
 - **open-source-marketing**: When the user wants to market an open source project authentically. Trigger phrases include "open source marketing," "OSS marketing," "GitHub marketing," "promote my library," "grow stars," "launch open source," "open source growth," or "contributor marketing." _(risk: critical)_
 - **outreachagent**: Operate reply-aware cold outbound email workflows for AI agents with inboxes, contacts, templates, pacing, approvals, webhooks, and delivery metrics. _(risk: critical)_
 - **pitch-psychologist**: Structure pitches, decks, and talk tracks around audience beliefs, proof, and a clear decision when presentations need stronger progression. _(risk: safe)_
+- **post**: Make share-post image sets that look native: Xiaohongshu carousels, X images, covers, App Store poster layouts, real screenshots and faithful app-UI mocks. Use for 图文, 配图, 组图, 封面, 分享帖. _(risk: safe)_
+- **postel-writing**: Draft X (Twitter) or LinkedIn posts in the user's own voice, research high-performing posts, and schedule or publish them through the user's Postel account. _(risk: critical)_
 - **power-user-cultivation**: When the user wants to identify and nurture developer advocates, build champion programs, or turn active users into contributors and evangelists. _(risk: safe)_
 - **price-psychology-strategist**: Design pricing presentation, anchors, and tiers when an offer needs clearer value and fairness without misleading comparisons. _(risk: safe)_
 - **pricing**: When the user wants help with pricing decisions, packaging, or monetization strategy. _(risk: safe)_
@@ -2290,7 +2293,7 @@ pageflip, 组件设计, 组件模式 _(risk: unknown)_
 - **seo-drift**: Snapshot a site's SEO state and detect ranking, indexation, metadata, canonical, robots, schema, and on-page regressions over time. _(risk: safe)_
 - **sequence-psychologist**: Plan email nurture and multi-touch communication sequences when each message should build trust and prepare the next decision. _(risk: safe)_
 - **social-proof-architect**: Select and place genuine testimonials, case studies, and other proof when an audience needs evidence at specific trust barriers. _(risk: safe)_
-- **socialclaw**: Agent-first social media publishing skill — schedule and publish posts across 13 platforms (X, LinkedIn, Instagram, Facebook Pages, TikTok, Discord, Telegram, YouTube, Reddit, WordPress, Pinterest) via a single workspace API key. _(risk: critical)_
+- **socialclaw**: Agent-first social media publishing skill — schedule and publish posts across the listed platforms (X, LinkedIn, Instagram, Facebook Pages, TikTok, Discord, Telegram, YouTube, Reddit, WordPress, Pinterest) via a single workspace API key. _(risk: critical)_
 - **subject-line-psychologist**: Draft email subject lines and notification copy matched to audience and sequence position when earning attention requires clarity and truthful curiosity. _(risk: safe)_
 - **taisly-social-media-posting**: Use Taisly Agent Kit to prepare and publish approved short-form video posts across TikTok, Instagram Reels, YouTube Shorts, X, and Facebook. _(risk: critical)_
 - **talivia-agent-kit**: Set up and verify Talivia revenue analytics through MCP, with explicit confirmation for website changes and payment attribution. _(risk: critical)_
@@ -2302,9 +2305,6 @@ pageflip, 组件设计, 组件模式 _(risk: unknown)_
 - **write-in-my-voice**: Draft a Twitter/X or LinkedIn post that sounds like the person asking, from posts they already wrote. Use when someone asks for a post or rewrite in their voice, or asks if text sounds like them. _(risk: critical)_
 - **xiaohongshu-content-strategist**: Create viral Xiaohongshu (小红书) content with platform-native strategy, save-rate optimization, trending formats, and search SEO for China's #1 lifestyle platform. _(risk: safe)_
 - **zhongcao-note-copywriter**: Install and use the official Xiaohongshu Copywriter package, pinned by digest, for paid hosted work on the Beatra service. _(risk: critical)_
-- **comment-to-dm-cta**: Plan the "Comment KEYWORD" CTA of an Instagram Reel (keyword, overlay, caption, DM copy), then, after explicit user confirmation, set up the matching auto-DM in CommentKeyword. _(risk: critical)_
-- **post**: Make share-post image sets that look native: Xiaohongshu carousels, X images, covers, App Store poster layouts, real screenshots and faithful app-UI mocks. Use for 图文, 配图, 组图, 封面, 分享帖. _(risk: safe)_
-- **postel-writing**: Draft X (Twitter) or LinkedIn posts in the user's own voice, research high-performing posts, and schedule or publish them through the user's Postel account. _(risk: critical)_
 
 ## marketing-growth
 
@@ -2361,9 +2361,9 @@ strategy and planning.
 - **mercury-mcp**: Cheatsheet for the Mercury (proton) MCP tools. Use when connected to the Mercury MCP server to look up which mercury_* tool to call for messaging teammates, threads, tasks, automations, or admin team-graph edits. _(risk: critical)_
 - **not-human-search-mcp**: Search AI-ready websites, inspect indexed site details, verify MCP endpoints, and discover tools and APIs using the Not Human Search MCP server _(risk: safe)_
 - **parallel-search-mcp**: Search the public web and verify sources with Parallel's free Search MCP. Use when the user chooses Parallel or its connected tools for current information and URL extraction. _(risk: safe)_
-- **protect-mcp-governance**: Agent governance skill for MCP tool calls — Cedar policy authoring, shadow-to-enforce rollout, and Ed25519 receipt verification. _(risk: safe)_
-- **serply-search-mcp**: Search Google, Bing, Google News and Google Scholar, and read public pages, with the Serply MCP server. Use when the user chooses Serply or its connected tools for current information and source verification. _(risk: safe)_
+- **protect-mcp-governance**: Agent governance skill for MCP tool calls — Cedar policy authoring, shadow-to-enforce rollout, and Ed25519 receipt verification. _(risk: critical)_
 - **restosignals**: Find US restaurants and bars before they open, as scored leads fused from liquor-license, food-permit and business-filing records, via the RestoSignals MCP server or REST API. _(risk: safe)_
+- **serply-search-mcp**: Search Google, Bing, Google News and Google Scholar, and read public pages, with the Serply MCP server. Use when the user chooses Serply or its connected tools for current information and source verification. _(risk: safe)_
 
 ## media
 
@@ -2390,8 +2390,8 @@ strategy and planning.
 - **film-crew**: Turn a one-line AI video idea into a shot list and per-shot, model-ready prompts via a film crew (director, DP, gaffer, editor, script supervisor). Also fixes failing video prompts and diagnoses bad clips before a reroll. Works with Wan, LTX, Kling, Veo, Seedance, Hailuo, Runway. _(risk: safe)_
 - **gemini-omni-flash-api**: Use this skill for generative video editing, text-to-video, image-referenced video generation, and first-frame-to-video transition animations using the official google-genai SDK. _(risk: critical)_
 - **generate-nanobanana**: Generate and edit images/video with Google's Gemini media models (Nano Banana 2/Pro, Gemini Omni Flash), with cost-approval gates, reference-image support, and a prompt/output log per call. _(risk: critical)_
-- **image-generator**: Generate and edit images using Gemini's Nano Banana Pro model (gemini-3-pro-image-preview). Use this skill when the user asks you to generate images, create visuals, edit photos, create logos, generate product mockups, or perform any image generation/editing task. _(risk: safe)_
-- **ingest-youtube**: Pull a YouTube video transcript into a queryable markdown vault with yt-dlp subtitle discovery, VTT cleanup, metadata frontmatter, and capture-seed stubs. _(risk: safe)_
+- **image-generator**: Generate and edit images using Gemini's Nano Banana Pro model (gemini-3-pro-image-preview). Use this skill when the user asks you to generate images, create visuals, edit photos, create logos, generate product mockups, or perform any image generation/editing task. _(risk: critical)_
+- **ingest-youtube**: Pull a YouTube video transcript into a queryable markdown vault with yt-dlp subtitle discovery, VTT cleanup, metadata frontmatter, and capture-seed stubs. _(risk: critical)_
 - **lanshu-create-ai-presenter-video**: Turn a topic or script into a publish-ready explainer video, led by an AI presenter or performed in one of twelve styled explainer looks. _(risk: critical)_
 - **macos-screen-recorder**: macOS screen recorder that captures the main display PLUS system audio via ScreenCaptureKit — no BlackHole/loopback driver, no sudo, just the standard Screen Recording permission. CLI-driven; fills the headless-screen-recording-with-system-sound gap QuickTime and `screencapture -v` can't. _(risk: critical)_
 - **md2video-audio**: Convert Markdown documents into narrated MP4 videos with synchronized visuals and voice narration. _(risk: critical)_
@@ -2399,25 +2399,25 @@ strategy and planning.
 - **music-generation-studio**: Install and use the official AI Music Generator package, pinned by digest, for paid hosted work on the Beatra service. _(risk: critical)_
 - **nsfw-ai-spicyapi**: Generate adult (18+) images, image-to-video clips and image edits through the SpicyAPI API, with a cost quote before every paid run and adults-only / consent rules. _(risk: critical)_
 - **poster-design-studio**: Install and use the official AI Poster Maker package, pinned by digest, for paid hosted work on the Beatra service. _(risk: critical)_
+- **pro-motion**: Make a motion-graphics launch, brand or promo film audio first: plan the music, then render the film in code (canvas to MP4) cut to the track. Use for 发布视频, 宣传片, TVC, BGM, Suno prompts. _(risk: safe)_
 - **product-photo-studio**: Install and use the official AI Product Photography package, pinned by digest, for paid hosted work on the Beatra service. _(risk: critical)_
-- **remotion-captions**: Transcribing, displaying and animating captions _(risk: unknown)_
-- **remotion-create**: Create a new Remotion video _(risk: unknown)_
+- **remotion-captions**: Transcribing, displaying and animating captions _(risk: critical)_
+- **remotion-create**: Create a new Remotion video _(risk: critical)_
 - **remotion-docs**: Search Remotion documentation _(risk: unknown)_
 - **remotion-interactivity**: Structure Remotion markup for interactivity _(risk: unknown)_
 - **remotion-render**: Export a Remotion video _(risk: unknown)_
 - **screenstudio-alt**: Open-source headless Screen Studio alternative: auto speed-up of idle, auto-zoom on click clusters, keystroke overlay chips, smoothed synthetic cursor, and 9:16 vertical export that follows the action — post-production for screen recordings from the CLI. _(risk: critical)_
+- **soundza**: Find, audition and add free sound effects, ambience or music to a game, video or app with Soundza, or generate a new sound effect from a prompt, over MCP or a REST API. _(risk: safe)_
 - **suno-lyrics-to-song**: Install and use the official Lyrics to Song package, pinned by digest, for paid hosted work on the Beatra service. _(risk: critical)_
 - **talking-avatar-video**: Install and use the official Talking Avatar Video package, pinned by digest, for paid hosted work on the Beatra service. _(risk: critical)_
 - **video-router**: Route a video-production brief to generation, deterministic composition, supplied-footage editing, or an automatic cross-modal plan before production begins.
 - **viral-video-teardown-remake**: Install and use the official Viral Video Remake package, pinned by digest, for paid hosted work on the Beatra service. _(risk: critical)_
 - **voice-cloning-studio**: Install and use the official AI Voice Cloning package, pinned by digest, for paid hosted work on the Beatra service. _(risk: critical)_
 - **voiceover-narration-studio**: Install and use the official AI Voiceover Generator package, pinned by digest, for paid hosted work on the Beatra service. _(risk: critical)_
+- **watch-igaming**: Reviews a video link or local screen recording from transcript and scene-change frames matched by timecode, then returns a review, QA table, UX audit, comparison or minutes. _(risk: safe)_
 - **web-media-getter**: One query across free image / video / GIF APIs (stock + historical/archival + GIF engines), returning normalized, license-tagged results with optional top-K download + attribution sidecar. The retrieval peer to local semantic search and generative media. _(risk: safe)_
 - **wechat-cover-maker**: Install and use the official WeChat Article Cover package, pinned by digest, for paid hosted work on the Beatra service. _(risk: critical)_
 - **zhongcao-cover-maker**: Install and use the official Xiaohongshu Cover Maker package, pinned by digest, for paid hosted work on the Beatra service. _(risk: critical)_
-- **pro-motion**: Make a motion-graphics launch, brand or promo film audio first: plan the music, then render the film in code (canvas to MP4) cut to the track. Use for 发布视频, 宣传片, TVC, BGM, Suno prompts. _(risk: safe)_
-- **soundza**: Find, audition and add free sound effects, ambience or music to a game, video or app with Soundza, or generate a new sound effect from a prompt, over MCP or a REST API. _(risk: safe)_
-- **watch-igaming**: Reviews a video link or local screen recording from transcript and scene-change frames matched by timecode, then returns a review, QA table, UX audit, comparison or minutes. _(risk: safe)_
 
 ## media-processing
 
@@ -2436,11 +2436,11 @@ strategy and planning.
 - **faf-context**: Get your project to 100% ✪ AI-readiness, fast — the AI auto-detects your stack and only asks for what it can't know (your goal and the human "why"). Least typing, maximum context. For time-conscious builders; feeds into faf-expert for depth. _(risk: critical)_
 - **skill-issue**: Find out why a coding-agent skill won't fire — grade each SKILL.md A–F on activation, simulate which skill a prompt triggers, and flag collisions where one silently shadows another. _(risk: safe)_
 - **skill-optimizer**: Diagnose and optimize Agent Skills (SKILL.md) with real session data and research-backed static analysis. Works with Claude Code, Codex, and any Agent Skills-compatible agent. _(risk: safe)_
+- **skill-skill**: Write, upgrade or audit a Claude skill so it changes what gets generated: forcing functions, triggerable descriptions, and a static audit script with a 0-100 health score. Use for 写 skill, 改 skill. _(risk: safe)_
 - **skill-suggester**: Scan prompt history for recurring patterns and unmet needs, then propose new skills or command templates _(risk: safe)_
 - **the-honoured-one**: Forces the AI to fully load context and read relevant files before performing complex, multi-file tasks, architectural changes, or debugging. Prevents acting on assumptions. _(risk: safe)_
 - **using-agent-skills**: Meta-skill for discovering and invoking the right agent skill for the work at hand, applied at session start. _(risk: safe)_
 - **wgm**: Turns a rough request into working software via a governed build loop: align first, plan, then iterate one task at a time with deterministic backpressure and holdout-scenario judging. _(risk: safe)_
-- **skill-skill**: Write, upgrade or audit a Claude skill so it changes what gets generated: forcing functions, triggerable descriptions, and a static audit script with a 0-100 health score. Use for 写 skill, 改 skill. _(risk: safe)_
 
 ## meta-skills
 
@@ -2452,7 +2452,7 @@ strategy and planning.
 
 ## ml-ops
 
-- **remote-gpu-trainer**: Deploy, monitor, and debug long GPU jobs on RENTED/remote instances (AutoDL, RunPod, vast.ai, Lambda, Slurm, K8s): teardown/billing safety, spot resilience, resumable checkpointing, OOM/NaN triage. _(risk: safe)_
+- **remote-gpu-trainer**: Deploy, monitor, and debug long GPU jobs on RENTED/remote instances (AutoDL, RunPod, vast.ai, Lambda, Slurm, K8s): teardown/billing safety, spot resilience, resumable checkpointing, OOM/NaN triage. _(risk: critical)_
 
 ## mobile
 
@@ -2484,8 +2484,8 @@ strategy and planning.
 - **add-app-clip**: Add an iOS App Clip target to an Expo app. Use when the user mentions App Clip, AASA, apple-app-site-association, appclips, smart app banner, or wants to ship a lightweight iOS Clip invoked from a URL alongside their parent app. _(risk: critical)_
 - **android-dev**: Production-grade Android app development guide covering native (Kotlin/Java), cross-platform (Flutter, RN, KMM), and hybrid architectures. _(risk: safe)_
 - **appium-skill**: Generates production-grade Appium mobile automation scripts for Android and iOS in Java, Python, or JavaScript. Supports real device and emulator testing locally and on TestMu AI cloud with 100+ real devices. _(risk: critical)_
-- **eas-app-stores**: Curated upstream guidance for Eas App Stores; use when the workflow matches the user goal. _(risk: unknown)_
-- **eas-simulator**: Curated upstream guidance for Eas Simulator; use when the workflow matches the user goal. _(risk: unknown)_
+- **eas-app-stores**: Curated upstream guidance for Eas App Stores; use when the workflow matches the user goal. _(risk: critical)_
+- **eas-simulator**: Curated upstream guidance for Eas Simulator; use when the workflow matches the user goal. _(risk: critical)_
 - **eas-update-insights**: Check the health of published EAS Updates: crash rates, install/launch counts, unique users, payload size, and the split between embedded and OTA users per channel. _(risk: critical)_
 - **eas-workflows**: Use when writing or reviewing Expo EAS workflow YAML: inspect current schema and job syntax, validate configuration, and separate draft edits from launching builds or submissions. _(risk: critical)_
 - **expo-animation**: Curated upstream guidance for Expo Animation; use when the workflow matches the user goal. _(risk: unknown)_
@@ -2618,8 +2618,8 @@ add data to Google Sheets, find a spreadsheet, check sheet...
 - **before-you-build**: Review product risk before coding by checking demand, alternatives, channels, switching costs, and failure signals. _(risk: safe)_
 - **idea-autopsy**: Autopsy a business idea before you build it: kill-list check, five hard filters, a free-AI one-prompt test, live ad-market verification, and a verdict with a named kill-pattern. _(risk: critical)_
 - **product-decision-agent**: 中文产品决策 Agent。用于需求优先级、Roadmap、增长、留存、运营、数据异常、A/B Test、项目延期和跨团队协作；先判断事实、阶段、核心阻塞与主导机制，再给出下一步、停止清单和切换条件。默认中文，不引用原文或讲历史。 _(risk: safe)_
-- **shopify-review-triage**: Turn public 1-3-star Shopify App Store review rows into a P0-P3 triage brief: incident risk, repeated friction, pricing confusion, feature requests, and an explicit needs-human-read bucket.
 - **product-design-harness**: Use when a product direction, feature, workflow, experiment, launch, feedback signal, automation, or scale decision needs judgment before execution or the next iteration. _(risk: safe)_
+- **shopify-review-triage**: Turn public 1-3-star Shopify App Store review rows into a P0-P3 triage brief: incident risk, repeated friction, pricing confusion, feature requests, and an explicit needs-human-read bucket.
 
 ## product-management
 
@@ -2653,7 +2653,7 @@ add data to Google Sheets, find a spreadsheet, check sheet...
 - **codex-profiles**: Use codex-profiles to run Codex CLI or Codex Desktop with isolated CODEX_HOME profiles for separate accounts, projects, and local state. _(risk: critical)_
 - **compile-knowledge**: Compile durable, non-obvious findings into an interlinked markdown knowledge store — atomic files, [[wiki-links]], a maintained index — so an agent gets smarter across sessions instead of relearning the same facts. _(risk: safe)_
 - **context-kit**: Evaluate, adapt, and safely install Context Kit personal context artifacts for Claude Code or adjacent agent workflows. _(risk: critical)_
-- **court**: Put an idea on trial: a prosecutor and a defense Claude argue, 12 juror sub-agents vote independently, and a judge reads the verdict and the changes that would flip it. _(risk: safe)_
+- **court**: Put an idea on trial: a prosecutor and a defense Claude argue, 12 juror sub-agents vote independently, and a judge reads the verdict and the changes that would flip it. _(risk: critical)_
 - **daily-gift**: Relationship-aware daily gift engine with five-stage creative pipeline — editorial judgment, synthesis, concept generation, visual strategy, and rendering in H5, image, or video _(risk: critical)_
 - **faf-wizard**: Done-for-you .faf generator. One-click AI context for any project - new, legacy, or famous. Auto-detects stack, scores readiness, works everywhere. _(risk: safe)_
 - **grill-me**: A relentless interview to sharpen a plan or design. _(risk: safe)_
@@ -2663,7 +2663,7 @@ add data to Google Sheets, find a spreadsheet, check sheet...
 - **i-have-adhd**: Shape output for ADHD readers: next action first, numbered steps, restated state, no tangents, time estimates, visible wins. Toggle with /i-have-adhd. _(risk: safe)_
 - **interview-me**: Draw out what the user actually wants with one-question-at-a-time interviews until intent is clear — before any plan, spec, or code exists. _(risk: safe)_
 - **interview-style-doc-building**: Build structured strategy documents by asking one question at a time and patching the file. _(risk: critical)_
-- **jobgpt**: Job search automation, auto apply, resume generation, application tracking, salary intelligence, and recruiter outreach using the JobGPT MCP server. _(risk: safe)_
+- **jobgpt**: Job search automation, auto apply, resume generation, application tracking, salary intelligence, and recruiter outreach using the JobGPT MCP server. _(risk: critical)_
 - **json-canvas**: Create and edit JSON Canvas files (.canvas) with nodes, edges, groups, and connections. Use when working with .canvas files, creating visual canvases, mind maps, flowcharts, or when the user mentions Canvas files in Obsidian. _(risk: critical)_
 - **kernel-prompt**: Use when composing or improving an LLM prompt or agent instruction. Asks one round of questions, then returns only the prompt; never performs the task. _(risk: safe)_
 - **markdown-rendering**: Open Markdown reliably in cmux panes and recover from blank rendered surfaces. _(risk: safe)_
@@ -2680,14 +2680,14 @@ add data to Google Sheets, find a spreadsheet, check sheet...
 - **rich-elicitation**: Asks clarifying questions in multiple rounds before starting ambiguous tasks. Fires when 2+ task dimensions each have 3+ viable answers.
 - **session-handoff**: Use when context approaches capacity, before /clear or /compact, when switching tasks, or when ending a coding session: produces a structured handoff artifact for the next session. _(risk: safe)_
 - **setup-help**: Walk a user through setup or installation one step at a time with the remaining steps visible. _(risk: safe)_
+- **syncbook-discovery**: Find reciprocal collaborators on Syncbook or prepare a private profile draft for human review using only explicitly supplied task facts. _(risk: critical)_
 - **taasky**: Negotiate terms with another person or their agent through the hosted Taasky MCP server: meeting times, prices, dates. The human confirms every accept, reject or withdraw. _(risk: critical)_
 - **telegram-bot-messaging**: Send Telegram messages, files, and alerts via bot API; ask questions with inline buttons and wait for the answer. Supports multiple bots, named chat targets, and CI/cron/hook notifications. _(risk: critical)_
 - **time-ledger**: Natural-language time tracking: parse what the user says they did into Activity/Minutes/Date rows in their own Notion database — asking instead of guessing when unsure. _(risk: critical)_
 - **trading-ledger**: A trading journal that captures the decision, not just the fill: thesis, plan, and emotion at the moment of entry, written to the user's own Notion database; reviews grade decisions, not P&L. _(risk: critical)_
 - **unpaid-intern**: A free second brain for work in plain markdown files the user owns. Turns transcripts, docs, and tickets into briefings, meeting prep, debriefs, follow-ups, and status tables. _(risk: critical)_
-- **workorai**: WorkorAI talent-marketplace skill: candidates search jobs and manage applications; employers run the job lifecycle and get ranked candidate matches with white-box fit explanations. _(risk: critical)_
-- **syncbook-discovery**: Find reciprocal collaborators on Syncbook or prepare a private profile draft for human review using only explicitly supplied task facts. _(risk: critical)_
 - **usage-engineer**: Cut wasted tokens in coding-agent sessions: compact long logs, stop identical retries, check stale project maps, and audit local Codex/OpenCode usage. _(risk: critical)_
+- **workorai**: WorkorAI talent-marketplace skill: candidates search jobs and manage applications; employers run the job lifecycle and get ranked candidate matches with white-box fit explanations. _(risk: critical)_
 
 ## programming-languages
 
@@ -2705,7 +2705,7 @@ add data to Google Sheets, find a spreadsheet, check sheet...
 - **artifact-yylo**: Capture and retrieve durable YYLO Ledger artifact Records with intentional profiles, payload modes, provenance, retention, and secret-safe immutable evidence. _(risk: safe)_
 - **feature-tracking**: Maintain durable feature-level memory across AI coding sessions with lightweight Markdown tracks for status, source-of-truth docs, decisions, risks, and changes. _(risk: critical)_
 - **ledger-tasks-yylo**: Use YYLO Ledger task management: create, list, search, get, mark, update, archive, deps, ready, order and merge with dependencies. _(risk: critical)_
-- **plan-ledger-tasks-yylo**: Create a concise Product Development Requirement and one or more implementation-sized YYLO Ledger tasks when the user explicitly asks to plan or register work. _(risk: safe)_
+- **plan-ledger-tasks-yylo**: Create a concise Product Development Requirement and one or more implementation-sized YYLO Ledger tasks when the user explicitly asks to plan or register work. _(risk: critical)_
 - **project-skill-audit**: Audit a project and recommend the highest-value skills to add or update. _(risk: safe)_
 - **project-state-governor**: Govern evidence-backed canonical project state across sessions, branches, reviews, and research cycles without inventing product intent. _(risk: critical)_
 - **resumable-implementation-contracts**: Create repository-based execution contracts for multi-session implementation work, with stable task IDs, evidence, checkpoints, and exact resume state. _(risk: safe)_
@@ -2783,22 +2783,22 @@ add data to Google Sheets, find a spreadsheet, check sheet...
 - **helium-mcp**: Connect to Helium's MCP server for news research, media bias analysis, balanced perspectives, stock/options data, and semantic meme search across 3.2M+ articles and 5,000+ sources _(risk: safe)_
 - **ii-commons**: Deterministic search across arXiv, PubMed/PMC, and US policy corpora with daily freshness cutoffs. _(risk: safe)_
 - **jev-social**: Run read-only, browser-grounded Instagram, TikTok, or LinkedIn research through Jev routing and socai CLI, returning source-linked evidence and reports. _(risk: critical)_
-- **linkdigest-social-link-reader**: Read one public Xiaohongshu, Douyin, TikTok, YouTube, X or WeChat article link into text an agent can use (transcript, image text, key points) via the LinkDigest API or MCP server. _(risk: safe)_
-- **longbridge-research**: Curated upstream guidance for Longbridge Research; use when the workflow matches the user goal. _(risk: unknown)_
+- **linkdigest-social-link-reader**: Read one public Xiaohongshu, Douyin, TikTok, YouTube, X or WeChat article link into text an agent can use (transcript, image text, key points) via the LinkDigest API or MCP server. _(risk: critical)_
+- **longbridge-research**: Curated upstream guidance for Longbridge Research; use when the workflow matches the user goal. _(risk: critical)_
 - **multi-source-search**: Cross-validate web research and produce an offline-checkable evidence ledger with explicit source diversity, confidence, conflicts, and gaps. _(risk: safe)_
 - **news-sentiment-engine**: Multi-source RSS news aggregation with Claude-powered sentiment analysis and structured briefing output _(risk: critical)_
 - **papers-skill**: Skill for academic research workflows: search Semantic Scholar (200M+ papers), inspect citations, download arXiv PDFs, and extract PDF text. Bundles a self-contained Python CLI. _(risk: safe)_
 - **people-data**: Research LinkedIn professional profiles and public business-contact data, including email/phone lookup, people search, and YouTube channel business-email discovery. _(risk: safe)_
+- **perq**: Find verified free AI credits, free tiers, startup programs and student perks for AI APIs, GPUs and dev tools, each with the vendor's source link and a last-verified date. _(risk: safe)_
 - **pi-web-search**: Give Pi Agents a safe web-search and fetch workflow using the installed pi-web-access package. _(risk: safe)_
 - **research-prompt**: Turn vague research needs into one precise deep-research prompt with context and output criteria. _(risk: safe)_
-- **survey-generator**: Generate source-backed AI/ML survey paper artifacts with curated bibliographies and Fireworks/Kimi HTML rendering. _(risk: safe)_
+- **survey-generator**: Generate source-backed AI/ML survey paper artifacts with curated bibliographies and Fireworks/Kimi HTML rendering. _(risk: critical)_
 - **system-prompt-lookup**: Checks what a shipped AI product's system prompt and tool schema actually say, by reading a dated archive of captured prompts instead of recalling them. Use before asserting or accepting any claim about an agent's instructions. _(risk: safe)_
 - **youtube-transcript**: Fetch YouTube transcripts through DeepAPI or local fallback tooling and save clean text output. _(risk: safe)_
-- **perq**: Find verified free AI credits, free tiers, startup programs and student perks for AI APIs, GPUs and dev tools, each with the vendor's source link and a last-verified date. _(risk: safe)_
 
 ## reverse-engineering
 
-- **dsl-vm-reverse**: Reverse JavaScript-based custom DSL/VM interpreters and risk-control engines: identify IIFE/switch-based opcode dispatch, extract opcode tables, and capture runtime semantics. _(risk: safe)_
+- **dsl-vm-reverse**: Reverse JavaScript-based custom DSL/VM interpreters and risk-control engines: identify IIFE/switch-based opcode dispatch, extract opcode tables, and capture runtime semantics. _(risk: critical)_
 
 ## rust
 
@@ -2928,16 +2928,16 @@ analysis across multiple languages and frameworks
 - **windows-privilege-escalation**: This skill should be used when the user asks to "escalate privileges on Windows," "find Windows privesc vectors," "enumerate Windows for privilege escalation," "exploit Windows miscon... _(risk: unknown)_
 - **wordpress-penetration-testing**: This skill should be used when the user asks to "pentest WordPress sites", "scan WordPress for vulnerabilities", "enumerate WordPress users, themes, or plugins", "exploit WordPress vu... _(risk: unknown)_
 - **xss-html-injection**: This skill should be used when the user asks to "test for XSS vulnerabilities", "perform cross-site scripting attacks", "identify HTML injection flaws", "exploit client-side injection... _(risk: unknown)_
-- **access-review**: Conduct periodic access reviews and certifications. Implement access governance and recertification workflows. Use when managing access compliance. _(risk: safe)_
+- **access-review**: Conduct periodic access reviews and certifications. Implement access governance and recertification workflows. Use when managing access compliance. _(risk: critical)_
 - **agy-auto**: Configure agy-auto PreToolUse security gate to run Antigravity CLI (agy) unattended with layered policy controls instead of --dangerously-skip-permissions. _(risk: critical)_
 - **ai-agent-security**: Secure AI agents against prompt injection, tool abuse, and data exfiltration with defense-in-depth controls. _(risk: safe)_
-- **ai-coding-agent-guardrails**: Secure AI coding agents (Claude Code, Cursor, Codex, Copilot) with permission boundaries, secret protection, code review gates, and safe sandbox configurations for team environments. _(risk: safe)_
+- **ai-coding-agent-guardrails**: Secure AI coding agents (Claude Code, Cursor, Codex, Copilot) with permission boundaries, secret protection, code review gates, and safe sandbox configurations for team environments. _(risk: critical)_
 - **ai-red-teaming**: Run structured AI red team exercises for jailbreak resistance, data exfiltration risk, harmful output controls, and agent tool abuse resilience. _(risk: offensive)_
 - **ai-security-hardening**: Harden AI/LLM deployments against prompt injection, data exfiltration, model theft, and supply chain attacks. _(risk: safe)_
 - **akf-trust-metadata**: The AI native file format. EXIF for AI — stamps every file with trust scores, source provenance, and compliance metadata. Embeds into 20+ formats (DOCX, PDF, images, code). EU AI Act, SOX, HIPAA auditing. _(risk: critical)_
 - **apk-redteam-pipeline**: End-to-end Android APK red-team pipeline _(risk: offensive)_
 - **apk-reverse**: Android APK reverse engineering: unpacking, Java decompilation, smali modification, repacking and signing, Frida dynamic hooking, and native .so analysis with jadx, apktool, adb, and related tools. _(risk: offensive)_
-- **asset-inventory**: Maintain IT asset inventory and configuration management database. Track hardware, software, and cloud resources. Use when managing IT assets. _(risk: safe)_
+- **asset-inventory**: Maintain IT asset inventory and configuration management database. Track hardware, software, and cloud resources. Use when managing IT assets. _(risk: critical)_
 - **attack-chain**: Authorized multi-stage attack-path planning and orchestration spanning reconnaissance, initial access, privilege escalation, lateral movement, and reporting. Entry point for full engagements and cross-phase operations. _(risk: offensive)_
 - **audit-logging**: Implement centralized audit logging and SIEM integration. Configure log retention and security monitoring. Use when implementing audit trail requirements. _(risk: safe)_
 - **aws-cloudtrail**: Configure AWS CloudTrail for audit logging. Set up organization trails and event analysis. Use when auditing AWS activity. _(risk: safe)_
@@ -2953,36 +2953,37 @@ analysis across multiple languages and frameworks
 - **case-review**: Quality-gate review of a reverse-engineering or assessment case package: scope readiness, Evidence-to-Finding-to-Path traceability, work-item coverage, timeline consistency, and artifact hashes. _(risk: safe)_
 - **change-management**: Implement change management processes. Configure CAB reviews, change windows, and rollback procedures. Use when managing production changes. _(risk: safe)_
 - **cis-benchmarks**: Audit and remediate CIS benchmark violations. _(risk: critical)_
-- **client-secret-exposure-audit**: Audit a deployed web app for secrets exposed to the browser: hardcoded API keys/tokens in JS, secrets in HTML meta/attributes/comments, publicly reachable source/config/deploy files, and header/CORS misconfig. _(risk: safe)_
+- **client-secret-exposure-audit**: Audit a deployed web app for secrets exposed to the browser: hardcoded API keys/tokens in JS, secrets in HTML meta/attributes/comments, publicly reachable source/config/deploy files, and header/CORS misconfig. _(risk: critical)_
 - **cloud-iam-deep**: Cloud IAM red-team attack chain across AWS, Azure, GCP _(risk: offensive)_
 - **cloud-k8s**: Authorized cloud, container, and Kubernetes security assessment: metadata SSRF, IAM misconfiguration, container escape paths, and cluster RBAC review. _(risk: offensive)_
 - **cloudflare-security-audit**: Audit authorized codebases for exploitable vulnerabilities using scoped reconnaissance, adversarial review, validation, and structured reporting. _(risk: offensive)_
 - **container-hardening**: Secure Docker images and container runtime configurations. _(risk: critical)_
 - **container-scanning**: Scan container images for vulnerabilities using Trivy, Grype, and cloud-native tools. _(risk: critical)_
 - **container-security-hardening**: Harden Docker/container images and runtime deployments with secure base images, non-root users, CVE scanning, SBOM/signing, seccomp/AppArmor, and Kubernetes pod security controls. Use for Dockerfile security reviews, container CVEs, image scanning, distroless images, or production hardening.
- _(risk: safe)_
+ _(risk: critical)_
 - **cyber-audit**: Run read-only exposure checks for security advisories and write a structured local audit report. _(risk: safe)_
 - **darkmoon-pentest**: Start, follow and triage authorized autonomous AI pentest runs on a self-hosted Darkmoon Pro instance through its MCP server. _(risk: offensive)_
 - **dast-scanning**: Perform dynamic application security testing with OWASP ZAP, Burp Suite, and Nikto. _(risk: offensive)_
 - **dependency-scanning**: Scan package dependencies for known vulnerabilities using Snyk, Dependabot, and OWASP Dependency-Check. _(risk: safe)_
 - **digital-forensics**: Authorized digital forensics: memory dumps, disk timelines, PCAP investigation, artifact triage, and incident-response evidence preservation. _(risk: safe)_
-- **disaster-recovery**: Implement disaster recovery strategies and runbooks. Configure RPO/RTO targets and failover procedures. Use when planning for business continuity. _(risk: safe)_
-- **dotnet-reverse**: .NET/C# binary reverse engineering: managed PE analysis, dnSpyEx debugging, de4dot deobfuscation (ConfuserEx/SmartAssembly/Babel), IL patching, NativeAOT targets, and analysis of red-team Sharp* tooling. _(risk: safe)_
-- **edr-bypass-re**: Reverse engineer EDR internals (user-mode hook tables, ETW, AMSI) and study bypass techniques such as direct syscalls, Hell's Gate, and call-stack spoofing. Lab-only red-team research. _(risk: offensive)_
+- **disaster-recovery**: Implement disaster recovery strategies and runbooks. Configure RPO/RTO targets and failover procedures. Use when planning for business continuity. _(risk: critical)_
+- **doomsday-escrow**: Verify cryptographic Proof-of-Escrow collateral (L1 UTXO outpoint proofs and Base Mainnet wDOOM settlement receipts) on GitHub bounties before spending autonomous agent compute. _(risk: critical)_
+- **dotnet-reverse**: .NET/C# binary reverse engineering: managed PE analysis, dnSpyEx debugging, de4dot deobfuscation (ConfuserEx/SmartAssembly/Babel), IL patching, NativeAOT targets, and analysis of red-team Sharp* tooling. _(risk: offensive)_
+- **edr-bypass-re**: Review EDR telemetry and known defense-evasion classes using offline evidence and controlled defensive coverage assessments. _(risk: offensive)_
 - **email-security**: Authorized email security review: phishing analysis, SPF/DKIM/DMARC header authentication, BEC pattern investigation, and mailbox token abuse research. _(risk: offensive)_
 - **enterprise-vpn-attack**: External SSL VPN / remote-access appliance attack matrix _(risk: offensive)_
 - **evidence-hygiene**: Evidence-capture and PoC-redaction discipline for bug-bounty submissions _(risk: safe)_
 - **fedramp-compliance**: Implement FedRAMP requirements for federal cloud services. Configure NIST 800-53 controls and continuous monitoring. Use when providing cloud services to US federal agencies. _(risk: safe)_
 - **firewall-config**: Configure iptables, nftables, and cloud firewalls. Implement network segmentation and traffic filtering. Use when securing network perimeters or implementing security zones. _(risk: critical)_
 - **firmware-pentest**: Firmware penetration testing following the OWASP FSTM nine-stage flow: extraction, EMBA automation, Firmadyne/QEMU emulation, AFL++ fuzzing, and hands-on exploitation in authorized labs. _(risk: offensive)_
-- **fsi-compliance-checker**: Maps code, architecture, and infrastructure changes to specific control IDs in PCI-DSS v4.0 and MAS TRM (Singapore financial regulator), producing an audit-traceable findings report with per-control remediation. _(risk: safe)_
-- **gcp-audit-logs**: Configure GCP Cloud Audit Logs for compliance. Set up log routing and BigQuery analysis. Use when auditing GCP activity. _(risk: safe)_
+- **fsi-compliance-checker**: Maps code, architecture, and infrastructure changes to specific control IDs in PCI-DSS v4.0.1 and MAS TRM (Singapore financial regulator), producing an audit-traceable findings report with per-control remediation. _(risk: critical)_
+- **gcp-audit-logs**: Configure GCP Cloud Audit Logs for compliance. Set up log routing and BigQuery analysis. Use when auditing GCP activity. _(risk: critical)_
 - **gcp-secret-manager**: Secure secrets in Google Cloud Secret Manager. Configure IAM policies, integrate with GKE, and manage secret versions. Use when managing secrets in GCP environments. _(risk: critical)_
-- **gdpr-compliance**: Implement GDPR data protection requirements. Configure consent management, data subject rights, and privacy by design. Use when processing EU personal data. _(risk: safe)_
+- **gdpr-compliance**: Implement GDPR data protection requirements. Configure consent management, data subject rights, and privacy by design. Use when processing EU personal data. _(risk: critical)_
 - **ghidra-reverse**: Free/open reverse engineering with Ghidra (headless or GUI): decompilation, cross-references, scripting, and optional Ghidra MCP workflows when IDA is unavailable. _(risk: safe)_
 - **hardware-security**: Authorized hardware and embedded interface security research: UART/JTAG discovery, debug-pad triage, secure-boot overview, and offline firmware analysis. _(risk: offensive)_
 - **hashicorp-vault**: Manage secrets and PKI with HashiCorp Vault. _(risk: critical)_
-- **hipaa-compliance**: Implement HIPAA security and privacy rules. Configure PHI protections and BAA requirements. Use when handling healthcare data. _(risk: safe)_
+- **hipaa-compliance**: Implement HIPAA security and privacy rules. Configure PHI protections and BAA requirements. Use when handling healthcare data. _(risk: critical)_
 - **hunt-api-misconfig**: Hunt API security misconfiguration _(risk: offensive)_
 - **hunt-aspnet**: Hunt ASP.NET-specific surface _(risk: offensive)_
 - **hunt-ato**: Hunt account takeover taxonomy _(risk: offensive)_
@@ -3016,7 +3017,7 @@ analysis across multiple languages and frameworks
 - **hunt-lfi**: Hunt Local File Inclusion (LFI), Remote File Inclusion (RFI), and Path Traversal _(risk: offensive)_
 - **hunt-llm-ai**: Hunt LLM/AI feature bugs _(risk: offensive)_
 - **hunt-mfa-bypass**: Hunt MFA / 2FA bypass _(risk: offensive)_
-- **hunt-misc**: Hunting skill for misc vulnerabilities. Built from 225 public bug bounty reports. Use when hunting misc on any target. _(risk: offensive)_
+- **hunt-misc**: Hunting skill for misc vulnerabilities. Reference for authorized role, token and workflow-boundary reviews. Historical source count is not independently verified. _(risk: offensive)_
 - **hunt-nextjs**: Hunt Next.js specific vulnerabilities _(risk: offensive)_
 - **hunt-nodejs**: Hunt Node.js specific vulnerabilities _(risk: offensive)_
 - **hunt-nosqli**: Hunt NoSQL Injection _(risk: offensive)_
@@ -3041,7 +3042,7 @@ analysis across multiple languages and frameworks
 - **hunt-websocket**: Hunt WebSocket vulnerabilities _(risk: offensive)_
 - **hunt-xss**: Hunting skill for xss vulnerabilities. _(risk: offensive)_
 - **hunt-xxe**: Hunting skill for xxe vulnerabilities. _(risk: offensive)_
-- **ida-reverse**: Reverse engineer binaries with IDA Pro: decompilation, disassembly, data-flow tracking, cross-references, and IDA MCP automation for deep static analysis of PE/ELF/Mach-O targets. _(risk: safe)_
+- **ida-reverse**: Reverse engineer binaries with IDA Pro: decompilation, disassembly, data-flow tracking, cross-references, and IDA MCP automation for deep static analysis of PE/ELF/Mach-O targets. _(risk: critical)_
 - **identity-federation**: Authorized assessment of federated identity systems: SAML, OIDC, OAuth2 flows, SSO misconfiguration, and token-confusion issues. _(risk: offensive)_
 - **incident-management**: Implement incident management processes and escalation procedures. Configure on-call schedules and post-incident reviews. Use when managing production incidents. _(risk: safe)_
 - **incident-response**: Handle security incidents with IR playbooks and procedures. _(risk: critical)_
@@ -3050,24 +3051,26 @@ analysis across multiple languages and frameworks
 - **iso27001-compliance**: Implement ISO 27001 Information Security Management System. Configure ISMS controls and risk management. Use when implementing enterprise security frameworks. _(risk: safe)_
 - **js-reverse**: Front-end JavaScript reverse engineering: locate signature chains, analyze encrypted request parameters, sample runtime behavior, and reproduce logic locally in Node for evidence-based output. _(risk: offensive)_
 - **kubernetes-hardening**: Implement Kubernetes security contexts, Pod Security Standards, and network policies. _(risk: critical)_
+- **launch-check**: Bounded pre-launch audit of a live URL for AI-built apps: exposed secret keys, open Supabase/Firebase tables, security headers, phone layout, search and speed. _(risk: critical)_
 - **linux-hardening**: Apply CIS benchmarks and secure Linux servers. _(risk: critical)_
-- **llm-app-security**: Secure LLM-powered applications with input validation, output controls, tenant isolation, and abuse prevention. _(risk: safe)_
+- **llm-app-security**: Secure LLM-powered applications with input validation, output controls, tenant isolation, and abuse prevention. _(risk: critical)_
 - **m365-entra-attack**: Microsoft 365 / Entra ID red-team attack chain _(risk: offensive)_
 - **macos-reverse**: Authorized macOS and Mach-O reverse engineering: codesign inspection, Objective-C/Swift recovery, endpoint-security surfaces, and Apple-platform malware analysis. _(risk: safe)_
-- **malware-analysis**: Analyze suspected malware through static, dynamic, and behavioral techniques: IOC extraction, YARA/Sigma rule authoring, sandbox orchestration, and anti-analysis detection. _(risk: safe)_
+- **malware-analysis**: Analyze suspected malware through static, dynamic, and behavioral techniques: IOC extraction, YARA/Sigma rule authoring, sandbox orchestration, and anti-analysis detection. _(risk: critical)_
 - **marketplace-rbac-audit**: Audit multi-role marketplace authorization across roles, resource ownership, tenant boundaries, and order-state transitions; use when access rules need evidence, not UI assumptions. _(risk: safe)_
 - **mcp-dependency-drift-audit**: Statically audit MCP configs for mutable npm/npx package references before approval or CI, without executing discovered MCP servers. _(risk: safe)_
 - **mcp-server-security**: Secure Model Context Protocol (MCP) servers with transport encryption, tool authorization, input validation, and audit logging for safe AI agent integrations. _(risk: safe)_
 - **meme-coin-audit**: Meme coin and token security audit _(risk: offensive)_
-- **mid-engagement-ir-detection**: Methodology for detecting client SOC patches, attacker activity, and security-state changes that occur DURING a red-team engagement _(risk: safe)_
-- **model-supply-chain-security**: Secure the AI model supply chain with artifact signing, provenance attestation, SBOM workflows, dependency controls, and trusted model promotion. _(risk: safe)_
+- **mid-engagement-ir-detection**: Methodology for detecting client SOC patches, attacker activity, and security-state changes that occur DURING a red-team engagement _(risk: offensive)_
+- **model-supply-chain-security**: Secure the AI model supply chain with artifact signing, provenance attestation, SBOM workflows, dependency controls, and trusted model promotion. _(risk: critical)_
+- **netapi**: Check domains and IPs against a free compromised feed, find newly registered lookalike domains, and get TLD stats and Top 1M ranks from NetAPI, with no API key. _(risk: safe)_
 - **offensive-osint**: Operational arsenal for authorized external red-team and bug-bounty recon. _(risk: offensive)_
 - **okta-attack**: Okta-as-IdP red-team attack chain _(risk: offensive)_
 - **openclaw-deployment-hardening**: Secure OpenClaw deployments with preflight hardening checks, CI/CD guardrails, container runtime restrictions, and post-deploy verification. _(risk: critical)_
 - **osint-methodology**: Comprehensive OSINT methodology for external red-team operations and authorized attack-surface assessments. _(risk: offensive)_
 - **ot-ics**: Authorized OT/ICS security assessment: Purdue-model zoning review, PLC/SCADA exposure, industrial protocol discovery, and passive-first evaluation discipline. _(risk: offensive)_
 - **patch-diff-exploit**: Locate vulnerability fixes in vendor patches, diff binaries across versions, and build N-day PoCs. Attack-side complement to binary-diff for authorized research. _(risk: offensive)_
-- **pci-dss-compliance**: Implement PCI DSS requirements for payment card data. Configure cardholder data environment and security controls. Use when processing payment cards. _(risk: safe)_
+- **pci-dss-compliance**: Implement PCI DSS requirements for payment card data. Configure cardholder data environment and security controls. Use when processing payment cards. _(risk: critical)_
 - **penetration-testing**: Perform basic penetration testing and security assessments. _(risk: offensive)_
 - **pentest-tools**: Operate 20+ penetration-testing tools (Nmap, Nuclei, SQLMap, FFUF, Hashcat, and more) through structured workflows with consistent output handling. _(risk: offensive)_
 - **permission-manager**: Manage opencode permissions: review always-allow lists, suggest safe read-only commands, configure permission patterns _(risk: critical)_
@@ -3077,25 +3080,25 @@ analysis across multiple languages and frameworks
 - **prompt-injection-defense**: Defend AI systems against prompt injection and indirect prompt attacks using input controls, tool permissions, output validation, and isolation boundaries. _(risk: safe)_
 - **protocol-reverse**: Authorized reverse engineering of custom binary protocols, Protobuf/gRPC schemas, WebSocket frames, and PCAP-driven protocol recovery. _(risk: safe)_
 - **pwn-chain**: Go from reverse engineering to a working exploit: stack/heap/kernel pwn workflows with pwntools, libc-database, ROP, and stabilization from CTF to authorized remote targets. _(risk: offensive)_
-- **radare2**: Drive the radare2 CLI for binary reconnaissance, disassembly, analysis, function locating, export, and lightweight patching (r2/rabin2/rasm2/radiff2) without a GUI. _(risk: safe)_
-- **radio-sdr**: Authorized RF/SDR security research: signal identification, replay-feasibility study in shielded labs, and wireless protocol analysis outside regulated bands. _(risk: offensive)_
+- **radare2**: Drive the radare2 CLI for binary reconnaissance, disassembly, analysis, function locating, export, and lightweight patching (r2/rabin2/rasm2/radiff2) without a GUI. _(risk: critical)_
+- **radio-sdr**: Authorized RF/SDR security research: signal identification, replay-feasibility study in shielded labs, and wireless protocol analysis within applicable spectrum and authorization constraints. _(risk: offensive)_
 - **recon-scope-triage**: Triage ASM/recon output for ownership before testing _(risk: offensive)_
 - **redteam-mindset**: Red-team operator discipline _(risk: offensive)_
 - **redteam-report-template**: Client-facing red-team deliverable format _(risk: safe)_
 - **report-writing**: Bug bounty report writing for H1/Bugcrowd/Intigriti/Immunefi _(risk: safe)_
-- **reverse-engineering**: General reverse-engineering methodology for compiled, obfuscated, packed, or virtualized targets: GDB, Frida, angr, Unicorn, and Qiling workflows across languages and platforms, with anti-analysis countermeasures. _(risk: safe)_
+- **reverse-engineering**: General reverse-engineering methodology for compiled, obfuscated, packed, or virtualized targets: GDB, Frida, angr, Unicorn, and Qiling workflows across languages and platforms, with anti-analysis countermeasures. _(risk: critical)_
 - **runbook-creation**: Create operational runbooks and standard operating procedures. Document troubleshooting guides and recovery procedures. Use when documenting operational knowledge. _(risk: safe)_
 - **sast-scanning**: Perform static application security testing with tools like Semgrep, CodeQL, and SonarQube. _(risk: safe)_
-- **sbom-supply-chain**: Generate, sign, and verify SBOMs and provenance attestations to secure the software supply chain. Use when implementing SLSA controls, artifact trust policies, or compliance evidence for releases. _(risk: safe)_
+- **sbom-supply-chain**: Generate, sign, and verify SBOMs and provenance attestations to secure the software supply chain. Use when implementing SLSA controls, artifact trust policies, or compliance evidence for releases. _(risk: critical)_
 - **security-and-hardening**: Hardens code against vulnerabilities. Use when handling user input, authentication, data storage, or external integrations. Use when building any feature that accepts untrusted data, manages user sessions, or interacts with third-party services. _(risk: critical)_
 - **security-arsenal**: Security payloads, bypass tables, wordlists, gf pattern names, always-rejected bug list, and conditionally-valid-with-chain table. _(risk: offensive)_
 - **security-automation**: Automate security workflows and remediation. Build security pipelines, automate compliance checks, and implement SOAR capabilities. Use when scaling security operations or implementing DevSecOps. _(risk: critical)_
-- **skill-audit**: Pre-install security scanner for AI agent skills. 7.5% of 14,706 skills are malicious. Audit before you trust. _(risk: safe)_
+- **skill-audit**: Pre-install review framework for AI agent skills: inspect complete content, permissions, dependencies and suspicious behavior before activation. _(risk: safe)_
 - **skill-security-audit**: Audit an Agent Skill, MCP server, connector, or desktop extension before installation by tracing code, dependencies, permissions, credentials, data flow, and irreversible actions. _(risk: safe)_
-- **soc2-compliance**: Implement SOC 2 Trust Services Criteria. Configure security, availability, and processing integrity controls. Use when achieving SOC 2 certification. _(risk: safe)_
+- **soc2-compliance**: Implement SOC 2 Trust Services Criteria. Configure security, availability, and processing integrity controls. Use when preparing for a SOC 2 examination. _(risk: safe)_
 - **sops-encryption**: Encrypt files and configs with Mozilla SOPS. _(risk: critical)_
 - **ssl-tls-management**: Manage SSL/TLS certificates with Let's Encrypt and internal PKI. Configure secure HTTPS, certificate renewal, and cipher suites. Use when implementing secure communications. _(risk: critical)_
-- **supply-chain-attack-recon**: External recon for software supply-chain attack surface _(risk: offensive)_
+- **supply-chain-attack-recon**: Authorized read-only review of public software supply-chain exposure _(risk: offensive)_
 - **supply-chain-attack-response**: Detect, respond to, and prevent software supply chain attacks on package registries, container images, and CI/CD pipelines with lockfile auditing, provenance verification _(risk: offensive)_
 - **supply-chain-security**: Software supply-chain security assessment: SBOM generation, SCA scanning, CI/CD pipeline review, container image audit, build integrity, dependency provenance, and vulnerability reachability verification. _(risk: safe)_
 - **thick-client**: Authorized security testing of desktop thick clients: local storage, update channels, IPC, traffic interception, and client-side trust-boundary review. _(risk: offensive)_
@@ -3114,9 +3117,6 @@ analysis across multiple languages and frameworks
 - **windows-ad**: Authorized Active Directory and Windows identity attacks: Kerberos abuse, AD CS escalation, BloodHound path analysis, NTLM relay, and domain privilege-escalation research. _(risk: offensive)_
 - **windows-hardening**: Harden Windows servers per security baselines and CIS benchmarks. Configure Group Policy, Windows Defender, and security features. Use when securing Windows Server environments. _(risk: critical)_
 - **zero-trust**: Implement zero-trust network architecture. Configure identity-based access, micro-segmentation, and continuous verification. Use when implementing modern security architectures. _(risk: critical)_
-- **doomsday-escrow**: Verify cryptographic Proof-of-Escrow collateral (L1 UTXO outpoint proofs and Base Mainnet wDOOM settlement receipts) on GitHub bounties before spending autonomous agent compute. _(risk: critical)_
-- **launch-check**: Bounded pre-launch audit of a live URL for AI-built apps: exposed secret keys, open Supabase/Firebase tables, security headers, phone layout, search and speed. _(risk: critical)_
-- **netapi**: Check domains and IPs against a free compromised feed, find newly registered lookalike domains, and get TLD stats and Top 1M ranks from NetAPI, with no API key. _(risk: safe)_
 
 ## seo
 
@@ -3127,7 +3127,7 @@ analysis across multiple languages and frameworks
 - **geo-compare**: Monthly delta tracking and progress reporting for GEO clients. _(risk: safe)_
 - **geo-content**: Content quality and E-E-A-T assessment for AI citability — evaluate experience, expertise, authoritativeness, trustworthiness, and content structure _(risk: safe)_
 - **geo-crawlers**: AI crawler access analysis. _(risk: safe)_
-- **geo-llmstxt**: Analyzes and generates llms.txt files -- the emerging standard for helping AI systems understand website structure and content. _(risk: safe)_
+- **geo-llmstxt**: Analyzes and generates llms.txt files -- a proposed convention for helping AI systems understand website structure and content. _(risk: safe)_
 - **geo-platform-optimizer**: Platform-specific AI search optimization — audit and optimize for Google AI Overviews, ChatGPT, Perplexity, Gemini, and Bing Copilot individually _(risk: safe)_
 - **geo-proposal**: Auto-generate a professional, client-ready GEO service proposal from audit data. _(risk: safe)_
 - **geo-prospect**: CRM-lite for managing GEO agency prospects and clients. _(risk: safe)_
@@ -3135,7 +3135,7 @@ analysis across multiple languages and frameworks
 - **geo-report-pdf**: Generate a professional PDF report from a GEO audit using pandoc + Chrome headless. _(risk: critical)_
 - **geo-schema**: Schema.org structured data audit and generation optimized for AI discoverability — detect, validate, and generate JSON-LD markup _(risk: safe)_
 - **geo-technical**: Technical SEO audit with GEO-specific checks — crawlability, indexability, security, performance, SSR, and AI crawler access _(risk: safe)_
-- **lognorm**: Work a site's SEO and AI-visibility (GEO) backlog through the hosted LogNorm MCP server: audits, fixes, content, AI-answer tracking. _(risk: safe)_
+- **lognorm**: Work a site's SEO and AI-visibility (GEO) backlog through the hosted LogNorm MCP server: audits, fixes, content, AI-answer tracking. _(risk: critical)_
 - **nextjs-seo-indexing**: Fix SEO indexing issues, crawl budget problems, and Search Console coverage errors for Next.js apps. Covers canonical tags, noindex audits, sitemap health, static rendering, and internal linking. _(risk: safe)_
 - **schema-markup-generator**: Generate and implement JSON-LD structured data for web apps, blogs, FAQs, and SaaS sites. Supports WebSite, SoftwareApplication, BlogPosting, FAQPage, HowTo, and more. _(risk: safe)_
 - **seo-aeo-internal-linking**: Maps internal link opportunities between pages with relevant anchor text, placement instructions, orphan-page detection, and cannibalisation checks. _(risk: safe)_
@@ -3190,11 +3190,11 @@ analysis across multiple languages and frameworks
 
 ## shopping
 
-- **movie-coupon**: Fetch movie ticket coupons from platforms like Taopiaopiao and Maoyan. Returns coupon links and QR code images for users to redeem via WeChat. _(risk: safe)_
-- **obtain-coupons-all-in-one**: All-in-one coupon fetcher supporting takeout (Meituan, Ele.me, JD), parcel/courier (SF, ZTO, YTO, etc.), travel (DiDi, Ctrip), and movie tickets (Taopiaopiao, Maoyan) coupons with one-click access to all discounts. _(risk: safe)_
+- **movie-coupon**: Fetch movie ticket coupons from platforms like Taopiaopiao and Maoyan. Returns coupon links and QR code images for users to redeem via WeChat. _(risk: critical)_
+- **obtain-coupons-all-in-one**: All-in-one coupon fetcher supporting takeout (Meituan, Ele.me, JD), parcel/courier (SF, ZTO, YTO, etc.), travel (DiDi, Ctrip), and movie tickets (Taopiaopiao, Maoyan) coupons with one-click access to all discounts. _(risk: critical)_
 - **parcel-coupon**: Call parcel/courier coupon API to fetch one-stop logistics service coupons, including smart shipping and smart price matching. Returns coupon links and QR code images for users to redeem via WeChat. _(risk: safe)_
-- **takeout-coupon**: Call takeout coupon API to fetch hidden coupon lists, red packets and aggregated redemption pages for platforms (Meituan, Taobao Flash/Ele.me, JD.com). Returns coupon codes and redemption instructions for users to copy and redeem in corresponding apps. _(risk: safe)_
-- **trip-coupon**: Call trip/travel coupon API to fetch travel coupons including DiDi ride-hailing gift packages and hotel coupon bundles. Returns coupon links and QR code images for users to redeem via WeChat. _(risk: safe)_
+- **takeout-coupon**: Call takeout coupon API to fetch hidden coupon lists, red packets and aggregated redemption pages for platforms (Meituan, Taobao Flash/Ele.me, JD.com). Returns coupon codes and redemption instructions for users to copy and redeem in corresponding apps. _(risk: critical)_
+- **trip-coupon**: Call trip/travel coupon API to fetch travel coupons including DiDi ride-hailing gift packages and hotel coupon bundles. Returns coupon links and QR code images for users to redeem via WeChat. _(risk: critical)_
 
 ## skill discovery
 
@@ -3203,7 +3203,7 @@ analysis across multiple languages and frameworks
 ## skill-authoring
 
 - **writing-great-skills**: Reference for writing and editing skills well — the vocabulary and principles that make a skill predictable. _(risk: safe)_
-- **yao-meta-skill**: Create, refactor, evaluate, and package agent skills from workflows, prompts, transcripts, docs, or notes. Use for skill creation, reusable workflow packaging, skill improvement, evals, and team-ready distribution. _(risk: safe)_
+- **yao-meta-skill**: Create, refactor, evaluate, and package agent skills from workflows, prompts, transcripts, docs, or notes. Use for skill creation, reusable workflow packaging, skill improvement, evals, and team-ready distribution. _(risk: critical)_
 
 ## spreadsheet-processing
 
@@ -3293,7 +3293,7 @@ calculations
 - **agentic-test-audit**: Audit a pytest suite: surviving mutants and untested code, flaky, order-dependent and slow tests, and removal candidates checked on held-out mutants. Report-only. _(risk: safe)_
 - **agentic-verify**: Check that a Python change is caught by tests: run every mutant of the changed lines and write tests until they catch them. Reports evidence instead of a diff to read. _(risk: safe)_
 - **android-ui-journey-testing**: XML-specified Android UI journey testing, interactive step execution, assertion verification, and JSON outcome reporting. _(risk: critical)_
-- **assay**: Run assay on a web page you just wrote or changed. It opens the page in a real browser, drives every control, and reports where the page contradicts itself. Deterministic, no API key, no network. _(risk: safe)_
+- **assay**: Run assay on a web page you just wrote or changed. It opens the page in a real browser, drives every control, and reports where the page contradicts itself. Local browser checks without an LLM API key. _(risk: safe)_
 - **brooks-test**: Review test-suite quality using established testing literature; identify brittleness, mock abuse, unclear fixtures, weak assertions, slow feedback, and maintenance risks. _(risk: safe)_
 - **browser-testing-with-devtools**: Test browser apps with Chrome DevTools MCP by inspecting live DOM, console logs, network traffic, screenshots, accessibility, and performance traces. _(risk: critical)_
 - **cucumber-skill**: Generates Cucumber BDD tests with Gherkin feature files and step definitions in Java, JavaScript, or Ruby. Use when user mentions "Cucumber", "Gherkin", "Feature/Scenario", "Given/When/Then", "BDD". _(risk: critical)_
@@ -3339,10 +3339,11 @@ calculations
 - **aegisops-ai**: Autonomous DevSecOps & FinOps Guardrails. Guide to reviewing Linux kernel patches, Terraform cost changes and Kubernetes policy with a separately reviewed upstream tool and configured model. _(risk: critical)_
 - **changelog-entry**: Generate a properly formatted CHANGELOG.md entry in Keep a Changelog format from a commit range or PR. Groups changes into Added/Changed/Deprecated/Removed/Fixed/Security categories and outputs a ready-to-paste block. _(risk: safe)_
 - **reverse-engineer-anything**: Use REA to investigate shipped apps, binaries, packages, and runtimes; trace features with evidence, compare versions, or guide reconstruction. Skip ordinary source-code analysis. _(risk: critical)_
+- **user-thoughts**: Persist user decisions and project constraints to mdbase across sessions. Use on explicit /user-thoughts or /ustht requests, or within previously authorized project-memory capture scope. _(risk: critical)_
 
 ## video
 
-- **youtube-notetaker**: Turn YouTube talks into local study notes with slides, transcripts, editable annotations, and a markdown-backed viewer. _(risk: safe)_
+- **youtube-notetaker**: Turn YouTube talks into local study notes with slides, transcripts, editable annotations, and a markdown-backed viewer. _(risk: critical)_
 
 ## voice-agents
 
@@ -3368,9 +3369,9 @@ calculations
 - **frontend-ui-engineering**: Builds production-quality UIs. Use when building or modifying user-facing interfaces. Use when creating components, implementing layouts, managing state, or when the output needs to look and feel production-quality rather than AI-generated. _(risk: critical)_
 - **jest-skill**: Generates Jest unit and integration tests in JavaScript or TypeScript. Covers mocking, snapshots, async testing, and React component testing. Use when user mentions "Jest", "describe/it/expect", "jest.mock", "toMatchSnapshot". _(risk: critical)_
 - **pagespeed-enhancer**: Scan, audit, and fix web performance issues across all four Lighthouse/PageSpeed Insights pillars — Performance, Accessibility, Best Practices, and SEO — in structured batches. _(risk: safe)_
-- **photopea-embedded-editor**: Embed Photopea in web apps using photopea.js. Covers embedding, file I/O, scripting, exporting, layers, text, filters, and the full Photoshop-compatible API. _(risk: safe)_
+- **photopea-embedded-editor**: Embed Photopea in web apps using photopea.js. Covers embedding, file I/O, scripting, exporting, layers, text, filters, and selected Photoshop-like scripting patterns. _(risk: critical)_
 - **react-component-performance**: Diagnose slow React components and suggest targeted performance fixes. _(risk: safe)_
-- **react-native-skills**: Use when working with react-native-skills tasks or workflows _(risk: safe)_
+- **react-native-skills**: Review React Native and Expo rendering, lists, animations, navigation and native UI against project versions and measured behavior. _(risk: safe)_
 - **selenium-skill**: Generates production-grade Selenium WebDriver automation scripts and tests in Java, Python, JavaScript, C#, Ruby, or PHP. Supports local execution and TestMu AI cloud with 3000+ browser/OS combinations. _(risk: critical)_
 - **seo-technical**: Audit technical SEO across crawlability, indexability, security, URLs, mobile, Core Web Vitals, structured data, JavaScript rendering, and related platform signals like robots.txt and AI crawler access. _(risk: critical)_
 - **styleseed-design-review**: Reviews UI/frontend code and tells you exactly why it "looks AI-generated" — then how to fix it. _(risk: safe)_
@@ -3378,7 +3379,6 @@ calculations
 - **ui-a11y**: Audit a component or page for accessibility issues and fix them _(risk: critical)_
 - **ui-component**: Generate a new UI component following the StyleSeed design conventions _(risk: critical)_
 - **ui-motion**: Apply a named StyleSeed motion to a component — either one of the 5 personality seeds (Spring/Silk/Snap/Float/Pulse × entrance/exit/hover/press/layout) or a distinctive keyword move from the motion library (toggle-flip, toggle-curtain, reveal-blur, pop-in, shimmer, …). _(risk: critical)_
-- **user-thoughts**: Persist user decisions and project constraints to mdbase across sessions. Trigger on /user-thoughts or /ustht, or when the user discusses architecture, tech stack, rules, UI/UX, or project memory. _(risk: safe)_
 - **ux-feedback**: Add appropriate user feedback states (loading, success, error, empty) to a component or page _(risk: critical)_
 - **vercel-react-view-transitions**: Guide React and Next.js view transitions, shared element animations, route transitions, transition types, and reduced-motion-safe UI state animation. _(risk: safe)_
 - **webdriverio-skill**: Generates WebdriverIO (WDIO) automation tests in JavaScript or TypeScript. Supports local and TestMu AI cloud. Use when user mentions "WebdriverIO", "WDIO", "wdio.conf", "browser.url", "$", "$$". Triggers on: "WebdriverIO", "WDIO", "wdio", "browser.$". _(risk: critical)_
@@ -3444,9 +3444,9 @@ before implementation to verify project context.
 - **beautiful-prose**: A hard-edged writing style contract for timeless, forceful English prose without modern AI tics. Use when users ask for prose or rewrites that must be clean, exact, concrete, and free of AI cadence, filler, or therapeutic tone. _(risk: unknown)_
 - **copy-editing**: When the user wants to edit, review, or improve existing marketing copy. Also use when the user mentions 'edit this copy,' 'review my copy,' 'copy feedback,' 'proofread,' 'polish this,' 'make this ... _(risk: unknown)_
 - **scientific-writing**: Core skill for the deep research and writing tool. Write scientific manuscripts in full paragraphs (never bullet points). Use two-stage process with (1) section outlines with key points using research-lookup then (2) convert to flowing prose. IMRAD... _(risk: unknown)_
+- **bluebook-writing**: Write design-reading books and articles in plain language with a two-layer skeleton: a zero-terminology everyday story first, then the professional layer with formal names, mechanisms, boundaries, and costs. Use when explaining unfamiliar systems to non-programmers. _(risk: safe)_
 - **bulletmind**: Convert input into clean, structured, hierarchical bullet points for summarization, note-taking, and structured thinking. _(risk: safe)_
 - **email-issue-fixer**: Fix small email mistakes without touching the writer's voice, and strip tracking parameters from links on request. Always returns the corrected draft plus a change list. _(risk: safe)_
 - **short**: Rewrite the previous response more briefly while preserving the substance. _(risk: safe)_
 - **tech-writing-proofread**: Proofreads English technical writing for typos, grammar, punctuation, terminology consistency, jargon, and structure; returns an itemized Original → Suggestion → Reason list without rewriting the document. Use when asked to proofread or polish a technical doc, README, or blog draft. _(risk: safe)_
 - **unslop**: Post-process AI-generated text through the unslop CLI to strip AI writing patterns before publishing _(risk: safe)_
-- **bluebook-writing**: Write design-reading books and articles in plain language with a two-layer skeleton: a zero-terminology everyday story first, then the professional layer with formal names, mechanisms, boundaries, and costs. Use when explaining unfamiliar systems to non-programmers. _(risk: safe)_

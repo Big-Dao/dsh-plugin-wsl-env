@@ -43,15 +43,34 @@ OVERLAY="$(write_overlay wslfs-probe.yml .generated-wslfs-probe.yml FS_PROBE_UNC
 [ -x "$APP/DeepSeek Harness.exe" ] || { echo "no harness at $APP; set DSH_WSL_ENV_APP" >&2; exit 1; }
 
 "$HERE/sync-to-windows.sh"
+REPORT="$HERE/fs-probe.txt"
+LOG="$(mktemp)"
+trap 'rm -f "$LOG"' EXIT
+rm -f "$REPORT"
 
 # The probe boots the harness the way a person would, then exits the process
 # itself. `node` here is the Windows runtime reached through interop, and the
 # DSH_* variables the distro sees are POSIX-translated (/mnt/c/...) — they must
 # not leak into the Windows process, which would read them as bogus paths.
+STATUS=0
 env -u DSH_HOME -u DSH_PROFILE -u DSH_PROFILE_DIR -u DSH_SESSION_ID \
     -u DSH_SHELL -u DSH_WEB_URL -u DSH_WSL_DISTRO -u DSH_WSL_HOME -u DSH_WSL_SHELL \
     ELECTRON_RUN_AS_NODE=1 \
     "$APP/DeepSeek Harness.exe" --expose-internals "$CLI" \
-    --profile wslfs --patch "$OVERLAY" --no-open --port 0 >/dev/null 2>&1 || true
+    --profile wslfs --patch "$OVERLAY" --no-open --port 0 >"$LOG" 2>&1 || STATUS=$?
 
-cat "$HERE/fs-probe.txt"
+if [ ! -f "$REPORT" ]; then
+  echo "filesystem probe did not produce a report; tail of the harness log:" >&2
+  tail -20 "$LOG" >&2 || true
+  exit 1
+fi
+cat "$REPORT"
+if [ "$STATUS" -ne 0 ]; then
+  echo "filesystem probe exited $STATUS; tail of the harness log:" >&2
+  tail -20 "$LOG" >&2 || true
+  exit "$STATUS"
+fi
+if grep -q '^FAIL' "$REPORT" || ! tail -n 1 "$REPORT" | grep -Fxq 'RESULT: all steps passed'; then
+  echo "filesystem probe did not report a complete successful run" >&2
+  exit 1
+fi

@@ -143,9 +143,8 @@ export function agentExecutionHandle({ agent, cwd, argv, timeoutMs = 0, maxOutpu
   maxOutputBytes?: number,
   /**
    * Environment for this command: the caller's entries with the managed
-   * `DSH_*` snapshot merged last. The agent applies it as `SETENV` frames
-   * immediately before the command's `EXEC` (see `WslAgent.exec`); dropping it
-   * here is what kept every managed fact out of the resident-agent path.
+   * `DSH_*` snapshot merged last. The agent applies it to this request only
+   * (see `WslAgent.exec`).
    */
   env?: Record<string, string>,
   /** The caller's cancellation. */

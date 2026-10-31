@@ -18,6 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AGENT_NAME, PROTOCOL_VERSION, encodeB64, encodeExecFrame, encodeFsFrame, parseAgentLine } from "../lib/agent-protocol.js";
+import { WslAgent } from "../lib/agent.js";
 
 const SCRIPT = fileURLToPath(new URL("../agent/wsl-agent.sh", import.meta.url));
 const POSIX = process.platform !== "win32";
@@ -159,6 +160,44 @@ checks.push(["HELLO opens the protocol at the host's version", async () => {
     await agent.hello();
   } finally {
     await agent.close();
+  }
+}]);
+
+checks.push(["a cancelled write waiting behind a shell command never runs", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "wsl-agent-queued-cancel-"));
+  const marker = join(dir, "release");
+  const target = join(dir, "target");
+  const agent = new WslAgent({
+    distro: "local",
+    scriptPath: SCRIPT,
+    idleMs: 0,
+    signalable: false,
+    spawnTransport: () => spawn("sh", [SCRIPT], { stdio: ["pipe", "pipe", "pipe"] }),
+  });
+  try {
+    const running = agent.exec({ cwd: dir, argv: ["sh", "-c", "while [ ! -e \"$1\" ]; do sleep 0.02; done", "sh", marker] });
+    const deadline = Date.now() + 5000;
+    while (![...agent.pending.values()].some((request) => request.started)) {
+      assert.ok(Date.now() < deadline, "the shell command must start");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const controller = new AbortController();
+    const write = agent.fs({ op: "write", args: [target, "644", "replace", "-", "unexpected"], signal: controller.signal });
+    const queueDeadline = Date.now() + 5000;
+    while (agent.pending.size < 2) {
+      assert.ok(Date.now() < queueDeadline, "the write must enter the queue");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    controller.abort(new Error("cancelled"));
+    await assert.rejects(write, /cancelled/);
+    writeFileSync(marker, "");
+    assert.equal((await running).exitCode, 0);
+    assert.equal((await agent.fs({ op: "stat", args: [dir] })).exitCode, 0);
+    assert.equal(existsSync(target), false);
+  } finally {
+    writeFileSync(marker, "");
+    await agent.close();
+    rmSync(dir, { recursive: true, force: true });
   }
 }]);
 

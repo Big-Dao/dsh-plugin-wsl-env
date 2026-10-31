@@ -13,12 +13,9 @@
  *    create publishes with the distro-side no-replace link, a real atomic
  *    primitive that refuses to replace. An overwrite or edit carries the
  *    version it was based on INTO the write op, and the agent re-verifies it
- *    with a fresh stat one syscall before the rename: a concurrent writer
- *    (an editor save, `git stash`, another session) wins, and the stale
- *    write refuses with `FS_STALE_VERSION` instead of clobbering. That
- *    narrows the share backend's check-then-write window from a host round
- *    trip to kernel-adjacent — the honest wording; "closed" was true only
- *    for the create case.
+ *    with a fresh stat before the rename: an earlier conflicting write is
+ *    refused with `FS_STALE_VERSION`. A writer between that stat and the
+ *    rename can still be overwritten; only guarded create is atomic.
  * 2. A symlink needs no retry machinery: every identity is resolved where the
  *    symlinks live.
  *
@@ -75,7 +72,7 @@ export class AgentSubstrate {
   /** The resident in-distro agent reads ride. */
   declare agent: WslAgent;
   /** Stage-two routing: the agent a mutation must run on for the resolved policy, when wired. */
-  declare agentFor: ((policy: { mode: string, workspaceRoot: string } | undefined) => Promise<WslAgent>) | undefined;
+  declare agentFor: ((policy: { mode: string, workspaceRoot: string, sessionId?: string } | undefined) => Promise<WslAgent>) | undefined;
   /** The distro-side filesystem face. */
   declare fs: DistroFs;
   /** Per-targetKey tail promise: the host backend's mutation serialization. */
@@ -97,7 +94,7 @@ export class AgentSubstrate {
      * rights. Omitted (or resolving to `deps.agent`) keeps every op on the
      * plain resident, which is stage one's posture.
      */
-    agentFor?: (policy: { mode: string, workspaceRoot: string } | undefined) => Promise<WslAgent>,
+    agentFor?: (policy: { mode: string, workspaceRoot: string, sessionId?: string } | undefined) => Promise<WslAgent>,
   }) {
     this.distro = distro;
     this.diffBasisMaxBytes = diffBasisMaxBytes;
@@ -114,7 +111,7 @@ export class AgentSubstrate {
    *   caller pre-checked.
    * @returns the agent to publish through.
    */
-  async mutationAgent(policy: { mode: string, workspaceRoot: string } | undefined): Promise<WslAgent> {
+  async mutationAgent(policy: { mode: string, workspaceRoot: string, sessionId?: string } | undefined): Promise<WslAgent> {
     if (this.agentFor === undefined) return this.agent;
     return this.agentFor(policy);
   }
@@ -247,7 +244,7 @@ export class AgentSubstrate {
    * guard, best-effort diff basis, atomic publication, outcome shape. The
    * guard is FORWARDED — a guarded create publishes with the distro-side
    * no-replace link (atomic), and a `replaceIfVersion` write carries its
-   * version into the op, where the agent re-verifies it one syscall before
+   * version into the op, where the agent re-verifies it before
    * the rename and refuses with `FS_STALE_VERSION` on a mismatch.
    *
    * @param target - the resolved target.
@@ -257,7 +254,7 @@ export class AgentSubstrate {
    * @param policy - the resolved policy this write was fenced with; selects
    *   the confined resident when stage-two routing is wired.
    */
-  async writeText(target: ResolvedTarget, content: string, expected: { kind: string, version?: string } | undefined, signal?: AbortSignal, policy?: { mode: string, workspaceRoot: string } | undefined): Promise<{ operation: string, version: string, before: string | null, after: string }> {
+  async writeText(target: ResolvedTarget, content: string, expected: { kind: string, version?: string } | undefined, signal?: AbortSignal, policy?: { mode: string, workspaceRoot: string, sessionId?: string } | undefined): Promise<{ operation: string, version: string, before: string | null, after: string }> {
     const mutationAgent = await this.mutationAgent(policy);
     return this.lock(target.targetKey, async () => {
       const linuxPath = this.linuxOf(target);
@@ -298,8 +295,8 @@ export class AgentSubstrate {
    * Edit a text file with the host backend's orchestration: probe, version
    * guard, LF-normalized read, literal replacement, line-ending restore,
    * atomic publication, outcome shape. The version the edit was based on
-   * rides the write op and is re-verified distro-side one syscall before the
-   * rename, so a concurrent writer wins instead of being clobbered.
+   * rides the write op and is re-verified distro-side before the
+   * rename, narrowing but not eliminating the concurrent-write race.
    *
    * @param target - the resolved target.
    * @param edit - the literal request.
@@ -308,7 +305,7 @@ export class AgentSubstrate {
    * @param policy - the resolved policy this edit was fenced with; selects
    *   the confined resident when stage-two routing is wired.
    */
-  async editText(target: ResolvedTarget, edit: { oldString: string, newString: string, replaceAll?: boolean }, expected: { version: string } | undefined, signal?: AbortSignal, policy?: { mode: string, workspaceRoot: string } | undefined): Promise<{ version: string, before: string, after: string }> {
+  async editText(target: ResolvedTarget, edit: { oldString: string, newString: string, replaceAll?: boolean }, expected: { version: string } | undefined, signal?: AbortSignal, policy?: { mode: string, workspaceRoot: string, sessionId?: string } | undefined): Promise<{ version: string, before: string, after: string }> {
     const mutationAgent = await this.mutationAgent(policy);
     return this.lock(target.targetKey, async () => {
       const linuxPath = this.linuxOf(target);

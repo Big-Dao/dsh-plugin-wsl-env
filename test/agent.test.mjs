@@ -176,12 +176,140 @@ function scriptedTransport(children) {
 }
 
 const TEST_DIGEST = "6f".repeat(32);
-const CONFIG = { distro: "ubuntu", scriptPath: "/mnt/c/pkg/agent/wsl-agent.sh", idleMs: 0, expectedDigest: TEST_DIGEST };
+const CONFIG = { distro: "ubuntu", scriptPath: "/mnt/c/pkg/agent/wsl-agent.sh", idleMs: 0, expectedDigest: TEST_DIGEST, serialRequests: false };
 
 /** Two event-loop turns: enough for start() and the relay's microtask chain. */
 const flush = () => new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
 /** Wait past the cancel signal's grace so the delayed USR1 can land. */
 const settleCancel = () => new Promise((resolve) => setTimeout(resolve, 150));
+
+checkReg("a shell keeps later requests on the host and removes a cancelled one", async () => {
+  const child = new FakeAgentProcess();
+  child.silent = true;
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, serialRequests: true, spawnTransport: transport });
+  const controller = new AbortController();
+  const first = agent.exec({ cwd: "/", argv: ["true"] });
+  const cancelled = agent.fs({ op: "write", args: ["/tmp/f", "payload"], signal: controller.signal });
+  const last = agent.fs({ op: "stat", args: ["/tmp"] });
+  await flush();
+  assert.equal(child.frames.filter((line) => line.startsWith("EXEC|") || line.startsWith("FS|")).length, 1);
+  controller.abort(new Error("cancelled while queued"));
+  await assert.rejects(cancelled, /cancelled while queued/);
+  child.stdout.write("RES|r0|0||\n");
+  await flush();
+  assert.equal((await first).exitCode, 0);
+  assert.equal(child.frames.some((line) => line.startsWith("FS|r1|")), false);
+  assert.equal(child.frames.some((line) => line.startsWith("FS|r2|stat|")), true);
+  child.stdout.write("RES|r2|0||\n");
+  assert.equal((await last).exitCode, 0);
+  await agent.close();
+});
+
+checkReg("a shell crash refuses unsent writes and relays the active read", async () => {
+  const dying = new FakeAgentProcess();
+  dying.silent = true;
+  const healthy = new FakeAgentProcess();
+  const { transport } = scriptedTransport([dying, healthy]);
+  const agent = new WslAgent({ ...CONFIG, serialRequests: true, spawnTransport: transport });
+  const read = agent.fs({ op: "read", args: ["/tmp/f", "0", "16"] });
+  const write = agent.fs({ op: "write", args: ["/tmp/f", "payload"] }).then(() => null, (error) => error);
+  await flush();
+  dying.emit("exit", 1, null);
+  const [result, error] = await Promise.all([read, write]);
+  assert.equal(result.stdout.toString("utf8"), "hello-bytes\n");
+  assert.ok(error instanceof AgentUnavailableError);
+  assert.match(error.message, /never ran/);
+  assert.equal(healthy.frames.some((line) => line.includes("|write|")), false);
+  await agent.close();
+});
+
+checkReg("a shell send failure counts as a rejection without a settled request", async () => {
+  const child = new FakeAgentProcess();
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, serialRequests: true, spawnTransport: transport });
+  await agent.start();
+  child.stdin.destroy();
+  await assert.rejects(agent.fs({ op: "stat", args: ["/tmp"] }), /never ran/);
+  assert.equal(agent.metrics().fs.rejected, 1);
+  assert.equal(agent.metrics().fs.requests, 0);
+  assert.equal(agent.pending.size, 0);
+  await agent.close();
+});
+
+checkReg("a cancelled active shell request holds the queue until its answer", async () => {
+  const child = new FakeAgentProcess();
+  child.silent = true;
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, serialRequests: true, signalable: false, spawnTransport: transport });
+  const controller = new AbortController();
+  const active = agent.exec({ cwd: "/", argv: ["true"], signal: controller.signal });
+  const queued = agent.fs({ op: "stat", args: ["/tmp"] });
+  await flush();
+  child.stdout.write("ACK|r0\n");
+  controller.abort(new Error("cancelled active"));
+  await assert.rejects(active, /cancelled active/);
+  assert.equal(child.frames.some((line) => line.startsWith("FS|r1|")), false);
+  child.stdout.write(`ERR|r0|cwd|${encodeB64("/gone")}\n`);
+  await flush();
+  assert.equal(child.frames.some((line) => line.startsWith("FS|r1|stat|")), true);
+  child.stdout.write("RES|r1|0||\n");
+  assert.equal((await queued).exitCode, 0);
+  await agent.close();
+});
+
+checkReg("closing a shell rejects its active and unsent requests", async () => {
+  const child = new FakeAgentProcess();
+  child.silent = true;
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, serialRequests: true, spawnTransport: transport });
+  const active = agent.exec({ cwd: "/", argv: ["true"] }).then(() => null, (error) => error);
+  const queued = agent.fs({ op: "write", args: ["/tmp/f", "payload"] }).then(() => null, (error) => error);
+  await flush();
+  await agent.close();
+  const [first, second] = await Promise.all([active, queued]);
+  assert.ok(first instanceof AgentUnavailableError);
+  assert.ok(second instanceof AgentUnavailableError);
+  assert.equal(child.frames.some((line) => line.startsWith("FS|")), false);
+  assert.equal(agent.pending.size, 0);
+});
+
+checkReg("a prepared native agent sends requests concurrently", async () => {
+  const child = new FakeAgentProcess();
+  child.silent = true;
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({
+    ...CONFIG,
+    serialRequests: true,
+    spawnTransport: transport,
+    prepare: async () => ({ scriptPath: "/native/agent", expectedDigest: TEST_DIGEST, serialRequests: false }),
+  });
+  const first = agent.fs({ op: "stat", args: ["/tmp/a"] });
+  const second = agent.fs({ op: "stat", args: ["/tmp/b"] });
+  await flush();
+  assert.equal(child.frames.filter((line) => line.startsWith("FS|")).length, 2);
+  child.stdout.write("RES|r1|0||\nRES|r0|0||\n");
+  await Promise.all([first, second]);
+  await agent.close();
+});
+
+checkReg("exec scopes environment variables to each request", async () => {
+  const child = new FakeAgentProcess();
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  const [first, second] = await Promise.all([
+    agent.exec({ cwd: "/tmp", argv: ["printenv", "COLOR"], env: { COLOR: "red" } }),
+    agent.exec({ cwd: "/tmp", argv: ["printenv", "COLOR"], env: { COLOR: "blue" } }),
+  ]);
+  assert.equal(first.stdout.toString(), "env -- COLOR=red printenv COLOR\n");
+  assert.equal(second.stdout.toString(), "env -- COLOR=blue printenv COLOR\n");
+  assert.equal(child.frames.some((line) => line.startsWith("SETENV|")), false);
+  const equalsCommand = await agent.exec({ cwd: "/tmp", argv: ["./tool=name", "arg"], env: { COLOR: "red" } });
+  assert.equal(equalsCommand.stdout.toString(), "env -- COLOR=red /bin/sh -c exec \"$@\" env ./tool=name arg\n");
+  await assert.rejects(agent.exec({ cwd: "/tmp", argv: ["true"], env: { "-bad": "value" } }), /environment variable/);
+  await assert.rejects(agent.exec({ cwd: "/tmp", argv: ["true"], env: { GOOD: "bad\0value" } }), /environment variable/);
+  await agent.close();
+});
 
 checkReg("exec rides the handshake and resolves with the decoded result", async () => {
   const child = new FakeAgentProcess();

@@ -407,6 +407,8 @@ export declare class WslShellExecutor extends LocalBashExecutor {
     sessionRuntimes: SessionRuntimes;
     /** The runtimes this executor holds, by registry key. */
     sessionRuntimeEntries: Map<string, SessionRuntimeEntry>;
+    /** Isolates calls that have no session identity. */
+    sessionRuntimeOwner: string;
     /** The preflight's host runner; tests substitute it. */
     sessionScopeProbe: (argv: string[]) => Promise<string>;
     /** Distros whose session-runtime preflight has succeeded. */
@@ -491,7 +493,7 @@ export declare class WslShellExecutor extends LocalBashExecutor {
     executionAgent(distro: string): WslAgent;
     /**
      * The persistent session runtime for one policy, when `sessionSandbox` is
-     * on. The executor holds one reference per `(distro, workspace, policy)` and
+     * on. The executor holds one reference per `(session, distro, workspace, policy)` and
      * releases them when the session's scope disposes.
      *
      * @param policy - the resolved file-effect policy, when the executor has one.
@@ -502,6 +504,7 @@ export declare class WslShellExecutor extends LocalBashExecutor {
     sessionRuntimeFor(policy: {
         mode: string;
         workspaceRoot: string;
+        sessionId?: string;
     } | undefined, resolved: WslExecSpec, distro: string): SessionRuntimeEntry | undefined;
     /**
      * Run the session runtime's preflight once per executor. A failure is a
@@ -815,11 +818,11 @@ export declare class WslFileSystem extends LocalFileSystem {
         sandbox: z<boolean, boolean, "defined">;
         /**
          * Run confined mutations in the session's systemd user scope — the same
-         * runtime the shell executor acquires for the same (distro, workspace,
-         * policy) — instead of a per-policy confined resident. The kernel
-         * enforcement is the runtime's mount profile, so commands and writes see
-         * the same `/tmp` and workspace; the scope stops when the session's
-         * providers release it. Requires systemd + `Linger`, like `wsl-shell`'s
+         * runtime the shell executor acquires for the same session, distro,
+         * workspace and policy — instead of a per-policy confined resident. A
+         * missing session ID keeps the providers separate. The kernel enforcement
+         * is the runtime's mount profile; the scope stops when its providers
+         * release it. Requires systemd + `Linger`, like `wsl-shell`'s
          * `sessionSandbox`; the preflight refuses with the remedy. Off for direct
          * constructions; on in the shipped preset.
          */
@@ -890,11 +893,11 @@ export declare class WslFileSystem extends LocalFileSystem {
         sandbox: z<boolean, boolean, "defined">;
         /**
          * Run confined mutations in the session's systemd user scope — the same
-         * runtime the shell executor acquires for the same (distro, workspace,
-         * policy) — instead of a per-policy confined resident. The kernel
-         * enforcement is the runtime's mount profile, so commands and writes see
-         * the same `/tmp` and workspace; the scope stops when the session's
-         * providers release it. Requires systemd + `Linger`, like `wsl-shell`'s
+         * runtime the shell executor acquires for the same session, distro,
+         * workspace and policy — instead of a per-policy confined resident. A
+         * missing session ID keeps the providers separate. The kernel enforcement
+         * is the runtime's mount profile; the scope stops when its providers
+         * release it. Requires systemd + `Linger`, like `wsl-shell`'s
          * `sessionSandbox`; the preflight refuses with the remedy. Off for direct
          * constructions; on in the shipped preset.
          */
@@ -962,6 +965,8 @@ export declare class WslFileSystem extends LocalFileSystem {
     sessionRuntimes: SessionRuntimes;
     /** The runtimes this provider holds, by registry key. */
     sessionRuntimeEntries: Map<string, SessionRuntimeEntry>;
+    /** Isolates calls that have no session identity. */
+    sessionRuntimeOwner: string;
     /** The preflight's host runner; tests substitute it. */
     sessionScopeProbe: (argv: string[]) => Promise<string>;
     /** Distros whose session-runtime preflight has succeeded. */
@@ -1038,6 +1043,7 @@ export declare class WslFileSystem extends LocalFileSystem {
     sessionRuntimeFor(policy: {
         mode: string;
         workspaceRoot: string;
+        sessionId?: string;
     }, distro: string): SessionRuntimeEntry | undefined;
     /**
      * Run the session runtime's preflight once per provider. Only success is
@@ -1082,6 +1088,7 @@ export declare class WslFileSystem extends LocalFileSystem {
     mutationAgent(policy: {
         mode: string;
         workspaceRoot: string;
+        sessionId?: string;
     } | undefined, forDistro?: string): Promise<WslAgent>;
     /**
      * Map a substrate error onto the peer's `FsError`, so the tool layer reads
@@ -1292,8 +1299,8 @@ export declare class WslFileSystem extends LocalFileSystem {
      * Fence the write by the per-call policy, then publish through the
      * substrate. The fence's fresh target is the one checked and written, so a
      * refusal costs no I/O and cannot be raced by a swapped symlink; the guard
-     * rides the write op, where the agent re-verifies it one syscall before the
-     * rename and the confined resident enforces it in the kernel.
+     * rides the write op, where the agent re-verifies it before the rename;
+     * the confined resident enforces the mount boundary in the kernel.
      *
      * @param target - the resolved target.
      * @param content - the full new file content.

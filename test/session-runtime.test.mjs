@@ -72,6 +72,7 @@ const request = {
   workspaceRoot: "/home/andy/proj",
   mode: "workspace-write",
   maskWindowsDrive: false,
+  sessionId: "session-a",
 };
 
 check("the same key is one runtime, refcounted, with the scope + mount prefix", async () => {
@@ -101,6 +102,30 @@ check("the same key is one runtime, refcounted, with the scope + mount prefix", 
   await registry.release(first.key);
   assert.deepEqual(events, ["close", "stop"], "the last release closes, then stops the scope");
   assert.equal(stops[0]?.unit, first.unit);
+});
+
+check("different sessions in one workspace have separate runtimes and lifetimes", async () => {
+  const { registry, spawns, stops } = harness();
+  const first = registry.acquire(request);
+  const second = registry.acquire({ ...request, sessionId: "session-b" });
+  assert.notEqual(first.key, second.key);
+  assert.notEqual(first.unit, second.unit);
+  assert.equal(spawns.length, 2);
+  await registry.release(first.key);
+  assert.deepEqual(stops.map((entry) => entry.unit), [first.unit]);
+  await registry.release(second.key);
+  assert.deepEqual(stops.map((entry) => entry.unit), [first.unit, second.unit]);
+});
+
+check("missing or empty session identifiers do not share runtimes", async () => {
+  const { registry, spawns } = harness();
+  const first = registry.acquire({ ...request, sessionId: "" });
+  const second = registry.acquire({ ...request, sessionId: "" });
+  const third = registry.acquire({ ...request, sessionId: undefined });
+  assert.notEqual(first.key, second.key);
+  assert.notEqual(second.key, third.key);
+  assert.equal(spawns.length, 3);
+  await registry.disposeAll();
 });
 
 check("danger-full-access keeps the scope but no mounts", async () => {

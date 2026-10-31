@@ -104,7 +104,7 @@ decision this ADR cannot defer:
   one will stop a scope the other is still using.
 
 Recommended shape: a refcounted session-runtime registry keyed by
-`(distro, workspaceRoot, policy)`, created on first use by either provider and
+`(sessionId, distro, workspaceRoot, policy)`, created on first use by either provider and
 closed when the last user releases it (session end). The idle timer remains a
 safety net only while the runtime has no live users. The cost is one agent per
 live session instead of one per distro; the trade is fidelity (persistent
@@ -114,11 +114,9 @@ is simpler, but it makes one session's background processes every session's,
 and session end cannot stop the scope without killing the others; it is kept
 as a fallback if the per-session cost proves unacceptable.
 
-The launcher builders and the refcounted registry have landed
-(`src/session-scope.ts`, `src/session-runtime.ts`, with unit tests), and the
-shell executor is wired behind `sessionSandbox`, on in the shipped preset.
-The preflight is wired (a success is cached, a failure is refused with a
-remedy); the filesystem provider's unification is the next change.
+The launcher builders and refcounted registry are shared by the shell and
+filesystem providers behind `sessionSandbox`. A missing session ID uses a
+provider-local identity, so separate providers do not share their runtimes.
 
 ## Consequences
 
@@ -143,8 +141,9 @@ remedy); the filesystem provider's unification is the next change.
   or the native `dsh-wsl-agent`).
 - **FS mutations:** with `wsl-fs` `sessionSandbox: true` (the shipped preset),
   a confined write acquires the SAME runtime as the shell executor for the
-  same `(distro, workspace, policy)`: one agent, one mount profile, one real
-  `/tmp`. Reads still ride the plain shared agent (unconfined, the whole
+  same `(sessionId, distro, workspace, policy)`: one agent, one mount profile,
+  one real `/tmp`. Without a shared session ID the providers remain separate.
+  Reads still ride the plain shared agent (unconfined, the whole
   distro); the app-level `fs-routing` backend sets `sessionSandbox: false`
   because it is not session-owned.
 - **One-shot fallback:** `agent: false` and the `AgentUnavailableError` path

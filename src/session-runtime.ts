@@ -1,7 +1,7 @@
 /**
  * The session-scoped runtime registry (ADR 0001).
  *
- * One long-lived agent per `(distro, workspaceRoot, policy)`, shared by the
+ * One long-lived agent per `(sessionId, distro, workspaceRoot, policy)`, shared by the
  * providers that need it and refcounted: the first `acquire` spawns the agent
  * inside a systemd user scope, the last `release` closes the agent and stops
  * the scope (the cgroup then reaps any background dev server a command left
@@ -61,6 +61,8 @@ export async function probeSessionRuntime({ wslPath, distro, run }: {
 
 /** One request for a session runtime. */
 export interface SessionRuntimeRequest {
+  /** The session identity; absent requests each get a separate runtime. */
+  sessionId?: string;
   /** The distro the runtime lives in. */
   distro: string;
   /** The `wsl.exe` path; defaults to `wsl.exe`. */
@@ -147,6 +149,7 @@ const spawnSessionAgent = (options: { distro: string, wslPath: string, argvPrefi
       idleMs: options.idleMs,
       leaseMs: options.leaseMs,
       signalable: false,
+      serialRequests: false,
       spawnTransport: ({ wslPath, distro, argvPrefix }) =>
         spawn(wslPath, ["-d", distro, "--exec", ...argvPrefix, native.path], {
           stdio: ["pipe", "pipe", "pipe"],
@@ -207,15 +210,15 @@ export class SessionRuntimes {
   }
 
   /**
-   * The key a request addresses: distro, workspace, mode and mask. A policy
+   * The key a request addresses: session, distro, workspace, mode and mask. A policy
    * change is a different runtime, because the mount profile is fixed for the
    * agent's lifetime.
    *
    * @param request - the runtime request.
    * @returns the registry key.
    */
-  static key(request: Pick<SessionRuntimeRequest, "distro" | "workspaceRoot" | "mode" | "maskWindowsDrive">): string {
-    return [request.distro, request.workspaceRoot, request.mode, request.maskWindowsDrive === true ? "masked" : "visible"].join("\u0000");
+  static key(request: Pick<SessionRuntimeRequest, "distro" | "workspaceRoot" | "mode" | "maskWindowsDrive" | "sessionId">): string {
+    return [request.sessionId ?? "", request.distro, request.workspaceRoot, request.mode, request.maskWindowsDrive === true ? "masked" : "visible"].join("\u0000");
   }
 
   /**
@@ -225,7 +228,7 @@ export class SessionRuntimes {
    * @returns the live entry; the caller holds one reference.
    */
   acquire(request: SessionRuntimeRequest): SessionRuntimeEntry {
-    const key = SessionRuntimes.key(request);
+    const key = SessionRuntimes.key({ ...request, sessionId: request.sessionId || defaultToken() });
     const existing = this.runtimes.get(key);
     if (existing !== undefined) {
       existing.refs += 1;

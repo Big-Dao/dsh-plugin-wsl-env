@@ -61,6 +61,7 @@ export function sharedAgent(distro: string): WslAgent {
         scriptPath: prepared.path,
         expectedDigest: prepared.digest,
         signalable: false,
+        serialRequests: false,
         spawnTransport: ({ wslPath, distro: target, argvPrefix }) =>
           spawn(wslPath, ["-d", target, "--exec", ...argvPrefix, prepared.path], {
             stdio: ["pipe", "pipe", "pipe"],

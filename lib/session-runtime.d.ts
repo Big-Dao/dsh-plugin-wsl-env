@@ -1,7 +1,7 @@
 /**
  * The session-scoped runtime registry (ADR 0001).
  *
- * One long-lived agent per `(distro, workspaceRoot, policy)`, shared by the
+ * One long-lived agent per `(sessionId, distro, workspaceRoot, policy)`, shared by the
  * providers that need it and refcounted: the first `acquire` spawns the agent
  * inside a systemd user scope, the last `release` closes the agent and stops
  * the scope (the cgroup then reaps any background dev server a command left
@@ -43,6 +43,8 @@ export declare function probeSessionRuntime({ wslPath, distro, run }: {
 }): Promise<string | null>;
 /** One request for a session runtime. */
 export interface SessionRuntimeRequest {
+    /** The session identity; absent requests each get a separate runtime. */
+    sessionId?: string;
     /** The distro the runtime lives in. */
     distro: string;
     /** The `wsl.exe` path; defaults to `wsl.exe`. */
@@ -125,14 +127,14 @@ export declare class SessionRuntimes {
      */
     constructor(options?: SessionRuntimeOptions);
     /**
-     * The key a request addresses: distro, workspace, mode and mask. A policy
+     * The key a request addresses: session, distro, workspace, mode and mask. A policy
      * change is a different runtime, because the mount profile is fixed for the
      * agent's lifetime.
      *
      * @param request - the runtime request.
      * @returns the registry key.
      */
-    static key(request: Pick<SessionRuntimeRequest, "distro" | "workspaceRoot" | "mode" | "maskWindowsDrive">): string;
+    static key(request: Pick<SessionRuntimeRequest, "distro" | "workspaceRoot" | "mode" | "maskWindowsDrive" | "sessionId">): string;
     /**
      * Acquire the runtime for one key, creating it on first use.
      *

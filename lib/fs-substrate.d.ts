@@ -13,12 +13,9 @@
  *    create publishes with the distro-side no-replace link, a real atomic
  *    primitive that refuses to replace. An overwrite or edit carries the
  *    version it was based on INTO the write op, and the agent re-verifies it
- *    with a fresh stat one syscall before the rename: a concurrent writer
- *    (an editor save, `git stash`, another session) wins, and the stale
- *    write refuses with `FS_STALE_VERSION` instead of clobbering. That
- *    narrows the share backend's check-then-write window from a host round
- *    trip to kernel-adjacent — the honest wording; "closed" was true only
- *    for the create case.
+ *    with a fresh stat before the rename: an earlier conflicting write is
+ *    refused with `FS_STALE_VERSION`. A writer between that stat and the
+ *    rename can still be overwritten; only guarded create is atomic.
  * 2. A symlink needs no retry machinery: every identity is resolved where the
  *    symlinks live.
  *
@@ -59,6 +56,7 @@ export declare class AgentSubstrate {
     agentFor: ((policy: {
         mode: string;
         workspaceRoot: string;
+        sessionId?: string;
     } | undefined) => Promise<WslAgent>) | undefined;
     /** The distro-side filesystem face. */
     fs: DistroFs;
@@ -83,6 +81,7 @@ export declare class AgentSubstrate {
         agentFor?: (policy: {
             mode: string;
             workspaceRoot: string;
+            sessionId?: string;
         } | undefined) => Promise<WslAgent>;
     });
     /**
@@ -95,6 +94,7 @@ export declare class AgentSubstrate {
     mutationAgent(policy: {
         mode: string;
         workspaceRoot: string;
+        sessionId?: string;
     } | undefined): Promise<WslAgent>;
     /**
      * Run `op` with exclusive access to `targetKey` (FIFO per key).
@@ -204,7 +204,7 @@ export declare class AgentSubstrate {
      * guard, best-effort diff basis, atomic publication, outcome shape. The
      * guard is FORWARDED — a guarded create publishes with the distro-side
      * no-replace link (atomic), and a `replaceIfVersion` write carries its
-     * version into the op, where the agent re-verifies it one syscall before
+     * version into the op, where the agent re-verifies it before
      * the rename and refuses with `FS_STALE_VERSION` on a mismatch.
      *
      * @param target - the resolved target.
@@ -220,6 +220,7 @@ export declare class AgentSubstrate {
     } | undefined, signal?: AbortSignal, policy?: {
         mode: string;
         workspaceRoot: string;
+        sessionId?: string;
     } | undefined): Promise<{
         operation: string;
         version: string;
@@ -230,8 +231,8 @@ export declare class AgentSubstrate {
      * Edit a text file with the host backend's orchestration: probe, version
      * guard, LF-normalized read, literal replacement, line-ending restore,
      * atomic publication, outcome shape. The version the edit was based on
-     * rides the write op and is re-verified distro-side one syscall before the
-     * rename, so a concurrent writer wins instead of being clobbered.
+     * rides the write op and is re-verified distro-side before the
+     * rename, narrowing but not eliminating the concurrent-write race.
      *
      * @param target - the resolved target.
      * @param edit - the literal request.
@@ -249,6 +250,7 @@ export declare class AgentSubstrate {
     } | undefined, signal?: AbortSignal, policy?: {
         mode: string;
         workspaceRoot: string;
+        sessionId?: string;
     } | undefined): Promise<{
         version: string;
         before: string;

@@ -152,8 +152,8 @@ profile carrying the value is refused at boot, and no file tool crosses the
 - **Guarded writes** carry their intent to the publication: a `createIfAbsent`
   publishes with a no-replace link, closing the check-then-write window for
   creates outright; an overwrite or edit carries its version into the write op
-  and the agent re-verifies it one syscall before the rename — a concurrent
-  writer wins, the stale write refuses with `FS_STALE_VERSION`.
+  and the agent re-verifies it before the rename. A mismatch returns
+  `FS_STALE_VERSION`, but a change after that check can still be overwritten.
 - **Kernel enforcement** is stage two: a mutation runs on a confined resident —
   one long-lived agent per (distro, policy), whose bwrap profile binds exactly
   what the mode grants — so the kernel refuses what the check would have, and a

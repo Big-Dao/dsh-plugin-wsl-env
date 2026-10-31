@@ -27,6 +27,7 @@ import { SandboxUnavailableError } from "@deepseek-ai/dsh-sandbox";
 import { WslShellExecutor, WslFileSystem } from "../lib/index.js";
 import { FsCodedError } from "../lib/fsio-text.js";
 import { WslAgent } from "../lib/agent.js";
+import { SessionRuntimes } from "../lib/session-runtime.js";
 
 let passed = 0;
 /** @type {Array<[string, () => void | Promise<void>]>} */
@@ -67,7 +68,7 @@ const WORKSPACE = "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj";
  * (`onExpiry`/`stdoutMaxBytes` are `resolve()`'s to fill); several checks
  * deliberately pin `execute`'s own defaulting of an unresolved request, so
  * they cannot call `resolve()` first. One bridge keeps that intent visible.
- * @param {{ command: string, workdir: string, timeoutMs?: number, relativeWorkdir?: string, signal?: AbortSignal, env?: Record<string, string>, dshEnv?: Record<string, string>, sandboxPolicy?: { mode: "read-only"|"workspace-write"|"danger-full-access", workspaceRoot: string } }} request - the fields under test.
+ * @param {{ command: string, workdir: string, timeoutMs?: number, relativeWorkdir?: string, signal?: AbortSignal, env?: Record<string, string>, dshEnv?: Record<string, string>, sandboxPolicy?: { mode: "read-only"|"workspace-write"|"danger-full-access", workspaceRoot: string, sessionId?: string } }} request - the fields under test.
  * @returns {Parameters<WslShellExecutor["withDefaultWorkdir"]>[0]} the same object, in the resolved-spec parameter type.
  */
 const spec = (request) => /** @type {Parameters<WslShellExecutor["withDefaultWorkdir"]>[0]} */ (/** @type {unknown} */ (request));
@@ -244,7 +245,7 @@ check("with sessionSandbox, a confined mutation runs in the shared session runti
   const { fs } = makeFs({ sessionSandbox: true });
   fs.sandbox = coreStub(true);
   fs.sessionScopeProbe = async () => "ok";
-  /** @type {Array<{ distro: string, wslPath: string, workspaceRoot: string, mode: string, maskWindowsDrive?: boolean }>} */
+  /** @type {Array<{ distro: string, wslPath: string, workspaceRoot: string, mode: string, maskWindowsDrive?: boolean, sessionId?: string }>} */
   const acquired = [];
   /** @type {string[]} */
   const released = [];
@@ -252,7 +253,7 @@ check("with sessionSandbox, a confined mutation runs in the shared session runti
     exec: async () => ({ exitCode: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), truncated: { stdout: false, stderr: false } }),
   });
   fs.sessionRuntimes = /** @type {WslFileSystem["sessionRuntimes"]} */ (/** @type {unknown} */ ({
-    /** @param {{ distro: string, wslPath: string, workspaceRoot: string, mode: string, maskWindowsDrive?: boolean }} request - the runtime request. */
+    /** @param {{ distro: string, wslPath: string, workspaceRoot: string, mode: string, maskWindowsDrive?: boolean, sessionId?: string }} request - the runtime request. */
     acquire: (request) => {
       acquired.push(request);
       return { key: "fs-runtime", unit: "u", agent: runtimeAgent, distro: request.distro, wslPath: "wsl.exe", refs: 1 };
@@ -262,12 +263,13 @@ check("with sessionSandbox, a confined mutation runs in the shared session runti
       released.push(key);
     },
   }));
-  const agent = await fs.mutationAgent({ mode: "workspace-write", workspaceRoot: WORKSPACE });
+  const agent = await fs.mutationAgent({ mode: "workspace-write", workspaceRoot: WORKSPACE, sessionId: "session-a" });
   assert.equal(agent, runtimeAgent, "the write runs on the runtime's agent");
   assert.equal(acquired.length, 1);
   assert.equal(acquired[0]?.workspaceRoot, WORKSPACE);
   assert.equal(acquired[0]?.mode, "workspace-write");
-  const again = await fs.mutationAgent({ mode: "workspace-write", workspaceRoot: WORKSPACE });
+  assert.equal(acquired[0]?.sessionId, "session-a");
+  const again = await fs.mutationAgent({ mode: "workspace-write", workspaceRoot: WORKSPACE, sessionId: "session-a" });
   assert.equal(again, runtimeAgent, "the same key reuses the runtime");
   assert.equal(acquired.length, 1, "one runtime per session key");
   await fs.disposeSessionRuntimes();
@@ -282,6 +284,30 @@ check("with sessionSandbox, a failed preflight refuses the mutation with the rem
     () => fs.mutationAgent({ mode: "workspace-write", workspaceRoot: WORKSPACE }),
     /loginctl enable-linger/,
   );
+});
+
+check("shell and filesystem share only matching session runtimes", async () => {
+  const { fs } = makeFs({ sessionSandbox: true });
+  const { executor } = makeExecutor({ sessionSandbox: true });
+  const registry = new SessionRuntimes({
+    spawnAgent: () => /** @type {WslAgent} */ (/** @type {unknown} */ ({ close: async () => {} })),
+    stopScope: () => {},
+  });
+  fs.sessionRuntimes = registry;
+  executor.sessionRuntimes = registry;
+  const resolved = /** @type {Parameters<WslShellExecutor["sessionRuntimeFor"]>[1]} */ (/** @type {unknown} */ ({ workdir: WORKSPACE }));
+  const first = { mode: "workspace-write", workspaceRoot: WORKSPACE, sessionId: "session-a" };
+  const second = { ...first, sessionId: "session-b" };
+  const shellFirst = executor.sessionRuntimeFor(first, resolved, DISTRO);
+  const fsFirst = fs.sessionRuntimeFor(first, DISTRO);
+  const fsSecond = fs.sessionRuntimeFor(second, DISTRO);
+  assert.ok(shellFirst);
+  assert.equal(shellFirst, fsFirst);
+  assert.notEqual(shellFirst, fsSecond);
+  assert.notEqual(executor.sessionRuntimeFor({ ...first, sessionId: "" }, resolved, DISTRO), fs.sessionRuntimeFor({ ...first, sessionId: "" }, DISTRO));
+  await executor.disposeSessionRuntimes();
+  assert.equal(shellFirst.refs, 1);
+  await fs.disposeSessionRuntimes();
 });
 
 check("worldPath mints the pinned distro's UNC for a Linux path", async () => {
@@ -680,7 +706,7 @@ check("sessionSandbox refuses with the preflight remedy before acquiring", async
 check("with sessionSandbox, the command runs on the session runtime without the per-command wrap", async () => {
   const { executor, agentCalls } = makeExecutor({ sessionSandbox: true });
   executor.sessionScopeProbe = async () => "ok";
-  /** @type {Array<{ distro: string, wslPath: string, workspaceRoot: string, mode: string, maskWindowsDrive?: boolean }>} */
+  /** @type {Array<{ distro: string, wslPath: string, workspaceRoot: string, mode: string, maskWindowsDrive?: boolean, sessionId?: string }>} */
   const acquired = [];
   /** @type {string[]} */
   const released = [];
@@ -693,7 +719,7 @@ check("with sessionSandbox, the command runs on the session runtime without the 
     },
   });
   executor.sessionRuntimes = /** @type {WslShellExecutor["sessionRuntimes"]} */ (/** @type {unknown} */ ({
-    /** @param {{ distro: string, wslPath: string, workspaceRoot: string, mode: string, maskWindowsDrive?: boolean }} request - the runtime request. */
+    /** @param {{ distro: string, wslPath: string, workspaceRoot: string, mode: string, maskWindowsDrive?: boolean, sessionId?: string }} request - the runtime request. */
     acquire: (request) => {
       acquired.push(request);
       return { key: "k", unit: "u", agent: runtimeAgent, distro: request.distro, wslPath: "wsl.exe", refs: 1 };
@@ -703,7 +729,7 @@ check("with sessionSandbox, the command runs on the session runtime without the 
       released.push(key);
     },
   }));
-  const request = spec({ command: "echo hi", workdir: WORKSPACE, timeoutMs: 5000, sandboxPolicy: { mode: "workspace-write", workspaceRoot: WORKSPACE } });
+  const request = spec({ command: "echo hi", workdir: WORKSPACE, timeoutMs: 5000, sandboxPolicy: { mode: "workspace-write", workspaceRoot: WORKSPACE, sessionId: "session-a" } });
   const first = await executor.execute(request);
   await first.result();
   assert.equal(agentCalls.length, 0, "the shared agent is not used");
@@ -712,6 +738,7 @@ check("with sessionSandbox, the command runs on the session runtime without the 
   assert.equal(acquired.length, 1);
   assert.equal(acquired[0]?.mode, "workspace-write");
   assert.equal(acquired[0]?.workspaceRoot, WORKSPACE);
+  assert.equal(acquired[0]?.sessionId, "session-a");
   const second = await executor.execute(request);
   await second.result();
   assert.equal(acquired.length, 1, "one runtime per session key");

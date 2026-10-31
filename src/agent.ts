@@ -43,7 +43,7 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess, ChildProcessWithoutNullStreams } from "node:child_process";
 import { AgentUnavailableError, BASH_TIMEOUT_REASON, CwdError, SpawnError } from "./agent-errors.js";
-import { AGENT_NAME, MAX_FRAME_BYTES, PROTOCOL_VERSION, encodeExecFrame, encodeFsFrame, encodeKill, encodeSetEnv, parseAgentLine } from "./agent-protocol.js";
+import { AGENT_NAME, MAX_FRAME_BYTES, PROTOCOL_VERSION, encodeExecFrame, encodeFsFrame, encodeKill, parseAgentLine } from "./agent-protocol.js";
 import type { AgentMessage } from "./agent-protocol.js";
 
 /** One settled command result, as `exec` resolves it. */
@@ -69,7 +69,7 @@ export interface PendingRequest {
   seq: number;
   /** Which metric bucket this request belongs to. */
   kind: "fs" | "exec";
-  /** When the frame was written, for the queue measurement. */
+  /** When the request was submitted, for the queue measurement. */
   sentAt: number;
   /** When the agent ACKed it, for the execution measurement. */
   ackedAt?: number;
@@ -91,7 +91,9 @@ export interface PendingRequest {
   armWatchdog: (() => void) | null;
   /** Whether the agent has ACKed this request (it is the running one). */
   started: boolean;
-  /** The caller cancelled it; the entry stays until the agent answers. */
+  /** Whether the request frame has been sent to the agent. */
+  sent: boolean;
+  /** The caller cancelled it; a sent entry stays until the agent answers. */
   cancelled: boolean;
   /** The caller was already settled; a late answer only cleans up. */
   settled: boolean;
@@ -105,7 +107,7 @@ export interface PendingRequest {
 export interface RequestMetrics {
   /** Requests that settled (successful, failed or cancelled). */
   requests: number;
-  /** Total queue wait (sent -> ACK), ms. */
+  /** Total queue wait (submission -> ACK), ms. */
   queueMs: number;
   /** Largest single queue wait, ms. */
   queueMaxMs: number;
@@ -171,6 +173,8 @@ export interface WslAgentPrepared {
   expectedDigest?: string;
   /** Whether USR1 can reach the agent (false for the native KILL-frame path). */
   signalable?: boolean;
+  /** Whether the agent handles only one request at a time. */
+  serialRequests?: boolean;
   /** The process factory for this entry. */
   spawnTransport?: (options: { wslPath: string, distro: string, scriptPath: string, argvPrefix: string[], leaseMs: number }) => ChildProcess;
 }
@@ -334,6 +338,8 @@ export class WslAgent {
    * opts in explicitly.
    */
   declare signalable: boolean;
+  /** Whether requests must wait on the host until the previous answer. */
+  declare serialRequests: boolean;
   /** The maximum requests allowed in flight on this resident. */
   declare maxPending: number;
   /** The live resident process, when any. */
@@ -410,6 +416,8 @@ export class WslAgent {
      * prefix but no PID namespace and must opt in.
      */
     signalable?: boolean,
+    /** Whether the agent handles only one request at a time; defaults to shell behavior. */
+    serialRequests?: boolean,
     /** Hard ceiling in bytes on one stdout protocol line; defaults to {@link MAX_FRAME_BYTES}. */
     frameCapBytes?: number,
     /** Injectable process factory for tests. */
@@ -434,6 +442,7 @@ export class WslAgent {
     this.wslPath = config.wslPath ?? "wsl.exe";
     this.argvPrefix = config.argvPrefix ?? [];
     this.signalable = config.signalable ?? this.argvPrefix.length === 0;
+    this.serialRequests = config.serialRequests ?? true;
     this.idleMs = config.idleMs ?? 600000;
     this.expectedDigest = config.expectedDigest;
     this.frameCapBytes = config.frameCapBytes ?? MAX_FRAME_BYTES;
@@ -561,6 +570,7 @@ export class WslAgent {
     this.scriptPath = entry.scriptPath;
     this.expectedDigest = entry.expectedDigest;
     if (entry.signalable !== undefined) this.signalable = entry.signalable;
+    if (entry.serialRequests !== undefined) this.serialRequests = entry.serialRequests;
     if (entry.spawnTransport !== undefined) this.configuredSpawn = entry.spawnTransport;
   }
 
@@ -732,6 +742,7 @@ export class WslAgent {
         this.clearPending(pending);
         this.pending.delete(message.id);
         this.rearmIdleTimer();
+        this.dispatchQueued();
         // A cancelled request keeps its entry only until this answer arrives.
         if (pending.settled) break;
         pending.settled = true;
@@ -745,6 +756,7 @@ export class WslAgent {
         this.clearPending(pending);
         this.pending.delete(message.id);
         this.rearmIdleTimer();
+        this.dispatchQueued();
         if (pending.settled) break;
         pending.settled = true;
         // A cwd rejection is the command's own failure, not the agent's — it
@@ -809,7 +821,12 @@ export class WslAgent {
           this.clearPending(pending);
           continue;
         }
-        if (isReplayableFrame(pending.lines)) {
+        if (!pending.sent) {
+          this.clearPending(pending);
+          if (pending.settled) continue;
+          pending.settled = true;
+          pending.reject(new AgentUnavailableError(`agent exited before request ${pending.id} was sent; it never ran`));
+        } else if (isReplayableFrame(pending.lines)) {
           if (pending.watchdog) {
             clearTimeout(pending.watchdog);
             pending.watchdog = null;
@@ -827,12 +844,17 @@ export class WslAgent {
       this.start()
         .then(() => {
           for (const pending of relayable) {
+            if (pending.settled || pending.signal?.aborted) continue;
             const id = `r${this.nextRequestId++}`;
             pending.id = id;
+            pending.seq = Number(id.slice(1));
+            pending.lines = relabelFrame(pending.lines, id);
+            pending.sent = false;
+            pending.started = false;
             this.pending.set(id, pending);
             // The rebuilt transport can itself be gone by now; a frame that
             // cannot be written must fail its caller, not strand the entry.
-            if (!this.writeLines(relabelFrame(pending.lines, id))) {
+            if (!this.serialRequests && !this.sendPending(pending)) {
               this.clearPending(pending);
               this.pending.delete(id);
               if (pending.settled) continue;
@@ -840,6 +862,7 @@ export class WslAgent {
               pending.reject(new AgentUnavailableError(`agent exited before request ${id} could be re-sent; its state is unknown`));
             }
           }
+          this.dispatchQueued();
         })
         .catch((error) => {
           for (const pending of relayable) {
@@ -913,6 +936,7 @@ export class WslAgent {
       signal: signal ?? null,
       onAbort: null,
       started: false,
+      sent: false,
       cancelled: false,
       settled: false,
       answered: false,
@@ -947,6 +971,14 @@ export class WslAgent {
       }
       pending.onAbort = () => {
         pending.cancelled = true;
+        if (!pending.sent) {
+          this.pending.delete(pending.id);
+          this.clearPending(pending);
+          pending.settled = true;
+          pending.reject(signal.reason instanceof Error ? signal.reason : new Error("aborted"));
+          this.rearmIdleTimer();
+          return;
+        }
         // The frame is the fallback for an agent that cannot be signalled (a
         // confined resident, a build without the USR1 trap); the signal is what
         // interrupts the command the agent is blocked on right now.
@@ -973,7 +1005,9 @@ export class WslAgent {
     // dropping it used to strand the request: nothing would ever answer, the
     // watchdog (armed on an ACK that will not come) had no process to kill,
     // and with no timeout the caller waited forever.
-    if (!this.writeLines(lines)) {
+    if (this.serialRequests) {
+      this.dispatchQueued();
+    } else if (!this.sendPending(pending)) {
       this.clearPending(pending);
       this.pending.delete(pending.id);
       this.noteRejected(kind);
@@ -981,6 +1015,29 @@ export class WslAgent {
       return;
     }
     this.rearmIdleTimer();
+  }
+
+  /** Send a tracked request, recording dispatch before synchronous responses. */
+  private sendPending(pending: PendingRequest): boolean {
+    pending.sent = true;
+    return this.writeLines(pending.lines);
+  }
+
+  /** Dispatch the next shell request only after the preceding answer. */
+  private dispatchQueued(): void {
+    if (!this.serialRequests || [...this.pending.values()].some((pending) => pending.sent)) return;
+    const pending = this.pending.values().next().value;
+    if (pending === undefined) return;
+    if (this.sendPending(pending)) return;
+    this.clearPending(pending);
+    this.pending.delete(pending.id);
+    if (!pending.settled) {
+      pending.settled = true;
+      pending.measured = true;
+      this.noteRejected(pending.kind);
+      pending.reject(new AgentUnavailableError("the agent exited before the request could be sent; it never ran"));
+    }
+    this.dispatchQueued();
   }
 
   /**
@@ -1012,15 +1069,21 @@ export class WslAgent {
      * keeps the unbounded capture.
      */
     maxOutputBytes?: number,
-    /** Cancels the request (KILL + reject). */
+    /** Cancels the request, sending KILL if it was already dispatched. */
     signal?: AbortSignal,
   }): Promise<{ exitCode: number, stdout: Buffer, stderr: Buffer, truncated: { stdout: boolean, stderr: boolean } }> {
+    const assignments = Object.entries(env ?? {}).map(([key, value]) => {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || value.includes("\0")) {
+        throw new Error(`invalid environment variable: ${key}`);
+      }
+      return `${key}=${value}`;
+    });
+    if (assignments.length > 0 && argv.length === 0) throw new Error("cannot execute an empty command");
     await this.start();
     const id = `r${this.nextRequestId++}`;
-    const lines = [
-      ...(env ? Object.entries(env).map(([key, value]) => encodeSetEnv(key, value)) : []),
-      ...encodeExecFrame({ id, cwd, argv, timeoutMs, maxOutputBytes }),
-    ];
+    const commandArgv = argv[0]?.includes("=") ? ["/bin/sh", "-c", "exec \"$@\"", "env", ...argv] : argv;
+    const requestArgv = assignments.length > 0 ? ["env", "--", ...assignments, ...commandArgv] : argv;
+    const lines = encodeExecFrame({ id, cwd, argv: requestArgv, timeoutMs, maxOutputBytes });
     return new Promise((resolve, reject) => {
       this.track({ id, kind: "exec", lines, resolve, reject, timeoutMs, signal });
     });
@@ -1050,7 +1113,7 @@ export class WslAgent {
      * dequeue ACK; `<= 0` or omitted means none.
      */
     timeoutMs?: number,
-    /** Cancels the request (KILL + reject). */
+    /** Cancels the request, sending KILL if it was already dispatched. */
     signal?: AbortSignal,
   }): Promise<{ exitCode: number, stdout: Buffer, stderr: Buffer }> {
     await this.start();
@@ -1092,7 +1155,7 @@ export class WslAgent {
    * @param signal - the signal to deliver (`SIGUSR1` is the cancel trap).
    */
   /**
-   * The cumulative request metrics: queue wait (sent -> ACK) and execution
+   * The cumulative request metrics: queue wait (submission -> ACK) and execution
    * time (ACK -> settle) per request kind, plus the peak in-flight count.
    *
    * @returns a snapshot the caller can keep.
@@ -1327,8 +1390,7 @@ const REPLAYABLE_FS_OPS = new Set(["stat", "lstat", "list", "realpath", "read"])
  * Whether a stored request frame's first execution provably had no side
  * effects, so the frame may ride the one permitted rebuild. An EXEC never
  * qualifies — a command's effects are unknowable after the agent died — and
- * neither does an FS `write`. (A SETENV prefix line never decides: the frame
- * header sits at `lines[0]` only for FS frames, which carry no SETENV.)
+ * neither does an FS `write`.
  *
  * @param lines - the stored frame.
  * @returns true when the frame may be replayed.
@@ -1342,8 +1404,7 @@ function isReplayableFrame(lines: string[]): boolean {
 
 /**
  * Rewrite the request id inside a stored frame so a resent request does not
- * collide with ids the new process has already seen. SETENV lines pass
- * through unchanged (they are id-less and idempotent).
+ * collide with ids the new process has already seen.
  *
  * @param lines - the stored frame.
  * @param newId - the new request id.

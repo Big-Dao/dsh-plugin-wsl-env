@@ -50,9 +50,8 @@
 #          of its stderr (reason: notfound notdir perm loop exists stale io),
 #          which the host's adapter maps onto the FsError codes the tool layer
 #          knows. A `replace` write carrying an expected version re-verifies it
-#          against a fresh stat one syscall before the rename and refuses with
-#          `stale` on a mismatch — the concurrent writer wins, the model's
-#          stale write does not land.
+#          against a fresh stat before the rename and refuses with `stale` on
+#          a mismatch; a later concurrent write can still be overwritten.
 #
 # Confinement is NOT this script's business: the host wraps argv in the bwrap
 # profile (lib/sandbox.js) before the frame is sent, so the agent executes
@@ -510,8 +509,8 @@ sweep_staging() {
 fs_write() {
   # $1 = base64 path, $2 = base64 mode (`-` keeps none), $3 = base64
   # `replace` or `no-replace`, $4 = expected version (`-` for none) — the
-  # version string this write was based on, re-verified one syscall before the
-  # rename so a concurrent writer wins instead of being clobbered — and $5 =
+  # version string this write was based on, re-verified before the rename;
+  # a later concurrent write can still be overwritten — and $5 =
   # content STILL base64. Mirrors fsio's POSIX publication: a private 0700
   # sibling staging dir, a 0600 temp, fsync, chmod, then an atomic rename — or
   # a hard link that refuses to replace for guarded creates.

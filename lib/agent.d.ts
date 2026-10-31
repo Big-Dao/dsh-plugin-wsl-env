@@ -65,7 +65,7 @@ export interface PendingRequest {
     seq: number;
     /** Which metric bucket this request belongs to. */
     kind: "fs" | "exec";
-    /** When the frame was written, for the queue measurement. */
+    /** When the request was submitted, for the queue measurement. */
     sentAt: number;
     /** When the agent ACKed it, for the execution measurement. */
     ackedAt?: number;
@@ -87,7 +87,9 @@ export interface PendingRequest {
     armWatchdog: (() => void) | null;
     /** Whether the agent has ACKed this request (it is the running one). */
     started: boolean;
-    /** The caller cancelled it; the entry stays until the agent answers. */
+    /** Whether the request frame has been sent to the agent. */
+    sent: boolean;
+    /** The caller cancelled it; a sent entry stays until the agent answers. */
     cancelled: boolean;
     /** The caller was already settled; a late answer only cleans up. */
     settled: boolean;
@@ -100,7 +102,7 @@ export interface PendingRequest {
 export interface RequestMetrics {
     /** Requests that settled (successful, failed or cancelled). */
     requests: number;
-    /** Total queue wait (sent -> ACK), ms. */
+    /** Total queue wait (submission -> ACK), ms. */
     queueMs: number;
     /** Largest single queue wait, ms. */
     queueMaxMs: number;
@@ -147,6 +149,8 @@ export interface WslAgentPrepared {
     expectedDigest?: string;
     /** Whether USR1 can reach the agent (false for the native KILL-frame path). */
     signalable?: boolean;
+    /** Whether the agent handles only one request at a time. */
+    serialRequests?: boolean;
     /** The process factory for this entry. */
     spawnTransport?: (options: {
         wslPath: string;
@@ -236,6 +240,8 @@ export declare class WslAgent {
      * opts in explicitly.
      */
     signalable: boolean;
+    /** Whether requests must wait on the host until the previous answer. */
+    serialRequests: boolean;
     /** The maximum requests allowed in flight on this resident. */
     maxPending: number;
     /** The live resident process, when any. */
@@ -311,6 +317,8 @@ export declare class WslAgent {
          * prefix but no PID namespace and must opt in.
          */
         signalable?: boolean;
+        /** Whether the agent handles only one request at a time; defaults to shell behavior. */
+        serialRequests?: boolean;
         /** Hard ceiling in bytes on one stdout protocol line; defaults to {@link MAX_FRAME_BYTES}. */
         frameCapBytes?: number;
         /** Injectable process factory for tests. */
@@ -412,6 +420,10 @@ export declare class WslAgent {
      * @param request - the request to register.
      */
     private track;
+    /** Send a tracked request, recording dispatch before synchronous responses. */
+    private sendPending;
+    /** Dispatch the next shell request only after the preceding answer. */
+    private dispatchQueued;
     /**
      * Run one command inside the distro through the agent.
      *
@@ -441,7 +453,7 @@ export declare class WslAgent {
          * keeps the unbounded capture.
          */
         maxOutputBytes?: number;
-        /** Cancels the request (KILL + reject). */
+        /** Cancels the request, sending KILL if it was already dispatched. */
         signal?: AbortSignal;
     }): Promise<{
         exitCode: number;
@@ -476,7 +488,7 @@ export declare class WslAgent {
          * dequeue ACK; `<= 0` or omitted means none.
          */
         timeoutMs?: number;
-        /** Cancels the request (KILL + reject). */
+        /** Cancels the request, sending KILL if it was already dispatched. */
         signal?: AbortSignal;
     }): Promise<{
         exitCode: number;
@@ -505,7 +517,7 @@ export declare class WslAgent {
      * @param signal - the signal to deliver (`SIGUSR1` is the cancel trap).
      */
     /**
-     * The cumulative request metrics: queue wait (sent -> ACK) and execution
+     * The cumulative request metrics: queue wait (submission -> ACK) and execution
      * time (ACK -> settle) per request kind, plus the peak in-flight count.
      *
      * @returns a snapshot the caller can keep.
@@ -592,8 +604,7 @@ export declare class WslAgent {
 }
 /**
  * Rewrite the request id inside a stored frame so a resent request does not
- * collide with ids the new process has already seen. SETENV lines pass
- * through unchanged (they are id-less and idempotent).
+ * collide with ids the new process has already seen.
  *
  * @param lines - the stored frame.
  * @param newId - the new request id.

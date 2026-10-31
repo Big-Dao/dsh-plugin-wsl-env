@@ -8,19 +8,27 @@
  *   node agent/native/spike/test.mjs [path-to-binary]
  */
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { decodeB64, encodeExecFrame, encodeFsFrame, encodeKill, encodeSetEnv } from "../../../lib/agent-protocol.js";
+import { WslAgent } from "../../../lib/agent.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, "..", "..", "..");
 const binary = process.argv[2] ?? join(here, "target", "release", "dsh-wsl-agent-spike");
 const shellAgent = join(repo, "agent", "wsl-agent.sh");
+const nativeRunner = process.env.DSH_NATIVE_TEST_RUNNER;
+
+function spawnAgent(command, args) {
+  return command === binary && nativeRunner
+    ? spawn(nativeRunner, [binary, ...args], { stdio: ["pipe", "pipe", "pipe"] })
+    : spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
+}
 
 let passed = 0;
 const check = async (name, fn) => {
@@ -36,7 +44,7 @@ const check = async (name, fn) => {
 
 class Session {
   constructor(command, args) {
-    this.child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
+    this.child = spawnAgent(command, args);
     this.stderrText = "";
     this.child.stderr.on("data", (chunk) => { this.stderrText += chunk.toString(); });
     this.next = 0;
@@ -52,7 +60,7 @@ class Session {
     this.lines.on("line", (line) => {
       const f = line.split("|");
       if (f[0] === "HELLO") {
-        this.helloResolve({ name: f[1], version: Number(f[2]), digest: f[3] });
+        this.helloResolve({ name: f[1], version: Number(f[2]), digest: f[3], pid: Number(f[4]) });
         return;
       }
       if (f[0] === "PONG") {
@@ -429,6 +437,140 @@ await check("FS write publishes a setuid mode and stat reports it", async () => 
       const stat = parseStat((await session.fs({ op: "stat", args: [file] })).stdout);
       assert.equal(stat.mode, "4755");
       await session.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+await check("an immediately cancelled EXEC does not start after KILL", async () => {
+  const session = new Session(binary, []);
+  try {
+    await session.hello;
+    const pending = [];
+    for (let index = 1; index <= 24; index += 1) {
+      pending.push(session.exec({ argv: ["sh", "-c", "sleep 0.1; printf survived"] }));
+      session.kill(`r${index}`);
+    }
+    const results = await Promise.all(pending);
+    assert.ok(results.every((result) => result.exitCode !== 0 && result.stdout.length === 0));
+  } finally {
+    await session.close();
+  }
+});
+
+await check("a cancelled queued FS write never publishes", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spike-cancel-"));
+  const fifo = join(root, "fifo");
+  const target = join(root, "target");
+  assert.equal(spawnSync("mkfifo", [fifo]).status, 0);
+  const session = new Session(binary, []);
+  try {
+    await session.hello;
+    const blocked = session.fs({ op: "read", args: [fifo, "0", "10"] });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const write = session.fs({ op: "write", args: [target, "-", "no-replace", "-", "content"] });
+    session.kill("r2");
+    const writer = spawn("sh", ["-c", "printf x > \"$1\"", "sh", fifo]);
+    const writerDone = new Promise((resolve) => writer.once("exit", resolve));
+    await blocked;
+    const result = await write;
+    await writerDone;
+    assert.notEqual(result.exitCode, 0);
+    assert.equal(existsSync(target), false);
+  } finally {
+    await session.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+await check("native writes preserve an existing staging-like directory", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spike-stage-"));
+  const session = new Session(binary, []);
+  try {
+    const { pid } = await session.hello;
+    const existing = join(root, `.target.${pid}.tmpdir`);
+    mkdirSync(existing);
+    writeFileSync(join(existing, "keep"), "existing");
+    const result = await session.fs({ op: "write", args: [join(root, "target"), "-", "no-replace", "-", "content"] });
+    assert.equal(result.exitCode, 0);
+    assert.equal(readFileSync(join(existing, "keep"), "utf8"), "existing");
+  } finally {
+    await session.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+await check("native writes support maximum-length file names", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spike-long-name-"));
+  const session = new Session(binary, []);
+  try {
+    await session.hello;
+    const target = join(root, "x".repeat(255));
+    const result = await session.fs({ op: "write", args: [target, "-", "no-replace", "-", "content"] });
+    assert.equal(result.exitCode, 0, result.stderr.toString());
+    assert.equal(readFileSync(target, "utf8"), "content");
+  } finally {
+    await session.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+await check("a background child holding output does not delay EXEC", async () => {
+  const session = new Session(binary, []);
+  try {
+    await session.hello;
+    const started = Date.now();
+    const result = await session.exec({ argv: ["sh", "-c", "sleep 2 & printf done"] });
+    assert.equal(result.stdout.toString(), "done");
+    assert.ok(Date.now() - started < 1500);
+  } finally {
+    await session.close();
+  }
+});
+
+await check("continuous background output does not hold a completed EXEC", async () => {
+  const session = new Session(binary, []);
+  try {
+    await session.hello;
+    const result = await Promise.race([
+      session.exec({ argv: ["sh", "-c", "yes & yes & yes & printf done"], maxOutputBytes: 1024 }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("background output held the request")), 3000)),
+    ]);
+    assert.equal(result.exitCode, 0);
+    assert.ok(result.stdout.length <= 1024);
+  } finally {
+    await session.close();
+  }
+});
+
+await check("request environments stay isolated for both agents", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spike-env-"));
+  const equalsCommand = join(root, "command=name");
+  writeFileSync(equalsCommand, "#!/bin/sh\nprintf %s \"$DSH_ENV_TEST\"\n", { mode: 0o700 });
+  try {
+    for (const [command, args] of [[binary, []], ["sh", [shellAgent]]]) {
+      const agent = new WslAgent({
+        distro: "test",
+        scriptPath: shellAgent,
+        idleMs: 0,
+        signalable: false,
+        serialRequests: command !== binary,
+        spawnTransport: () => spawnAgent(command, args),
+      });
+      try {
+        const request = (env) => agent.exec({ cwd: repo, argv: ["sh", "-c", "printf %s \"${DSH_ENV_TEST-unset}\""], env });
+        const first = await request({ DSH_ENV_TEST: "first" });
+        const absent = await request({});
+        const concurrent = await Promise.all([request({ DSH_ENV_TEST: "left" }), request({ DSH_ENV_TEST: "right" })]);
+        assert.equal(first.stdout.toString(), "first");
+        assert.equal(absent.stdout.toString(), "unset");
+        assert.deepEqual(concurrent.map((result) => result.stdout.toString()), ["left", "right"]);
+        const equalsResult = await agent.exec({ cwd: root, argv: [equalsCommand], env: { DSH_ENV_TEST: "equals" } });
+        assert.equal(equalsResult.stdout.toString(), "equals");
+      } finally {
+        await agent.close();
+      }
     }
   } finally {
     rmSync(root, { recursive: true, force: true });

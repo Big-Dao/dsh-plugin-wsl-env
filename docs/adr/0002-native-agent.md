@@ -330,9 +330,9 @@ limitations in `docs/LIMITATIONS.md` remain the declared boundary.
 - v6 JSON instead of line/base64? The line protocol is proven and the host
   parser is small; JSON would need a sh-free host but is easier to extend.
   The spike should decide after measuring the v5-native parser work.
-- Per-request environment vs a fixed agent environment: the host's bwrap
-  wrapper already sets the command's environment; `SETENV` is used for sticky
-  facts. Concurrency makes sticky state suspect; likely per-request in v6.
+- Per-request environment: the v5 host prefixes each command with `env`, so
+  its variables do not mutate the agent. The low-level `SETENV` frame remains
+  sticky for protocol compatibility; a future v6 can remove it.
 - FS path locking and concurrent write semantics (same path, two requests):
   the host's per-target lock is the current answer; does the agent need its
   own?

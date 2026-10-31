@@ -1,9 +1,8 @@
 //! Spike for ADR 0002: an EXEC/KILL event loop with per-request process groups.
 //!
 //! Scope of this spike (deliberately small):
-//!   HELLO, PING, SHUTDOWN, SETENV, EXEC, KILL.
-//! FS frames are consumed and refused; the shell's FS record/staging formats
-//! are the next stage.
+//!   HELLO, PING, SHUTDOWN, SETENV, EXEC, KILL, FS.
+//! Filesystem operations use the shell agent's v5 record and staging formats.
 //!
 //! It exists to answer two questions with real code: can a native loop keep
 //! one command running while another finishes (the shell's serial stall), and
@@ -12,10 +11,12 @@
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, Read, Seek, SeekFrom, Write};
-use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::fd::AsRawFd;
+use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -27,6 +28,8 @@ const SIGKILL: i32 = 9;
 
 extern "C" {
     fn kill(pid: i32, sig: i32) -> i32;
+    fn fcntl(fd: i32, command: i32, ...) -> i32;
+    fn ioctl(fd: i32, request: u64, ...) -> i32;
 }
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -68,6 +71,24 @@ fn b64_encode(data: &[u8]) -> String {
 
 type Out = Arc<Mutex<()>>;
 
+struct ActiveRequest {
+    cancelled: Arc<AtomicBool>,
+    pgid: Option<i32>,
+}
+
+type Active = Arc<Mutex<HashMap<String, ActiveRequest>>>;
+
+struct RequestGuard {
+    active: Active,
+    id: String,
+}
+
+impl Drop for RequestGuard {
+    fn drop(&mut self) {
+        self.active.lock().unwrap().remove(&self.id);
+    }
+}
+
 fn write_line(out: &Out, line: &str) {
     let _guard = out.lock().unwrap();
     let mut stdout = io::stdout().lock();
@@ -76,14 +97,34 @@ fn write_line(out: &Out, line: &str) {
     let _ = stdout.flush();
 }
 
-fn read_bounded<R: Read>(mut reader: R, cap: usize) -> (Vec<u8>, bool) {
+fn read_bounded<R: Read + AsRawFd>(mut reader: R, cap: usize, finished: Arc<AtomicBool>) -> (Vec<u8>, bool) {
+    let fd = reader.as_raw_fd();
+    let flags = unsafe { fcntl(fd, 3) };
+    if flags < 0 || unsafe { fcntl(fd, 4, flags | 0x800) } < 0 {
+        return (Vec::new(), false);
+    }
     let mut buffer = Vec::new();
     let mut chunk = [0u8; 8192];
     let mut cut = false;
+    let mut remaining = None;
     loop {
-        match reader.read(&mut chunk) {
+        if remaining.is_none() && finished.load(Ordering::Acquire) {
+            let mut available = 0i32;
+            if unsafe { ioctl(fd, 0x541b, &mut available) } < 0 {
+                break;
+            }
+            remaining = Some(available.max(0) as usize);
+        }
+        let limit = remaining.unwrap_or(chunk.len()).min(chunk.len());
+        if limit == 0 {
+            break;
+        }
+        match reader.read(&mut chunk[..limit]) {
             Ok(0) => break,
             Ok(n) => {
+                if let Some(left) = remaining.as_mut() {
+                    *left -= n;
+                }
                 if cap == 0 {
                     buffer.extend_from_slice(&chunk[..n]);
                 } else if buffer.len() < cap {
@@ -99,10 +140,35 @@ fn read_bounded<R: Read>(mut reader: R, cap: usize) -> (Vec<u8>, bool) {
                     cut = true;
                 }
             }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                if finished.load(Ordering::Acquire) {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
             Err(_) => break,
         }
     }
     (buffer, cut)
+}
+
+fn cancel_group(active: &Active, id: &str, pgid: i32) {
+    {
+        let requests = active.lock().unwrap();
+        if requests.get(id).and_then(|request| request.pgid) != Some(pgid) {
+            return;
+        }
+        unsafe { kill(-pgid, SIGTERM) };
+    }
+    let active = Arc::clone(active);
+    let id = id.to_string();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(3000));
+        if active.lock().unwrap().get(&id).and_then(|request| request.pgid) == Some(pgid) {
+            unsafe { kill(-pgid, SIGKILL) };
+        }
+    });
 }
 
 fn exit_code(status: std::process::ExitStatus) -> i32 {
@@ -281,15 +347,38 @@ fn resolve_path(path: &str) -> Result<String, (String, String)> {
     }
 }
 
+fn create_staging(directory: &Path) -> io::Result<std::path::PathBuf> {
+    let mut random = File::open("/dev/urandom")?;
+    for _ in 0..16 {
+        let mut bytes = [0u8; 16];
+        random.read_exact(&mut bytes)?;
+        let token: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+        let staging = directory.join(format!(".dsh-wsl-{}-{token}.tmpdir", std::process::id()));
+        match fs::DirBuilder::new().mode(0o700).create(&staging) {
+            Ok(()) => return Ok(staging),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(io::ErrorKind::AlreadyExists, "cannot allocate staging directory"))
+}
+
 fn handle_fs(
     id: String,
     op: String,
     args: Vec<Vec<u8>>,
     out: Out,
     fs_lock: Arc<Mutex<()>>,
+    active: Active,
+    cancelled: Arc<AtomicBool>,
 ) {
+    let _guard = RequestGuard { active, id: id.clone() };
     let _serial = fs_lock.lock().unwrap();
     write_line(&out, &format!("ACK|{id}"));
+    if cancelled.load(Ordering::Acquire) {
+        fs_fail(&out, &id, "io", "request cancelled");
+        return;
+    }
     let text = |index: usize| -> String {
         args.get(index)
             .map(|v| String::from_utf8_lossy(v).into_owned())
@@ -339,16 +428,20 @@ fn handle_fs(
                 fs_fail(&out, &id, "notfound", "empty file name");
                 return;
             }
-            let staging = directory.join(format!(".{base}.{}.tmpdir", std::process::id()));
-            let _ = fs::remove_dir_all(&staging);
-            let temp = match fs::create_dir(&staging).and_then(|_| {
-                let _ = fs::set_permissions(&staging, fs::Permissions::from_mode(0o700));
-                let temp = staging.join(format!("{base}.tmp"));
+            let staging = match create_staging(directory) {
+                Ok(staging) => staging,
+                Err(error) => {
+                    fs_fail(&out, &id, reason_for(&error), &format!("cannot write \"{path}\": {error}"));
+                    return;
+                }
+            };
+            let temp = match (|| {
+                let temp = staging.join("content");
                 let mut file = OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temp)?;
                 file.write_all(&content)?;
                 file.sync_all()?;
                 Ok(temp)
-            }) {
+            })() {
                 Ok(temp) => temp,
                 Err(error) => {
                     let _ = fs::remove_dir_all(&staging);
@@ -368,6 +461,11 @@ fn handle_fs(
                     fs_fail(&out, &id, "stale", &format!("cannot write \"{path}\": file changed since it was read"));
                     return;
                 }
+            }
+            if cancelled.load(Ordering::Acquire) {
+                let _ = fs::remove_dir_all(&staging);
+                fs_fail(&out, &id, "io", "request cancelled");
+                return;
             }
             if publish == "no-replace" {
                 if fs::symlink_metadata(&path).is_ok() {
@@ -413,10 +511,16 @@ fn handle_exec(
     timeout_secs: u64,
     cap: usize,
     envs: Arc<Mutex<HashMap<String, String>>>,
-    active: Arc<Mutex<HashMap<String, i32>>>,
+    active: Active,
+    cancelled: Arc<AtomicBool>,
     out: Out,
 ) {
+    let _guard = RequestGuard { active: Arc::clone(&active), id: id.clone() };
     write_line(&out, &format!("ACK|{id}"));
+    if cancelled.load(Ordering::Acquire) {
+        write_line(&out, &format!("RES|{id}|143|||0|0"));
+        return;
+    }
     if argv.is_empty() {
         write_line(&out, &format!("ERR|{id}|protocol|{}", b64_encode(b"empty argv")));
         return;
@@ -440,20 +544,47 @@ fn handle_exec(
         }
     };
     let pgid = child.id() as i32;
-    active.lock().unwrap().insert(id.clone(), pgid);
+    let cancel_after_spawn = {
+        let mut requests = active.lock().unwrap();
+        if let Some(request) = requests.get_mut(&id) {
+            request.pgid = Some(pgid);
+            request.cancelled.load(Ordering::Acquire)
+        } else {
+            false
+        }
+    };
+    if cancel_after_spawn {
+        cancel_group(&active, &id, pgid);
+    }
     let stop_out = child.stdout.take();
     let stop_err = child.stderr.take();
-    let out_reader = thread::spawn(move || stop_out.map(|pipe| read_bounded(pipe, cap)).unwrap_or_default());
-    let err_reader = thread::spawn(move || stop_err.map(|pipe| read_bounded(pipe, cap)).unwrap_or_default());
+    let finished = Arc::new(AtomicBool::new(false));
+    let out_finished = Arc::clone(&finished);
+    let err_finished = Arc::clone(&finished);
+    let out_reader = thread::spawn(move || stop_out.map(|pipe| read_bounded(pipe, cap, out_finished)).unwrap_or_default());
+    let err_reader = thread::spawn(move || stop_err.map(|pipe| read_bounded(pipe, cap, err_finished)).unwrap_or_default());
     let started = Instant::now();
     let status = loop {
-        match child.try_wait() {
+        let result = {
+            let mut requests = active.lock().unwrap();
+            let result = child.try_wait();
+            if matches!(result, Ok(Some(_))) {
+                if let Some(request) = requests.get_mut(&id) {
+                    request.pgid = None;
+                }
+            }
+            result
+        };
+        match result {
             Ok(Some(status)) => break status,
             Ok(None) => {
                 if timeout_secs > 0 && started.elapsed() >= Duration::from_secs(timeout_secs) {
                     unsafe { kill(-pgid, SIGTERM) };
                     thread::sleep(Duration::from_millis(100));
                     unsafe { kill(-pgid, SIGKILL) };
+                    if let Some(request) = active.lock().unwrap().get_mut(&id) {
+                        request.pgid = None;
+                    }
                     break child.wait().unwrap_or_else(|_| std::process::ExitStatus::default());
                 }
                 thread::sleep(Duration::from_millis(10));
@@ -461,7 +592,7 @@ fn handle_exec(
             Err(_) => break child.wait().unwrap_or_else(|_| std::process::ExitStatus::default()),
         }
     };
-    active.lock().unwrap().remove(&id);
+    finished.store(true, Ordering::Release);
     let (stdout, stdout_cut) = out_reader.join().unwrap_or_default();
     let (stderr, stderr_cut) = err_reader.join().unwrap_or_default();
     write_line(
@@ -480,7 +611,7 @@ fn handle_exec(
 fn main() {
     let out: Out = Arc::new(Mutex::new(()));
     let fs_lock: Arc<Mutex<()>> = Arc::new(Mutex::new(()));
-    let active: Arc<Mutex<HashMap<String, i32>>> = Arc::new(Mutex::new(HashMap::new()));
+    let active: Active = Arc::new(Mutex::new(HashMap::new()));
     let envs: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
     // The host binds the running process to the binary it copied: the digest
     // is the sha256 of this executable, read through `/proc/self/exe`.
@@ -495,12 +626,12 @@ fn main() {
             "SHUTDOWN" => break,
             "KILL" => {
                 if let Some(id) = fields.get(1) {
-                    if let Some(pgid) = active.lock().unwrap().get(*id).copied() {
-                        unsafe { kill(-pgid, SIGTERM) };
-                        thread::spawn(move || {
-                            thread::sleep(Duration::from_millis(3000));
-                            unsafe { kill(-pgid, SIGKILL) };
-                        });
+                    let pgid = active.lock().unwrap().get(*id).and_then(|request| {
+                        request.cancelled.store(true, Ordering::Release);
+                        request.pgid
+                    });
+                    if let Some(pgid) = pgid {
+                        cancel_group(&active, id, pgid);
                     }
                 }
             }
@@ -525,7 +656,9 @@ fn main() {
                 let envs = Arc::clone(&envs);
                 let active = Arc::clone(&active);
                 let out = Arc::clone(&out);
-                thread::spawn(move || handle_exec(id, cwd, argv, timeout_secs, cap, envs, active, out));
+                let cancelled = Arc::new(AtomicBool::new(false));
+                active.lock().unwrap().insert(id.clone(), ActiveRequest { cancelled: Arc::clone(&cancelled), pgid: None });
+                thread::spawn(move || handle_exec(id, cwd, argv, timeout_secs, cap, envs, active, cancelled, out));
             }
             "FS" => {
                 let id = fields.get(1).copied().unwrap_or("").to_string();
@@ -540,12 +673,17 @@ fn main() {
                 }
                 let out = Arc::clone(&out);
                 let fs_lock = Arc::clone(&fs_lock);
-                thread::spawn(move || handle_fs(id, op, args, out, fs_lock));
+                let active = Arc::clone(&active);
+                let cancelled = Arc::new(AtomicBool::new(false));
+                active.lock().unwrap().insert(id.clone(), ActiveRequest { cancelled: Arc::clone(&cancelled), pgid: None });
+                thread::spawn(move || handle_fs(id, op, args, out, fs_lock, active, cancelled));
             }
             _ => write_line(&out, &format!("ERR||protocol|{}", b64_encode(b"unknown frame"))),
         }
     }
-    for (_, pgid) in active.lock().unwrap().iter() {
-        unsafe { kill(-*pgid, SIGTERM) };
+    for request in active.lock().unwrap().values() {
+        if let Some(pgid) = request.pgid {
+            unsafe { kill(-pgid, SIGTERM) };
+        }
     }
 }

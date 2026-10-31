@@ -41,6 +41,7 @@
  */
 
 import z from "@deepseek-ai/schemastery";
+import { randomUUID } from "node:crypto";
 import { LocalBashExecutor } from "@deepseek-ai/dsh-bash-local";
 import { LocalFileSystem } from "@deepseek-ai/dsh-fs-local";
 import { FsError } from "@deepseek-ai/dsh-fs";
@@ -471,6 +472,8 @@ export class WslShellExecutor
   declare sessionRuntimes: SessionRuntimes;
   /** The runtimes this executor holds, by registry key. */
   declare sessionRuntimeEntries: Map<string, SessionRuntimeEntry>;
+  /** Isolates calls that have no session identity. */
+  declare sessionRuntimeOwner: string;
   /** The preflight's host runner; tests substitute it. */
   declare sessionScopeProbe: (argv: string[]) => Promise<string>;
   /** Distros whose session-runtime preflight has succeeded. */
@@ -503,6 +506,7 @@ export class WslShellExecutor
     this.processFacts = new Map();
     this.sessionRuntimes = sessionRuntimes;
     this.sessionRuntimeEntries = new Map();
+    this.sessionRuntimeOwner = randomUUID();
     this.sessionScopeProbe = (argv) => runCapture(argv);
     this.sessionRuntimePreflight = new Set();
     this.autoSessionScope = new Map();
@@ -634,7 +638,7 @@ export class WslShellExecutor
 
   /**
    * The persistent session runtime for one policy, when `sessionSandbox` is
-   * on. The executor holds one reference per `(distro, workspace, policy)` and
+   * on. The executor holds one reference per `(session, distro, workspace, policy)` and
    * releases them when the session's scope disposes.
    *
    * @param policy - the resolved file-effect policy, when the executor has one.
@@ -643,7 +647,7 @@ export class WslShellExecutor
    * @returns the runtime entry, or undefined when the mode is off.
    */
   sessionRuntimeFor(
-    policy: { mode: string, workspaceRoot: string } | undefined,
+    policy: { mode: string, workspaceRoot: string, sessionId?: string } | undefined,
     resolved: WslExecSpec,
     distro: string,
   ): SessionRuntimeEntry | undefined {
@@ -651,10 +655,12 @@ export class WslShellExecutor
     if (!config.sessionSandbox) return undefined;
     const mode = policy?.mode ?? "danger-full-access";
     const workspaceRoot = policy?.workspaceRoot ?? (configuredCwd(this.config) || resolved.workdir);
-    const key = SessionRuntimes.key({ distro, workspaceRoot, mode, maskWindowsDrive: effectiveMaskWindowsDrive(config) });
+    const sessionId = policy?.sessionId || resolved.dshEnv?.DSH_SESSION_ID || this.sessionRuntimeOwner;
+    const key = SessionRuntimes.key({ sessionId, distro, workspaceRoot, mode, maskWindowsDrive: effectiveMaskWindowsDrive(config) });
     const held = this.sessionRuntimeEntries.get(key);
     if (held !== undefined) return held;
     const entry = this.sessionRuntimes.acquire({
+      sessionId,
       distro,
       wslPath: config.wslPath,
       workspaceRoot,
@@ -1040,7 +1046,7 @@ export class WslShellExecutor
       : confined !== undefined ? confined.argv : this.distroArgv(resolved, shell);
     // The managed `DSH_*` snapshot merges last, exactly as the one-shot path's
     // spawn env does (`ShellExecSpec`: `dshEnv` wins over `env`). The agent
-    // applies these as SETENV frames immediately before the command's EXEC, so
+    // applies these to the individual command, so
     // the resident path now carries `DSH_HOME`, `DSH_SESSION_ID` and the
     // `DSH_WSL_*` facts too — without this the whole registry was invisible on
     // the default path while the one-shot fallback forwarded it.
@@ -1311,11 +1317,11 @@ export class WslFileSystem extends LocalFileSystem {
     sandbox: z.boolean().default(true),
     /**
      * Run confined mutations in the session's systemd user scope — the same
-     * runtime the shell executor acquires for the same (distro, workspace,
-     * policy) — instead of a per-policy confined resident. The kernel
-     * enforcement is the runtime's mount profile, so commands and writes see
-     * the same `/tmp` and workspace; the scope stops when the session's
-     * providers release it. Requires systemd + `Linger`, like `wsl-shell`'s
+     * runtime the shell executor acquires for the same session, distro,
+     * workspace and policy — instead of a per-policy confined resident. A
+     * missing session ID keeps the providers separate. The kernel enforcement
+     * is the runtime's mount profile; the scope stops when its providers
+     * release it. Requires systemd + `Linger`, like `wsl-shell`'s
      * `sessionSandbox`; the preflight refuses with the remedy. Off for direct
      * constructions; on in the shipped preset.
      */
@@ -1384,6 +1390,8 @@ export class WslFileSystem extends LocalFileSystem {
   declare sessionRuntimes: SessionRuntimes;
   /** The runtimes this provider holds, by registry key. */
   declare sessionRuntimeEntries: Map<string, SessionRuntimeEntry>;
+  /** Isolates calls that have no session identity. */
+  declare sessionRuntimeOwner: string;
   /** The preflight's host runner; tests substitute it. */
   declare sessionScopeProbe: (argv: string[]) => Promise<string>;
   /** Distros whose session-runtime preflight has succeeded. */
@@ -1413,6 +1421,7 @@ export class WslFileSystem extends LocalFileSystem {
     this.agentInstances = new Map();
     this.sessionRuntimes = sessionRuntimes;
     this.sessionRuntimeEntries = new Map();
+    this.sessionRuntimeOwner = randomUUID();
     this.sessionScopeProbe = (argv) => runCapture(argv);
     this.sessionRuntimePreflight = new Set();
     this.autoSessionScope = new Map();
@@ -1527,14 +1536,16 @@ export class WslFileSystem extends LocalFileSystem {
    * @param distro - the resolved distro name.
    * @returns the runtime entry, or undefined when the mode is off.
    */
-  sessionRuntimeFor(policy: { mode: string, workspaceRoot: string }, distro: string): SessionRuntimeEntry | undefined {
+  sessionRuntimeFor(policy: { mode: string, workspaceRoot: string, sessionId?: string }, distro: string): SessionRuntimeEntry | undefined {
     const config = this.config as unknown as WslFileSystemConfig;
     if (!config.sessionSandbox) return undefined;
     const workspaceRoot = policy.workspaceRoot || config.cwd;
-    const key = SessionRuntimes.key({ distro, workspaceRoot, mode: policy.mode, maskWindowsDrive: config.maskWindowsDrive });
+    const sessionId = policy.sessionId || this.sessionRuntimeOwner;
+    const key = SessionRuntimes.key({ sessionId, distro, workspaceRoot, mode: policy.mode, maskWindowsDrive: config.maskWindowsDrive });
     const held = this.sessionRuntimeEntries.get(key);
     if (held !== undefined) return held;
     const entry = this.sessionRuntimes.acquire({
+      sessionId,
       distro,
       wslPath: config.wslPath,
       workspaceRoot,
@@ -1602,7 +1613,7 @@ export class WslFileSystem extends LocalFileSystem {
    *   policy when the caller does not know it.
    * @returns the agent to publish through.
    */
-  async mutationAgent(policy: { mode: string, workspaceRoot: string } | undefined, forDistro?: string): Promise<WslAgent> {
+  async mutationAgent(policy: { mode: string, workspaceRoot: string, sessionId?: string } | undefined, forDistro?: string): Promise<WslAgent> {
     const config = this.config as unknown as WslFileSystemConfig;
     const distro = forDistro ?? await this.distroForPolicy(policy);
     if (!isConfinedMutation({ policy, sandboxEnabled: config.sandbox })) {
@@ -1611,7 +1622,7 @@ export class WslFileSystem extends LocalFileSystem {
     // The untyped guard decided this is a confined policy but cannot narrow
     // the parameter, so the confined shape is asserted once here (type-level
     // only; `confinedPolicy` is the same value as `policy`).
-    const confinedPolicy = policy as { mode: ConfinedSandboxMode, workspaceRoot: string };
+    const confinedPolicy = policy as { mode: ConfinedSandboxMode, workspaceRoot: string, sessionId?: string };
     if (!(await this.sandbox.usable(distro))) {
       // The probe's classified remedy — missing vs present-but-broken, with the
       // distro's own package family — is what every other refusal surfaces;
@@ -2018,8 +2029,8 @@ export class WslFileSystem extends LocalFileSystem {
    * Fence the write by the per-call policy, then publish through the
    * substrate. The fence's fresh target is the one checked and written, so a
    * refusal costs no I/O and cannot be raced by a swapped symlink; the guard
-   * rides the write op, where the agent re-verifies it one syscall before the
-   * rename and the confined resident enforces it in the kernel.
+   * rides the write op, where the agent re-verifies it before the rename;
+   * the confined resident enforces the mount boundary in the kernel.
    *
    * @param target - the resolved target.
    * @param content - the full new file content.

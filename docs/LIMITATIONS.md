@@ -27,10 +27,17 @@ crosses the 9p share. What to know about the one substrate there is:
 - **The mutation guard survives to the write.** `createIfAbsent` publishes with
   a no-replace link inside the distro, which closes the check-then-write window
   for creates outright. An overwrite or edit carries the version it was based
-  on into the write op, and the agent re-verifies it against a fresh stat one
-  syscall before the rename: a concurrent writer wins and the stale write
-  refuses with `FS_STALE_VERSION`. The residual stat-then-rename pair is the
-  same sliver a Linux-host session's own rename has.
+  on into the write op, and the agent re-verifies it against a fresh stat before
+  the rename. A mismatch returns `FS_STALE_VERSION`, but a change between the
+  check and rename can still be overwritten; this is not an atomic
+  compare-and-swap.
+- **A cancelled write can have an unknown outcome.** Cancellation is reported
+  before the agent necessarily finishes. A write already being published may
+  still take effect; inspect the file before retrying. The native agent refuses
+  queued writes when it processes their cancellation before they start. The
+  serial shell fallback removes requests cancelled while waiting on the host;
+  a request already sent to the agent may still take effect even if it has not
+  yet acknowledged the request.
 - **A write is durable against process death, not machine death.** The
   publication fsyncs the staged file before its atomic rename, but the
   containing directory is not fsynced afterwards: a kernel panic or power loss

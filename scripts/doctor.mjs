@@ -255,7 +255,7 @@ function installRemedy(distro, family) {
  * @returns {number} the exit status.
  */
 function rejectReadOnly() {
-  console.error("doctor: --read-only refuses --fix/--install; run `pnpm run doctor -- --fix` instead");
+  console.error("doctor: --read-only refuses --fix/--install; run `pnpm run doctor --fix` instead");
   return 2;
 }
 
@@ -334,7 +334,7 @@ async function main(options) {
   const bwrapPath = (await inDistro(distro, "command -v bwrap")).stdout.trim();
   const install = installRemedy(distro, family);
   if (bwrapPath.length === 0) {
-    check("sandbox.bwrap", "fail", "bubblewrap", "missing; every confined command fails closed without it", `${install}, or run "pnpm run bootstrap -- ${distro} --install"`);
+    check("sandbox.bwrap", "fail", "bubblewrap", "missing; every confined command fails closed without it", `${install}, or run "pnpm run bootstrap ${distro} --install"`);
   } else {
     check("sandbox.bwrap", "ok", "bubblewrap", bwrapPath);
     const userns = await inDistro(distro, "bwrap --ro-bind / / -- true");
@@ -516,7 +516,7 @@ async function main(options) {
       if (/^\s*-\s*id:\s*(wsl-shell|wsl-fs)\s*$/m.test(text)) trapped.push(entry.name);
     }
     if (trapped.length > 0) {
-      check("config.preset-trap", "warn", "Profile patches", `nested rows patched by id in: ${trapped.join(", ")}`, "wsl-shell and wsl-fs live inside preset-wsl; an id patch matches nothing and is silently ignored. Run \"pnpm run preset -- --check <patch>\" to get the complete block, or see docs/CONFIGURATION.md#overriding-the-rows-inside-preset-wsl");
+      check("config.preset-trap", "warn", "Profile patches", `nested rows patched by id in: ${trapped.join(", ")}`, "wsl-shell and wsl-fs live inside preset-wsl; an id patch matches nothing and is ignored with a warning. Run \"pnpm run preset --check <patch>\" to get the complete block, or see docs/CONFIGURATION.md#configure-wsl-shell-and-wsl-fs");
     } else {
       check("config.profiles", "ok", "Profile patches", `${seen} profile patch(es) scanned`);
     }

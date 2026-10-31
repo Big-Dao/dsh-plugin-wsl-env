@@ -142,6 +142,7 @@ try {
     const bwrap = report.checks.find((entry) => entry.id === "sandbox.bwrap");
     assert.equal(bwrap?.status, "fail");
     assert.match(String(bwrap?.remedy), /apt-get install -y bubblewrap/);
+    assert.match(String(bwrap?.remedy), /pnpm run bootstrap ubuntu --install/);
   });
 
   check("no systemd fails and names the wsl.conf remedy", () => {
@@ -159,6 +160,22 @@ try {
     const fixed = doctor(["--json", "--fix"], { FAKE_STALE: "yes" });
     assert.equal(fixed.status, 0);
     assert.equal(/** @type {Report} */ (JSON.parse(fixed.stdout)).checks.find((entry) => entry.id === "fix.scopes")?.status, "ok");
+  });
+
+  check("read-only refusal gives a runnable fix command", () => {
+    const run = doctor(["--read-only", "--fix"]);
+    assert.equal(run.status, 2);
+    assert.match(run.stderr, /pnpm run doctor --fix/);
+  });
+
+  check("profile patch warning gives a runnable preset command", () => {
+    const profile = join(home, "profiles", "bad");
+    mkdirSync(profile, { recursive: true });
+    writeFileSync(join(profile, "cordis.patch.yml"), "- id: wsl-shell\n");
+    const report = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
+    const warning = report.checks.find((entry) => entry.id === "config.preset-trap");
+    assert.match(String(warning?.remedy), /pnpm run preset --check <patch>/);
+    rmSync(profile, { recursive: true, force: true });
   });
 
   check("the agent handshake reports the pid and catches a digest mismatch", () => {
@@ -211,4 +228,4 @@ try {
   rmSync(scratch, { recursive: true, force: true });
 }
 
-console.log(`${passed}/9 doctor checks pass`);
+console.log(`${passed}/11 doctor checks pass`);

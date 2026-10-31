@@ -16,6 +16,13 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-31
+
+The schema-validated routing row: the root-plane router stops silently
+ignoring a mistyped or wrong-typed distro key, and the first pass of the
+community-optimization plan stamps the routing documentation and the 1.0
+roadmap with dated, current evidence.
+
 ### Changed
 
 - **`fs-routing` row config is now validated at load time.**
@@ -28,6 +35,21 @@ were part of the record.
   `null` field value still falls back to the schema default, which matches how
   the Loader treats optional keys. Composition tests mount the row through the
   real Loader to assert both the accepted defaults and the rejected values.
+
+### Fixed
+
+- `docs/root-fs-routing.md` claimed a 12-probe suite with no routing probe, a
+  unit file outside the test lists, and a 10/10 composition test. All three
+  had drifted: the suite is 15 probes with `--include-fs` and includes
+  `fs-routing.sh`, `test/fs-routing.test.mjs` entered both test lists on
+  2026-10-19 (OI-7), and the composition test is 12/12. A header note stamps
+  the 2026-10-31 review.
+- `docs/ROADMAP-1.0.md` still described WSL-101 as implemented in the working
+  tree; it shipped in 0.13.0, and the status now records which acceptance leg
+  has real-machine evidence and which leg (concurrent two-distro) is still
+  missing. WSL-104's "routing probe has never been executed" claim is replaced
+  by the dated 2026-10-31 single-machine 15/0 result; the metrics row's probe
+  count moves to the current 15-with-fs breakdown.
 
 ## [0.15.0] - 2026-10-27
 

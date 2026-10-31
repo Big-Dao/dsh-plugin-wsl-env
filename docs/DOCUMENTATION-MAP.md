@@ -29,6 +29,8 @@
   分别约束支持、协作、授权和提交信息。
 - [技术路线](ROADMAP.md) 跟踪原生 agent；[1.0 路线](ROADMAP-1.0.md)
   记录产品计划、验收及进度。计划中的历史基线不代表当前实现。
+- [社区优化实施计划](superpowers/plans/2026-10-31-community-optimization.md)
+  按阶段组织文档审查、首用验证、真机证据和社区反馈；产品进度仍以 1.0 路线为准。
 - [Remote-WSL 对照](PARITY.md) 是阶段性契约审计；
   [peer 对拍](PEER-PARITY.md) 记录指定版本的字节和行为对照。
 

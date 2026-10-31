@@ -1,6 +1,6 @@
 # Roadmap 1.0: the WSL plugin the DSH ecosystem should have
 
-Status: working plan, last refreshed 2026-10-30 against `0.15.0`.
+Status: working plan, last refreshed 2026-10-31 against `0.15.0`.
 The 0.12.0 baseline that motivated the plan is kept below as history.
 Audience: maintainers and contributors. This is a plan, not a release promise.
 The short version: **from "the only WSL plugin" to "the default WSL plugin"** —
@@ -167,7 +167,7 @@ may move if the compatibility matrix exposes a higher-severity failure.
 |---|---|---|---|
 | Time to first command | Not systematically measured | p50 <= 5 min, p90 <= 15 min | Ten clean-machine runs |
 | Tier 1 first-run success | Not measured | >= 95% | Compatibility matrix |
-| Real-machine probes | 14; nightly job on hosted `windows-latest` skips without WSL | 100% on a Windows+WSL runner | Dispatch or a self-hosted runner that actually has WSL |
+| Real-machine probes | 15 with `--include-fs` (14 base scripts incl. `fs-routing.sh`, plus `run.sh`); nightly job on hosted `windows-latest` skips without WSL | 100% on a Windows+WSL runner | Dispatch or a self-hosted runner that actually has WSL |
 | FS single-op p95 | ~22ms host round trip | <= 30ms | `fs-queue.mjs` |
 | 16 concurrent reads p95 | 2.4-8.2ms | <= 20ms | `fs-queue.mjs` |
 | GUI preview p95 | Backend 63.5 ms/MiB (service round trips on top) | <= 1s/MiB | `probe:gui-preview` |
@@ -213,8 +213,13 @@ acceptance list in each issue is the contract; filter by priority:
 
 ### WSL-101 — Multi-distro coordinate routing
 
-**Status:** implemented in the working tree (2026-10-19); unit-covered, with the
-real-machine two-distro probe still to run.
+**Status:** shipped in 0.13.0 (2026-10-19), unit-covered. The
+`fs-routing.sh` probe (added with P0.4) runs on the real machine: it serves a
+workspace in its own distro, reads a drive-letter path on the host plane, and
+refuses another distro's UNC — one leg of the acceptance below has real-machine
+evidence (a 2026-10-31 run passed all 15 probes on one machine; not a matrix
+result). The concurrent two-distro leg still has no dedicated probe and has
+not been run; the checkboxes stay unchecked until that leg exists.
 
 **Priority:** P0 · **Size:** L · **Labels:** `area:multi-distro`,
 `type:feature`, `priority:P0`
@@ -314,8 +319,10 @@ run in [`test/profile-preset.test.mjs`](https://github.com/Big-Dao/dsh-plugin-ws
 **Status:** implemented (2026-10-19): the three drifts are fixed, `fs-routing`
 and `distro-route` are in both test lists, `scripts/check-links.mjs` gates
 relative links from `pnpm test`, and `probe:fs-routing` is written and wired
-into the real-machine suite. The routing probe has not been executed yet (it
-needs the app closed); its first run stays on the release checklist.
+into the real-machine suite. The routing probe's first real-machine run
+happened by 2026-10-31 (a user-supplied log shows the full `--include-fs`
+suite, 15 probes, 0 failures on one machine — an environment-specific result,
+not a matrix).
 
 **Priority:** P0 · **Size:** S · **Labels:** `area:docs`, `area:quality`,
 `priority:P0`

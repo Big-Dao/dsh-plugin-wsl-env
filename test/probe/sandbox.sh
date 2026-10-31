@@ -21,6 +21,11 @@
 # Windows process, and the point of recording it is to keep the claim honest.
 set -uo pipefail
 
+# A non-login shell carries no USER (wsl.exe -e included), and set -u would
+# abort on the first reference. Same resolution as session-sandbox.sh.
+USER="${USER:-$(id -un 2>/dev/null || echo root)}"
+export USER
+
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
 WS="${DSH_WSL_ENV_WORKSPACE:-$REPO}"

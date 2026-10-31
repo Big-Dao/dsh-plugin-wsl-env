@@ -232,7 +232,24 @@ jobs:
             fi
           }
           command -v wsl.exe >/dev/null 2>&1 || { echo "skip all (no WSL on this runner)"; exit 0; }
-          run_or_skip sandbox none sandbox.sh
+          # sandbox.sh is a distro probe (its header: "Run it from INSIDE the
+          # distro"): bubblewrap exists only there, and a non-login distro
+          # shell is the documented context (CONTRIBUTING: "run them from a
+          # distro terminal with Node available"). The workspace rides through
+          # wslpath, so an unmounted drive fails the leg with a named cause
+          # instead of the probe dying on a wrong cwd.
+          run_or_skip_distro() {
+            local name="$1" script="$2" wsl_ws
+            echo "::group::probe:$name"
+            wsl_ws="$(wsl.exe -e wslpath -u "$(cygpath -w "$PWD")" 2>/dev/null | tr -d '\r\n')"
+            if [ -z "$wsl_ws" ]; then
+              echo "probe:$name: could not translate the workspace into the default distro (drive not mounted?)"
+              echo "::endgroup::"; exit 1
+            fi
+            wsl.exe -e bash -c "cd '$wsl_ws' && bash test/probe/$script" || { echo "::endgroup::"; exit 1; }
+            echo "::endgroup::"
+          }
+          run_or_skip_distro sandbox sandbox.sh
           run_or_skip mode harness mode.sh
           run_or_skip terminal harness terminal.sh
           run_or_skip picker harness picker.sh

@@ -73,6 +73,19 @@ fixes the run surfaced, and the interop stance in one configuration key.
   the first nightly run failed. The import now goes through
   `pathToFileURL` (same hardening applied to the watcher probe).
 
+- **The nightly sandbox probe now runs where its header and CONTRIBUTING
+  place it: inside the default distro.** The probes job executed
+  `sandbox.sh` from the runner's Git Bash — a context where bubblewrap
+  cannot exist — so even past the two latent issues the first nights
+  surfaced (the `d:` ESM scheme, then the missing `USER`), the leg could
+  never pass. The job now translates the workspace through `wslpath` and
+  runs the probe via `wsl.exe -e`; an unmounted drive fails the leg with a
+  named cause instead of a wrong cwd. The `USER` resolution also lands here:
+  the hardening that preceded this fix claimed `sandbox.sh` but changed only
+  `session-sandbox.sh`, and a non-login `wsl.exe -e` shell would have hit
+  the same unbound variable anyway. The probe holds all 14 expectations
+  under `env -u USER` in a distro.
+
 ### Added
 
 - **`scripts/open-wsl-vscode.ps1` — open a WSL folder in VS Code through

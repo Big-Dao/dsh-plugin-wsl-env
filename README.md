@@ -6,9 +6,9 @@
 [![npm](https://img.shields.io/npm/v/dsh-plugin-wsl-env)](https://www.npmjs.com/package/dsh-plugin-wsl-env)
 [![license](https://img.shields.io/npm/l/dsh-plugin-wsl-env)](LICENSE)
 
-A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin that runs a session inside a WSL 2 distribution on Windows.
+A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin that opens the project workspace inside a WSL 2 distribution on Windows.
 
-The harness process stays on Windows. Commands, file operations, the folder picker and the GUI terminal use the distro. No helper service or daemon is installed, no port is opened, and confined commands run under `bubblewrap`.
+The harness process stays on Windows. Command execution, shell scripts and file access all run in the distro's Linux environment for the full Linux shell toolchain. No helper service or daemon is installed, no port is opened, and confined commands run under `bubblewrap`.
 
 Windows + WSL 2 only.
 

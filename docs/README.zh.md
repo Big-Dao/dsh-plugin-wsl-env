@@ -6,9 +6,9 @@
 [![npm](https://img.shields.io/npm/v/dsh-plugin-wsl-env)](https://www.npmjs.com/package/dsh-plugin-wsl-env)
 [![license](https://img.shields.io/npm/l/dsh-plugin-wsl-env)](../LICENSE)
 
-一个 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件，让会话在 Windows 的 WSL 2 发行版中运行。
+一个 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件，在 Windows 的 WSL 2 发行版中打开项目工作区。
 
-Harness 进程仍在 Windows 上。命令、文件操作、文件夹选择器和 GUI 终端都使用发行版环境。发行版内不安装辅助服务或守护进程，也不开放端口，受限命令在 `bubblewrap` 中运行。
+Harness 进程仍在 Windows 上。命令执行、shell 脚本和文件访问都在发行版的 Linux 空间内完成，以获得全套 Linux shell 工具链。发行版内不安装辅助服务或守护进程，也不开放端口，受限命令在 `bubblewrap` 中运行。
 
 仅支持 Windows + WSL 2。
 

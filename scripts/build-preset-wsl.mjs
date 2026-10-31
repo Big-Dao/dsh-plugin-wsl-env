@@ -16,7 +16,8 @@
  *      them in this plugin's own shell and fs providers;
  *   2. `tool-bash` is enabled and `tool-pwsh` disabled outright, where the
  *      shipped copy derives the choice from `process.platform`;
- *   3. the identity: row `preset-wsl`, preset `wsl`, `order: 2`.
+ *   3. the identity and display metadata: row `preset-wsl`, preset `wsl`,
+ *      `name`/`description` for the mode selector, `order: 2`.
  *
  * The realm block also pins the WSL providers' config, including
  * `sessionSandbox: true` (the session runtime, ADR 0001).
@@ -100,6 +101,8 @@ const block = `    - id: preset-wsl
       name: '@deepseek-ai/dsh-agent-preset'
       config:
         id: wsl
+        name: WSL 模式
+        description: 在 WSL 的 Linux 实例中打开项目工作区：命令执行、shell 脚本和文件访问均在 Linux 空间内完成，以获得全套 Linux shell 工具链，受限命令经 bubblewrap 沙箱隔离。
         order: 2
         plugins:
 ${realm}

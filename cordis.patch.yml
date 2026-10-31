@@ -191,7 +191,8 @@
     #      the distro's shell and fs (the realm is declared on the group);
     #   2. `tool-bash` is enabled and `tool-pwsh` disabled outright, where the
     #      shipped copy derives the choice from `process.platform`;
-    #   3. the identity: row `preset-wsl`, preset `wsl`, `order: 2`.
+    #   3. the identity and display metadata: row `preset-wsl`, preset `wsl`,
+    #      `name`/`description` for the mode selector, `order: 2`.
     # Regenerate it when an app update changes the preset: take
     # `packages/bundle/web-app/presets/standard.patch.yml` from the harness tree
     # the peer pins track and run `node scripts/build-preset-wsl.mjs <that
@@ -202,6 +203,12 @@
       name: '@deepseek-ai/dsh-agent-preset'
       config:
         id: wsl
+        # Display metadata: `wsl` is not a registry built-in id, so the mode
+        # selector falls back to the raw id and "no description" unless the
+        # declaration carries its own copy (registry policy: user-authored
+        # metadata is never localized — write it in the deployment language).
+        name: WSL 模式
+        description: 在 WSL 的 Linux 实例中打开项目工作区：命令执行、shell 脚本和文件访问均在 Linux 空间内完成，以获得全套 Linux shell 工具链，受限命令经 bubblewrap 沙箱隔离。
         order: 2
         plugins:
           - id: wsl-env

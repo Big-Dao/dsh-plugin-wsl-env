@@ -1161,14 +1161,18 @@ checkReg("the default signal path runs a second wsl.exe with the cancel argv", a
     await run;
     /** @type {string[] | undefined} */
     let argv;
-    for (let attempt = 0; attempt < 100 && argv === undefined; attempt += 1) {
+    // The fake's `> record` redirect creates an empty file before printf
+    // writes the args, so an empty read is "not yet", not "no args" — keep
+    // polling (the first real arg is always "-d" or "--exec", never "").
+    for (let attempt = 0; attempt < 100 && (argv === undefined || argv[0] === ""); attempt += 1) {
       try {
         argv = readFileSync(record, "utf8").trim().split("\n");
       } catch {
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
+      if (argv !== undefined && argv[0] === "") await new Promise((resolve) => setTimeout(resolve, 20));
     }
-    assert.ok(argv !== undefined, "the signal helper ran");
+    assert.ok(argv !== undefined && argv[0] !== "", "the signal helper ran with its argv");
     assert.deepEqual(argv.slice(0, 3), ["-d", "ubuntu", "--exec"]);
     assert.equal(argv[3], "sh");
     assert.equal(argv[4], "-c");

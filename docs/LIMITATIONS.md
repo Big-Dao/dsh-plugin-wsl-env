@@ -322,6 +322,15 @@ command finishes. What follows from that split:
   default on): a WSL-folder session gets the distro shell, a Windows-folder session gets
   `powershell.exe` in its own directory. The shell MENU's default entry remains the
   configured profile, and a directory-less launch still lands in the distro.
+- **The Windows-side git must trust the `\\wsl.localhost` share** (`safe.directory`),
+  or the change-review pipeline silently degrades: the discovery call answers
+  `fatal: detected dubious ownership`, the recorder falls back to
+  "git is unavailable", and changed-files cards never list a WSL workspace's
+  diffs. Remedy (one-time, Windows side):
+  `git config --global --add safe.directory "//wsl.localhost/*"`, then restart
+  the app (the resolution is memoized for the process lifetime). Host-side
+  (`C:\...`) workspaces are unaffected. A future doctor check could probe this
+  directly.
 - A NEW tab's title still reads `WSL`, the composition's shell profile name, whatever
   it runs — including a host session's PowerShell. The controller titles a tab from
   that profile before the provider rewrites the launch, and a plugin cannot correct

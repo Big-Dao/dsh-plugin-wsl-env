@@ -1,7 +1,7 @@
 /**
  * Spike test for the native agent prototype (ADR 0002, stage 2).
  *
- * It drives the Rust binary over the real v5 frames and compares the shape
+ * It drives the Rust binary over the real v6 frames and compares the shape
  * with the shipped shell agent where it matters. Not part of the unit suite:
  * the binary is built on demand.
  *
@@ -130,11 +130,11 @@ await check("HELLO digest is the running binary's sha256", async () => {
   await session.close();
 });
 
-await check("HELLO names wsl-agent/v5", async () => {
+await check("HELLO names wsl-agent/v6", async () => {
   const session = new Session(binary, []);
   const hello = await session.hello;
   assert.equal(hello.name, "wsl-agent");
-  assert.equal(hello.version, 5);
+  assert.equal(hello.version, 6);
   await session.close();
 });
 
@@ -581,7 +581,7 @@ await check("the shell agent answers the same EXEC shape (differential)", async 
   const session = new Session("sh", [shellAgent]);
   const hello = await session.hello;
   assert.equal(hello.name, "wsl-agent");
-  assert.equal(hello.version, 5);
+  assert.equal(hello.version, 6);
   const result = await session.exec({ argv: ["sh", "-c", "printf out; printf err >&2; exit 7"] });
   assert.equal(result.exitCode, 7);
   assert.equal(result.stdout.toString(), "out");

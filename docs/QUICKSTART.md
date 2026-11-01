@@ -1,5 +1,7 @@
 # Quickstart
 
+*A Chinese translation lives at [QUICKSTART.zh](QUICKSTART.zh.md); the English version is authoritative.*
+
 Steps from a Windows + WSL 2 machine to a working WSL session.
 This page is the entry point; every claim links to the document that owns it.
 

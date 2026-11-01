@@ -1,5 +1,7 @@
 # Configuration
 
+*A Chinese translation lives at [CONFIGURATION.zh](CONFIGURATION.zh.md); the English version is authoritative.*
+
 ## Profile patches
 
 Store profile settings in `$DSH_HOME/profiles/<name>/cordis.patch.yml`. Use

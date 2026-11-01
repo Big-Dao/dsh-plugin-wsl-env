@@ -7,9 +7,11 @@
 ## 用户入口与行为契约
 
 - [README](../README.md) 是英文入口，[中文 README](README.zh.md) 是对应译本；
-  [快速开始](QUICKSTART.md) 给出安装与首用步骤。
-- [配置](CONFIGURATION.md) 解释配置项、默认值和覆盖方式；
-  [限制](LIMITATIONS.md) 记录未实现或不能保证的行为；
+  [快速开始](QUICKSTART.md) 给出安装与首用步骤（[中文版](QUICKSTART.zh.md)）。
+- [配置](CONFIGURATION.md) 解释配置项、默认值和覆盖方式（[中文版](CONFIGURATION.zh.md)）；
+  [限制](LIMITATIONS.md) 记录未实现或不能保证的行为（[中文版](LIMITATIONS.zh.md)）。
+  用户文档保持双语成对：英文版是权威版本，中文版随英文更新；新用户文档
+  落地时同步创建 `.zh.md`。
   [安全政策](../SECURITY.md) 定义漏洞报告与沙箱威胁边界。
 - [架构](ARCHITECTURE.md) 描述服务、路由、协议与验证分层；
   [根文件系统路由](root-fs-routing.md) 补充路径坐标和组合层设计。

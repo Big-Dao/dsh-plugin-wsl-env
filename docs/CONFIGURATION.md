@@ -154,6 +154,27 @@ With `agent: true`, captured output is limited inside the distro and no spill
 file is written. `maxSpillBytes` and `graceMs` apply when `agent: false` or
 when the resident agent is unavailable and execution uses one-shot `wsl.exe`.
 
+### zsh/fnm recipe for model-run commands
+
+Commands run as `<shell> -lc`, so `~/.zshrc` is never read — see
+[LIMITATIONS](LIMITATIONS.md#shell-startup-semantics-wsl-shell) for why. Put
+fnm's hook in `~/.zprofile` instead, with a fallback for the sandbox, where
+`/run` is read-only and fnm cannot create its multishell symlink directory:
+
+```zsh
+# ~/.zprofile — fnm for non-interactive login shells (mirrors the ~/.zshrc hook)
+path=("$HOME/.local/share/fnm" $path)  # the fnm binary itself
+_fnm_env="$(command -v fnm &>/dev/null && fnm env --shell zsh 2>/dev/null)" && eval "$_fnm_env"
+if [[ -z "${FNM_MULTISHELL_PATH:-}" || ! -e "${FNM_MULTISHELL_PATH}/bin/node" ]]; then
+  path=("$HOME/.local/share/fnm/aliases/default/bin" $path)  # sandbox fallback
+fi
+unset _fnm_env
+```
+
+Interactive terminals keep the hook in `~/.zshrc` and are unaffected; the
+`aliases/default` fallback only takes over where the multishell link cannot
+exist.
+
 ## Environment forwarding
 
 WSL imports a host environment variable only when its name is listed in

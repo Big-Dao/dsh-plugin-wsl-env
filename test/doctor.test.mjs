@@ -83,10 +83,19 @@ exit 0
 const FAKE_CMD = `#!/bin/sh
 printf 'Microsoft Windows [Version 10.0.26300.9711]\\n'
 `;
+const FAKE_GIT_EXE = `#!/bin/sh
+case "$*" in
+  "--version") printf 'git version 2.54.0.windows.1\n' ;;
+  *"--get-all safe.directory"*) printf '//wsl.localhost/*\n' ;;
+  *) exit 0 ;;
+esac
+`;
 writeFileSync(join(bin, "wsl.exe"), FAKE_WSL);
 writeFileSync(join(bin, "cmd.exe"), FAKE_CMD);
+writeFileSync(join(bin, "git.exe"), FAKE_GIT_EXE);
 chmodSync(join(bin, "wsl.exe"), 0o755);
 chmodSync(join(bin, "cmd.exe"), 0o755);
+chmodSync(join(bin, "git.exe"), 0o755);
 
 /**
  * Run the doctor with the fakes first on PATH.
@@ -190,6 +199,13 @@ try {
     assert.match(String(mismatch?.remedy), /sync:windows/);
   });
 
+  check("the Windows git trust check reports the whitelist and a missing-git info", () => {
+    const report = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
+    const ok = report.checks.find((entry) => entry.id === "git.win-safe");
+    assert.equal(ok?.status, "ok", "the fake git.exe whitelists the share");
+    assert.match(String(ok?.detail), /whitelisted/);
+  });
+
   check("the human output names the failing check and its remedy", () => {
     const run = doctor([], { FAKE_BWRAP: "no" });
     assert.equal(run.status, 1);
@@ -228,4 +244,4 @@ try {
   rmSync(scratch, { recursive: true, force: true });
 }
 
-console.log(`${passed}/11 doctor checks pass`);
+console.log(`${passed} doctor checks pass`);

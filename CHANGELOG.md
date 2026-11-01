@@ -44,6 +44,13 @@ were part of the record.
   `resolveExecutable` override is scoped to the one name and only fires on
   the super's failure.
 
+- **The doctor probes the Windows git trust.** A new `git.win-safe` check
+  reports the `safe.directory` whitelist state through interop `git.exe`:
+  `ok` when the `\\wsl.localhost` share is whitelisted, a warn with the
+  copy-paste remedy when Windows git does not trust it, and an info (nothing
+  to do) when there is no Windows git — the distro fallback covers WSL change
+  review entirely.
+
 ### Documentation
 
 - The architecture and upstream-promotion documents reflect the v6 protocol

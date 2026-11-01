@@ -394,6 +394,26 @@ async function main(options) {
     if (m === null) return [];
     return (m[1] ?? "").trim().split(/\s+/).filter((p) => p.length > 0);
   });
+  // ---- Windows git trust (WSL change review) ------------------------------
+  // The change-review pipeline's discovery call runs the WINDOWS git against
+  // a \\wsl.localhost UNC when Windows git is installed; git's
+  // dubious-ownership check refuses the share unless it is whitelisted, and
+  // the pipeline silently degrades to "git is unavailable" (no diff cards for
+  // WSL workspaces). A machine without Windows git is fine too — the provider
+  // resolves git to a distro sentinel and routes everything. What the doctor
+  // can probe cheaply from here is interop git.exe and its whitelist.
+  const winGitVersion = await run(["git.exe", "--version"]);
+  if (!winGitVersion.ok) {
+    check("git.win-safe", "info", "Windows git trust", "Windows git not found through interop — WSL change review uses the distro fallback; host (C:\\...) workspaces would need git for their own review");
+  } else {
+    const entries = (await run(["git.exe", "config", "--global", "--get-all", "safe.directory"])).stdout.split(/\r?\n/).filter(Boolean);
+    const whitelisted = entries.some((entry) => /wsl\.localhost/i.test(entry));
+    check("git.win-safe", whitelisted ? "ok" : "warn", "Windows git trust",
+      whitelisted ? `the \\\\wsl.localhost share is whitelisted (${entries.length} entr${entries.length === 1 ? "y" : "ies"})`
+        : "Windows git does not trust the \\\\wsl.localhost share; WSL workspaces' change review silently degrades to file-tool edits",
+      whitelisted ? undefined : 'on Windows: git config --global --add safe.directory "//wsl.localhost/*", then restart the app');
+  }
+
   // ---- resident handshake --------------------------------------------------
   const agentScript = join(ROOT, "agent", "wsl-agent.sh");
   if (!agentScript.startsWith("/")) {

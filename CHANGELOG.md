@@ -14,7 +14,7 @@ document: the 0.1.0 entry's `design-history §` references are to
 keeps the superseded designs under the section numbers they had while they
 were part of the record.
 
-## [Unreleased]
+## [0.17.0] - 2026-11-01
 
 ### Changed
 

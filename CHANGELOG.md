@@ -39,6 +39,10 @@ were part of the record.
 - The architecture and upstream-promotion documents reflect the v6 protocol
   and the shell-menu candidates; the promotion map records the measurement
   that superseded the git one-shot decision.
+- The full real-machine suite re-ran 15/0 on 2026-11-01 after the protocol
+  change landed, and again after the documentation refresh. The safe.directory
+  prerequisite for WSL change review is now documented with its one-time
+  remedy.
 
 - **The shell menu now offers host shells instead of a single entry.**
   `terminal-controller`'s `shellCandidates` grows from `[]` to

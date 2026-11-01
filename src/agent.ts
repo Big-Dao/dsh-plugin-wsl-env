@@ -1047,7 +1047,7 @@ export class WslAgent {
    * @returns the settled result.
    * @throws {AgentUnavailableError} when the agent is out for this process.
    */
-  async exec({ cwd, argv, timeoutMs = 0, maxOutputBytes = 0, env, signal }: {
+  async exec({ cwd, argv, timeoutMs = 0, maxOutputBytes = 0, env, stdin, signal }: {
     /** Linux path to run in. */
     cwd: string,
     /** The argv, already bwrap-wrapped when the caller confines. */
@@ -1069,6 +1069,14 @@ export class WslAgent {
      * keeps the unbounded capture.
      */
     maxOutputBytes?: number,
+    /**
+     * The child's entire stdin, delivered before its first read (protocol
+     * v6); the child sees EOF at the payload's end. Omitted or empty keeps
+     * the v5 shape — an empty stdin and immediate EOF. Note the shell agent
+     * decodes the payload through command substitution, which strips
+     * trailing newlines; the native agent delivers the bytes verbatim.
+     */
+    stdin?: Uint8Array,
     /** Cancels the request, sending KILL if it was already dispatched. */
     signal?: AbortSignal,
   }): Promise<{ exitCode: number, stdout: Buffer, stderr: Buffer, truncated: { stdout: boolean, stderr: boolean } }> {
@@ -1083,7 +1091,7 @@ export class WslAgent {
     const id = `r${this.nextRequestId++}`;
     const commandArgv = argv[0]?.includes("=") ? ["/bin/sh", "-c", "exec \"$@\"", "env", ...argv] : argv;
     const requestArgv = assignments.length > 0 ? ["env", "--", ...assignments, ...commandArgv] : argv;
-    const lines = encodeExecFrame({ id, cwd, argv: requestArgv, timeoutMs, maxOutputBytes });
+    const lines = encodeExecFrame({ id, cwd, argv: requestArgv, timeoutMs, maxOutputBytes, stdin });
     return new Promise((resolve, reject) => {
       this.track({ id, kind: "exec", lines, resolve, reject, timeoutMs, signal });
     });

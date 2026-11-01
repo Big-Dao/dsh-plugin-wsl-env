@@ -24,8 +24,12 @@
 #   SETENV|<key>|<b64 value>      -> export the variable for later requests;
 #                                    <key> must be a POSIX identifier, else
 #                                    ERR|protocol
-#   EXEC|<id>|<b64 cwd>|<timeout seconds|0>|<n args>|<output cap bytes|0>
-#       followed by <n args> lines of base64, one argv word each
+#   EXEC|<id>|<b64 cwd>|<timeout seconds|0>|<n args>|<output cap bytes|0>|<stdin flag|0>
+#       followed by <n args> lines of base64, one argv word each, and — when
+#       the stdin flag is 1 — one more base64 line: the child's entire stdin.
+#       The agent feeds those bytes to the child and closes its stdin, so the
+#       child sees EOF at the payload's end. Absent or 0 means the child reads
+#       an empty stdin and immediate EOF (the v5 shape).
 #       -> ACK|<id> the moment the request is dequeued for execution — the host
 #          arms its stuck-request watchdog on this line, so time spent queued
 #          behind an earlier request never counts against a budget
@@ -62,7 +66,14 @@
 
 set -u
 
-PROTO_VERSION=5
+# v6: EXEC gains an optional seventh header field flagging one stdin payload
+# line after the argv words. One documented limitation, the same one SETENV
+# and every argv word already carry: command substitution strips TRAILING
+# NEWLINES from the decoded payload, so a stdin feed ending in `\n` reaches
+# the child without it (NUL bytes — `check-ignore -z` separators — survive).
+# Every known consumer parses line-oriented stdin that tolerates a missing
+# final newline.
+PROTO_VERSION=6
 TMPDIR_AGENT=$(mktemp -d "${TMPDIR:-/tmp}/wsl-agent.XXXXXX")
 OUT_FILE="$TMPDIR_AGENT/out"
 ERR_FILE="$TMPDIR_AGENT/err"
@@ -254,16 +265,23 @@ run_capture() {
     fi
   fi
   CURRENT_ID=$req_id
+  # Protocol v6 stdin: when the EXEC dispatch staged a payload file, the child
+  # reads its bytes and sees EOF at the file's end; otherwise /dev/null keeps
+  # the child off the agent's own stdin (the host pipe).
+  spawn_in=/dev/null
+  if [ -n "${EXEC_STDIN:-}" ]; then
+    spawn_in=$EXEC_STDIN
+  fi
   # The inflight marker pauses the lease watchdog for this request and
   # refreshes the temp dir's mtime for the boot sweep; removing it after the
   # answer re-arms both.
   : >"$TMPDIR_AGENT/inflight"
   if [ "$mode" = subshell ]; then
-    ( "$@" ) >"$spawn_out" 2>"$spawn_err" &
+    ( "$@" ) >"$spawn_out" 2>"$spawn_err" <"$spawn_in" &
   elif [ -n "$SETSID" ]; then
-    ( exec setsid "$@" ) >"$spawn_out" 2>"$spawn_err" &
+    ( exec setsid "$@" ) >"$spawn_out" 2>"$spawn_err" <"$spawn_in" &
   else
-    "$@" >"$spawn_out" 2>"$spawn_err" &
+    "$@" >"$spawn_out" 2>"$spawn_err" <"$spawn_in" &
   fi
   CURRENT_PID=$!
   # Dispatched: the child exists now, so the host may arm its execution
@@ -675,7 +693,18 @@ while IFS= read -r line; do
       timeout_s=${rest%%|*}
       rest=${rest#*|}
       nargs=${rest%%|*}
-      maxout=${rest#*|}
+      rest=${rest#*|}
+      maxout=${rest%%|*}
+      # Protocol v6: an optional seventh field flags one stdin payload line
+      # after the argv words. Absent (a stale peer) or 0 keeps the v5 shape —
+      # the child reads an empty stdin and immediate EOF.
+      stdin_flag=0
+      case $rest in
+        *\|*) stdin_flag=${rest#*|} ;;
+        *) stdin_flag=0 ;;
+      esac
+      case $stdin_flag in ''|*[!01]*) stdin_flag=0 ;; esac
+      EXEC_STDIN=
       cwd=$(b64dec "$cwd_b64")
       if ! cd "$cwd" 2>/dev/null; then
         printf 'ERR|%s|cwd|%s\n' "$req_id" "$(printf '%s' "$cwd" | base64 | tr -d '\n')"
@@ -704,9 +733,20 @@ while IFS= read -r line; do
         printf 'ERR|%s|protocol|%s\n' "$req_id" "$(printf '%s' "an argv payload failed to decode" | base64 | tr -d '\n')"
         continue
       fi
+      if [ "$stdin_flag" = 1 ]; then
+        IFS= read -r stdin_b64 || exit 0
+        if ! b64dec_strict "$stdin_b64"; then
+          printf 'ERR|%s|protocol|%s\n' "$req_id" "$(printf '%s' "the stdin payload failed to decode" | base64 | tr -d '\n')"
+          continue
+        fi
+        EXEC_STDIN="$TMPDIR_AGENT/stdin.$req_id"
+        printf '%s' "$DEC" >"$EXEC_STDIN"
+      fi
       # Dispatched: run_capture prints the ACK once the child exists, so the
       # host's watchdog and USR1 cancel both target a real process.
       run_capture "$req_id" "$timeout_s" "$maxout" exec "$@"
+      [ -n "$EXEC_STDIN" ] && rm -f -- "$EXEC_STDIN"
+      EXEC_STDIN=
       ;;
     FS\|*)
       header=${line#FS|}

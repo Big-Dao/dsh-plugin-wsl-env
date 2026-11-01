@@ -109,9 +109,12 @@ So the layer disables the shipped `subprocess` row and inserts
 `dsh-plugin-wsl-env/subprocess` in its place at the app level. The subclass
 overrides two methods: `spawnTerminal` rewrites a `wsl.exe` launch into
 `wsl.exe -d <distro> --cd <linux dir>`, and `spawn()` rewrites two kinds of
-launches into the distro — the file-search tool's packaged ripgrep (agent-first,
-with the one-shot `wsl.exe --exec` handle as the fallback when the agent is out)
-and git snapshot commands. Both spawn decisions are pure coordinate functions
+launches into the distro — the file-search tool's packaged ripgrep and git
+snapshot commands (each agent-first on the warm resident — protocol v6 carries
+a git call's stdin, and a one-shot call costs ~230 ms of `wsl.exe` startup
+against the resident's ~2 ms — with the one-shot `wsl.exe --exec` handle as
+the fallback when the agent is out). Both spawn decisions are pure coordinate
+functions
 (`lib/search-route.js`, `lib/git-route.js`); every other `spawn()` — including
 the one-shot fallback's own `wsl.exe -lc <command>` (the default agent path
 carries the command over the resident instead of spawning) — reaches the shipped

@@ -43,6 +43,11 @@ export interface AgentExecRequest {
   env?: Record<string, string>;
   /** Per-stream capture ceiling. */
   maxOutputBytes?: number;
+  /**
+   * The child's entire stdin (protocol v6); the child sees EOF at the
+   * payload's end. Omitted or empty keeps the v5 shape.
+   */
+  stdin?: Uint8Array;
   /** The caller's cancellation. */
   signal?: AbortSignal;
 }

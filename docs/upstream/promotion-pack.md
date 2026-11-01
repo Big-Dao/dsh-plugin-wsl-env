@@ -18,7 +18,7 @@ with a thin integration package, instead of one large plugin.
 | Package | Responsibility | Test split | Seam dependency |
 |---|---|---|---|
 | `wsl-core` | path coordinate translation (`paths.ts`), distro selection (`distro-route.ts`), `wsl.exe` capture primitives (`wsl.ts`) | pure unit tests (`paths`, `distro-route`, `wsl`) | none |
-| `wsl-agent` | resident v5 protocol, native backend selection, session runtime/scope, agent errors | `agent`, `agent-protocol`, `agent-exec`, `native-agent`, `session-scope`, `session-runtime` | none (own transport) |
+| `wsl-agent` | resident v6 protocol (EXEC stdin payload), native backend selection, session runtime/scope, agent errors | `agent`, `agent-protocol`, `agent-exec`, `native-agent`, `session-scope`, `session-runtime` | none (own transport) |
 | `wsl-shell` | shell executor, bwrap profiles, sandbox facts | `shell`, `sandbox`, `provider` (executor half) | spawn seam needed only for the base-class argv hook |
 | `wsl-fs` | filesystem provider, fsio substrate, root-plane routing | `fs-decisions`, `fs-routing`, `fsio-agent`, `fsio-text`, `fs-substrate` | fsio export (`UPSTREAM-FSIO-EXPORT`) optional |
 | `wsl-terminal` | GUI terminal routing | `terminal`, `terminal-activity` | terminal title (`UPSTREAM-TERMINAL-TITLE`) |

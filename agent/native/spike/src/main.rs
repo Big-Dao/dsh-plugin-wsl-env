@@ -510,6 +510,7 @@ fn handle_exec(
     argv: Vec<String>,
     timeout_secs: u64,
     cap: usize,
+    stdin_payload: Vec<u8>,
     envs: Arc<Mutex<HashMap<String, String>>>,
     active: Active,
     cancelled: Arc<AtomicBool>,
@@ -527,7 +528,13 @@ fn handle_exec(
     }
     let mut command = Command::new(&argv[0]);
     command.args(&argv[1..]);
-    command.stdin(Stdio::null());
+    // A non-empty v6 stdin payload pipes those bytes into the child and closes
+    // its stdin (EOF at the payload's end); otherwise the child reads null.
+    if !stdin_payload.is_empty() {
+        command.stdin(Stdio::piped());
+    } else {
+        command.stdin(Stdio::null());
+    }
     command.stdout(Stdio::piped());
     command.stderr(Stdio::piped());
     command.process_group(0);
@@ -544,6 +551,15 @@ fn handle_exec(
         }
     };
     let pgid = child.id() as i32;
+    // Feed and close the child's stdin before any wait: the payload is
+    // bounded by the frame, so a blocking write cannot deadlock a reader that
+    // has not started yet — the OS pipe buffer holds a frame-sized feed.
+    if !stdin_payload.is_empty() {
+        if let Some(mut pipe) = child.stdin.take() {
+            use std::io::Write;
+            let _ = pipe.write_all(&stdin_payload);
+        }
+    }
     let cancel_after_spawn = {
         let mut requests = active.lock().unwrap();
         if let Some(request) = requests.get_mut(&id) {
@@ -616,7 +632,7 @@ fn main() {
     // The host binds the running process to the binary it copied: the digest
     // is the sha256 of this executable, read through `/proc/self/exe`.
     let hello_digest = fs::read("/proc/self/exe").map(|bytes| sha256::sha256_hex(&bytes)).unwrap_or_default();
-    write_line(&out, &format!("HELLO|wsl-agent|5|{}|{}", hello_digest, std::process::id()));
+    write_line(&out, &format!("HELLO|wsl-agent|6|{}|{}", hello_digest, std::process::id()));
     let stdin = io::stdin();
     let mut lines = stdin.lock().lines();
     while let Some(Ok(line)) = lines.next() {
@@ -646,6 +662,15 @@ fn main() {
                 let timeout_secs = fields.get(3).and_then(|v| v.parse().ok()).unwrap_or(0);
                 let nargs: usize = fields.get(4).and_then(|v| v.parse().ok()).unwrap_or(0);
                 let cap: usize = fields.get(5).and_then(|v| v.parse().ok()).unwrap_or(0);
+                // Protocol v6: an optional seventh header field flags one
+                // stdin payload line after the argv words. Absent (a stale
+                // peer) or 0 keeps the v5 shape — the child reads an empty
+                // stdin and immediate EOF.
+                let stdin_flag = fields
+                    .get(6)
+                    .and_then(|v| v.parse::<u8>().ok())
+                    .map(|v| v == 1)
+                    .unwrap_or(false);
                 let mut argv = Vec::with_capacity(nargs);
                 for _ in 0..nargs {
                     match lines.next() {
@@ -653,12 +678,19 @@ fn main() {
                         _ => break,
                     }
                 }
+                let mut stdin_payload: Vec<u8> = Vec::new();
+                if stdin_flag {
+                    match lines.next() {
+                        Some(Ok(payload)) => stdin_payload = b64_decode(&payload),
+                        _ => {}
+                    }
+                }
                 let envs = Arc::clone(&envs);
                 let active = Arc::clone(&active);
                 let out = Arc::clone(&out);
                 let cancelled = Arc::new(AtomicBool::new(false));
                 active.lock().unwrap().insert(id.clone(), ActiveRequest { cancelled: Arc::clone(&cancelled), pgid: None });
-                thread::spawn(move || handle_exec(id, cwd, argv, timeout_secs, cap, envs, active, cancelled, out));
+                thread::spawn(move || handle_exec(id, cwd, argv, timeout_secs, cap, stdin_payload, envs, active, cancelled, out));
             }
             "FS" => {
                 let id = fields.get(1).copied().unwrap_or("").to_string();

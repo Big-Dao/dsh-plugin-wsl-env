@@ -318,7 +318,7 @@ checkReg("exec rides the handshake and resolves with the decoded result", async 
   const result = await agent.exec({ cwd: "/tmp", argv: ["echo", "hi"], timeoutMs: 0 });
   assert.equal(result.exitCode, 0);
   assert.equal(result.stdout.toString("utf8"), "echo hi\n");
-  assert.equal(child.frames[0], `EXEC|r0|${encodeB64("/tmp")}|0|2|0`);
+  assert.equal(child.frames[0], `EXEC|r0|${encodeB64("/tmp")}|0|2|0|0`);
   await agent.close();
 });
 
@@ -327,7 +327,29 @@ checkReg("the caller's output budget rides the EXEC frame for the agent to enfor
   const { transport } = scriptedTransport([child]);
   const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
   await agent.exec({ cwd: "/tmp", argv: ["echo", "hi"], timeoutMs: 0, maxOutputBytes: 64000 });
-  assert.equal(child.frames[0], `EXEC|r0|${encodeB64("/tmp")}|0|2|64000`);
+  assert.equal(child.frames[0], `EXEC|r0|${encodeB64("/tmp")}|0|2|64000|0`);
+  await agent.close();
+});
+
+checkReg("a stdin payload rides the frame's flag and trailing payload line", async () => {
+  const child = new FakeAgentProcess();
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  await agent.exec({ cwd: "/tmp", argv: ["cat"], stdin: Buffer.from("ignored\n") });
+  const head = child.frames[0];
+  assert.ok(head !== undefined, "the frame carries a headline");
+  assert.equal(head.split("|")[6], "1", "the stdin flag is set");
+  assert.deepEqual(child.frames.slice(1, -1), [encodeB64("cat")], "the argv words precede the payload");
+  assert.equal(child.frames.at(-1), encodeB64("ignored\n"), "the payload line carries the stdin bytes");
+  await agent.close();
+});
+
+checkReg("an absent stdin keeps the payload line off the frame", async () => {
+  const child = new FakeAgentProcess();
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  await agent.exec({ cwd: "/tmp", argv: ["echo", "hi"] });
+  assert.equal(child.frames.length, 3, "header + two argv words, no payload line");
   await agent.close();
 });
 

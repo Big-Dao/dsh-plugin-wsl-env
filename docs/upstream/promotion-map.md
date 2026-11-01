@@ -22,7 +22,7 @@ The packaging proposal (layout, seam index, boot-test gaps) is
 |---|---|---|---|
 | `ssh`（连接/传输生命周期、helper 安装、digest、租约） | `ctx.ssh` | `lib/agent.js`（常驻 agent：EXEC/ACK/RES/KILL 行协议、watchdog、idle 自杀、一次重建）+ `lib/agent-shared.js`（按 distro 的进程级单例）+ `agent/wsl-agent.sh` | 🟢 就绪（0.7.2 后：HELLO 携带脚本内容 sha256，宿主拒绝与包内副本不符的部署物——镜像就地读取的半同步/过期是最现实的失效；客户端租约 `DSH_AGENT_LEASE_MS` 经托管命名空间下发，中继楔死无 EOF 时 agent 自杀；boot 清扫 60 分钟无活动的 `wsl-agent.*` 残留 tmpdir；证明：`test/agent-protocol.test.mjs` + `test/agent.test.mjs`（假传输，CI 全跑），真机 `test/probe/agent.sh`） |
 | `fs-ssh`（`ctx.fs`） | `ctx.fs` | `lib/fs-substrate.js` + `lib/fsio-agent.js`（distro 内 canonical/stat/读/原子写/守卫；写入守卫内联） | 🟢 就绪（PEER-PARITY 逐函数核对过 fsio 复刻；证明：`test/fsio-agent.test.mjs` + `test/fs-substrate.test.mjs` + Loader 启动的 `test/fs.boot.test.mjs`，真机 `test/probe/substrate.sh`） |
-| `subprocess-ssh`（`ctx.subprocess`） | `ctx.subprocess` | `lib/subprocess.js` `WslSubprocessRuntime`（三条 spawn 改写：终端、搜索 agent 优先 + one-shot 回退、git 只走 one-shot） | 🟢 就绪（两条 spawn 改写的纯决策各有单测：`test/search-route.test.mjs`/`search-exec.test.mjs`、`test/git-route.test.mjs`；`subprocess` 行的禁用由 `test/composition.test.mjs` 跑真 patch 算法核对） |
+| `subprocess-ssh`（`ctx.subprocess`） | `ctx.subprocess` | `lib/subprocess.js` `WslSubprocessRuntime`（三条 spawn 改写：终端、搜索与 git 均 agent 优先 + one-shot 回退） | 🟢 就绪（两条 spawn 改写的纯决策各有单测：`test/search-route.test.mjs`/`search-exec.test.mjs`、`test/git-route.test.mjs`；`subprocess` 行的禁用由 `test/composition.test.mjs` 跑真 patch 算法核对） |
 | （ssh 家族未单列 shell 行） | `ctx.shell` | `lib/index.js` `WslShellExecutor`（agent 路 + one-shot 回退）+ `lib/agent-exec.js`（handle 形态） | 🟢 就绪（`test/provider.test.mjs` 用真类 + 假 agent 覆盖 guard 链/执行路/回退；完成/超时/kill（连同 cwd 失败与登录 shell 原样执行）由真机 `test/probe/exec.sh` 覆盖，截断语义见 `test/agent-exec.test.mjs`/`test/agent-protocol.test.mjs`，agent 路与 one-shot 的对拍是 `test/probe/agent.sh` 的 fallback parity 三项） |
 | `sandbox-ssh`（远端后端选择） | `ctx.sandbox` | `lib/sandbox-core.js` + `lib/bwrap.js` + `lib/agent-confined.js`（bwrap 组装、probe fail-closed、confined 常驻路由） | 🟢 就绪（enforcement=partial 的诚实报告与上游同款；证明：`test/sandbox.test.mjs` 的 probe fail-closed/缓存，真机 `test/probe/sandbox.sh`/`sandbox-shell.sh`/`sandbox-off.sh`） |
 | `lsp-stdio` 成对远程（ssh 依赖 lsp-stdio） | `ctx.lsp` | — | ❌ 未做（desktop 组合本就未挂载 LSP；挂载需 fs+subprocess 成对的远程实现） |
@@ -128,8 +128,12 @@ cwd = 工作区。这是 9P 上最重的操作（`git add --all` 是全工作树
    distro git 会答 Linux 路径破坏解析。排除规则 = argv 含这三个旗标即不拦截。
 
 实现：`lib/git-route.js`（纯决策 + env 翻译）+ `subprocess.js` spawn 的 git
-分支（**只走 one-shot**——快照操作不敏感延迟，且 stdin 中继/收集流是宿主
-handle 原生的，避免扩展 agent 协议）。已知限制：多目录 `GIT_ALTERNATE_OBJECT_
+分支（**agent 优先 + one-shot 回退**——协议 v6 为 EXEC 增加了 stdin 载荷行：
+头部第七字段标志 + 帧尾一条 base64 payload，`check-ignore -z --stdin` 的
+pathspec 由此进 distro；`lib/git-exec.js` 是 agent 承载 facade，one-shot 委托
+回退，样式同 `lib/search-exec.js`。2026-11-01 实测（ubuntu）：one-shot 每次
+git 调用 ~232ms（几乎全是 `wsl.exe` 进程创建），常驻 agent ~1.6ms——一次快照
+6-8 个调用省 1.4s 以上，推翻了旧注记"快照操作不敏感延迟"的前提）。已知限制：多目录 `GIT_ALTERNATE_OBJECT_
 DIRECTORIES`（列表值）不是被跳过而是被译坏——`translateGitEnv` 对每个 `GIT_*` 值
 无条件调用单值翻译，`C:\a;D:\b` 会得到混合形态 `/mnt/c/a;D:/b`（现无调用方设置
 列表值；`src/git-route.ts` 的模块注释仍写作 `passes through untranslated`，与

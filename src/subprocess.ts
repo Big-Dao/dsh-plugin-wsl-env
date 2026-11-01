@@ -80,6 +80,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { Buffer } from "node:buffer";
 import z from "@deepseek-ai/schemastery";
 import { LocalSubprocessRuntime } from "@deepseek-ai/dsh-subprocess-local";
 import type { Context } from "@deepseek-ai/cordis";
@@ -89,6 +90,7 @@ import { DEFAULT_WSL_PATH, defaultDistro, wslEnvValue, wslTerminalArgv } from ".
 import { searchSpawnRewrite } from "./search-route.js";
 import { gitSpawnRewrite, translateGitEnv } from "./git-route.js";
 import { searchExecutionHandle } from "./search-exec.js";
+import { gitExecutionHandle } from "./git-exec.js";
 import { sharedAgent } from "./agent-shared.js";
 import { parseTerminalActivity, TERMINAL_ID_ENV, terminalActivityProbe, wrapTerminalHandle } from "./terminal-activity.js";
 import type { SubprocessTerminalActivity } from "./terminal-activity.js";
@@ -388,12 +390,38 @@ export class WslSubprocessRuntime extends LocalSubprocessRuntime {
       // object store, work tree, and refs stay untouched by design — the
       // snapshot runs in the tool's private scratch.
       const { env, wslenv } = translateGitEnv(spec.env);
-      return super.spawn({
-        ...spec,
-        argv: gitRewrite.wslArgv,
-        cwd: this.hostCwd(),
-        env: wslenv.length > 0 ? { ...env, WSLENV: wslEnvValue(wslenv) } : env,
-      });
+      const oneShot = () =>
+        super.spawn({
+          ...spec,
+          argv: gitRewrite.wslArgv,
+          cwd: this.hostCwd(),
+          env: wslenv.length > 0 ? { ...env, WSLENV: wslEnvValue(wslenv) } : env,
+        });
+      // Agent-first: the warm resident answers a git call in ~2 ms where a
+      // one-shot `wsl.exe` spends ~230 ms of process startup, and a snapshot
+      // makes 6-8 of those calls plus per-file `cat-file`. Only the translated
+      // GIT_* names ride the agent's per-request environment — a host PATH
+      // must not leak into the distro, and the one-shot forwards exactly those
+      // names through WSLENV too. The agent being out falls back to the
+      // one-shot handle lazily (see git-exec.ts).
+      const agentEnv: Record<string, string> = {};
+      for (const [name, value] of Object.entries(env)) {
+        if (name.startsWith("GIT_") && typeof value === "string") agentEnv[name] = value;
+      }
+      const stdinSpec = spec.stdio.stdin as { data?: string } | "ignore" | undefined;
+      const stdinData = typeof stdinSpec === "object" && stdinSpec !== null && typeof stdinSpec.data === "string" ? stdinSpec.data : undefined;
+      const stdoutCap = (spec.stdio.stdout as SubprocessCollect | undefined)?.maxBytes ?? 0;
+      const stderrCap = (spec.stdio.stderr as SubprocessCollect | undefined)?.maxBytes ?? 0;
+      return gitExecutionHandle({
+        agent: sharedAgent(gitRewrite.distro),
+        cwd: gitRewrite.linuxCwd,
+        argv: gitRewrite.gitArgv,
+        env: agentEnv,
+        stdin: stdinData === undefined ? undefined : Buffer.from(stdinData, "utf8"),
+        caps: { stdout: stdoutCap, stderr: stderrCap },
+        signal: spec.signal,
+        spawnFallback: oneShot,
+      }) as SubprocessHandle;
     }
     const rewrite = searchSpawnRewrite({ argv: spec.argv, cwd: spec.cwd, wslPath: this.config.wslPath });
     if (rewrite === undefined) return super.spawn(spec);

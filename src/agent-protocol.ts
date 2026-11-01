@@ -15,7 +15,7 @@
  */
 
 /** The protocol version this host side speaks; the agent must match. */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 /**
  * Upper bound on one `read` op's payload, set by the HOST looping over windowed
@@ -77,24 +77,39 @@ export interface ExecFrameRequest {
    * default) keeps the historical unbounded capture.
    */
   maxOutputBytes?: number;
+  /**
+   * The child's entire stdin, delivered before the first read. Protocol v6:
+   * when present the EXEC header gains a `1` seventh field and one extra
+   * base64 line follows the argv words; the agent feeds those bytes to the
+   * child and closes its stdin (the child sees EOF at the payload's end). The
+   * payload rides one protocol line, so it is bounded by `MAX_FRAME_BYTES` —
+   * the shape of every known consumer (`git check-ignore --stdin` pathspecs),
+   * none of which streams an unbounded feed. Absent or empty means the child
+   * reads an empty stdin and immediate EOF, exactly the v5 behaviour.
+   */
+  stdin?: Uint8Array;
 }
 
 /**
  * Build the request lines for one EXEC frame: a header line naming the cwd,
- * the whole-request timeout in whole seconds (0 = none), the argv word count
- * and the per-stream output capture budget in bytes (0 = unlimited), followed
- * by one base64 line per argv word.
+ * the whole-request timeout in whole seconds (0 = none), the argv word count,
+ * the per-stream output capture budget in bytes (0 = unlimited) and — since
+ * protocol v6 — the stdin flag (1 when a payload line follows the argv
+ * words), followed by one base64 line per argv word and, when flagged, one
+ * base64 stdin payload line.
  *
  * @param request - the execution request.
  * @returns the lines to write to the agent's stdin, in order.
  */
-export function encodeExecFrame({ id, cwd, argv, timeoutMs = 0, maxOutputBytes = 0 }: ExecFrameRequest): string[] {
+export function encodeExecFrame({ id, cwd, argv, timeoutMs = 0, maxOutputBytes = 0, stdin }: ExecFrameRequest): string[] {
   const timeoutSeconds = timeoutMs > 0 ? Math.ceil(timeoutMs / 1000) : 0;
   const cap = maxOutputBytes > 0 ? Math.floor(maxOutputBytes) : 0;
+  const hasStdin = stdin !== undefined && stdin.length > 0;
   const lines = [
-    `EXEC|${id}|${encodeB64(cwd)}|${timeoutSeconds}|${argv.length}|${cap}`,
+    `EXEC|${id}|${encodeB64(cwd)}|${timeoutSeconds}|${argv.length}|${cap}|${hasStdin ? 1 : 0}`,
     ...argv.map((word) => encodeB64(word)),
   ];
+  if (hasStdin) lines.push(encodeB64(stdin));
   return lines;
 }
 

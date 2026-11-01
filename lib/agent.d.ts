@@ -431,7 +431,7 @@ export declare class WslAgent {
      * @returns the settled result.
      * @throws {AgentUnavailableError} when the agent is out for this process.
      */
-    exec({ cwd, argv, timeoutMs, maxOutputBytes, env, signal }: {
+    exec({ cwd, argv, timeoutMs, maxOutputBytes, env, stdin, signal }: {
         /** Linux path to run in. */
         cwd: string;
         /** The argv, already bwrap-wrapped when the caller confines. */
@@ -453,6 +453,14 @@ export declare class WslAgent {
          * keeps the unbounded capture.
          */
         maxOutputBytes?: number;
+        /**
+         * The child's entire stdin, delivered before its first read (protocol
+         * v6); the child sees EOF at the payload's end. Omitted or empty keeps
+         * the v5 shape — an empty stdin and immediate EOF. Note the shell agent
+         * decodes the payload through command substitution, which strips
+         * trailing newlines; the native agent delivers the bytes verbatim.
+         */
+        stdin?: Uint8Array;
         /** Cancels the request, sending KILL if it was already dispatched. */
         signal?: AbortSignal;
     }): Promise<{

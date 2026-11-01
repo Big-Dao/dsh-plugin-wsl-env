@@ -60,13 +60,13 @@ check("a malformed base64 field decodes to empty instead of throwing", () => {
 
 check("the EXEC frame is a header line followed by one base64 line per argv word", () => {
   const lines = encodeExecFrame({ id: "r7", cwd: "/home/you", argv: ["bwrap", "--ro-bind", "/", "/"], timeoutMs: 2500 });
-  assert.equal(lines[0], `EXEC|r7|${encodeB64("/home/you")}|3|4|0`);
+  assert.equal(lines[0], `EXEC|r7|${encodeB64("/home/you")}|3|4|0|0`);
   assert.deepEqual(lines.slice(1), [encodeB64("bwrap"), encodeB64("--ro-bind"), encodeB64("/"), encodeB64("/")]);
 });
 
 check("the EXEC frame carries the per-stream capture budget the agent enforces", () => {
   const capped = encodeExecFrame({ id: "r1", cwd: "/", argv: ["x"], timeoutMs: 0, maxOutputBytes: 64000 });
-  assert.equal(capped[0], `EXEC|r1|${encodeB64("/")}|0|1|64000`);
+  assert.equal(capped[0], `EXEC|r1|${encodeB64("/")}|0|1|64000|0`);
   const fractional = encodeExecFrame({ id: "r2", cwd: "/", argv: ["x"], maxOutputBytes: 1024.9 });
   const fractionalHead = fractional[0];
   assert.ok(fractionalHead !== undefined, "the frame carries a headline");

@@ -135,7 +135,7 @@ for (/** @type {string} */ const image of images) {
     /** @type {ContainerAgent} */
     const agent = new ContainerAgent(image);
     const hello = await agent.hello;
-    check("HELLO names wsl-agent at protocol v5", hello.name === AGENT_NAME && hello.version === PROTOCOL_VERSION, `name=${hello.name} v${hello.version}`);
+    check("HELLO names wsl-agent at the protocol version", hello.name === AGENT_NAME && hello.version === PROTOCOL_VERSION, `name=${hello.name} v${hello.version}`);
     check("HELLO digest is the shipped script's sha256", hello.digest === scriptDigest, hello.digest.slice(0, 12));
     check("the script is read in place (same bytes through the mount)", hello.pid > 0, `pid=${hello.pid}`);
 

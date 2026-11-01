@@ -16,6 +16,30 @@ were part of the record.
 
 ## [Unreleased]
 
+### Changed
+
+- **Git snapshot spawns are now agent-first with a one-shot fallback.**
+  Protocol v6 adds a stdin payload to the EXEC frame (a seventh header field
+  flagging one trailing base64 line), which is what lets `workspace-changes`'
+  snapshot calls — including `check-ignore -z --stdin` — run on the warm
+  resident agent instead of a one-shot `wsl.exe`. Measured on `ubuntu`
+  (2026-11-01): ~232 ms per one-shot git call (nearly all `wsl.exe` process
+  startup) against ~1.6 ms on the resident — a 6-8 call snapshot saves well
+  over a second. The per-stream caps map onto the agent's single wire cap with
+  a client-side per-stream slice (`lib/git-exec.js`), and the environment
+  rides the agent's per-request `env` (`env --` argv prefix, no `SETENV`
+  pollution) carrying only the translated `GIT_*` names. Both agents speak v6
+  (the shell agent decodes the payload through command substitution, which
+  strips trailing newlines — NUL separators survive; the native binary
+  delivers bytes verbatim), so host library and shipped binaries upgrade
+  together; the doctor's handshake reports any mismatch.
+
+### Documentation
+
+- The architecture and upstream-promotion documents reflect the v6 protocol
+  and the shell-menu candidates; the promotion map records the measurement
+  that superseded the git one-shot decision.
+
 ## [0.16.0] - 2026-10-31
 
 The schema-validated routing row: the root-plane router stops silently

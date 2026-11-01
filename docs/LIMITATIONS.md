@@ -225,6 +225,34 @@ operations do not use the Windows-side 9p share. What to know about the substrat
   a separate case and is now reported as an error naming that directory, because
   `wsl.exe` would otherwise run the command in `/` and exit 0.
 
+## Shell startup semantics (`wsl-shell`)
+
+Commands run as `<shell> -lc <command>` — a login, **non-interactive** shell.
+The login flag is deliberate: it sources the profile scripts, which is what
+makes a version manager's PATH (nvm, cargo, pyenv) visible to model-run
+commands. Non-interactivity is equally deliberate: interactive startup files
+print prompts and plugin output into the streams the model reads, define
+aliases that shadow real executables, and can keep the shell alive after the
+command finishes. What follows from that split:
+
+- **`~/.zshrc` and `~/.bashrc` are never read.** A login shell sources
+  `/etc/profile` and the user's profile file — `~/.profile` or `~/.zprofile`
+  for bash and zsh — and nothing else. zsh's ecosystem convention of putting
+  every hook in `.zshrc` therefore leaves model-run commands without it: a
+  tool installed through an interactive-only hook exists in the user's
+  terminal and does not exist in the model's. Move machine-level PATH setup
+  (`eval "$(fnm env)"`, nvm, cargo) into `~/.zprofile` or `~/.zshenv`, which
+  login shells do read; keep prompt and completion plugins in `.zshrc`.
+- **The confined sandbox mounts `/run` read-only, so fnm's multishell PATH
+  cannot form there.** `fnm env` works by creating a per-shell symlink
+  directory under `/run/user/<uid>/fnm_multishells/`; inside `bwrap` that
+  creation fails, and with it the PATH entry `fnm env` exists to provide.
+  A profile that must work in both worlds should fall back to fnm's stable
+  alias directory when the multishell link did not materialize — see the
+  recipe in [Configuration](CONFIGURATION.md#zshfnm-recipe-for-model-run-commands).
+  The plugin does not relax the sandbox for this: a writable `/run` inside the
+  fence would be a real weakening of it, traded for one tool's convenience.
+
 ## Agent diagnostics
 
 - **The doctor's `agent.handshake` check probes a fresh resident, not the live
@@ -292,18 +320,19 @@ operations do not use the Windows-side 9p share. What to know about the substrat
 
 - Terminal routing is per-session by workspace coordinates (`subprocess-wsl.hostSessions`,
   default on): a WSL-folder session gets the distro shell, a Windows-folder session gets
-  `powershell.exe` in its own directory. The shell MENU remains the single configured
-  profile, and a directory-less launch still lands in the distro.
-- A host session's TAB TITLE still reads `WSL`, the composition's shell profile
-  name, over a PowerShell process. The controller titles a tab from that profile
-  before the provider rewrites the launch, and a plugin cannot correct it: a
-  patch layer asserts rather than renames a row's module, and the row's id is
-  load-bearing for the web composition (disabling it fails web boot with
-  "waiting for service: webTerminals"). The full account and the proposed
-  upstream change are in [UPSTREAM-TERMINAL-TITLE.md](UPSTREAM-TERMINAL-TITLE.md).
-  Meanwhile, double-click a tab's title to rename it, or add `shellCandidates`
-  to the `terminal-controller` row in your own profile layer — a manually
-  selected shell is titled after itself.
+  `powershell.exe` in its own directory. The shell MENU's default entry remains the
+  configured profile, and a directory-less launch still lands in the distro.
+- A NEW tab's title still reads `WSL`, the composition's shell profile name, whatever
+  it runs — including a host session's PowerShell. The controller titles a tab from
+  that profile before the provider rewrites the launch, and a plugin cannot correct
+  the default: a patch layer asserts rather than renames a row's module, and the
+  row's id is load-bearing for the web composition (disabling it fails web boot with
+  "waiting for service: webTerminals"). The full account and the proposed upstream
+  change are in [UPSTREAM-TERMINAL-TITLE.md](UPSTREAM-TERMINAL-TITLE.md).
+  The plugin now ships host `shellCandidates` (`wsl.exe` dedupes into the default's
+  kind; `powershell`/`cmd` appear as themselves), and a manually selected shell is
+  titled after itself — pick PowerShell from the shell menu and the tab reads
+  `powershell`. Double-clicking a title to rename also works.
 - Distro terminals ARE reclaimed when idle — the observation is distro-side:
   each terminal is launched with a `DSH_TERMINAL_ID` marker, and the handle's
   `inspectActivity` counts the marked processes through the resident agent

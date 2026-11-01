@@ -123,9 +123,11 @@ implementation untouched, as do the pwsh executor and the LSP host.
 The terminal's execution world follows the session (`hostSessions`, default on):
 a WSL-folder session runs the distro shell, a Windows-folder session runs
 `powershell.exe` in its own directory. What still follows the app configuration
-is the shell menu and the tab title, both derived from the composition's single
-`WSL` shell profile — so a host session's tab reads `WSL` over a PowerShell
-process. See [LIMITATIONS.md](LIMITATIONS.md) and
+is the shell menu's DEFAULT entry and its title, both derived from the
+composition's single `WSL` shell profile — so a new tab reads `WSL` whatever it
+runs, including a host session's PowerShell. The menu also lists host
+candidates (`powershell`, `cmd`; `wsl.exe` dedupes into the default), and a
+manually selected shell is titled after itself. See [LIMITATIONS.md](LIMITATIONS.md) and
 [UPSTREAM-TERMINAL-TITLE.md](UPSTREAM-TERMINAL-TITLE.md).
 
 ## Path coordinates

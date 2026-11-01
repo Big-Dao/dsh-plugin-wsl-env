@@ -36,17 +36,20 @@
 #      `wsl.exe -d <distro> --cd <linux dir>` for the directory the Session
 #      supplies. Ordinary `spawn()` — every command, the host ripgrep search,
 #      every other consumer — reaches the shipped implementation untouched;
-#   2. the controller is given the one shell profile it should resolve, so the
-#      window's default is a distro shell rather than `cmd.exe` inside a UNC
-#      workspace. Its shell menu is reduced to that single entry on purpose:
-#      shell discovery also runs against the root provider and receives no
-#      directory, so offering host executables there would advertise shells this
-#      terminal never starts.
+#   2. the controller is given the composition's default shell profile (the
+#      distro shell, so a directory-less launch lands in the distro rather than
+#      `cmd.exe` inside a UNC workspace) plus host candidates. The default must
+#      stay static — the controller resolves it without a Session — but the
+#      candidates make the shell menu honest: `wsl.exe` dedupes into the
+#      default's `wsl` kind, and `powershell`/`cmd` are launches this terminal
+#      really starts (host sessions run PowerShell outright, and a manually
+#      selected shell is titled after itself — the sanctioned bridge over the
+#      fixed tab title, see docs/UPSTREAM-TERMINAL-TITLE.md).
 #
 # Consequence: a terminal's EXECUTION WORLD follows the Session — a WSL-folder
 # session runs the distro's shell, a Windows-folder session runs PowerShell in
-# its own directory (`hostSessions` on `subprocess-wsl`) — while the shell menu
-# and the tab title stay the composition's single `WSL` profile, which no
+# its own directory (`hostSessions` on `subprocess-wsl`) — while the DEFAULT
+# entry and its title stay the composition's single `WSL` profile, which no
 # Session identity reaches. The title that implies is documented in
 # docs/LIMITATIONS.md and bridged upstream in docs/UPSTREAM-TERMINAL-TITLE.md.
 # ═════════════════════════════════════════════════════════════════════════════
@@ -60,7 +63,10 @@
       path: wsl.exe
       name: WSL
       args: []
-    shellCandidates: []
+    shellCandidates:
+      - wsl.exe
+      - powershell
+      - cmd
 
 - insert:
     - id: subprocess-wsl

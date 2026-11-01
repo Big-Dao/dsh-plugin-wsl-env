@@ -40,6 +40,17 @@ were part of the record.
   and the shell-menu candidates; the promotion map records the measurement
   that superseded the git one-shot decision.
 
+- **The shell menu now offers host shells instead of a single entry.**
+  `terminal-controller`'s `shellCandidates` grows from `[]` to
+  `[wsl.exe, powershell, cmd]` while the default profile stays
+  `shell: { path: wsl.exe, name: WSL }`. `wsl.exe` dedupes into the default's
+  `wsl` kind; `powershell` and `cmd` are launches this terminal really starts —
+  host sessions already run PowerShell outright (`hostSessions`), and a manually
+  selected shell is titled after itself, which moves the tab-title workaround
+  from a user-layer edit into the plugin's own composition
+  ([#8769](https://github.com/deepseek-ai/deepseek-harness/discussions/8769)
+  remains the real fix for the default entry's title).
+
 ## [0.16.0] - 2026-10-31
 
 The schema-validated routing row: the root-plane router stops silently

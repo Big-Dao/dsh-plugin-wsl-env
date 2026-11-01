@@ -107,17 +107,15 @@ next touched:
 
 ## Workarounds until then
 
+- The plugin now ships the candidate list itself: `shellCandidates` is
+  `[wsl.exe, powershell, cmd]` in [`cordis.patch.yml`](../cordis.patch.yml),
+  with the `shell` block kept verbatim. `wsl.exe` dedupes into the default's
+  `wsl` kind; selecting `powershell` or `cmd` starts a shell the terminal
+  really launches (host sessions do outright) and titles the tab after itself.
+  Nothing remains for a user layer to add unless it wants different entries.
 - Double-click a tab's title to rename it (a shipped client feature; the
   controller's `rename` Remote API accepts 1–120 characters).
-- Re-declare the `terminal-controller` row in a user layer with a non-empty
-  `shellCandidates`: a manually selected shell is titled after itself. A patch
-  config replaces the whole config rather than deep-merging it
-  (`packages/boot/app-boot/src/config-schema/document.ts`), so the override has
-  to carry this plugin's `shell` block verbatim — `path: wsl.exe`, `name: WSL`,
-  `args: []` — or the terminal stops being a distro terminal. Expect the menu
-  to grow the host shells discovery finds on the root provider, which receives
-  no directory: executables this terminal never starts (the second bullet of
-  the GUI-terminal comment in [`cordis.patch.yml`](../cordis.patch.yml)).
-  [LIMITATIONS.md](LIMITATIONS.md) still carries the older one-line form of
-  this tip, which drops the `shell` block; the version above is the one that
-  works.
+
+Both cover only manually selected shells. The DEFAULT entry — what a new tab
+gets before anyone chooses — is still titled from the static profile, which is
+exactly the gap the upstream change closes.

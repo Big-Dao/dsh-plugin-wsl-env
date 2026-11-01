@@ -14,6 +14,17 @@ document: the 0.1.0 entry's `design-history §` references are to
 keeps the superseded designs under the section numbers they had while they
 were part of the record.
 
+## [0.17.1] - 2026-11-01
+
+### Fixed
+
+- **The npm package now ships the Chinese user docs** (`QUICKSTART.zh.md`,
+  `CONFIGURATION.zh.md`, `LIMITATIONS.zh.md` — added to the files list after
+  the packaging link check caught their absence from the 0.17.0 tarball), and
+  `package.json`'s Chinese `description` is readable again instead of
+  `\uXXXX` escapes (a release-script `ensure_ascii` slip; the parsed value
+  was always correct). No code changes.
+
 ## [0.17.0] - 2026-11-01
 
 ### Changed

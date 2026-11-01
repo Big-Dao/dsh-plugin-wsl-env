@@ -78,13 +78,25 @@ export interface GitStreamCaps {
  * @param object - the handle's collaborators.
  * @returns the snapshot handle (`done`, `collected`, `kill`).
  */
-export declare function gitExecutionHandle({ agent, cwd, argv, env, stdin, caps, signal, spawnFallback }: {
+export declare function gitExecutionHandle({ agent, cwd, argv, env, stdin, caps, distro, discovery, signal, spawnFallback }: {
     /** The {@link WslAgent}-like runner; throws `AgentUnavailableError` when out. */
     agent: AgentExecRunner;
     /** The Linux working directory to snapshot from. */
     cwd: string;
     /** The distro-side argv (`git` and its arguments). */
     argv: string[];
+    /**
+     * The distro name; required when `discovery` is set (absolute path lines
+     * become `\\wsl.localhost\<distro><path>`).
+     */
+    distro?: string;
+    /**
+     * True for a SENTINEL discovery call (`--show-toplevel` /
+     * `--absolute-git-dir` / `--git-path` answered by the distro git): the
+     * captured stdout's absolute Linux path lines are translated into UNC form
+     * before the caller reads them. Snapshot calls leave this unset.
+     */
+    discovery?: boolean;
     /**
      * Per-request environment: the caller's entries with path-shaped values
      * translated into distro form. Empty entries are dropped; nothing but

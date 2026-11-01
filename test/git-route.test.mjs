@@ -9,7 +9,7 @@
  *   node test/git-route.test.mjs
  */
 import assert from "node:assert/strict";
-import { isGitProgram, gitSpawnRewrite, translateGitEnv, translateGitEnvValue } from "../lib/git-route.js";
+import { DISTRO_GIT_SENTINEL, gitSpawnRewrite, isGitProgram, translateDiscoveryOutput, translateGitEnv, translateGitEnvValue } from "../lib/git-route.js";
 
 let passed = 0;
 /** @type {Array<[string, () => void | Promise<void>]>} */
@@ -77,6 +77,33 @@ check("the discovery flags stay on host git — their absolute output is UNC-sha
     const rewrite = gitSpawnRewrite({ argv: ["git", "rev-parse", flag], cwd: WORKSPACE, wslPath: "wsl.exe" });
     assert.equal(rewrite, undefined, `${flag} prints absolute paths the caller resolves against the UNC world`);
   }
+});
+
+check("a sentinel discovery call routes and reports itself as discovery", () => {
+  const rewrite = gitSpawnRewrite({ argv: [DISTRO_GIT_SENTINEL, "rev-parse", "--show-toplevel", "--absolute-git-dir", "--git-path", "objects"], cwd: WORKSPACE, wslPath: "wsl.exe" });
+  assert.ok(rewrite !== undefined, "the sentinel carries the guard's promise: everything routes");
+  assert.equal(rewrite.discovery, true);
+  assert.equal(rewrite.gitArgv[0], "git");
+  assert.equal(rewrite.linuxCwd, "/home/andy/proj");
+});
+
+check("a sentinel snapshot call routes without the discovery flag", () => {
+  const rewrite = gitSpawnRewrite({ argv: [DISTRO_GIT_SENTINEL, "ls-files", "-z"], cwd: WORKSPACE, wslPath: "wsl.exe" });
+  assert.ok(rewrite !== undefined);
+  assert.ok(!rewrite.discovery, "snapshot calls are not discovery, sentinel or not");
+});
+
+check("translateDiscoveryOutput rewrites absolute lines into UNC and keeps relative ones", () => {
+  const stdout = Buffer.from("/home/andy/proj\n/home/andy/proj/.git\n.git/objects\n");
+  const out = translateDiscoveryOutput("ubuntu", stdout).toString("utf8");
+  assert.equal(out, "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj\n\\\\wsl.localhost\\ubuntu\\home\\andy\\proj\\.git\n.git/objects\n");
+});
+
+check("translateDiscoveryOutput leaves non-path stdout untouched", () => {
+  const stdout = Buffer.from("");
+  assert.equal(translateDiscoveryOutput("ubuntu", stdout).length, 0);
+  const relative = Buffer.from("objects\n");
+  assert.equal(translateDiscoveryOutput("ubuntu", relative).toString("utf8"), "objects\n");
 });
 
 check("a spawn the decision does not name passes through untouched", () => {

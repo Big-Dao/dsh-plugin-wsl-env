@@ -330,7 +330,10 @@ command finishes. What follows from that split:
   `git config --global --add safe.directory "//wsl.localhost/*"`, then restart
   the app (the resolution is memoized for the process lifetime). Host-side
   (`C:\...`) workspaces are unaffected. A future doctor check could probe this
-  directly.
+  directly. The prerequisite is also OPTIONAL: on a machine without Windows
+  git the plugin resolves git to a distro sentinel and routes the discovery
+  call too, translating its output into UNC form — full WSL change review
+  with no Windows git and no whitelist.
 - A NEW tab's title still reads `WSL`, the composition's shell profile name, whatever
   it runs — including a host session's PowerShell. The controller titles a tab from
   that profile before the provider rewrites the launch, and a plugin cannot correct

@@ -39,6 +39,7 @@
 
 import { AgentUnavailableError } from "./agent-errors.js";
 import type { AgentExecRunner } from "./agent-exec.js";
+import { translateDiscoveryOutput } from "./git-route.js";
 
 /** One collected-stream reader with the seam's standard shape. */
 export interface GitStreamReader {
@@ -74,13 +75,25 @@ export interface GitStreamCaps {
  * @param object - the handle's collaborators.
  * @returns the snapshot handle (`done`, `collected`, `kill`).
  */
-export function gitExecutionHandle({ agent, cwd, argv, env, stdin, caps, signal, spawnFallback }: {
+export function gitExecutionHandle({ agent, cwd, argv, env, stdin, caps, distro, discovery, signal, spawnFallback }: {
   /** The {@link WslAgent}-like runner; throws `AgentUnavailableError` when out. */
   agent: AgentExecRunner,
   /** The Linux working directory to snapshot from. */
   cwd: string,
   /** The distro-side argv (`git` and its arguments). */
   argv: string[],
+  /**
+   * The distro name; required when `discovery` is set (absolute path lines
+   * become `\\wsl.localhost\<distro><path>`).
+   */
+  distro?: string,
+  /**
+   * True for a SENTINEL discovery call (`--show-toplevel` /
+   * `--absolute-git-dir` / `--git-path` answered by the distro git): the
+   * captured stdout's absolute Linux path lines are translated into UNC form
+   * before the caller reads them. Snapshot calls leave this unset.
+   */
+  discovery?: boolean,
   /**
    * Per-request environment: the caller's entries with path-shaped values
    * translated into distro form. Empty entries are dropped; nothing but
@@ -130,7 +143,7 @@ export function gitExecutionHandle({ agent, cwd, argv, env, stdin, caps, signal,
       let result;
       try {
         result = await agent.exec({ cwd, argv, env, stdin, maxOutputBytes: wireCap, signal: controller.signal });
-        state.stdout = result.stdout;
+        state.stdout = discovery ? translateDiscoveryOutput(distro ?? "", result.stdout) : result.stdout;
         state.stderr = result.stderr;
       } catch (error) {
         if (!(error instanceof AgentUnavailableError)) {

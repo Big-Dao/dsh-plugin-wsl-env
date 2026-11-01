@@ -60,11 +60,12 @@
  *
  * ## What the operator must pair it with
  *
- * `terminalEnvironment()` and `resolveExecutable()` are also resolved from the
- * root realm, and neither receives a Session or a directory, so this provider
- * deliberately leaves them alone: rewriting them would change executable lookup
- * for every other root consumer (the pwsh executor, the LSP host, the file
- * search) to make the *shell menu* of one window prettier. The profile instead
+ * `terminalEnvironment()` is also resolved from the root realm and receives no
+ * Session or directory, so this provider deliberately leaves it alone:
+ * rewriting it would change environment lookup for every other root consumer
+ * to make the *shell menu* of one window prettier. `resolveExecutable()` gets
+ * ONE scoped exception — a git fallback when the host has none (see the
+ * override below); every other name's lookup is untouched. The profile also
  * configures the terminal controller with the distro shell as the default
  * profile plus deliberate host candidates: `shell: { path: wsl.exe, name: WSL }`
  * and `shellCandidates: [wsl.exe, powershell, cmd]` — the first dedupes into
@@ -300,6 +301,16 @@ export declare class WslSubprocessRuntime extends LocalSubprocessRuntime {
      * @returns the live search handle.
      */
     spawn(spec: SubprocessSpawnSpec): SubprocessHandle;
+    /**
+     * Guarded git fallback: when the HOST has no git, resolve the name to the
+     * distro sentinel so the change-review pipeline's every spawn (discovery
+     * included) routes into the distro instead of dying at the executable
+     * lookup. Scoped to the one name — every other consumer's lookup (pwsh,
+     * LSP, ripgrep) is untouched — and only on the super's failure, so a
+     * machine with Windows git behaves exactly as shipped. See
+     * `git-route.ts`'s `DISTRO_GIT_SENTINEL` for the routing side.
+     */
+    resolveExecutable(command: string, env: Record<string, string> | undefined, signal: AbortSignal | undefined): Promise<string>;
     /**
      * The environment one `wsl.exe` launch forwards: the safe list plus every
      * managed `DSH_*` name, admitted through `WSLENV` and never `PATH` — see the

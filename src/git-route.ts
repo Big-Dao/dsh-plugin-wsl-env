@@ -13,19 +13,28 @@
  * ## What is routed, and what deliberately is not
  *
  * A spawn is routed only when the working directory names the distro (a
- * `\\wsl.localhost\<distro>` UNC) and the argv carries none of the discovery
- * flags (`--show-toplevel`, `--absolute-git-dir`, `--git-path`). Those three
- * print **absolute paths**, which `workspace-changes` resolves against the
- * UNC workspace (`git.ts` `resolve(cwd, line)`) — a distro git would answer
- * in Linux paths and corrupt that resolution. Host git answers in UNC form,
- * which is exactly what the caller wants, and the discovery call is one
- * cheap command rather than a work-tree scan. Everything else — `add`,
- * `write-tree`, `ls-tree`, `cat-file`, `diff-tree`, `ls-files`,
- * `check-ignore` — is safe to route: snapshot calls run in an environment
- * fully isolated from the user's git state (`GIT_INDEX_FILE` /
- * `GIT_OBJECT_DIRECTORY` / `GIT_ALTERNATE_OBJECT_DIRECTORIES` pointing at the
- * tool's private scratch), so the distro git mutates scratch, never the
- * repository.
+ * `\\wsl.localhost\\<distro>` UNC). Inside that, two cases:
+ *
+ * - **Snapshot calls** (`add`, `write-tree`, `ls-tree`, `cat-file`,
+ *   `diff-tree`, `ls-files`, `check-ignore`) route whenever the program is
+ *   git — the runs are fully isolated from the user's git state
+ *   (`GIT_INDEX_FILE` / `GIT_OBJECT_DIRECTORY` /
+ *   `GIT_ALTERNATE_OBJECT_DIRECTORIES` pointing at the tool's private
+ *   scratch), so the distro git mutates scratch, never the repository.
+ * - **Discovery calls** (`--show-toplevel`, `--absolute-git-dir`, `--git-path`)
+ *   print absolute paths that the caller resolves against the UNC workspace,
+ *   so a distro answer in Linux paths would corrupt that resolution. They
+ *   route only when the program is the SENTINEL path `DISTRO_GIT_SENTINEL` —
+ *   the guard `resolveExecutable` returns when the HOST has no git — and the
+ *   facade translates the output lines into UNC form before the caller sees
+ *   them (`translateDiscoveryOutput`). A host-resolved git keeps the shipped
+ *   host-side discovery, which answers UNC natively (and needs the documented
+ *   `safe.directory` whitelist for WSL shares).
+ *
+ * The split means a machine without Windows git still gets full WSL change
+ * review: the sentinel resolves, every spawn routes, nothing touches the
+ * host. See `lib/git-exec.js` for the facade side.
+ *
  *
  * ## Environment translation
  *
@@ -50,7 +59,16 @@ import { isWslUnc, uncToPosix, windowsToLinuxMount } from "./paths.js";
 /** The one program this rewrite passes through to the distro. */
 const GIT_PROGRAM = "git";
 
-/** Discovery flags print absolute paths — host git keeps that contract. */
+/**
+ * The program path `resolveExecutable` returns for git when the HOST has no
+ * git: a Linux absolute path that only makes sense inside the distro, so any
+ * spawn carrying it must route (and a discovery spawn's output must come back
+ * translated). Chosen to match a standard distro install so the argv stays
+ * honest even where it is read verbatim.
+ */
+export const DISTRO_GIT_SENTINEL = "/usr/bin/git";
+
+/** Discovery flags print absolute paths — the caller resolves them. */
 const DISCOVERY_FLAGS = ["--show-toplevel", "--absolute-git-dir", "--git-path"];
 
 /**
@@ -128,9 +146,10 @@ export function translateGitEnv(env: Record<string, string | undefined> | undefi
  *   git launch (non-git programs, host directories, and the absolute-output
  *   discovery flags all keep the shipped spawn).
  */
-export function gitSpawnRewrite({ argv, cwd, wslPath }: { argv?: readonly string[], cwd?: string, wslPath: string }): { distro: string, linuxCwd: string, gitArgv: string[], wslArgv: string[] } | undefined {
+export function gitSpawnRewrite({ argv, cwd, wslPath }: { argv?: readonly string[], cwd?: string, wslPath: string }): { distro: string, linuxCwd: string, gitArgv: string[], wslArgv: string[], discovery?: boolean } | undefined {
   if (!Array.isArray(argv) || !isGitProgram(argv[0])) return undefined;
-  if (namesDiscoveryPaths(argv)) return undefined;
+  const sentinel = argv[0] === DISTRO_GIT_SENTINEL;
+  if (namesDiscoveryPaths(argv) && !sentinel) return undefined;
   const named = uncToPosix(cwd);
   if (named === undefined) return undefined;
   const linuxCwd = named.linuxPath.length > 0 ? named.linuxPath : "/";
@@ -140,5 +159,28 @@ export function gitSpawnRewrite({ argv, cwd, wslPath }: { argv?: readonly string
     linuxCwd,
     gitArgv,
     wslArgv: [wslPath, "-d", named.distro, "--cd", linuxCwd, "--exec", ...gitArgv],
+    discovery: sentinel && namesDiscoveryPaths(argv),
   };
+}
+
+/**
+ * Translate one routed discovery call's stdout into the caller's UNC
+ * coordinate system: every absolute Linux path line becomes
+ * `\\wsl.localhost\<distro><path>`; relative lines (`--git-path` answers
+ * `.git/objects` when the repository is not bare) pass through untouched,
+ * because the caller resolves them against the UNC cwd natively.
+ *
+ * @param distro - the distro the discovery ran in.
+ * @param stdout - the distro git's captured stdout.
+ * @returns the stdout with absolute path lines rewritten.
+ */
+export function translateDiscoveryOutput(distro: string, stdout: Buffer): Buffer {
+  const text = stdout.toString("utf8");
+  if (!text.includes("\n") && !text.startsWith("/")) return stdout;
+  const translated = text.split("\n").map((line) =>
+    line.startsWith("/")
+      ? `\\\\wsl.localhost\\${distro}${line.replaceAll("/", "\\")}`
+      : line,
+  );
+  return Buffer.from(translated.join("\n"), "utf8");
 }

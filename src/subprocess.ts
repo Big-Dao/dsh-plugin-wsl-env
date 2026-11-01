@@ -60,11 +60,12 @@
  *
  * ## What the operator must pair it with
  *
- * `terminalEnvironment()` and `resolveExecutable()` are also resolved from the
- * root realm, and neither receives a Session or a directory, so this provider
- * deliberately leaves them alone: rewriting them would change executable lookup
- * for every other root consumer (the pwsh executor, the LSP host, the file
- * search) to make the *shell menu* of one window prettier. The profile instead
+ * `terminalEnvironment()` is also resolved from the root realm and receives no
+ * Session or directory, so this provider deliberately leaves it alone:
+ * rewriting it would change environment lookup for every other root consumer
+ * to make the *shell menu* of one window prettier. `resolveExecutable()` gets
+ * ONE scoped exception — a git fallback when the host has none (see the
+ * override below); every other name's lookup is untouched. The profile also
  * configures the terminal controller with the distro shell as the default
  * profile plus deliberate host candidates: `shell: { path: wsl.exe, name: WSL }`
  * and `shellCandidates: [wsl.exe, powershell, cmd]` — the first dedupes into
@@ -91,7 +92,7 @@ import type { SubprocessCollect, SubprocessHandle, SubprocessSpawnSpec, Subproce
 import { isPosixAbsolute, toLinuxPath, uncToPosix, windowsToLinuxMount } from "./paths.js";
 import { DEFAULT_WSL_PATH, defaultDistro, wslEnvValue, wslTerminalArgv } from "./wsl.js";
 import { searchSpawnRewrite } from "./search-route.js";
-import { gitSpawnRewrite, translateGitEnv } from "./git-route.js";
+import { DISTRO_GIT_SENTINEL, gitSpawnRewrite, translateGitEnv } from "./git-route.js";
 import { searchExecutionHandle } from "./search-exec.js";
 import { gitExecutionHandle } from "./git-exec.js";
 import { sharedAgent } from "./agent-shared.js";
@@ -422,6 +423,8 @@ export class WslSubprocessRuntime extends LocalSubprocessRuntime {
         env: agentEnv,
         stdin: stdinData === undefined ? undefined : Buffer.from(stdinData, "utf8"),
         caps: { stdout: stdoutCap, stderr: stderrCap },
+        distro: gitRewrite.distro,
+        discovery: gitRewrite.discovery === true,
         signal: spec.signal,
         spawnFallback: oneShot,
       }) as SubprocessHandle;
@@ -449,6 +452,25 @@ export class WslSubprocessRuntime extends LocalSubprocessRuntime {
           env: this.forwardedEnv(spec),
         }),
     }) as SubprocessHandle;
+  }
+
+  /**
+   * Guarded git fallback: when the HOST has no git, resolve the name to the
+   * distro sentinel so the change-review pipeline's every spawn (discovery
+   * included) routes into the distro instead of dying at the executable
+   * lookup. Scoped to the one name — every other consumer's lookup (pwsh,
+   * LSP, ripgrep) is untouched — and only on the super's failure, so a
+   * machine with Windows git behaves exactly as shipped. See
+   * `git-route.ts`'s `DISTRO_GIT_SENTINEL` for the routing side.
+   */
+  override async resolveExecutable(command: string, env: Record<string, string> | undefined, signal: AbortSignal | undefined): Promise<string> {
+    try {
+      return await super.resolveExecutable(command, env, signal);
+    } catch (error) {
+      const base = command.slice(Math.max(command.lastIndexOf("/"), command.lastIndexOf("\\")) + 1).toLowerCase().replace(/\.exe$/u, "");
+      if (base === "git") return DISTRO_GIT_SENTINEL;
+      throw error;
+    }
   }
 
   /**

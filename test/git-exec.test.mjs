@@ -130,6 +130,22 @@ check("a one-character overflow past the cap flags lossy", async () => {
   assert.equal(stdout.lossy, true, "exactly-at-cap is not lossy; one over is");
 });
 
+check("a discovery call's absolute path lines come back in UNC form", async () => {
+  const agent = fakeAgent([{ exitCode: 0, stdout: Buffer.from("/home/andy/proj\n.git/objects\n"), stderr: Buffer.alloc(0) }]);
+  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ ({ agent, cwd: CWD, argv: ["git", "rev-parse", "--show-toplevel"], env: {}, caps: CAPS, distro: "ubuntu", discovery: true })));
+  await handle.done;
+  const stdout = /** @type {GitReader} */ (handle.collected.stdout).readFrom(0);
+  assert.equal(stdout.text, "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj\n.git/objects\n");
+});
+
+check("a snapshot call's stdout is never translated", async () => {
+  const agent = fakeAgent([{ exitCode: 0, stdout: Buffer.from("/home/andy/proj\n"), stderr: Buffer.alloc(0) }]);
+  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ ({ agent, cwd: CWD, argv: ["git", "ls-files"], env: {}, caps: CAPS, distro: "ubuntu" })));
+  await handle.done;
+  const stdout = /** @type {GitReader} */ (handle.collected.stdout).readFrom(0);
+  assert.equal(stdout.text, "/home/andy/proj\n", "snapshot output stays in the caller's own reading");
+});
+
 check("an empty stdin keeps the payload off the wire", async () => {
   const agent = fakeAgent([{ exitCode: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }]);
   const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ ({ agent, cwd: CWD, argv: ["git", "write-tree"], env: {}, caps: CAPS })));

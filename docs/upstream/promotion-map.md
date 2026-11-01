@@ -123,9 +123,13 @@ cwd = 工作区。这是 9P 上最重的操作（`git add --all` 是全工作树
    138 文件」「确定性可复现」两项在此无法核对。
 2. **env 里的路径是坐标翻译问题**：scratch 在 Windows temp（盘符）、仓库身份在
    UNC——`uncToPosix` 与 `windowsToLinuxMount` 恰好是确定性翻译，无需 wslpath。
-3. **发现类命令必须留在 host**：`rev-parse --show-toplevel/--absolute-git-dir/
+3. **发现类命令的分流**：`rev-parse --show-toplevel/--absolute-git-dir/
    --git-path` 输出绝对路径，调用方 `resolve(cwd, line)` 按 UNC 世界解析——
-   distro git 会答 Linux 路径破坏解析。排除规则 = argv 含这三个旗标即不拦截。
+   distro git 会答 Linux 路径破坏解析。规则（v6 后）：宿主 git 存在时发现
+   调用留 host（答 UNC，需 `safe.directory` 白名单）；宿主无 git 时
+   `resolveExecutable` 以哨兵 `/usr/bin/git` 回退，发现调用进 distro 并在
+   facade 把输出的绝对行翻译回 UNC（`translateDiscoveryOutput`）——WSL 仓库
+   的完整 change-review 不再依赖 Windows git。
 
 实现：`lib/git-route.js`（纯决策 + env 翻译）+ `subprocess.js` spawn 的 git
 分支（**agent 优先 + one-shot 回退**——协议 v6 为 EXEC 增加了 stdin 载荷行：

@@ -34,6 +34,16 @@ were part of the record.
   delivers bytes verbatim), so host library and shipped binaries upgrade
   together; the doctor's handshake reports any mismatch.
 
+- **WSL change review no longer requires Windows git.** When
+  `resolveExecutable('git')` fails on the host, the provider answers with a
+  distro sentinel (`/usr/bin/git`); every workspace-changes spawn — the
+  `rev-parse` discovery included — then routes into the distro, and the
+  snapshot facade translates the discovery call's absolute-path output lines
+  into UNC form (`translateDiscoveryOutput`). A machine with Windows git is
+  unchanged (host discovery + `safe.directory` whitelist). The
+  `resolveExecutable` override is scoped to the one name and only fires on
+  the super's failure.
+
 ### Documentation
 
 - The architecture and upstream-promotion documents reflect the v6 protocol

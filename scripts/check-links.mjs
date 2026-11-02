@@ -15,7 +15,7 @@
  * Runs from the package root (the npm script's cwd).
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -77,8 +77,12 @@ const CHINESE_ONLY = ["docs/REQUIREMENTS.zh.md", "docs/VALUE.zh.md"];
 // translation under `docs/`, so that pair maps across directories.
 const ENGLISH_COUNTERPART = (name) =>
   name === "docs/README.zh.md" ? "README.md" : name.replace(/\.zh\.md$/, ".md");
+// Pairing compares forward-slash names on every platform: on Windows the
+// walker yields backslash separators, which would miss both the CHINESE_ONLY
+// exemptions and the cross-directory README pair (root README.md <>
+// docs/README.zh.md) and report false breakage.
 const unpaired = files
-  .map((file) => file.slice(ROOT.length + 1))
+  .map((file) => file.slice(ROOT.length + 1).split(sep).join("/"))
   .filter((name) => name.endsWith(".zh.md") && !CHINESE_ONLY.includes(name))
   .filter((name) => !existsSync(join(ROOT, ENGLISH_COUNTERPART(name))))
   .map((name) => `${name}: no English counterpart`);

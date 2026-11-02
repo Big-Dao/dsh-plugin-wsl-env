@@ -126,7 +126,18 @@
     abort（exit 1），不冒充结果。
   - 待设计（下一项）：四态（通过/失败/跳过/未运行）汇总需先有不依赖真机
     的测试，再改脚本或 CI。
-- [ ] 设计结果汇总，分别显示通过、失败、跳过和未运行；缺前置条件时不得将套件报告为完整通过。先为汇总和失败路径增加不依赖真机的测试，再修改脚本或 CI。
+- [x] 设计结果汇总，分别显示通过、失败、跳过和未运行；缺前置条件时不得将套件报告为完整通过。先为汇总和失败路径增加不依赖真机的测试，再修改脚本或 CI。
+
+  **实现记录（2026-11-02）：** 新增 `test/probe/summarize-probes.mjs`
+  四态汇总器（pass/fail/skipped/not run），退出码 0=完整通过、1=有失败、
+  2=不完整（有 SKIP 或未运行条目，即使零失败也不报通过）；`run.sh`
+  结尾与 tasklist abort 路径都经 `finish()` 产出汇总，abort 不再无结论。
+  SKIP 约定：探针脚本头部 `# prereq: <命令>`，前置失败记 SKIP 并附原因
+  （首个采用者 `sandbox.sh`：distro 内 bwrap+node）。离线覆盖：
+  `WSL_PROBE_SUITE`/`WSL_PROBE_DIR`/`WSL_PROBE_SKIP_WAIT` 仅供测试。
+  `test/probe-runner.test.mjs` 新增 8 项不依赖真机的测试（汇总器 4 项、
+  真实 runner 驱动假探针 4 项），全部通过；行为变更待下次真机运行时按
+  新格式产出记录。
 - [ ] 若能提供专用 Windows + WSL + Harness 环境，先由维护者手动执行 `bash test/probe/run-all-when-closed.sh --include-fs`，保存经审阅脱敏的环境和结果，再考虑定时执行。
 - [ ] 如使用自托管 runner，只允许可信分支的受控任务，限制凭据和网络权限；不让外部 PR 的任意代码自动进入个人开发机。runner 隔离和清理方案单独审查。
 - [ ] 若专用环境暂不可用，保留人工发布门槛并明确显示“自动真机验证未配置”；不得以 hosted job 的跳过冒充真机通过。

@@ -8,6 +8,10 @@
 #
 #   test/probe/sandbox.sh          # or: pnpm run probe:sandbox
 #
+# prereq: { command -v bwrap >/dev/null 2>&1 || echo "bwrap is not installed in this distro" >&2; } && { command -v node >/dev/null 2>&1 || echo "node is not available in this distro" >&2; }
+# (the prereq line is read by run-all-when-closed.sh: a failed prerequisite
+# records a SKIP with the echoed reason, not a failure)
+#
 # Overridable:
 #   DSH_WSL_ENV_WORKSPACE   the writable root to grant (default: this checkout)
 #   DSH_WSL_ENV_CMD         cmd.exe as this shell sees it (default:

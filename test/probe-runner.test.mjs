@@ -278,3 +278,119 @@ test("copied interop rejects failed setup, unavailable baseline, blocked launch,
     assert.notDeepEqual(await checkCopiedInterop({ ...config, ...options }), []);
   }
 });
+
+/**
+ * Run the suite summarizer against synthetic results.
+ * @param {string} suite - Comma-separated expected probe names.
+ * @param {string | undefined} results - Tab-separated results-file contents.
+ */
+function summarize(suite, results) {
+  const dir = mkdtempSync(join(tmpdir(), "wsl-probe-summary-"));
+  try {
+    const resultsPath = join(dir, "results.txt");
+    if (results !== undefined) writeFileSync(resultsPath, results);
+    return spawnSync("node", [join(root, "test", "probe", "summarize-probes.mjs"), "--suite", suite, resultsPath], { encoding: "utf8" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+shellTest("summarizer reports a full pass only when every suite entry passed", () => {
+  const result = summarize("a.sh,b.sh", "PASS\ta.sh\nPASS\tb.sh\n");
+  assert.equal(result.status, 0, result.stdout);
+  assert.match(result.stdout, /pass 2, fail 0, skipped 0, not run 0/);
+  assert.match(result.stdout, /FULL PASS/);
+});
+
+shellTest("summarizer keeps failures and skips distinguishable", () => {
+  const result = summarize("a.sh,b.sh,c.sh,d.sh", "PASS\ta.sh\nFAIL\tb.sh\t3\nSKIP\tc.sh\tbwrap missing\n");
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(result.stdout, /pass 1, fail 1, skipped 1, not run 1/);
+  assert.match(result.stdout, /skipped — bwrap missing/);
+  assert.match(result.stdout, /NOT RUN  d\.sh/);
+  assert.match(result.stdout, /INCOMPLETE RUN: 1 probe\(s\) failed/);
+});
+
+shellTest("summarizer refuses a full pass over skips or unattempted probes", () => {
+  const cases = /** @type {[string, string | undefined][]} */ ([
+    ["a.sh,b.sh", "PASS\ta.sh\nSKIP\tb.sh\tnode missing\n"],
+    ["a.sh,b.sh", "PASS\ta.sh\n"],
+    ["a.sh", undefined],
+  ]);
+  for (const [suite, results] of cases) {
+    const result = summarize(suite, results);
+    assert.equal(result.status, 2, `${suite}: ${result.stdout}`);
+    assert.match(result.stdout, /did not fully run/);
+  }
+});
+
+shellTest("summarizer treats a missing results file as nothing ran", () => {
+  const result = summarize("a.sh", undefined);
+  assert.equal(result.status, 2, result.stdout);
+  assert.match(result.stdout, /not run 1/);
+});
+
+/**
+ * Run the real suite runner against fake probes via the offline overrides.
+ * @param {{probes?: {name: string, body?: string}[]}} options - Fake suite; bodies default to exit 0.
+ */
+function runSuite(options = {}) {
+  const dir = mkdtempSync(join(tmpdir(), "wsl-probe-suite-"));
+  try {
+    mkdirSync(dir, { recursive: true });
+    const probes = options.probes ?? [{ name: "p0.sh" }, { name: "p1.sh" }];
+    for (const probe of probes) {
+      const path = join(dir, probe.name);
+      writeFileSync(path, `#!/usr/bin/env bash\n${probe.body ?? "exit 0"}\n`);
+      chmodSync(path, 0o755);
+    }
+    return spawnSync("bash", [join(root, "test", "probe", "run-all-when-closed.sh")], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        WSL_PROBE_SUITE: probes.map((probe) => probe.name).join(" "),
+        WSL_PROBE_DIR: dir,
+        WSL_PROBE_SKIP_WAIT: "1",
+      },
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+shellTest("suite runner exits 0 and reports a full pass when every probe passes", () => {
+  const result = runSuite();
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /probe suite: 2 probes — pass 2, fail 0, skipped 0, not run 0/);
+  assert.match(result.stderr, /FULL PASS/);
+});
+
+shellTest("suite runner exits 1 with failures distinguishable from the summary", () => {
+  const result = runSuite({ probes: [{ name: "a.sh" }, { name: "b.sh", body: "echo boom >&2; exit 3" }] });
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stderr, /pass 1, fail 1/);
+  assert.match(result.stderr, /INCOMPLETE RUN: 1 probe\(s\) failed/);
+  // The per-probe verdict with its status lives in the run's stdout/log.
+  assert.match(result.stdout, /FAIL  b\.sh \(status 3\)/);
+});
+
+shellTest("suite runner records a failed prerequisite as a skip, not a pass or a failure", () => {
+  const result = runSuite({
+    probes: [
+      { name: "a.sh", body: "# prereq: echo no bwrap here >&2; exit 1\nexit 0" },
+      { name: "b.sh" },
+    ],
+  });
+  assert.equal(result.status, 2, result.stderr);
+  assert.match(result.stderr, /pass 1, fail 0, skipped 1, not run 0/);
+  assert.match(result.stderr, /SKIP  a\.sh\tskipped — no bwrap here/);
+  assert.match(result.stderr, /did not fully run/);
+});
+
+shellTest("a prereq-bearing probe that satisfies its prerequisite still runs and passes", () => {
+  const result = runSuite({
+    probes: [{ name: "a.sh", body: "# prereq: true\nexit 0" }],
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /pass 1, fail 0, skipped 0, not run 0/);
+});

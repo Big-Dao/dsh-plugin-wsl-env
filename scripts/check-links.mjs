@@ -66,5 +66,23 @@ for (const file of files) {
 }
 
 for (const line of broken) console.log(`BROKEN  ${line}`);
-console.log(`${checked} relative links checked in ${files.length} files; ${broken.length} broken`);
-process.exit(broken.length === 0 ? 0 : 1);
+
+// Bilingual pairing: every `.zh.md` translation must have its authoritative
+// English file next to it. The docs map fixes the direction — English is the
+// authority, Chinese follows — so a missing pair means a half-shipped doc.
+// Chinese-only maintainer documents are exempt on purpose; the docs map names
+// them as Chinese-only and outside the shipped `files` list.
+const CHINESE_ONLY = ["docs/REQUIREMENTS.zh.md", "docs/VALUE.zh.md"];
+// The repo rule keeps one README at the package root and its Chinese
+// translation under `docs/`, so that pair maps across directories.
+const ENGLISH_COUNTERPART = (name) =>
+  name === "docs/README.zh.md" ? "README.md" : name.replace(/\.zh\.md$/, ".md");
+const unpaired = files
+  .map((file) => file.slice(ROOT.length + 1))
+  .filter((name) => name.endsWith(".zh.md") && !CHINESE_ONLY.includes(name))
+  .filter((name) => !existsSync(join(ROOT, ENGLISH_COUNTERPART(name))))
+  .map((name) => `${name}: no English counterpart`);
+for (const line of unpaired) console.log(`BROKEN  ${line}`);
+
+console.log(`${checked} relative links checked in ${files.length} files; ${broken.length + unpaired.length} broken`);
+process.exit(broken.length === 0 && unpaired.length === 0 ? 0 : 1);

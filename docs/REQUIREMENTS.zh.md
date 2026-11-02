@@ -10,7 +10,11 @@ docs/ 各篇里的行为承诺登记成带编号的需求条目，并给每条�
 
 维护规则与 [PARITY.md](PARITY.md) 的纪律一致：需求变更与登记表改动进同一笔
 变更；新增行为承诺先入表再实现；「验证」列与测试同改。登记表的唯一判定
-来源是文档与代码的现状，不是意图。
+来源是文档与代码的现状，不是意图。「验证」列引用的测试由
+`pnpm run lint:requirements`（`scripts/check-requirements.mjs`，已入
+`pnpm test` 门禁链）机械校验：被引测试必须存在且列入 `test:unit` 与
+`test:coverage` 两个脚本；ID 不得重复；未引用测试的行为/过程性条目会在
+输出中点名保留可见。
 
 ## 判尺
 
@@ -39,9 +43,8 @@ docs/ 各篇里的行为承诺登记成带编号的需求条目，并给每条�
 | R10 | 文件搜索跑发行版自身的 rg，绝不跨 9p share | PARITY「Contract audit」第 2 条；LIMITATIONS「glob 和 grep」条 | ①②③：拦截点与参数逐字转发成文；缺 rg 浮出 exit 127 附 bootstrap 指引；grep 回退被拒绝且理由明文（不读 `.gitignore`，非 rg 替身） | `search-route.test.mjs`、`search-exec.test.mjs` | — |
 | R11 | watch()：inotify 优先（无界目录），轮询回退；粗粒度失效 | PARITY「Contract audit」第 1 条；LIMITATIONS watch 两条 | ①②③：契约向上追溯到宿主接缝（`changed()` 无载荷 → 粗粒度失效即可）；inotify 递归且 0.5s 合并、文件/限深/无 inotify-tools 回退轮询；更旧 mtime 盲区只属轮询路径、`watchMaxDepth` 旋钮、目标消失响亮报错成文 | `watcher.test.mjs`；probe:watch（无 inotify 时 7/7；装 inotify-tools 后盲区检查改为期望事件） | 轮询回退的 mtime 盲区已声明；inotify 路径依赖发行版的 inotify-tools |
 | R12 | share 基座退役：携带 `substrate: "share"` 的 profile 在 boot 被拒并附迁移 | README/CONFIGURATION/LIMITATIONS 三处一致 | ①②⑤：旧值处置与用户所见成文，迁移指引内嵌 | `fs-decisions.test.mjs`（拒绝消息与迁移指引文案） | boot 期拒绝分支无测试（构造器调 `shareSubstrateRefusal`，`src/index.ts:1056`）：`fs.boot.test.mjs` 只以 `sandbox: true` 启动该行，仓内没有构造 `substrate: "share"` profile 的测试 |
-| R14 | 会话级 systemd scope：命令共享后台进程/真实 `/tmp`/`ps`，scope 随会话结束停止；systemd + linger 缺失时预检带修复拒绝 | ADR 0001；README/CONFIGURATION/LIMITATIONS 的 `sessionSandbox` 条 | ①②③⑤：scope 生命周期（agent 为主进程、refcount、dispose stop）、`sessionSandbox: false` 退出、systemd/linger/systemd-run 四项预检与缓存策略成文；`/tmp` 与后台进程的保真边界限定在 runtime 开时 | `session-scope.test.mjs`、`session-runtime.test.mjs`、`provider.test.mjs`；真机会话验证（active scope、跨命令后台/`/tmp`、会话结束 0 units） | 硬崩溃可能留下 stale scope（启动清扫未随发，入 LIMITATIONS）；受限写入已共享 runtime，读仍走无约束共享 agent，根级 fs-routing 不持有 session runtime |
-| R13 | bootstrap：bwrap/ripgrep 等的就地体检与安装 | README「Install」「Troubleshooting」；CONFIGURATION | ①②⑤：`--install` 与只读体检两式、体检对象、错误消息补救指引成文 | 0.7.4 起脚本随包（`files` 收录，补救指引在 npm 安装下可用） | 脚本本身无 CI 腿（真机排错路径覆盖） |
-| R14 | 安装/卸载/升级流：四步安装、幂等陷阱及补救、ES 模块重启须知 | README「Install」「Troubleshooting」 | ①③：每步预期输出、`add` 幂等性陷阱的补救（先 remove 再 add）、pnpm UNC 链接极限成文 | 人工步骤，无自动化（依赖真实 dsh CLI + Windows） | 无自动化守护 |
+| R13 | 会话级 systemd scope：命令共享后台进程/真实 `/tmp`/`ps`，scope 随会话结束停止；systemd + linger 缺失时预检带修复拒绝 | ADR 0001；README/CONFIGURATION/LIMITATIONS 的 `sessionSandbox` 条 | ①②③⑤：scope 生命周期（agent 为主进程、refcount、dispose stop）、`sessionSandbox: false` 退出、systemd/linger/systemd-run 四项预检与缓存策略成文；`/tmp` 与后台进程的保真边界限定在 runtime 开时 | `session-scope.test.mjs`、`session-runtime.test.mjs`、`provider.test.mjs`；真机会话验证（active scope、跨命令后台/`/tmp`、会话结束 0 units） | 硬崩溃可能留下 stale scope（启动清扫未随发，入 LIMITATIONS）；受限写入已共享 runtime，读仍走无约束共享 agent，根级 fs-routing 不持有 session runtime |
+| R14 | bootstrap：bwrap/ripgrep 等的就地体检与安装 | README「Install」「Troubleshooting」；CONFIGURATION | ①②⑤：`--install` 与只读体检两式、体检对象、错误消息补救指引成文 | 0.7.4 起脚本随包（`files` 收录，补救指引在 npm 安装下可用） | 脚本本身无 CI 腿（真机排错路径覆盖） |
 | R15 | 错误码方言：每个 `FS_*` 码给出抛出者、含义、解除条件；`wsl.exe` 自身失败显式收编 | ARCHITECTURE「Error codes」表 | ①②：逐码三列成表；两类历史隐形失败（UTF-16 stdout、cwd 回退 exit 0）收编；`FS_OUTSIDE_DISTRO` 独立成码的理由明文 | `fs-decisions.test.mjs`、`fsio-agent.test.mjs`、`fs-substrate.test.mjs`、`provider.test.mjs`（断言码与消息） | — |
 | R16 | 对端 parity 合同：fsio 文本机制逐字节复刻钉死的对端版本 | PEER-PARITY 全文 | ①④⑥：钉版、验证方法（npm pack 逐函数比对）、验证日期、刻意分歧逐条声明、bump 钉版即重跑的维护规则 | `fsio-agent.test.mjs`（distro 内半区 canary）；对端比对为手动方法 | 钉版升级后需重跑比对（维护规则） |
 | R17 | 常驻 agent 协议：ACK 计时看门狗、只读帧才重放、逐流输出上限、sha256 部署校验、租约存活、进程组两段杀 | CHANGELOG 0.3.0/0.6.0/0.7.3；PARITY Phase 1/Phase 3 | ①②④：每条健壮性属性有规格出处与实证记录；「EXEC/变异 FS 帧禁止盲重发」是写明的不变量 | `agent-protocol.test.mjs`（HELLO 版本+摘要）、`agent.test.mjs`、`agent-exec.test.mjs`（truncated 旗标）、`agent-fs-script.test.mjs`；probe:agent、probe:exec | — |
@@ -52,6 +55,7 @@ docs/ 各篇里的行为承诺登记成带编号的需求条目，并给每条�
 | R22 | 支持矩阵：Windows 10/11 + WSL2 + Node `^22.19.0 \|\| >=24.0.0` + peer 版本范围 | SUPPORT 全文 | ⑥：支持与不受支持清单、peer 范围及精确开发依赖成文；Node 20 在范围外（理由见 SUPPORT，`engines` 为准） | `peerDependencies`、`devDependencies` 与 `engines`（`package.json`）；CI 矩阵（ci.yml） | 新 peer 版本仍需验证 |
 | R23 | 根平面 `ctx.fs` 按坐标路由：发行版 UNC 由发行版内 agent 服务（inotify 或轮询 watch），盘符路径留在宿主；接替随发的 `fs-sandbox` 行 | README「Architecture」；ARCHITECTURE「The root-plane filesystem takeover」；CONFIGURATION `fs-routing` 行；root-fs-routing.md（设计） | ①②③⑤：路由判定与接替理由（写围栏在根平面无消费者）成文；`distro` 的 `auto`/`default`/pin 三态、每个 UNC 目标由自身 distro 服务、pin 下拒外来路径，以及 `distroCwd`/`restrictToDistro`/`sandbox`/`maskWindowsDrive`/`watchMaxDepth` 逐键成表，且自成一行、不与会话级行联动；`sandbox` 失败关闭成文 | `fs-routing.test.mjs`（纯谓词与路径助手）、`provider.test.mjs`（per-distro substrate/worldPath） | 类本体无单测（需 DSH peers 与实机）；由组合测试与真机探针覆盖 |
 | R24 | GUI 文件树与预览在发行版内服务：沿用随包 `workspace-files` 行（server/client 成对），经根级 `fs-routing` 读写 distro UNC；盘符 scope 交宿主 | README「Architecture」；ARCHITECTURE「The root-plane filesystem takeover」；CONFIGURATION `workspace-files` 行 | ①②③⑤：沿用官方 server/client，浏览器 `file` provider 不丢，预览可用；路由与宿主/发行版 scope 成文；容量键由官方行承载、可覆盖；较直连多 4–6 次往返及其取舍在 LIMITATIONS 成文 | `fs-routing.test.mjs`、组合测试（`workspace-files` 保持启用、接管行不存在） | — |
+| R25 | 安装/卸载/升级流：四步安装、幂等陷阱及补救、ES 模块重启须知 | README「Install」「Troubleshooting」 | ①③：每步预期输出、`add` 幂等性陷阱的补救（先 remove 再 add）、pnpm UNC 链接极限成文 | 人工步骤，无自动化（依赖真实 dsh CLI + Windows） | 无自动化守护 |
 
 登记覆盖面：上表登记 README 与 docs/ 中对外成文的行为承诺（含随发的服务面）。
 **有意未接线**的模块不设条目——`lib/file-reference-wsl.js`（`@` 补全的发行版侧

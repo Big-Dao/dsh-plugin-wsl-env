@@ -132,7 +132,7 @@
     "scripts/profile-preset.mjs"
   ],
   "scripts": {
-    "test": "pnpm run lint:style && pnpm run lint:links && pnpm run test:syntax && pnpm run lint:build && pnpm run lint:types && pnpm run test:unit",
+    "test": "pnpm run lint:style && pnpm run lint:links && pnpm run lint:requirements && pnpm run test:syntax && pnpm run lint:build && pnpm run lint:types && pnpm run test:unit",
     "lint:types": "tsc --noEmit",
     "build": "node scripts/build.mjs",
     "lint:build": "node test/build-freshness.mjs",
@@ -141,6 +141,7 @@
     "test:unit": "node --test test/fs.boot.test.mjs test/fsio-text.test.mjs test/composition.test.mjs test/provider.test.mjs test/file-reference-wsl.test.mjs test/paths.test.mjs test/listing.test.mjs test/shell.test.mjs test/shell-env.test.mjs test/terminal.test.mjs test/probe-cache.test.mjs test/preflight.test.mjs test/preset-choice.test.mjs test/sandbox.test.mjs test/agent-protocol.test.mjs test/agent.test.mjs test/agent-fs-script.test.mjs test/fsio-agent.test.mjs test/fs-substrate.test.mjs test/agent-exec.test.mjs test/ports.test.mjs test/watcher.test.mjs test/wsl.test.mjs test/fs-decisions.test.mjs test/git-route.test.mjs test/search-route.test.mjs test/search-exec.test.mjs test/terminal-activity.test.mjs test/session-scope.test.mjs test/session-runtime.test.mjs test/native-agent.test.mjs test/peers.test.mjs test/agent-shared.test.mjs test/distro-route.test.mjs test/fs-routing.test.mjs test/doctor.test.mjs test/profile-preset.test.mjs test/packaging.test.mjs test/peer-canary.test.mjs test/probe-runner.test.mjs",
     "lint:style": "node test/style.mjs",
     "lint:links": "node scripts/check-links.mjs",
+    "lint:requirements": "node scripts/check-requirements.mjs",
     "prepublishOnly": "pnpm test",
     "probe": "bash test/probe/run.sh",
     "probe:missing-wsl": "bash test/probe/missing-wsl.sh",

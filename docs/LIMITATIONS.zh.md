@@ -79,8 +79,10 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
   按命令形态。应用硬崩溃可能留下过期的 `dsh-wsl-*.scope`；预检会在下一个
   WSL 会话时清扫过期 scope（从不清扫其他活跃会话的）。
 - **沙箱不管辖 WSL interop** —— 上报为 `enforcement: partial`。
-  `maskWindowsDrive` 收窄 `/mnt` 但不是关闭；发行版级 `wsl.conf` 中的
-  `[interop] enabled=false` 需要另行配置。
+  `maskWindowsDrive` 和 `interopVisibility` 收窄 `/mnt` 但不是关闭；即使是
+  `interopVisibility: "disabled"` 也只是给出 `wsl.conf` 中
+  `[interop] enabled=false` 的补救命令（由 `doctor` 打印）——发行版级设置
+  仍需手工执行。
   [ARCHITECTURE.md](ARCHITECTURE.md#reported-enforcement)。
 - **必须安装 `bubblewrap`**，否则两个提供者都会带着安装命令失败；
   会话启动预检会以建议性警告的形式给出同样的文本。
@@ -91,6 +93,7 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
 
 命令以 `<shell> -lc <command>` 运行——登录 shell（会 source profile 脚本，
 因此版本管理器可用）且**非交互**（模型的输出流中没有提示符/插件输出）。
+设置 `loginShell: false` 后去掉登录旗标（`<shell> -c <command>`）。
 
 - **`~/.zshrc` / `~/.bashrc` 永远不会被读取。** 把机器级的 PATH 设置
   （`fnm`、nvm、cargo）移进 `~/.zprofile` 或 `~/.zshenv`；提示符和补全
@@ -142,6 +145,8 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
   应用。两个替代方案：doctor 的 `git.win-safe` 探针可报告该状态；而
   **没有** Windows git 的机器什么都不用做——提供者把发现请求路由进
   发行版，并把输出转写成 UNC 形式。
+- **冒号分隔的多目录 `GIT_*` 值不做转写直接透传。** git 环境转写只改写单个
+  Windows 目录值；冒号分隔的列表（当前没有调用方设置这种形态）原样转发。
 - **NEW 标签页的标题显示 `WSL`**，无论它实际运行什么——控制器在提供者
   改写启动命令之前就按 composition 的 profile 命名了，而插件无法纠正
   这个默认值（[UPSTREAM-TERMINAL-TITLE.md](UPSTREAM-TERMINAL-TITLE.md)）。

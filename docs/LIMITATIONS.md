@@ -84,8 +84,10 @@ operations never use the 9p share.
   preflight sweeps stale scopes on the next WSL session (never another live
   session's).
 - **The sandbox does not govern WSL interop** — reported as `enforcement: partial`.
-  `maskWindowsDrive` narrows `/mnt` but is not a closure; distro-level
-  `[interop] enabled=false` in `wsl.conf` must be configured separately.
+  `maskWindowsDrive` and `interopVisibility` narrow `/mnt` but are not a closure;
+  even `interopVisibility: "disabled"` only produces the `wsl.conf`
+  `[interop] enabled=false` remedy (printed by `doctor`) — the distro-level
+  setting must still be applied manually.
   [ARCHITECTURE.md](ARCHITECTURE.md#reported-enforcement).
 - **`bubblewrap` must be installed**, or both providers fail with the install
   command; a session-start preflight surfaces the same text as an advisory warning.
@@ -97,7 +99,7 @@ operations never use the 9p share.
 
 Commands run as `<shell> -lc <command>` — login (profile scripts sourced, so version
 managers work) and **non-interactive** (no prompt/plugin output in the model's
-streams).
+streams). With `loginShell: false` the login flag is dropped (`<shell> -c <command>`).
 
 - **`~/.zshrc` / `~/.bashrc` are never read.** Move machine-level PATH setup
   (`fnm`, nvm, cargo) into `~/.zprofile` or `~/.zshenv`; keep prompts and completion
@@ -150,6 +152,9 @@ streams).
   app. Two alternatives: the doctor's `git.win-safe` probe reports the state, and a
   machine **without** Windows git needs nothing — the provider routes discovery into
   the distro and translates the output into UNC form.
+- **Colon-separated multi-directory `GIT_*` values pass through untranslated.**
+  The git environment translation rewrites single Windows directory values; a
+  colon-separated list (no current caller sets one) is forwarded as-is.
 - **A NEW tab's title reads `WSL`** whatever it runs — the controller titles from the
   composition's profile before the provider rewrites the launch, and a plugin cannot
   correct the default ([UPSTREAM-TERMINAL-TITLE.md](UPSTREAM-TERMINAL-TITLE.md)).

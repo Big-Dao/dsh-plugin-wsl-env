@@ -72,7 +72,7 @@ dsh --profile wsl                                  # 启动
 wsl.exe -d <发行版> -u root -- apt-get install -y bubblewrap
 ```
 
-在插件检出目录中，`pnpm run bootstrap <发行版>` 检查四个发行版工具，并按包管理器打印安装命令；加 `--install` 仅在缺少 bubblewrap 时执行该命令。若只缺少其他工具，请自行执行打印的命令。
+在插件检出目录中，`pnpm run doctor` 是一键环境体检：Windows/WSL 版本、发行版及其 shell、bubblewrap 可用性、systemd / user manager / Linger、可选工具、peer 版本、agent 缓存、新 agent 握手、残留会话 scope 和已知的 profile 补丁陷阱。每个失败都打印一条可复制的处理办法；`--json` 供脚本使用，`--fix` 清理残留 scope（安装包需要 `--fix --install` 并显式确认）。`pnpm run diagnose` 是其只读别名。`pnpm run bootstrap <发行版>` 仍是较窄的工具安装助手：检查四个发行版工具，并按包管理器打印安装命令；加 `--install` 仅在缺少 bubblewrap 时执行该命令。若只缺少其他工具，请自行执行打印的命令。
 
 升级：再次执行 `add` 命令。卸载：`dsh plugin --profile wsl remove dsh-plugin-wsl-env`；之后可删除 `~/.cache/dsh-wsl`。如果你为了恢复预览在 profile 里加过 `workspace-files-wsl` 的临时覆盖，升级后请删掉：插件不再挂载该行。
 
@@ -94,13 +94,13 @@ wsl.exe -d <发行版> -u root -- apt-get install -y bubblewrap
 |---|---|---|---|
 | `wsl-shell` | `distro` | `''` | 发行版模式；空/`auto` 跟随工作区，`default` 强制 WSL 默认 |
 | | `sandbox` | `true` | 用 `bubblewrap` 约束命令 |
-| | `sessionSandbox` | `true` | 会话命令跑在同一个 systemd user scope 中 |
+| | `sessionSandbox` | 随包 `true` | 会话命令跑在同一个 systemd user scope 中 |
 | | `agentBackend` | `auto` | 发行版内 agent：`auto`、`native` 或 `shell` |
 | | `maskWindowsDrive` | `false` | 让受限命令看不到 `/mnt` |
 | `wsl-fs` | `distro` | `''` | 发行版模式；空/`auto` 跟随每个目标路径 |
 | | `restrictToDistro` | `true` | 固定发行版（`default` 或名字）时拒绝属于其他发行版的路径 |
 | | `sandbox` | `true` | 按策略检查受限写入 |
-| | `sessionSandbox` | `true` | 受限写入跑在会话 runtime 中 |
+| | `sessionSandbox` | 随包 `true` | 受限写入跑在会话 runtime 中 |
 | | `substrate` | `agent` | 发行版内 agent；`share` 在启动时被拒绝 |
 | `directory-picker-wsl` | `includeHostHome` | `true` | 同时列出 Windows 家目录 |
 | `subprocess-wsl` | `distro` | `''` | 发行版模式；空/`auto` 跟随启动目录 |
@@ -149,6 +149,7 @@ wsl preset（每个会话）
 | 会话在第一条命令前就被拒绝 | 启用 systemd 和 linger，或在 `wsl-shell`、`wsl-fs` 上设置 `sessionSandbox: false` |
 | 发行版内 `glob`、`grep` 很慢 | 运行 `pnpm run bootstrap <发行版>`，使用打印的安装命令安装 `ripgrep` |
 | `dsh plugin add` 没有输出 | 插件已安装；这是成功 |
+| 对 `wsl-shell`/`wsl-fs` 的 profile 补丁不生效 | 这些行嵌套在 `preset-wsl` 里。运行 `pnpm run preset --check <补丁>`；它会失败并输出需要粘贴的完整块 |
 | 改了 `lib/` 但不生效 | 运行 `pnpm run sync:windows`，然后重启应用 |
 
 更多错误码和拒绝原因见 [docs/ARCHITECTURE.md](ARCHITECTURE.md#error-codes)，插件不做的事见 [docs/LIMITATIONS.md](LIMITATIONS.md)。

@@ -96,13 +96,13 @@ Settings live on named rows in `$DSH_HOME/profiles/<name>/cordis.patch.yml`. The
 |---|---|---|---|
 | `wsl-shell` | `distro` | `''` | distro mode; empty/`auto` follows the workspace, `default` forces WSL's default |
 | | `sandbox` | `true` | confine commands with `bubblewrap` |
-| | `sessionSandbox` | `true` | run the session's commands in one systemd user scope |
+| | `sessionSandbox` | shipped `true` | run the session's commands in one systemd user scope |
 | | `agentBackend` | `auto` | `auto`, `native` or `shell` for the in-distro agent |
 | | `maskWindowsDrive` | `false` | hide `/mnt` from confined commands |
 | `wsl-fs` | `distro` | `''` | distro mode; empty/`auto` follows each target path |
 | | `restrictToDistro` | `true` | under a fixed distro, refuse paths that belong to another distro |
 | | `sandbox` | `true` | check confined writes against the policy |
-| | `sessionSandbox` | `true` | run confined writes in the session runtime |
+| | `sessionSandbox` | shipped `true` | run confined writes in the session runtime |
 | | `substrate` | `agent` | in-distro agent; `share` is rejected at startup |
 | `directory-picker-wsl` | `includeHostHome` | `true` | also list the Windows home directory |
 | `subprocess-wsl` | `distro` | `''` | distro mode; empty/`auto` follows the launch directory |

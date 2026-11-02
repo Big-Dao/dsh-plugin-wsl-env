@@ -5,7 +5,7 @@ Measured evidence for the support tiers in [`ROADMAP-1.0.md`](ROADMAP-1.0.md)
 (x86_64, Windows 11, WSL 2, kernel 6.18) on **2026-10-26**, with the probe
 suite in [`test/probe/`](https://github.com/Big-Dao/dsh-plugin-wsl-env/tree/main/test/probe/) run from inside each distro against a
 fresh `--depth 1` clone. The aarch64 native agent is additionally executed per
-push under qemu in CI — see the `native packages` job in
+push under qemu in CI — see the `native-package` job in
 [`.github/workflows/ci.yml`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/.github/workflows/ci.yml); VM-only by
 decision — see "Scope decisions" below.
 

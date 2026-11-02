@@ -61,7 +61,7 @@ profile 层；检测到时会打印应使用的块。`--out` 会整体替换目�
 | `timeoutMs` / `maxTimeoutMs` | `120000` / `600000`（shipped） | 默认的单次调用超时，以及一次调用可请求的最大超时。 |
 | `wslPath` | `wsl.exe` | `wsl.exe` 的路径。 |
 | `hostCwd` | 未设置 | `wsl.exe` 进程的 Windows 工作目录。可用时默认为 `%SystemRoot%`。 |
-| `forwardEnv` | `[]` | 额外通过 `WSLENV` 转发的宿主环境变量名。见 [环境变量转发](#environment-forwarding)。 |
+| `forwardEnv` | `[]` | 额外通过 `WSLENV` 转发的宿主环境变量名。见 [环境变量转发](#环境变量转发)。 |
 
 ### `wsl-fs`
 

@@ -120,8 +120,8 @@ locally (`src/fsio-agent.ts:27-36`, `src/fs-substrate.ts:37`,
 are.
 
 Importing from the entry costs this consumer nothing new: it already imports
-`LocalFileSystem` from the same entry (`src/index.ts:45`,
-`src/fs-routing.ts:35`) and `@deepseek-ai/dsh-fs` (`src/index.ts:46`). The
+`LocalFileSystem` from the same entry (`src/index.ts:46`,
+`src/fs-routing.ts:36`) and `@deepseek-ai/dsh-fs` (`src/index.ts:47`). The
 entry's non-builtin static imports are `chokidar` (`lib/index.js:3`),
 `@deepseek-ai/schemastery` (`:6`) and the `@deepseek-ai/dsh-fs` peer (`:7`) —
 all three already in this consumer's graph; `koffi` loads lazily (`await

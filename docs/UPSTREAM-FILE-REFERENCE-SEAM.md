@@ -1,6 +1,9 @@
 # Upstream seam: `@` references over a WSL workspace
 
-Status: measured and deferred (2026-10-19). The `@` completion in
+Status: measured and deferred (2026-10-19; checked against a
+`dsh-v0.2.1-rc.2`-era upstream — the checked version was not recorded at
+the time. Plugin-side behavior re-verified 2026-11-02 against the current
+peer floor, `>=0.2.1-rc.3`). The `@` completion in
 `@deepseek-ai/dsh-file-reference-local` walks the workspace with
 `node:fs/promises` (`readdir` + `lstat`) from the **Windows** harness process.
 For a WSL workspace that walk crosses the 9p share on every directory; the

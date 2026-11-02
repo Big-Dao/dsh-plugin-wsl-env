@@ -361,14 +361,15 @@ step with the checkout, and `pnpm run sync:windows` runs that script.
 | Build consistency | [`test/build-freshness.mjs`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/build-freshness.mjs) | no; it re-runs the real build and byte-compares the committed `lib/`, so it also catches an orphan there |
 | Type check | `tsc --noEmit` over `test/**` and `types/*.d.ts` (`src/` is checked by the build itself) | no |
 | Unit tests | `test/*.test.mjs` | no |
+| Requirements matrix | [`scripts/check-requirements.mjs`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/scripts/check-requirements.mjs) | no; every cited test must exist and stay wired |
 | Sandbox probe | [`test/probe/sandbox.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/sandbox.sh) | no; it applies the profile arguments directly |
-| Harness probes | [`test/probe/run.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/run.sh), `terminal.sh`, `sandbox-shell.sh`, `interop-shell.sh`, `picker.sh`, `fs-routing.sh`, `missing-wsl.sh`, `sandbox-off.sh` | yes: Windows, WSL2, a mounted profile, and a linked checkout |
-| Distro probes | [`test/probe/substrate.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/substrate.sh), `watch.sh`, `agent.sh`, `exec.sh` | Windows and WSL2, but no harness boot and no profile: they run from a distro terminal with Node available, reaching `wsl.exe` through interop |
+| Harness probes | [`test/probe/run.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/run.sh), `terminal.sh`, `sandbox-shell.sh`, `interop-shell.sh`, `picker.sh`, `fs-routing.sh`, `missing-wsl.sh`, `sandbox-off.sh`, `native-session.sh` | yes: Windows, WSL2, a mounted profile, and a linked checkout |
+| Distro probes | [`test/probe/substrate.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/substrate.sh), `watch.sh`, `agent.sh`, `exec.sh`, `session-sandbox.sh`, `gui-preview.sh`, `file-reference-9p.sh` | Windows and WSL2, but no harness boot and no profile: they run from a distro terminal with Node available, reaching `wsl.exe` through interop |
 | Host probe | [`test/probe/mode.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/mode.sh) | Windows Node, no harness |
-| Probe plugins | the `*-probe.mjs` and `*-probe.yml` files in `test/probe/` | loaded by the scripts above |
+| Probe plugins | the `*-probe.mjs` and `*-probe.yml` files in `test/probe/` (plus standalone measurers such as `gui-preview.mjs`, `native-session.mjs`, `fs-probe.mjs`, `fs-queue.mjs`) | loaded or invoked by the scripts above |
 
-`pnpm test` runs `lint:style`, `lint:links`, `test:syntax`, `lint:build`,
-`lint:types` and `test:unit`, in that order.
+`pnpm test` runs `lint:style`, `lint:links`, `lint:requirements`,
+`test:syntax`, `lint:build`, `lint:types` and `test:unit`, in that order.
 [`test/probe/run-all-when-closed.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/run-all-when-closed.sh)
 waits for the app to exit and then runs the whole real-machine suite once —
 `--include-fs` prepends `run.sh`.

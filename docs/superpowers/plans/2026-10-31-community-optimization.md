@@ -48,10 +48,11 @@
   未审项标注；后续轮次更新状态列。
 - [ ] 从用户入口、配置、安全与限制开始，逐项核对命令、默认值、支持范围、路由、示例和链接；再审查设计、计划与历史材料。历史事实保留原日期，用注释或当前说明消除误读，不改写历史。
 
-  **进度（2026-11-02，f9525f4 与 SECURITY 审计）：** 用户入口四篇、
-  CONFIGURATION（59 键）、LIMITATIONS（约 40 条）、SECURITY.md 已逐项
-  对照权威来源核对完毕；ARCHITECTURE、PERFORMANCE、RELEASING、
-  CHANGELOG、上游接口记录等尚待后续轮次。
+  **进度（2026-11-02，f9525f4、f3f969b 与后续审计提交）：** 用户入口四篇、
+  CONFIGURATION（59 键）、LIMITATIONS（约 40 条）、SECURITY.md、
+  ARCHITECTURE、PERFORMANCE、RELEASING、CHANGELOG（抽审）与上游 8 篇
+  （插件侧）已逐项对照权威来源核对完毕；ROADMAP.md、PARITY/PEER-PARITY
+  与 ADR 尚待后续轮次（归档历史材料按地图约定不参与时效审查）。
 - [x] 修正上述探针数量与路由覆盖冲突；核对路线图中“未运行”和未勾选项是当前状态还是历史记录，不能仅按时间猜测结果。
 
   **核对记录（2026-11-02，对照 `test/probe/run-all-when-closed.sh`、

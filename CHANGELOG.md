@@ -23,7 +23,7 @@ were part of the record.
   the packaging link check caught their absence from the 0.17.0 tarball), and
   `package.json`'s Chinese `description` is readable again instead of
   `\uXXXX` escapes (a release-script `ensure_ascii` slip; the parsed value
-  was always correct). No code changes.
+  was always correct). No shipped-code changes.
 
 ## [0.17.0] - 2026-11-01
 

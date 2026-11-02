@@ -57,7 +57,7 @@ The implementation behind it is `lib/index.js:107`
 (`(spec, argv, stdoutMaxBytes, signal)`), and the source at the
 `dsh-v0.2.1-rc.2` tag declares `argv: readonly string[]`
 (`src/index.ts:151-156`). This plugin's bridge declares `argv: string[]`
-instead (`src/index.ts:216-225`); method parameters are checked bivariantly,
+instead (`src/index.ts:267-276`); method parameters are checked bivariantly,
 so the widening compiles.
 
 A subclass that must override it therefore faces a closed door:

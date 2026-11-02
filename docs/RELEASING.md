@@ -52,7 +52,8 @@ The rest of the uncovered branches — the host-path arm of
 `wslWritableRoots`, the sandbox-error and rethrow arms, the
 unrestricted-path result, all in `lib/index.js` — is ordinary
 CI-coverable code. Do not raise the branch number without either covering
-the `wsl.exe` tail on the Windows CI legs or moving the coverage job to
+the `wsl.exe` tail on the Windows CI legs or moving the coverage job
+(currently `runs-on: ubuntu-latest` in `.github/workflows/ci.yml`) to
 `windows-latest`.
 
 Run the full real-machine suite when behaviour changed, and keep its output for

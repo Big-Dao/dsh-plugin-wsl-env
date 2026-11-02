@@ -148,15 +148,21 @@ await check("closing the watcher stops the distro-side loop", async () => {
   await watch.close();
   // close() sends the loop's announced PID a TERM through a second wsl.exe
   // (and kills the transport). Each probe is a fresh wsl.exe launch, so poll
-  // for the exit instead of trusting one sample.
+  // for the exit instead of trusting one sample. The pattern is scoped to
+  // this check's own directory: a bare wsl-watch match also counts every
+  // OTHER loop on the machine (another session's watcher, a leftover run),
+  // which misreports this probe on any machine with a live harness session.
+  const escapedPath = path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   let out = "";
   const deadline = Date.now() + 6000;
   do {
     await new Promise((resolve) => setTimeout(resolve, 250));
     try {
-      // Match the loop's own argv (the script text names its stamp), not the
-      // pgrep wrapper whose argv contains this escaped pattern or the path.
-      out = execFileSync("wsl.exe", ["-d", distro, "--exec", "pgrep", "-f", "wsl-watch\\.\\$\\$\\.stamp"], { encoding: "utf8" }).trim();
+      // The loop's argv is: sh -c '<script>' wsl-watch <dir>, so the pair
+      // "wsl-watch <dir>" names only loops watching this directory. The
+      // pgrep wrapper's own argv contains the pattern too, but pgrep never
+      // matches itself.
+      out = execFileSync("wsl.exe", ["-d", distro, "--exec", "pgrep", "-f", `wsl-watch.*${escapedPath}`], { encoding: "utf8" }).trim();
     } catch {
       // pgrep exits 1 when nothing matches.
       out = "";

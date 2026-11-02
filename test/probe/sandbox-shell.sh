@@ -24,6 +24,12 @@
 
 set -euo pipefail
 
+# Diagnose silent early exits: under set -e, a failed command substitution or
+# sourced helper ends the probe with no output at all, which the suite runner
+# cannot tell apart from anything else (seen 2026-11-02 in the full-suite
+# run, where the probe failed with zero bytes of output).
+trap 'status=$?; if [ "$status" -ne 0 ]; then echo "sandbox-shell: aborted (status $status) near line ${LINENO}; overlay: ${OVERLAY:-unset}; launcher log tail:" >&2; tail -5 "${LOG:-/dev/null}" >&2 2>/dev/null || true; fi' EXIT
+
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/env.sh"
 

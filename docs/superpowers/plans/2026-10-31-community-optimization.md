@@ -141,12 +141,12 @@
 - [x] 若能提供专用 Windows + WSL + Harness 环境，先由维护者手动执行 `bash test/probe/run-all-when-closed.sh --include-fs`，保存经审阅脱敏的环境和结果，再考虑定时执行。
 
   **执行记录（2026-11-02）：** 15 项全部实际运行——pass 13、fail 2、
-  skipped 0、not run 0（四态汇总格式的首次真机记录）。两项失败经分析均
-  为运行环境干扰（套件中途应用被重开导致 sandbox-shell 静默转交；
-  watch.sh 的全局 pgrep 被其他会话的 watcher 循环误伤），非产品回归。
-  环境与判定详见
-  [probe-runs/2026-11-02-probe-suite.md](../probe-runs/2026-11-02-probe-suite.md)；
-  遗留两项探针健壮性改进（见该文档"后续"）。
+  skipped 0、not run 0（四态汇总格式的首次真机记录）。watch.sh 的失败
+  是探针自身健壮性缺口（全局 pgrep 误计其他会话的 watcher 循环），已
+  修复并复跑通过；sandbox-shell.sh 的无输出早退原因未定，初判的"应用
+  重开导致转交"经复验不成立（探针自启独立实例，应用打开时单独重跑仍
+  全过），已加诊断 trap 待下次定位。环境与判定详见
+  [probe-runs/2026-11-02-probe-suite.md](../probe-runs/2026-11-02-probe-suite.md)。
 - [ ] 如使用自托管 runner，只允许可信分支的受控任务，限制凭据和网络权限；不让外部 PR 的任意代码自动进入个人开发机。runner 隔离和清理方案单独审查。
 - [ ] 若专用环境暂不可用，保留人工发布门槛并明确显示“自动真机验证未配置”；不得以 hosted job 的跳过冒充真机通过。
 

@@ -50,9 +50,11 @@
 
   **进度（2026-11-02，f9525f4、f3f969b 与后续审计提交）：** 用户入口四篇、
   CONFIGURATION（59 键）、LIMITATIONS（约 40 条）、SECURITY.md、
-  ARCHITECTURE、PERFORMANCE、RELEASING、CHANGELOG（抽审）与上游 8 篇
-  （插件侧）已逐项对照权威来源核对完毕；ROADMAP.md、PARITY/PEER-PARITY
-  与 ADR 尚待后续轮次（归档历史材料按地图约定不参与时效审查）。
+  ARCHITECTURE、PERFORMANCE、RELEASING、CHANGELOG（抽审）、上游 8 篇
+  （插件侧）、ROADMAP.md、PARITY/PEER-PARITY 与两篇 ADR 已逐项对照权威
+  来源核对完毕。工作项 1 剩余：条目 45 第二句的设计/计划/历史材料复查
+  （归档按地图约定不参与时效审查，仅剩 ROADMAP-1.0 未逐篇复审，其状态层
+  已在 e5a17e1 核对）与条目 70 的完整 `pnpm test`。
 - [x] 修正上述探针数量与路由覆盖冲突；核对路线图中“未运行”和未勾选项是当前状态还是历史记录，不能仅按时间猜测结果。
 
   **核对记录（2026-11-02，对照 `test/probe/run-all-when-closed.sh`、

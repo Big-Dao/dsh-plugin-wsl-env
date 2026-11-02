@@ -30,16 +30,16 @@
 | docs/RELEASING.md | 版本、tag、发布步骤 | 当前 main | 已审 | 与 release.yml 五步流程、check-release-tag.mjs、changelog-section.mjs、覆盖率阈值 flag 逐字吻合；补 coverage job 现状（ubuntu-latest）标注 |
 | CHANGELOG.md | 按版本记录变更 | 全版本 | 抽审 | 35 个 tag 与段落一一对应、日期零失配、版本号一致；抽核 0.17.1/0.17.0/0.16.0 条目均与实现对应；修 0.17.1 "No code changes"→"No shipped-code changes" |
 | SUPPORT.md 等 | 支持与社区约束 | 当前 main | 未审 | — |
-| docs/ROADMAP.md | 原生 agent 技术路线 | 历史+当前 | 未审 | — |
+| docs/ROADMAP.md | 原生 agent 技术路线 | A1–A9 各时点 | 已审 | 默认后端、shell 回退、digest 绑定、A8 CI、引用完整性均一致；修 3 处：Deferred v6 条目改写（env/stdin 已随 0.17.0 落地，仅剩写锁移除与 ERR 帧）、v5 标注为历史协议代次、2.4–4.1 ms 标注 A7 时点并补 2.4–8.2 ms 复测区间 |
 | docs/ROADMAP-1.0.md | 1.0 计划与验收 | 0.15.0 基线起 | 抽审 | e5a17e1：全部未勾选项核对为当前状态；探针计数一致；"12 probes"仅存于 historical 基线表 |
 | superpowers/plans/2026-10-31-community-optimization.md | 社区优化计划 | — | 已审 | e5a17e1 勾选条目 46 并附核对记录 |
-| docs/PARITY.md / PEER-PARITY.md | 对拍记录 | 指定 peer 版本 | 未审 | — |
+| docs/PARITY.md / PEER-PARITY.md | 对拍记录 | 指定 peer 版本 | 已审 | PARITY 关键条目（agent:false、搜索改写、watcher、bootstrap、terminal、ports、substrate 拒绝）对照 src/ 一致；PEER-PARITY 对拍版本显式（rc.2/rc.3）、与 package.json peer 范围自洽、node_modules 实地抽验吻合；零改动 |
 
 ## 设计决定与上游材料
 
 | 文档 | 用途 | 适用版本 | 状态 | 证据 |
 |---|---|---|---|---|
-| docs/adr/0001、0002 | 决策背景 | 决策时版本 | 未审 | — |
+| docs/adr/0001、0002 | 决策背景 | 决策时版本 | 已审 | 0001 的 session scope（systemd-run --user --scope）与 0002 的 native 默认/静态 musl 分发/shell 回退均与当前代码相符；"pending" 表述仍准确；A6 锚点与 PERFORMANCE 数字口径一致；零改动（2 条风格备注不构成时效问题） |
 | docs/UPSTREAM-*.md（8 篇） | 上游接口缺口记录 | 各自检查版本 | 已审（插件侧） | 逐篇核对插件侧行为与状态声明一致（spawn 桥、fsio 副本、file-reference 未接线、session-notice 绕行等均在位）；修 FILE-REFERENCE-SEAM 缺失的版本声明、FSIO/SPAWN 两处行号漂移；上游仓库现状未联网核对 |
 | docs/upstream/（7 篇） | 调查与提交材料 | — | 未审 | 文档地图已注明"不等同于上游已接受" |
 

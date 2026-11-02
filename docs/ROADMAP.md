@@ -20,7 +20,7 @@ section.
 | A4 | the native-session probe (scope, EXEC, FS, KILL, digest, teardown, 8/8) in the real-machine suite; the warm-cache and stdin-EPIPE fixes |
 | A5 | the native agent is the documented default; 0.10.0 published (npm + GitHub Release) |
 | A6 | `WslAgent.metrics()` and `test/probe/fs-queue.mjs`; the shared shell read agent is the measured batch bottleneck |
-| A7 | native shared read agent (v5); 16 concurrent shared reads 2.4–4.1 ms; shell remains the fallback |
+| A7 | native shared read agent (protocol v5 at the time); 16 concurrent shared reads 2.4–4.1 ms at the A7 measurement; shell remains the fallback |
 | A8 | aarch64 18-check under qemu-user in CI (built binary and committed `linux-aarch64` artifact); physical aarch64 WSL out of scope, see COMPATIBILITY.md |
 
 ## Next
@@ -40,12 +40,14 @@ shell as the fallback:
   probe); the `WslAgent` with `expectedDigest` and `signalable: false`; on a
   preparation or HELLO failure the shell agent serves the reads — fail-open to
   the shell, never fail-closed;
-- **surface:** the same six v5 FS ops and `dsh-fs` side channel; the
+- **surface:** the same six FS ops (unchanged since v5) and `dsh-fs` side
+  channel; the
   `fs-substrate`/`DistroFs` parse is unchanged; the A2 differential covers the
   records;
 - **result:** `WslAgent` gained a `prepare()` hook and the shared agent now
   selects the native entry through it. `test/probe/fs-queue.mjs` measures 16
-  concurrent shared reads at **2.4-4.1 ms** (from 342-614 ms); the first start
+  concurrent shared reads at **2.4-4.1 ms** (from 342-614 ms; later reruns
+  span 2.4-8.2 ms); the first start
   pays the ensure/cache cost (~70 ms once). The shell still serves the reads
   under `agentBackend: shell` and after a native failure.
 
@@ -65,10 +67,12 @@ real aarch64 hardware is not planned.
 
 ## Deferred
 
-- **v6 (FS concurrency / ERR frames / per-request env).** The A6 measurement
+- **v6 remainder (FS write-lock removal / per-request ERR frames).** The EXEC
+  stdin payload and the per-request env (`env --` argv prefix) landed with
+  protocol v6 in 0.17.0. The A6 measurement
   shows the lock-removal gain is marginal (~7.7 -> ~5 ms per 16 writes, ~12.2
-  -> ~8 ms per 16 reads). Revisit only if the native shared v5 still queues
-  measurably or the ERR/env framing is needed for another reason.
+  -> ~8 ms per 16 reads). Revisit only if the native shared agent still queues
+  measurably or per-request ERR framing is needed for another reason.
 - **Event stream.** No current consumer: the `fs.watch` contract is coarse and
   the inotify watcher satisfies it; terminal activity and ports poll.
 - **Shell retirement.** Not planned. The shell agent remains the fallback

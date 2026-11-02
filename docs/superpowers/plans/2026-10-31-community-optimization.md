@@ -94,7 +94,14 @@
 
 **涉及：** `README.md`、`docs/QUICKSTART.md`、`docs/CONFIGURATION.md`、`scripts/doctor.mjs`、`scripts/profile-preset.mjs`、`test/doctor.test.mjs`、`test/profile-preset.test.mjs`、`test/e2e/install.sh`。
 
-- [ ] 设计一页测试记录：Windows、WSL、distro、Harness 和插件版本；起止时间；每一步卡点；首次成功命令所在 distro、工作目录和实际沙箱事实；失败或中途退出也计入记录。
+- [x] 设计一页测试记录：Windows、WSL、distro、Harness 和插件版本；起止时间；每一步卡点；首次成功命令所在 distro、工作目录和实际沙箱事实；失败或中途退出也计入记录。
+
+  **模板：** [first-use/record-template.md](../first-use/record-template.md)。
+  按 QUICKSTART §0–§4 的真实路径组织，每步只有 通过/卡点/中途退出 三种
+  结局；"首次成功命令"单独成表记 distro、`pwd` 与沙箱事实（mode/
+  enforcement/windowsDrive/sessionScope）；环境口径（干净安装/新建
+  distro/临时 `DSH_HOME`）分别标注，维护者自测必须标注、不得冒充独立
+  用户；提交前脱敏（用户名路径替换为 `<home>`）。
 - [ ] 邀请 5–10 位未参与开发的用户按公开文档操作；先让参与者独立完成，帮助前记录问题。无参与者时保持此项未完成，不将维护者自己的重复运行冒充独立用户。
 - [ ] 优先使用干净 Windows + WSL 环境；若只能使用新建 distro 或临时 `DSH_HOME`，标注它不是干净 Windows 首次安装，不混合为同一类结果。先征得环境所有者同意，不修改既有发行版或用户资料。
 - [ ] 按阻塞人数和严重程度排序，先修复真实发生的安装、配置和诊断问题；任何 doctor 行为变更先加对应单测，修改源码后构建，并核对安装包内运行方式。

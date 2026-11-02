@@ -115,11 +115,11 @@ the 0.12.0 productization list.
 
 | ID | Outcome | Acceptance gate | Size |
 |---|---|---|---|
-| P0.1 | `distro: auto` coordinate routing across shell, fs, terminal, shell-env and the session runtime | Default Ubuntu + Debian workspace runs in Debian; two distro sessions concurrent; explicit pin still wins; cross-distro paths still refuse | L |
-| P0.2 | One `doctor`/`setup` path covering bwrap, systemd, Linger, optional tools, peers and config | Clean Win11 + Ubuntu passes in five minutes; missing bwrap, non-systemd, stopped distro and wrong peer each produce a copy-paste remedy | M |
-| P0.3 | Safe `preset-wsl` override helper and validation | Changing `sessionSandbox` or `distro` works in one step; an invalid nested patch fails loudly instead of warning | M |
-| P0.4 | Documentation and gate hygiene | The three known drifts are fixed; `fs-routing` enters the test lists; `probe:fs-routing` exists; links resolve | S |
-| P0.5 | Preflight visible before the first command | A missing bwrap or systemd/Linger is visible in the session UI, not only in `logger.warn` | M |
+| [P0.1](#wsl-101--multi-distro-coordinate-routing) | `distro: auto` coordinate routing across shell, fs, terminal, shell-env and the session runtime | Default Ubuntu + Debian workspace runs in Debian; two distro sessions concurrent; explicit pin still wins; cross-distro paths still refuse | L |
+| [P0.2](#wsl-102--doctor-and-one-command-setup) | One `doctor`/`setup` path covering bwrap, systemd, Linger, optional tools, peers and config | Clean Win11 + Ubuntu passes in five minutes; missing bwrap, non-systemd, stopped distro and wrong peer each produce a copy-paste remedy | M |
+| [P0.3](#wsl-103--preset-override-guardrail) | Safe `preset-wsl` override helper and validation | Changing `sessionSandbox` or `distro` works in one step; an invalid nested patch fails loudly instead of warning | M |
+| [P0.4](#wsl-104--documentation-and-gate-hygiene) | Documentation and gate hygiene | The three known drifts are fixed; `fs-routing` enters the test lists; `probe:fs-routing` exists; links resolve | S |
+| [P0.5](#wsl-105--visible-preflight-and-systemdlinger-coverage) | Preflight visible before the first command | A missing bwrap or systemd/Linger is visible in the session UI, not only in `logger.warn` | M |
 
 P0 is not a performance phase. It is the difference between "the plugin is
 correct once configured" and "the plugin is correct on first contact".
@@ -128,15 +128,15 @@ correct once configured" and "the plugin is correct on first contact".
 
 | ID | Outcome | Acceptance gate | Size |
 |---|---|---|---|
-| P1.1 | `sessionSandbox: auto` for distros without systemd | Non-systemd distro runs the first command under per-command bwrap and reports the narrower scope; explicit `true` still refuses | M |
-| P1.2 | Compatibility matrix and real validation | Tier 1 (Ubuntu/Debian, systemd, x86_64) green; aarch64 spike runs under qemu; Tier 2 status documented | L |
-| P1.3 | Install/upgrade/uninstall E2E | Temporary `DSH_HOME`, packed tarball, `dsh plugin add`, `--dump-config`, remove; upgrade from the previous minor | M |
-| P1.4 | `@` references seam | Measure the 9p cost; land the upstream `FileReferenceTraversal` seam or a declared, tested fallback | L |
-| P1.5 | LSP provider spike | A documented plan and prototype for `ctx.lsp` over fs + subprocess, conditional on the desktop composition mounting LSP | M |
-| P1.6 | GUI preview performance | Baseline measured; p95 <= 1s/MiB for a representative page; v6 only if the measurement justifies it | M |
-| P1.7 | Agent recovery and status | In-flight death recovers within 2s or fails with a named state; `doctor`/status shows agent and scope health | M |
-| P1.8 | Security posture | Strict preset documented and probed; interop visibility/mask matrix; no claim beyond `partial` | S |
-| P1.9 | Peer upgrade canary | A scheduled check against the latest DSH line reports breakage before users do | S |
+| [P1.1](#wsl-201--sessionsandbox-auto) | `sessionSandbox: auto` for distros without systemd | Non-systemd distro runs the first command under per-command bwrap and reports the narrower scope; explicit `true` still refuses | M |
+| [P1.2](#wsl-202--compatibility-matrix-and-aarch64) | Compatibility matrix and real validation | Tier 1 (Ubuntu/Debian, systemd, x86_64) green; aarch64 spike runs under qemu; Tier 2 status documented | L |
+| [P1.3](#wsl-203--installupgradeuninstall-e2e) | Install/upgrade/uninstall E2E | Temporary `DSH_HOME`, packed tarball, `dsh plugin add`, `--dump-config`, remove; upgrade from the previous minor | M |
+| [P1.4](#wsl-204--references-seam) | `@` references seam | Measure the 9p cost; land the upstream `FileReferenceTraversal` seam or a declared, tested fallback | L |
+| [P1.5](#wsl-205--lsp-provider-spike) | LSP provider spike | A documented plan and prototype for `ctx.lsp` over fs + subprocess, conditional on the desktop composition mounting LSP | M |
+| [P1.6](#wsl-206--gui-preview-performance) | GUI preview performance | Baseline measured; p95 <= 1s/MiB for a representative page; v6 only if the measurement justifies it | M |
+| [P1.7](#wsl-207--agent-recovery-and-status) | Agent recovery and status | In-flight death recovers within 2s or fails with a named state; `doctor`/status shows agent and scope health | M |
+| [P1.8](#wsl-208--security-strict-profile-and-interop-matrix) | Security posture | Strict preset documented and probed; interop visibility/mask matrix; no claim beyond `partial` | S |
+| [P1.9](#wsl-209--peer-upgrade-canary) | Peer upgrade canary | A scheduled check against the latest DSH line reports breakage before users do | S |
 
 ### P2 — make it the ecosystem default (3-6 months)
 

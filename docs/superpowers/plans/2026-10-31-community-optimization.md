@@ -163,10 +163,22 @@
 
 **涉及：** `docs/CONFIGURATION.md`、`docs/LIMITATIONS.md`、`SECURITY.md`、`test/probe/interop-shell.sh`、`test/probe/interop-shell-probe.mjs`。
 
-- [ ] 用三个场景说明：默认可见、遮罩 `/mnt`、发行版级禁用 interop；区分受限命令、受限写入、非受限读取和 Windows 宿主操作。
-- [ ] 核对 `interopVisibility` 与 `maskWindowsDrive` 的优先级及各服务配置范围；示例说明遮罩可能影响 `/mnt/c` 项目和脚本，但不会删除文件。
-- [ ] 引用现有探针说明已验证的范围，并明确其他挂载点及 interop 的限制；对真实安全边界的任何变更先写威胁模型、回滚方案及两条命令执行路径的测试。
-- [ ] 这一步只改善说明和验证，不修改现有用户的默认配置，也不运行会重启或修改用户 WSL 的命令。
+- [x] 用三个场景说明：默认可见、遮罩 `/mnt`、发行版级禁用 interop；区分受限命令、受限写入、非受限读取和 Windows 宿主操作。
+- [x] 核对 `interopVisibility` 与 `maskWindowsDrive` 的优先级及各服务配置范围；示例说明遮罩可能影响 `/mnt/c` 项目和脚本，但不会删除文件。
+- [x] 引用现有探针说明已验证的范围，并明确其他挂载点及 interop 的限制；对真实安全边界的任何变更先写威胁模型、回滚方案及两条命令执行路径的测试。
+- [x] 这一步只改善说明和验证，不修改现有用户的默认配置，也不运行会重启或修改用户 WSL 的命令。
+
+  **实现记录（2026-11-02）：** CONFIGURATION.md（及中文版）"Windows
+  interop" 节新增"三个场景 × 四个作用面"矩阵：visible/masked/发行版级
+  disabled 三列 × 受限命令/受限写入/非受限读取/Windows 宿主操作四行；
+  逐格依据 `src/index.ts` 的 `effectiveMaskWindowsDrive`（同时作用于
+  shell 沙箱、会话 runtime 与受限写入 profile）与共享读 agent 不受辖的
+  现状核对。示例写明遮蔽影响 `/mnt/c` 检出与 Windows PATH 工具的使用但
+  不删除任何文件。已验证范围沿用节内既有探针引用（`interop-shell.sh`
+  覆盖 visible/masked × resident/oneshot；发行版级 disabled 需手工核验），
+  其余挂载点与非受限读取的限制由该矩阵和 LIMITATIONS 承载。本轮未改
+  任何配置默认值，未运行触及用户 WSL 的命令；无安全边界变更，威胁模型
+  前置条件未被触发。
 
 **验收：** 文档不声称 Linux 沙箱能完全阻止 Windows 访问；用户能辨认各选项的收益、兼容性代价及验证范围。
 

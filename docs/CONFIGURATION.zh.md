@@ -213,6 +213,25 @@ unset _fnm_env
 设置了 `interopVisibility` 时，它优先于
 `maskWindowsDrive`。
 
+### 三个场景 × 四个作用面
+
+设置改变什么，取决于哪个面在起作用。受限命令运行在 `wsl-shell`
+沙箱中；受限写入由 `wsl-fs` 的写入沙箱检查；非受限文件读取走共享读
+agent，不受沙箱管辖；Windows 侧宿主操作指最终在 Windows 上执行的任何
+东西。
+
+| 作用面 | `visible`（默认） | `masked` | 发行版级 `enabled=false` |
+|---|---|---|---|
+| 受限命令（`wsl-shell`） | 可读 Windows 文件、经 `/mnt` 启动 Windows 可执行文件 | profile 中 `/mnt` 是空 tmpfs：其下的路径操作失败 | interop 由发行版自身拒绝；`/mnt` 可见性仍遵循上方的遮蔽设置 |
+| 受限写入（`wsl-fs`） | 写入策略检查目标；`/mnt` 可见性不起作用 | 同样的遮蔽作用于写入 profile | 不变——写入边界从来不依赖 interop |
+| 非受限读取（共享读 agent） | 自由读 `/mnt` | **不在覆盖范围**：遮蔽只存在于受限 profile 中，读 agent 仍能看到 `/mnt` | **不归插件管辖** |
+| Windows 侧宿主操作 | 可经 `/mnt` 到达 | **仍然可达**：`binfmt_misc` 按文件内容分发，被拷进工作区的 Windows 可执行文件照样运行（`enforcement: partial`） | 唯一真正的关闭手段——且是手工的 `wsl.conf` 步骤 |
+
+遮蔽刻意影响真实工作流：放在 Windows 路径下的脚本（`/mnt/c` 下的
+检出、Windows `PATH` 上的工具）不再能被受限命令读取或执行——把它移进
+发行版，或改用 `visible` 姿态。遮蔽不会删除任何东西：tmpfs 只遮蔽单个
+受限 profile 内的视图，`/mnt/c` 上的文件原样保留。
+
 遮蔽只是收窄访问，并不关闭 interop。WSL 仍能运行被写入工作区的
 Windows 可执行文件，因为 `binfmt_misc` 按文件内容分发。
 因此强制级别仍是 `partial`，结果会报告 `windowsDrive: 'masked'`。

@@ -217,6 +217,27 @@ gives the `visible` behavior.
 When `interopVisibility` is set, it takes precedence over
 `maskWindowsDrive`.
 
+### Three scenarios across four surfaces
+
+What a setting changes depends on which surface acts. Confined commands run
+in the `wsl-shell` sandbox; confined writes are checked by the `wsl-fs`
+write sandbox; unrestricted file reads go through the shared read agent and
+are not sandbox-governed; a Windows-side host operation is anything that
+ends up executing on Windows.
+
+| Surface | `visible` (default) | `masked` | distro-level `enabled=false` |
+|---|---|---|---|
+| Confined command (`wsl-shell`) | reads Windows files and launches Windows executables under `/mnt` | `/mnt` is an empty tmpfs in the profile: path operations under it fail | interop is refused by the distro itself; `/mnt` visibility still follows the mask above |
+| Confined write (`wsl-fs`) | the write policy checks the target; `/mnt` visibility plays no role | the same mask applies to the write profile | unchanged — the write boundary was never interop-dependent |
+| Unrestricted read (shared read agent) | reads `/mnt` freely | **not covered**: the mask lives in confined profiles only, the read agent still sees `/mnt` | **not governed by the plugin** |
+| Windows-side host operation | reachable through `/mnt` | **still reachable**: `binfmt_misc` dispatches by file content, so a Windows executable copied into the workspace runs anyway (`enforcement: partial`) | the only real closure — and it is a manual `wsl.conf` step |
+
+Masking affects real workflows on purpose: a script living under a Windows
+path (a checkout under `/mnt/c`, tools on the Windows `PATH`) can no longer
+be read or run by confined commands — move it into the distro or grant the
+visible stance. Masking never deletes anything: the tmpfs shadows the view
+inside one confined profile; the files on `/mnt/c` are untouched.
+
 Masking narrows access; it does not close interop. WSL can still run a Windows
 executable written into the workspace because `binfmt_misc` dispatches by file
 content. Enforcement therefore remains `partial`, and results report

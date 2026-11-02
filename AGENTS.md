@@ -17,6 +17,7 @@ DeepSeek Harness 的 WSL 服务插件：将会话的 shell、文件系统、子�
 - 架构与路由：`docs/root-fs-routing.md`、`docs/upstream/promotion-map.md`。
 - 行为边界与版本兼容：`docs/LIMITATIONS.md`、`docs/PEER-PARITY.md`。
 - 发布、上游接口缺口与安全：`docs/RELEASING.md`、`docs/UPSTREAM-SPAWN-SEAM.md`、`SECURITY.md`。
+- 判断条目是否已完成，以文档的显式状态为准（"Status:"、"Done" 表、"remaining gap" 总结段）；Phase/计划表只说明条目含义，不代表实现状态。推荐工作项前须核对到状态层，不得从计划表直接推断待办。
 
 | 命令 | 用途 |
 |---|---|

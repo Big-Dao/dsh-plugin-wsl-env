@@ -87,7 +87,10 @@ class FakeAgentProcess extends EventEmitter {
         const line = buffer.slice(0, index);
         buffer = buffer.slice(index + 1);
         this.frames.push(line);
-        if (!this.silent) this.handleLine(line);
+        // SHUTDOWN lands even when silent: the real resident exits on it
+        // unconditionally, and every close() behind a silent fake would
+        // otherwise sit out the host's one-second kill grace.
+        if (line === "SHUTDOWN" || !this.silent) this.handleLine(line);
       }
     });
     this.dieAfterHello = dieAfterHello;

@@ -1337,8 +1337,11 @@ export class WslAgent {
       }
       this.pending.clear();
     }
-    this.writeLinesSafe(child, ["SHUTDOWN"]);
     await new Promise<void>((resolve) => {
+      // The listeners go up before the write: a resident that answers SHUTDOWN
+      // on the tick the write lands — a same-tick pipe, as the test fakes show —
+      // would slip past a later-registered once() and turn every close into the
+      // full kill grace.
       const timer = setTimeout(() => {
         child.kill("SIGKILL");
         resolve();
@@ -1347,6 +1350,7 @@ export class WslAgent {
         clearTimeout(timer);
         resolve();
       });
+      this.writeLinesSafe(child, ["SHUTDOWN"]);
     });
     // The transport is always spawned with pipes, so the streams exist; the
     // field's broader type is Node's, not the spawn's.

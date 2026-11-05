@@ -263,11 +263,17 @@ try {
   check("doctorReport collects the real script and merges the injected live snapshot", async () => {
     // doctorReport spawns `node scripts/doctor.mjs --json`; the fakes must be
     // on the inherited PATH for that child, not just the `doctor()` helper.
+    // The check asserts COLLECTION and MERGE only — whether the doctor's own
+    // environment checks pass is the machine's business, not this suite's, so
+    // a nonzero exit with a well-formed report is fine (CI runners have no
+    // bubblewrap). What must fail is a subprocess that produced no report.
     const previousPath = process.env.PATH;
     process.env.PATH = `${bin}:${previousPath ?? ""}`;
     try {
       const merged = await doctorReport("ubuntu", {
         liveStatus: { distro: "ubuntu", state: "dead", pid: 7000, lastError: "wedge observed in the live app", deaths: 4, pending: 0 },
+      }).catch((error) => {
+        assert.fail(`the doctor subprocess produced no report: ${/** @type {Error} */ (error).message}`);
       });
       const handshake = merged.checks.find((entry) => entry.id === "agent.handshake");
       assert.ok(handshake, "the collected report has the handshake check");

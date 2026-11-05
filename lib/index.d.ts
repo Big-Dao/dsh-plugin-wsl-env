@@ -106,6 +106,7 @@ export type WslExecSpec = ShellExecSpec & {
  */
 export declare function doctorReport(distro: string, options?: {
     doctorPath?: string;
+    wslPath?: string;
     liveStatus?: AgentStatus;
 }): Promise<DoctorReport>;
 /**

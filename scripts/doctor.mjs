@@ -9,6 +9,7 @@
  * a fresh-agent handshake, stale session scopes, and the known profile-patch trap.
  *
  *   node scripts/doctor.mjs [distro] [--json] [--fix] [--install] [--yes] [--read-only]
+ *                            [--wsl <path to wsl.exe>]
  *
  * Exit status is 0 when nothing failed and 1 when a `fail` check did; warnings
  * (optional tools, a missing cache) do not fail the run. `--fix` performs only
@@ -131,10 +132,19 @@ function inDistro(distro, script) {
 /**
  * Parse the doctor's own arguments.
  * @param {string[]} argv - `process.argv.slice(2)`.
- * @returns {{ distro: string, json: boolean, fix: boolean, install: boolean, yes: boolean, readOnly: boolean, help: boolean }} the options.
+ * @returns {{ distro: string, wsl: string, json: boolean, fix: boolean, install: boolean, yes: boolean, readOnly: boolean, help: boolean }} the options.
  */
 function parseArgs(argv) {
-  const options = { distro: "", json: false, fix: false, install: false, yes: false, readOnly: false, help: false };
+  const options = {
+    distro: "",
+    wsl: "",
+    json: false,
+    fix: false,
+    install: false,
+    yes: false,
+    readOnly: false,
+    help: false,
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] ?? "";
     if (arg === "--json") options.json = true;
@@ -145,6 +155,8 @@ function parseArgs(argv) {
     else if (arg === "--help" || arg === "-h") options.help = true;
     else if (arg === "--distro") options.distro = argv[++i] ?? "";
     else if (arg.startsWith("--distro=")) options.distro = arg.slice("--distro=".length);
+    else if (arg === "--wsl") options.wsl = argv[++i] ?? "";
+    else if (arg.startsWith("--wsl=")) options.wsl = arg.slice("--wsl=".length);
     else if (arg.startsWith("-")) throw new Error(`doctor: unknown option "${arg}"`);
     else options.distro = arg;
   }
@@ -267,11 +279,12 @@ function rejectReadOnly() {
 
 /**
  * Run the doctor.
- * @param {{ distro: string, json: boolean, fix: boolean, install: boolean, yes: boolean, readOnly: boolean }} options - the parsed options.
+  * @param {{ distro: string, wsl: string, json: boolean, fix: boolean, install: boolean, yes: boolean, readOnly: boolean, help: boolean }} options - the parsed options.
  * @returns {Promise<number>} the exit status.
  */
 async function main(options) {
   if (options.readOnly && (options.fix || options.install)) return rejectReadOnly();
+  const wslExe = options.wsl.length > 0 ? options.wsl : WSL;
   /** @type {Check[]} */
   const checks = [];
   /**
@@ -291,12 +304,12 @@ async function main(options) {
   if (build !== null) check("host.windows", "ok", "Windows build", build[0]);
   else check("host.windows", "info", "Windows build", "unreadable through cmd.exe; run this from Windows or a WSL with interop enabled");
 
-  const version = await run([WSL, "--version"]);
+  const version = await run([wslExe, "--version"]);
   const wslVersion = version.stdout.replace(/\0/g, "").split(/\r?\n/).filter((line) => line.trim().length > 0).slice(0, 2).join(" ");
   if (version.ok && wslVersion.length > 0) check("host.wsl", "ok", "WSL version", wslVersion);
   else check("host.wsl", "warn", "WSL version", "wsl.exe --version failed; WSL 1 or a very old build", "wsl.exe --update, then confirm the distro runs as WSL 2 (wsl.exe -l -v shows VERSION 2)");
 
-  const listed = await run([WSL, "-l", "-q"]);
+  const listed = await run([wslExe, "-l", "-q"]);
   const distros = listed.ok ? parseDistroList(listed.stdout.replace(/\0/g, "")) : [];
   if (distros.length === 0) {
     check("host.distros", "fail", "Installed distros", "none", "wsl.exe --list --online lists names; wsl.exe --install -d <name> installs one, then reopen the session");
@@ -427,7 +440,7 @@ async function main(options) {
   } else if (!existsSync(agentScript)) {
     check("agent.handshake", "fail", "Agent handshake", "agent/wsl-agent.sh is missing from this install", "reinstall the plugin; the shell agent ships with the package");
   } else {
-    const handshake = await probeResident(distro, agentScript);
+    const handshake = await probeResident(distro, agentScript, wslExe);
     if (handshake.ok) {
       const live = livePids.length > 0
         ? `; a live resident (pid${livePids.length > 1 ? "s" : ""} ${livePids.join(", ")}) is already running in this distro — this check starts a fresh one, which cannot read its last error; the app-side doctorReport() merge surfaces it`
@@ -579,7 +592,7 @@ async function main(options) {
  * @param {string} scriptPath - the agent script as a Linux path inside the distro.
  * @returns {Promise<{ ok: true, pid: number, digestMatches: boolean } | { ok: false, detail: string }>} the verdict, with the pid on success.
  */
-function probeResident(distro, scriptPath) {
+function probeResident(distro, scriptPath, wslExe = WSL) {
   return new Promise((settle) => {
     let settled = false;
     /** @param {{ ok: true, pid: number, digestMatches: boolean } | { ok: false, detail: string }} value - the verdict. */
@@ -590,7 +603,7 @@ function probeResident(distro, scriptPath) {
       child.kill();
       settle(value);
     };
-    const child = spawn(WSL, ["-d", distro, "--exec", "sh", scriptPath], {
+    const child = spawn(wslExe, ["-d", distro, "--exec", "sh", scriptPath], {
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
       env: { ...process.env, WSL_UTF8: "1" },

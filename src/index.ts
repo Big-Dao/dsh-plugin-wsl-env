@@ -249,6 +249,7 @@ const DOCTOR_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "..", "scrip
  */
 export async function doctorReport(distro: string, options?: {
   doctorPath?: string;
+  wslPath?: string;
   liveStatus?: AgentStatus;
 }): Promise<DoctorReport> {
   const script = options?.doctorPath ?? DOCTOR_SCRIPT;

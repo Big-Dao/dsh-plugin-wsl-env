@@ -261,20 +261,19 @@ try {
   });
 
   check("doctorReport collects the real script and merges the injected live snapshot", async () => {
-    // doctorReport spawns `node scripts/doctor.mjs --json`; the fakes must be
-    // on the inherited PATH for that child, not just the `doctor()` helper.
-    // The check asserts COLLECTION and MERGE only — whether the doctor's own
-    // environment checks pass is the machine's business, not this suite's, so
-    // a nonzero exit with a well-formed report is fine (CI runners have no
-    // bubblewrap). What must fail is a subprocess that produced no report.
-    const previousPath = process.env.PATH;
-    process.env.PATH = `${bin}:${previousPath ?? ""}`;
-    try {
+    // doctorReport spawns `node scripts/doctor.mjs --json`; the doctor's own
+    // wsl.exe resolution is pinned with --wsl so the fake is authoritative
+    // regardless of the runner's PATH. The check asserts COLLECTION and MERGE
+    // only — whether the doctor's other environment checks pass is the
+    // machine's business, not this suite's, so a nonzero exit with a
+    // well-formed report is fine (CI runners have no bubblewrap). What must
+    // fail is a subprocess that produced no report.
+    {
       const merged = await doctorReport("ubuntu", {
+        wslPath: join(bin, "wsl.exe"),
         liveStatus: { distro: "ubuntu", state: "dead", pid: 7000, lastError: "wedge observed in the live app", deaths: 4, pending: 0 },
       }).catch((error) => {
-        const which = spawnSync("bash", ["-lc", "command -v wsl.exe; wsl.exe -l -q; echo rc=$?"], { encoding: "utf8", env: { ...process.env } });
-        assert.fail(`the doctor subprocess produced no report: ${/** @type {Error} */ (error).message}\nPATH=${process.env.PATH?.split(":").slice(0, 3).join(":")}\nwhich/resolution: ${which.stdout.trim()} ${which.stderr.trim()}`);
+        assert.fail(`the doctor subprocess produced no report: ${/** @type {Error} */ (error).message}`);
       });
       const handshake = merged.checks.find((entry) => entry.id === "agent.handshake");
       assert.ok(handshake, "the collected report has the handshake check");
@@ -286,14 +285,12 @@ try {
       // fresh probe verbatim — the merge never invents facts. The same
       // collection-only contract applies: a doctor exit over this machine's
       // own failed environment checks must not fail THIS check.
-      const fresh = await doctorReport("ubuntu").catch((error) => {
+      const fresh = await doctorReport("ubuntu", { wslPath: join(bin, "wsl.exe") }).catch((error) => {
         assert.fail(`the doctor subprocess produced no report: ${/** @type {Error} */ (error).message}`);
       });
       const freshHandshake = fresh.checks.find((entry) => entry.id === "agent.handshake");
       assert.match(String(freshHandshake?.detail), /probed: a fresh resident/);
       assert.doesNotMatch(String(freshHandshake?.detail), /probed: the live resident/);
-    } finally {
-      process.env.PATH = previousPath;
     }
   });
 

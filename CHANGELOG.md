@@ -74,6 +74,18 @@ were part of the record.
   deadline. Observed shape: `test/shell-env.test.mjs` sat 584 s inside a 587 s
   run, so every re-run paid the caller's whole command budget.
 
+- **The coverage gate now proves every shipped module is measured.** Node's
+  coverage is load-based: `lib/git-exec.js` and the three peer-bound rows
+  (`picker`, `auto-preset`, `subprocess`) had no row at all, so the 96.65%
+  headline was computed over 35 of 41 modules. `test/git-exec.test.mjs` — nine
+  checks that passed but were in neither gate list — is wired into both, and
+  `scripts/coverage-gate.mjs` wraps `test:coverage`: every `lib/*.js` must be
+  measured or carry a reason in `test/coverage-allowlist.json`, every measured
+  module must clear 85/70/60 (line/branch/function), and a stale allowlist
+  entry fails the run. `test/provider.test.mjs` also asserts the
+  `lib/shell.js` and `lib/fs.js` re-exports now, so the measured set is 38 of
+  41 instead of 35.
+
 ## [0.18.0] - 2026-11-05
 
 Track the desktop `0.2.2-rc.1` release: the bundle layer is regenerated from

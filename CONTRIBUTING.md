@@ -184,7 +184,7 @@ terminal if you would rather not see the prompt.
 |---|---|---|
 | `pnpm test` | style checks, relative links, syntax pass, build consistency, type check, and unit tests | no |
 | `pnpm run lint:links` | relative Markdown links in README, CONTRIBUTING, AGENTS and `docs/**` | no |
-| `pnpm run test:coverage` | unit tests with coverage | no |
+| `pnpm run test:coverage` | unit tests with coverage, then the per-module gate: every `lib/*.js` measured or allowlisted, per-module floors 85/70/60 | no |
 | `pnpm run lint:style` | style and lint rules | no |
 | `pnpm run lint:build` | the build-freshness check: every source has its artifacts and the committed bytes match a real build | no |
 | `pnpm run lint:types` | the TypeScript check over `test/**` and the ambient types (`tsc --noEmit`) | no |
@@ -248,6 +248,25 @@ Choose the layer by what the test needs.
 Unit tests run under `node --test`. The `test:unit` and the `test:coverage` lists
 in `package.json` name their files explicitly; a test that only touches this
 repository belongs in both. Keep the lists synchronized without duplicate entries.
+
+Both scripts run their list under `scripts/test-watchdog.mjs`, which bounds the
+whole run at 180 s (`DSH_TEST_WATCHDOG_MS` overrides). `node --test` has no
+per-file deadline, so a script-style file that leaves a handle alive behind an
+unsettled top-level await would otherwise hang the gate until the caller kills
+it; at the deadline the wrapper interrupts the run and node's "Interrupted while
+running" list names the file that never finished. The scripts also pass
+`--test-timeout=60000`, which bounds only tests a file registers with `test()` —
+the watchdog is what covers a hang at module evaluation.
+
+`test:coverage` runs that list through `scripts/coverage-gate.mjs` as well.
+Node's coverage is load-based — a module no test imports has no row, so the
+global percentage silently measures a subset — so the gate requires every
+`lib/*.js` to be measured or named in `test/coverage-allowlist.json` with the
+reason it cannot be loaded by the gated suite, and holds every measured module
+to floors of 85 lines / 70 branches / 60 functions. A new module without a test
+fails the gate, and so does an allowlist entry for a module that no longer
+exists. Adding a test is the preferred fix; the allowlist keeps the remaining
+probe-only rows visible instead of letting them vanish from the denominator.
 
 A test that imports a pinned `@deepseek-ai/*` package goes in the same lists and
 needs no guarding — CI runs `pnpm install --frozen-lockfile` over the locked tree

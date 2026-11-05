@@ -74,7 +74,7 @@ shows the composed value.
 | Gate | How | Runs where |
 |---|---|---|
 | Config docs and CHANGELOG current | review the diff; `lint:links` covers cross-references | CI |
-| `pnpm test` | style, links, syntax, build freshness, tsc, 40 unit files | CI (Node 22/24, Ubuntu + Windows) |
+| `pnpm test` | style, links, syntax, build freshness, tsc, 41 unit files | CI (Node 22/24, Ubuntu + Windows) |
 | `pnpm run test:coverage` | lines 85 / branches 84 / functions 70 | CI (Node 24, Ubuntu) |
 | Peer line tested | `peer-canary` workflow resolves `next` and runs the scratch upgrade | CI schedule/manual |
 | Packed install/upgrade/uninstall | `pnpm run e2e:install` (temp `DSH_HOME`, 0.11.0 → current, marker) | manual, this machine (10/10 on 2026-10-19) |

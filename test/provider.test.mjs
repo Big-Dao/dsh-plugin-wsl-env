@@ -25,6 +25,8 @@ import { Context } from "@deepseek-ai/cordis";
 import { FsError, FsTargetKey } from "@deepseek-ai/dsh-fs";
 import { SandboxUnavailableError } from "@deepseek-ai/dsh-sandbox";
 import { WslShellExecutor, WslFileSystem } from "../lib/index.js";
+import shellEntry, { WslShellExecutor as ShellEntryNamed } from "../lib/shell.js";
+import fsEntry, { WslFileSystem as FsEntryNamed } from "../lib/fs.js";
 import { FsCodedError } from "../lib/fsio-text.js";
 import { WslAgent } from "../lib/agent.js";
 import { SessionRuntimes } from "../lib/session-runtime.js";
@@ -1141,6 +1143,13 @@ check("a workdir the distro cannot enter is the command's own failure, with the 
     () => executor.execute(spec({ command: "echo hi", workdir: "/gone", timeoutMs: 5000 })).then((e) => e.result()),
     /could not enter the working directory "\/gone"/,
   );
+});
+
+check("the package entry points re-export the composed classes", () => {
+  assert.equal(shellEntry, WslShellExecutor, "lib/shell.js forwards the shell executor");
+  assert.equal(ShellEntryNamed, WslShellExecutor, "the named export is the same class");
+  assert.equal(fsEntry, WslFileSystem, "lib/fs.js forwards the filesystem");
+  assert.equal(FsEntryNamed, WslFileSystem, "the named export is the same class");
 });
 
 let failed = 0;

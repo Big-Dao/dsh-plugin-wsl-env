@@ -264,7 +264,7 @@ export async function doctorReport(distro: string, options?: {
       }
       const failedChecks = (() => {
         try {
-          return (JSON.parse(out) as DoctorReport).checks.filter((check) => check.status === "fail").map((check) => check.id).join(", ");
+          return (JSON.parse(out) as DoctorReport).checks.filter((check) => check.status === "fail").map((check) => `${check.id}: ${check.detail ?? ""}`).join("; ");
         } catch {
           return undefined;
         }

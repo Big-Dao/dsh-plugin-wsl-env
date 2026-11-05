@@ -65,8 +65,7 @@ import { confinedAgent } from "./agent-confined.js";
 import { SessionRuntimes, probeSessionRuntime, sessionRuntimes, setSessionNativeAgent } from "./session-runtime.js";
 import { configureAgentBackend, ensureNativeSessionAgent } from "./native-agent.js";
 import { mergeLiveResidentStatus, type DoctorReport } from "./doctor-live.js";
-import { execFile } from "node:child_process";
-import type { ExecFileOptionsWithStringEncoding } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { AgentBackend } from "./native-agent.js";
@@ -268,35 +267,23 @@ export async function doctorReport(distro: string, options?: {
   // machine being examined — that is a valid report, not a broken collection.
   // The stdout is parsed regardless; only a run that produced no versioned
   // report rejects.
-  const spawnOptions: ExecFileOptionsWithStringEncoding = {
+  const spawned = spawnSync(process.execPath, argv, {
     timeout: 120_000,
     maxBuffer: 4 * 1024 * 1024,
     windowsHide: true,
+    encoding: "utf8",
     ...(options?.envPath !== undefined ? { env: { ...process.env, PATH: `${options.envPath}:${process.env.PATH ?? ""}` } } : {}),
-  };
-  const stdout = await new Promise<string>((resolve, reject) => {
-    execFile(process.execPath, argv, spawnOptions, (error, out, err) => {
-      if (!error) {
-        resolve(out);
-        return;
-      }
-      let parsed: DoctorReport | undefined;
-      let failedChecks: string | undefined;
-      try {
-        parsed = JSON.parse(out) as DoctorReport;
-        failedChecks = parsed.checks.filter((check) => check.status === "fail").map((check) => `${check.id}: ${check.detail ?? ""}`).join("; ");
-      } catch {
-        parsed = undefined;
-      }
-      const stdoutTail = out.trim().slice(0, 200);
-      if (parsed === undefined) {
-        reject(new Error(`doctor run failed: ${error.message}${typeof err === "string" && err.length > 0 ? ` — stderr: ${err.trim().slice(-200)}` : " — no stderr"}`));
-        return;
-      }
-      reject(new Error(`doctor run failed (failed checks: ${failedChecks ?? "unreadable report"}): ${error.message}${stdoutTail.length > 0 ? ` — stdout head: ${stdoutTail}` : " — no stdout"}`));
-    });
   });
-  const report = JSON.parse(stdout) as DoctorReport;
+  // A nonzero doctor exit usually means an environment check FAILED on the
+  // machine being examined — the versioned report on stdout is still the
+  // deliverable, so it parses whenever present. Only a run that produced no
+  // report rejects, naming the spawn failure and any stderr tail.
+  let report: DoctorReport;
+  try {
+    report = JSON.parse(spawned.stdout) as DoctorReport;
+  } catch {
+    throw new Error(`doctor run failed: ${spawned.error?.message ?? "no output"}${spawned.stderr.length > 0 ? ` — ${spawned.stderr.trim().slice(-400)}` : ""}`);
+  }
   const status = options?.liveStatus ?? sharedAgent(distro).status();
   return mergeLiveResidentStatus(report, status);
 }

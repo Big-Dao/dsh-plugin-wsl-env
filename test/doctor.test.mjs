@@ -282,8 +282,12 @@ try {
       assert.match(String(handshake?.detail), /fresh-probe facts: probed: a fresh resident, pid 4242/);
 
       // Outside the app (no resident this process holds), the report is the
-      // fresh probe verbatim — the merge never invents facts.
-      const fresh = await doctorReport("ubuntu");
+      // fresh probe verbatim — the merge never invents facts. The same
+      // collection-only contract applies: a doctor exit over this machine's
+      // own failed environment checks must not fail THIS check.
+      const fresh = await doctorReport("ubuntu").catch((error) => {
+        assert.fail(`the doctor subprocess produced no report: ${/** @type {Error} */ (error).message}`);
+      });
       const freshHandshake = fresh.checks.find((entry) => entry.id === "agent.handshake");
       assert.match(String(freshHandshake?.detail), /probed: a fresh resident/);
       assert.doesNotMatch(String(freshHandshake?.detail), /probed: the live resident/);

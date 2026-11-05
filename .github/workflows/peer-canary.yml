@@ -18,18 +18,27 @@ on:
 permissions:
   contents: read
 
+# Two canaries at once would produce two divergent canary-summary.md deltas.
+concurrency:
+  group: peer-canary
+  cancel-in-progress: false
+
 jobs:
   canary:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      # SHA-pinned like ci.yml's actions — this workflow installs the `next`
+      # line of every peer, the exact place a mutated tag would do damage.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      # corepack, the same provisioning ci.yml uses (packageManager pins the
+      # version); the third-party pnpm action goes away with it.
+      - run: corepack enable pnpm
+      - run: pnpm install --frozen-lockfile --config.minimum-release-age=0
       - name: Resolve the next line and test it in a scratch tree
         run: node scripts/peer-canary.mjs --apply --tag next
       - name: Publish the delta table

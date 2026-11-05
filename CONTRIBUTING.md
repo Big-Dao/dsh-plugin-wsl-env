@@ -236,6 +236,18 @@ its `runs-on` carries the GitHub-hosted `windows-latest` label; when the hosted
 runner has no usable distro the job is a green no-op (`skip all`). Where a default
 distro launches without bubblewrap, the `sandbox` leg fails, not skips.
 
+**Self-hosted runner label collision — known exposure.** The development
+machine's self-hosted runner fulfills the GitHub-hosted `windows-latest` label,
+so the unit matrix's Windows legs execute there on every push and PR. PR code
+from a fork is skipped on those legs (`ci.yml`'s step-level fork gate), but the
+durable fix is renaming the runner's label to something unambiguous (for
+example `self-hosted-wsl`) in the runner's settings and repointing the two
+`windows-latest` consumers in `ci.yml` at it — until then, treat the label as
+shared infrastructure, not hosted capacity. Also note the install steps carry
+`--config.minimum-release-age=0` (pnpm 11.7's lockfile re-verification ignores
+`minimumReleaseAgeExclude`; the flag is the documented remedy in
+`release.yml`).
+
 ## Adding a test
 
 Choose the layer by what the test needs.

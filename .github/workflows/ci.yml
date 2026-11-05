@@ -56,8 +56,16 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         node: ["22", "24"]
     steps:
+      # The `windows-latest` legs run on the development machine's self-hosted
+      # runner (see the header). Unreviewed fork code must not execute there:
+      # the fork's PR skips the self-hosted legs, the GitHub-hosted ubuntu legs
+      # keep running. The durable fix is renaming the runner's label (e.g.
+      # `self-hosted-wsl`) and repointing the two `windows-latest` consumers at
+      # it — a runner-settings change, recorded in CONTRIBUTING.md.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ matrix.os != 'windows-latest' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ matrix.os != 'windows-latest' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
         with:
           node-version: ${{ matrix.node }}
       # The 0.7.x tests import pinned dev dependencies: the composition and boot
@@ -66,8 +74,15 @@ jobs:
       # --frozen-lockfile` reproduces the locked tree; the runtime package itself
       # still ships zero dependencies.
       - run: corepack enable pnpm
-      - run: pnpm install --frozen-lockfile
+        if: ${{ matrix.os != 'windows-latest' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+      # pnpm 11.7's lockfile supply-chain re-verification ignores the
+      # minimumReleaseAgeExclude entries (see release.yml and
+      # pnpm-workspace.yaml's note) — a freshly-pinned peer floor would fail
+      # the install on a sub-24h release. The flag is the documented remedy.
+      - run: pnpm install --frozen-lockfile --config.minimum-release-age=0
+        if: ${{ matrix.os != 'windows-latest' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
       - run: pnpm test
+        if: ${{ matrix.os != 'windows-latest' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
   coverage:
     if: github.event_name != 'schedule'
@@ -80,7 +95,12 @@ jobs:
         with:
           node-version: "24"
       - run: corepack enable pnpm
-      - run: pnpm install --frozen-lockfile
+        if: ${{ matrix.os != 'windows-latest' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+      # pnpm 11.7's lockfile supply-chain re-verification ignores the
+      # minimumReleaseAgeExclude entries (see release.yml and
+      # pnpm-workspace.yaml's note) — a freshly-pinned peer floor would fail
+      # the install on a sub-24h release. The flag is the documented remedy.
+      - run: pnpm install --frozen-lockfile --config.minimum-release-age=0
       # The threshold flags need Node >= 22.8, so this runs on one version only.
       # It covers the pure modules. The integration layer (`lib/index.js`) is
       # covered by test/provider.test.mjs; `lib/picker.js`, `lib/auto-preset.js`
@@ -215,7 +235,12 @@ jobs:
         with:
           node-version: "24"
       - run: corepack enable pnpm
-      - run: pnpm install --frozen-lockfile
+        if: ${{ matrix.os != 'windows-latest' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+      # pnpm 11.7's lockfile supply-chain re-verification ignores the
+      # minimumReleaseAgeExclude entries (see release.yml and
+      # pnpm-workspace.yaml's note) — a freshly-pinned peer floor would fail
+      # the install on a sub-24h release. The flag is the documented remedy.
+      - run: pnpm install --frozen-lockfile --config.minimum-release-age=0
       # sandbox.sh needs bubblewrap in the default distro but no harness; the
       # rest need the app. A missing prerequisite reports skipped instead of
       # failing: the job's value is on the machines that have the topology.

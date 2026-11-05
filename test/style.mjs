@@ -180,6 +180,43 @@ check(
   readmeCandidates.join(", "),
 );
 
+// The unit and coverage lists in package.json must name the same test files:
+// a test added to one list silently skips coverage or CI in the other.
+const pkgScripts = /** @type {Record<string, string>} */ (pkg.scripts);
+/**
+ * The test-file names one package.json script enumerates.
+ * @param {string} script - the script key.
+ * @returns {string[]} the sorted list.
+ */
+const listFrom = (script) => (String(pkgScripts[script]).match(/test\/[\w./-]+\.test\.mjs/g) ?? []).sort();
+const unitList = listFrom("test:unit");
+const coverageList = listFrom("test:coverage");
+/** @type {string[]} */
+const listDrift = unitList.length === coverageList.length && unitList.every((name, i) => name === coverageList[i])
+  ? []
+  : [
+      ...unitList.filter((name) => !coverageList.includes(name)).map((name) => `in test:unit, missing from test:coverage: ${name}`),
+      ...coverageList.filter((name) => !unitList.includes(name)).map((name) => `in test:coverage, missing from test:unit: ${name}`),
+    ];
+check("test:unit and test:coverage name the same files", listDrift, listDrift.join("; "));
+
+// The manifest's fail-open direction: a new docs/*.md that nothing ships.
+// The manifest is a curated list — user-facing docs ship, maintainer and
+// upstream-negotiation records do not — so the unshipped set is named here
+// explicitly and a new doc must pick a side.
+const docsShipped = new Set(/** @type {string[]} */ (pkg.files).filter((entry) => entry.startsWith("docs/")));
+const docsExceptions = new Set([
+  "docs/DOCUMENTATION-MAP.md", // the maintainers' doc map
+  "docs/REQUIREMENTS.zh.md", // governance register (shipped: ARCHITECTURE links it)
+  "docs/upstream-open-in-app-bug.md", // the dated incident record
+  "docs/UPSTREAM-SPAWN-SEAM.md", // upstream negotiation, not user-facing
+  "docs/UPSTREAM-TERMINAL-FONT.md", // upstream negotiation, not user-facing
+]);
+const docsUnshipped = tracked
+  .filter((file) => /^docs\/[\w.-]+\.md$/.test(file) && !docsShipped.has(file) && !docsExceptions.has(file))
+  .map((file) => `${file} is tracked but not in the files manifest`);
+check("every tracked docs/*.md ships (or is a named exception)", docsUnshipped, docsUnshipped.join("; "));
+
 const failed = results.filter((result) => result.offenders.length > 0).length;
 console.log(`\n${results.length - failed}/${results.length} style and packaging checks pass`);
 if (failed > 0) process.exitCode = 1;

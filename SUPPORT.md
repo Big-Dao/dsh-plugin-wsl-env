@@ -6,7 +6,7 @@
 |---|---|
 | Operating system | Windows 10 and Windows 11 |
 | Linux side | WSL2 with at least one distro, and systemd as PID 1 with a lingering user manager (`loginctl enable-linger`) for the shipped session runtime. Set `sessionSandbox: false` on the preset's `wsl-shell` to keep the per-command sandbox instead |
-| DSH packages | `peerDependencies` declares a `0.2.1-rc.3` floor; newer versions require compatibility validation |
+| DSH packages | `peerDependencies` declares a `0.2.2-rc.1` floor; newer versions require compatibility validation |
 | Plugin version | the latest published version only |
 | Node | 22.19+ (`^22.19.0`), or 24 and later (`>=24.0.0`) |
 
@@ -60,7 +60,7 @@ issue for one.
 
 ## Compatibility expectations
 
-The DSH peer ranges start at `0.2.1-rc.3`; development dependencies pin that
+The DSH peer ranges start at `0.2.2-rc.1`; development dependencies pin that
 version exactly for testing. Cordis and Schemastery use caret peer ranges.
 The accepted range does not guarantee compatibility with every newer release:
 an upstream change can require a new release of this plugin.

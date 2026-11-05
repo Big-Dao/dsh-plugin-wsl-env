@@ -44,3 +44,7 @@ canary-summary.md
 # Copilot Superpowers — installed skills (local only, not tracked by git)
 .agent/skills/
 .agent/skills-catalog.md
+
+# The unattended-run log lives in the worktree root; the durable record goes
+# under docs/superpowers/runs/.
+RUN-LOG.md

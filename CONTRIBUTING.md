@@ -23,9 +23,10 @@ Developing and running the gates do have dependencies. The tests import pinned
 algorithm, and the boot test starts a row through the real Loader — so a fresh
 checkout needs one `pnpm install` before the gates pass.
 
-Those pins are deliberate, and they split by role. The `devDependencies` stay
-exact so the gates and the `docs/PEER-PARITY.md` audit name one reproducible
-line. The `peerDependencies` are floors — `>=` for the `@deepseek-ai/dsh-*`
+Those pins are deliberate, and they split by role. The `@deepseek-ai/*`
+`devDependencies` stay exact so the gates and the `docs/PEER-PARITY.md` audit
+name one reproducible line (the toolchain deps — typescript, js-yaml,
+`@types/*` — ride ranges and move by hand). The `peerDependencies` are floors — `>=` for the `@deepseek-ai/dsh-*`
 packages, caret for `@deepseek-ai/cordis` and `@deepseek-ai/schemastery` — so
 an app that ships a newer harness keeps installing the plugin without waiting
 for a plugin release. A floor is still raised on purpose, not by drift: it

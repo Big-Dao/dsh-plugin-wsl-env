@@ -134,10 +134,13 @@ export declare function windowsToLinuxMount(winPath: string): string | undefined
  * editing the profile is likely to write a plain Linux path.
  *
  * @param value - the path to translate.
- * @param options - the pinned distro and the fallback directory for relative input.
+ * @param options - the fallback directory for relative input (the pinned distro is
+ *   not an input: the mapping is coordinate-only and reads no pin).
  * @returns an absolute Linux path, or the input unchanged when it cannot be mapped.
  */
-export declare function toLinuxPath(value: string, options?: WorldPathOptions): string;
+export declare function toLinuxPath(value: string, options?: {
+    cwd?: string;
+}): string;
 /**
  * Join a requested path onto a workspace root in the distro's Linux
  * coordinate system: UNC absolutes map to their Linux paths, POSIX absolutes

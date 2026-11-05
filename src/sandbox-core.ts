@@ -366,7 +366,7 @@ export function createSandboxCore({ SandboxUnavailableError }: {
           bwrapFailure(this.wslPath, distro) ?? missingBwrapRemedy(distro),
         );
       }
-      const workspaceRoot = toLinuxPath(policy.workspaceRoot, { distro });
+      const workspaceRoot = toLinuxPath(policy.workspaceRoot);
       const prefix = bwrapArgvPrefix({ ...policy, workspaceRoot }, { maskWindowsDrive: this.maskWindowsDrive });
       return {
         argv: [...prefix, ...argv],

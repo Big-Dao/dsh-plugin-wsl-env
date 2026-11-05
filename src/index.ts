@@ -458,8 +458,7 @@ async function resolveOperationDistro(configured: string, candidates: ReadonlyAr
 
 /**
  * The refusal both shell resolvers share: the probes named no shell, and the
- * command must not quietly run under some other interpreter. The wording is
- * the one `runInDistro` already throws with.
+ * command must not quietly run under some other interpreter.
  * the probes named no shell, and the
  * command must not quietly run under some other interpreter. The wording is
  * the one `runInDistro` already throws with.
@@ -888,7 +887,7 @@ export class WslShellExecutor
       config.wslPath,
       ...distroArgs,
       "--cd",
-      toLinuxPath(spec.workdir, { distro }),
+      toLinuxPath(spec.workdir),
       // `--exec` is essential, not decoration. Without it wsl.exe hands the
       // command line to the distro's DEFAULT SHELL, which expands it once before
       // our own shell ever sees it: `x=1; echo "$x"` arrives as `x=1; echo ""`,
@@ -995,7 +994,7 @@ export class WslShellExecutor
     const distro = await this.distroFor(spec.workdir, configuredCwd(this.config));
     const home = await distroHome(this, distro);
     if (tail === undefined || tail.length === 0) return { ...spec, workdir: home };
-    return { ...spec, workdir: toLinuxPath(tail, { distro, cwd: home }) };
+    return { ...spec, workdir: toLinuxPath(tail, { cwd: home }) };
   }
 
   /**
@@ -1192,7 +1191,7 @@ export class WslShellExecutor
       // coordinate system inside argv(); the agent carries the cwd as a frame
       // field, so the SAME conversion happens here — a raw UNC must never
       // reach `chdir` (that is the bug this line fixes).
-      cwd: toLinuxPath(resolved.workdir, { distro }),
+      cwd: toLinuxPath(resolved.workdir),
       argv,
       env: Object.keys(env).length > 0 ? env : undefined,
       timeoutMs: resolved.timeoutMs,

@@ -234,33 +234,3 @@ export interface WslShellProbeOptions {
  *   both probes failed.
  */
 export declare function defaultShell(distro: string, options?: WslShellProbeOptions): Promise<string | undefined>;
-/**
- * What {@link runInDistro} reads: the `wsl.exe` path, an explicit shell, and
- * optional cancellation and login mode.
- */
-export interface WslRunOptions {
-    /** Executable name or absolute path. */
-    wslPath?: string;
-    /**
-     * An absolute path to the shell; resolved from the distro when omitted.
-     */
-    shell?: string;
-    /** Optional cancellation. */
-    signal?: AbortSignal;
-    /**
-     * Whether login-shell semantics were requested; defaults to true.
-     */
-    loginShell?: boolean;
-}
-/**
- * Run one command inside a distro and return raw stdout. Used by callers that
- * want Linux semantics instead of the UNC share's.
- *
- * @param distro - distro name.
- * @param command - a shell command string.
- * @param options - the `wsl.exe` path, an explicit `shell`, and optional
- *   cancellation.
- * @returns captured stdout.
- * @throws when neither the caller nor the distro names a usable shell.
- */
-export declare function runInDistro(distro: string, command: string, options?: WslRunOptions): Promise<string>;

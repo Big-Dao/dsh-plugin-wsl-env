@@ -46,7 +46,7 @@ integration layer is now measured, and part of what it leaves uncovered
 needs a live `wsl.exe` — the distro-bound paths in `lib/index.js` (the
 resolved home, the distro home, arming the watcher), the `wsl.exe` calls
 in `lib/wsl.js` (`defaultDistro`'s no-distro throw, `linuxHomePath`,
-`runInDistro`, and the other distro calls), and the real spawn internals
+and the other distro calls), and the real spawn internals
 in `lib/watcher.js`. The real-machine probes cover that tail, not CI.
 The rest of the uncovered branches — the host-path arm of
 `wslWritableRoots`, the sandbox-error and rethrow arms, the

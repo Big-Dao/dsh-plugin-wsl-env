@@ -31,7 +31,7 @@ check("regression: a UNC workdir converts to the distro path before reaching the
   // reaching chdir fails every shell call from a GUI session — this pins the
   // conversion the executor relies on.
   assert.equal(
-    toLinuxPath("\\\\wsl.localhost\\ubuntu\\home\\andy\\proj", { distro: "ubuntu" }),
+    toLinuxPath("\\\\wsl.localhost\\ubuntu\\home\\andy\\proj"),
     "/home/andy/proj",
   );
 });

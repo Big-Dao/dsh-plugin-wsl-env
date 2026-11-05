@@ -250,10 +250,11 @@ export function windowsToLinuxMount(winPath: string): string | undefined {
  * editing the profile is likely to write a plain Linux path.
  *
  * @param value - the path to translate.
- * @param options - the pinned distro and the fallback directory for relative input.
+ * @param options - the fallback directory for relative input (the pinned distro is
+ *   not an input: the mapping is coordinate-only and reads no pin).
  * @returns an absolute Linux path, or the input unchanged when it cannot be mapped.
  */
-export function toLinuxPath(value: string, options?: WorldPathOptions): string {
+export function toLinuxPath(value: string, options?: { cwd?: string }): string {
   const text = String(value ?? "");
   if (text.length === 0) return text;
   const parsed = uncToPosix(text);
@@ -261,9 +262,8 @@ export function toLinuxPath(value: string, options?: WorldPathOptions): string {
   if (isPosixAbsolute(text)) return text;
   const mounted = windowsToLinuxMount(text);
   if (mounted !== undefined) return mounted;
-  // Relative input is resolved against the configured default workdir.
   const base = options?.cwd ?? "/";
-  const baseLinux = toLinuxPath(base, { distro: options?.distro });
+  const baseLinux = toLinuxPath(base);
   return `${baseLinux.replace(/\/+$/, "")}/${text.replace(/^\.\//, "")}`;
 }
 

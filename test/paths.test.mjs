@@ -50,14 +50,14 @@ check("windowsToLinuxMount maps drive paths", () => {
 });
 
 check("toLinuxPath handles every coordinate system", () => {
-  assert.equal(toLinuxPath(UNC, { distro: "ubuntu" }), "/home/andy/proj");
-  assert.equal(toLinuxPath("/home/andy/proj", { distro: "ubuntu" }), "/home/andy/proj");
-  assert.equal(toLinuxPath("C:\\Users\\andyz\\x", { distro: "ubuntu" }), "/mnt/c/Users/andyz/x");
-  assert.equal(toLinuxPath("src/a.ts", { distro: "ubuntu", cwd: "/home/andy/proj" }), "/home/andy/proj/src/a.ts");
+  assert.equal(toLinuxPath(UNC), "/home/andy/proj");
+  assert.equal(toLinuxPath("/home/andy/proj"), "/home/andy/proj");
+  assert.equal(toLinuxPath("C:\\Users\\andyz\\x"), "/mnt/c/Users/andyz/x");
+  assert.equal(toLinuxPath("src/a.ts", { cwd: "/home/andy/proj" }), "/home/andy/proj/src/a.ts");
 });
 
 check("toLinuxPath resolves a relative path against a UNC cwd", () => {
-  assert.equal(toLinuxPath("src/a.ts", { distro: "ubuntu", cwd: UNC }), "/home/andy/proj/src/a.ts");
+  assert.equal(toLinuxPath("src/a.ts", { cwd: UNC }), "/home/andy/proj/src/a.ts");
 });
 
 check("toWorldPath maps Linux paths onto the UNC share", () => {
@@ -96,7 +96,7 @@ check("a distro home is a usable base in both directions", () => {
   const home = "/home/andy";
   const world = "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj\\a.ts";
   assert.equal(toWorldPath("proj/a.ts", { distro: "ubuntu", cwd: home }), world);
-  assert.equal(toLinuxPath("proj/a.ts", { distro: "ubuntu", cwd: home }), "/home/andy/proj/a.ts");
+  assert.equal(toLinuxPath("proj/a.ts", { cwd: home }), "/home/andy/proj/a.ts");
 });
 
 check("toDisplayPath shows Linux paths inside the distro only", () => {

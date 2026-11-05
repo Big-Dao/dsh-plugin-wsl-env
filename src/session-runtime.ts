@@ -239,7 +239,7 @@ export class SessionRuntimes {
     const prefix = sessionScopePrefix(unit);
     if (request.mode !== "danger-full-access") {
       prefix.push(...bwrapArgvPrefix(
-        { mode: request.mode, workspaceRoot: toLinuxPath(request.workspaceRoot, { distro: request.distro }) },
+        { mode: request.mode, workspaceRoot: toLinuxPath(request.workspaceRoot) },
         { maskWindowsDrive: request.maskWindowsDrive, realTmp: true, pidNamespace: false },
       ));
     }

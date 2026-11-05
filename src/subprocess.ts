@@ -271,7 +271,7 @@ export class WslSubprocessRuntime extends LocalSubprocessRuntime {
     if (isPosixAbsolute(text)) return { distro, linuxCwd: text };
     const mounted = windowsToLinuxMount(text);
     if (mounted !== undefined) return { distro, linuxCwd: mounted };
-    return { distro, linuxCwd: toLinuxPath(this.config.cwd, { distro }) };
+    return { distro, linuxCwd: toLinuxPath(this.config.cwd) };
   }
 
   /**

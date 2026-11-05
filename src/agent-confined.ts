@@ -94,10 +94,10 @@ export async function runSpawnChecklist({ wslPath, distro, root, runFn }: { wslP
   }
   const named = /workspace-root|interpreter|base64|sha256sum/.exec(detail)?.[0];
   if (named !== undefined) {
-    throw new Error(`spawn checklist step '${named}' failed in ${distro}`);
+    throw new Error(`dsh-plugin-wsl-env: the confined spawn checklist step '${named}' failed in ${distro}`);
   }
   if (detail !== "") {
-    throw new Error(`spawn checklist could not run in ${distro}: ${detail.slice(0, 200)}`);
+    throw new Error(`dsh-plugin-wsl-env: the confined spawn checklist could not run in ${distro}: ${detail.slice(0, 200)}`);
   }
 }
 

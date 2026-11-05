@@ -1416,7 +1416,7 @@ checkReg("a failing checklist step is named on the rejection", async () => {
       wslPath: "wsl.exe", distro: "Debian", root: "/x",
       runFn: async () => { throw new Error("wsl.exe failed: base64"); },
     }),
-    /spawn checklist step 'base64' failed in Debian/,
+    /checklist step 'base64' failed in Debian/,
   );
 });
 
@@ -1426,7 +1426,7 @@ checkReg("an unreachable checklist is reported as its own failure", async () => 
       wslPath: "wsl.exe", distro: "Debian", root: "/x",
       runFn: async () => { throw new Error("wsl.exe failed: WSL is unreachable"); },
     }),
-    /spawn checklist could not run in Debian/,
+    /checklist could not run in Debian/,
   );
 });
 

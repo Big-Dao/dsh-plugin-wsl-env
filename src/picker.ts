@@ -373,7 +373,7 @@ export class WslDirectoryPicker extends DirectoryPicker {
         throw new DirectoryPickerError(
           "directory-unreadable",
           target,
-          `cannot list ${target}: ${detail.length > 0 ? detail : `ls exited ${result.exitCode}`}`,
+          `cannot list "${target}": ${detail.length > 0 ? detail : `ls exited ${result.exitCode}`}`,
         );
       }
       stdout = result.stdout;
@@ -385,7 +385,7 @@ export class WslDirectoryPicker extends DirectoryPicker {
           signal,
         );
       } catch (fallbackError) {
-        throw new DirectoryPickerError("directory-unreadable", target, `cannot list ${target}: ${messageOf(fallbackError)}`);
+        throw new DirectoryPickerError("directory-unreadable", target, `cannot list "${target}": ${messageOf(fallbackError)}`);
       }
     }
     return parseDirListing(stdout, linuxDir, target, this.config.maxEntries);
@@ -422,7 +422,7 @@ export class WslDirectoryPicker extends DirectoryPicker {
       }
     } catch (error) {
       signal?.throwIfAborted();
-      throw new DirectoryPickerError("directory-unreadable", target, `cannot list ${target}: ${messageOf(error)}`);
+      throw new DirectoryPickerError("directory-unreadable", target, `cannot list "${target}": ${messageOf(error)}`);
     } finally {
       if (level !== undefined) await level.close().catch(() => {});
     }
@@ -467,7 +467,7 @@ export class WslDirectoryPicker extends DirectoryPicker {
       if (typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "EEXIST") {
         throw new DirectoryPickerError("directory-exists", target, `${target} already exists`);
       }
-      throw new DirectoryPickerError("directory-create-failed", target, `cannot create ${target}: ${messageOf(error)}`);
+      throw new DirectoryPickerError("directory-create-failed", target, `cannot create "${target}": ${messageOf(error)}`);
     }
   }
 
@@ -494,7 +494,7 @@ export class WslDirectoryPicker extends DirectoryPicker {
       throw new DirectoryPickerError(
         "directory-create-failed",
         target,
-        `cannot create ${target}: ${detail.trim().length > 0 ? detail.trim() : `mkdir exited ${result.exitCode}`}`,
+        `cannot create "${target}": ${detail.trim().length > 0 ? detail.trim() : `mkdir exited ${result.exitCode}`}`,
       );
     } catch (error) {
       if (error instanceof DirectoryPickerError) throw error;
@@ -505,7 +505,7 @@ export class WslDirectoryPicker extends DirectoryPicker {
       } catch (fallbackError) {
         const message = messageOf(fallbackError);
         if (/File exists/i.test(message)) throw new DirectoryPickerError("directory-exists", target, `${target} already exists`);
-        throw new DirectoryPickerError("directory-create-failed", target, `cannot create ${target}: ${message}`);
+        throw new DirectoryPickerError("directory-create-failed", target, `cannot create "${target}": ${message}`);
       }
     }
   }

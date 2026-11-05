@@ -16,6 +16,13 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-05
+
+Track the desktop `0.2.2-rc.1` release: the bundle layer is regenerated from
+its shipped patch file, the peer floor moves to the `0.2.2-rc.1` npm line with
+the peer-parity re-run the layering rule requires, and the one genuinely broken
+path is documented with its operator rule.
+
 ### Changed
 
 - **Raised the peer floor and dev pins to the `0.2.2-rc.1` npm line, with the

@@ -196,6 +196,36 @@ check("a distro with a native entry spawns it without sh and with USR1 off", asy
   }
 });
 
+check("a distro without a native entry builds the shell fallback with the shipped digest", async () => {
+  setSessionNativeAgent("ze-shell-fallback", "");
+  try {
+    const registry = new SessionRuntimes({ stopScope: () => {} });
+    const entry = registry.acquire({ distro: "ze-shell-fallback", wslPath: "wsl.exe", workspaceRoot: "/home/u/proj", mode: "workspace-write" });
+    assert.ok(entry.agent.scriptPath.endsWith("wsl-agent.sh"), "the shell agent script is the entrypoint");
+    assert.equal(/** @type {string} */ (entry.agent.expectedDigest).length, 64, "the digest is the shipped script's sha256");
+    await registry.release(entry.key);
+  } finally {
+    setSessionNativeAgent("ze-shell-fallback", "");
+  }
+});
+
+check("a probe whose wsl.exe cannot run degrades to the error-shaped output", async () => {
+  const { probeSessionRuntime } = await import("../lib/session-runtime.js");
+  // The probe's answer is the remedy-bearing refusal string, or null when the
+  // platform is usable — a broken run is a refusal, never a silent pass.
+  const outcome = await probeSessionRuntime({ wslPath: "/nonexistent-dsh-wsl", distro: "ze-x", run: (async () => "") });
+  assert.match(/** @type {string} */ (outcome ?? ""), /answered \(nothing\)|failed/, "the broken probe names its remedy");
+});
+
+check("the default stop is best effort against a scope that may already be gone", async () => {
+  // No injected stopScope: the default stop spawns its stopper and absorbs a
+  // spawn failure — a stale unit is a listing problem, not an acquire failure.
+  const registry = new SessionRuntimes();
+  const entry = registry.acquire({ distro: "ze-default-stop", wslPath: "/nonexistent-dsh-wsl", workspaceRoot: "/home/u/proj", mode: "workspace-write", sessionId: "s1" });
+  assert.ok(entry.agent, "the acquire itself does not depend on the stopper");
+  await registry.release(entry.key);
+});
+
 for (const [name, fn] of checks) await runCheck(name, fn);
 
 console.log(`\n${passed} session-runtime checks pass`);

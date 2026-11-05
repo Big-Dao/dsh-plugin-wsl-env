@@ -95,5 +95,31 @@ check("parseHomePath accepts a Linux home and refuses empty or Windows answers",
   assert.throws(() => parseHomePath("ubuntu", "C:\\Users\\x"), /no usable \$HOME/, "a Windows answer is not a home");
 });
 
+checks.push(["a denied capture names the sandbox cause", async () => {
+  await assert.rejects(
+    () => runCapture(["sh", "-c", "echo E_ACCESSDENIED >&2; exit 1"]),
+    (error) => /WSL is unreachable from a sandboxed process/.test(/** @type {Error} */ (error).message),
+    "the low-integrity-token remedy is named",
+  );
+}]);
+
+checks.push(["an unstartable executable names the wslPath remedy", async () => {
+  await assert.rejects(
+    () => runCapture(["/nonexistent-dsh-wsl-binary"]),
+    (error) => /could not be started/.test(/** @type {Error} */ (error).message) && /wslPath/.test(/** @type {Error} */ (error).message),
+  );
+}]);
+
+checks.push(["an aborted capture is cancellation, not a wedged service", async () => {
+  const controller = new AbortController();
+  const pending = runCapture(slow(60_000), controller.signal, 60_000);
+  setTimeout(() => controller.abort(new Error("caller cancelled")), 100);
+  await assert.rejects(
+    () => pending,
+    (error) => !/no completion within/.test(/** @type {Error} */ (error).message),
+    "the deadline hint stays off an abort",
+  );
+}]);
+
 for (const [name, fn] of checks) await check(name, fn);
 console.log(`\n${passed} wsl checks pass`);

@@ -175,4 +175,21 @@ check("isAnotherDistrosUnc names the cross-distro workdir the shell must refuse"
   assert.equal(isAnotherDistrosUnc("C:\\Users\\andyz", "ubuntu"), false, "a Windows drive path is not a foreign distro");
 });
 
+check("a bare UNC resolves to the distro root", () => {
+  assert.deepEqual(uncToPosix("\\\\wsl.localhost\\ubuntu"), { distro: "ubuntu", linuxPath: "/" });
+});
+
+check("toLinuxPath accepts drive paths, posix absolutes, and relative words", () => {
+  assert.equal(toLinuxPath("C:\\Users\\x"), "/mnt/c/Users/x", "a drive path rides its mount");
+  assert.equal(toLinuxPath("/home/u"), "/home/u", "a posix absolute is already linux");
+  assert.equal(toLinuxPath("rel"), "/rel", "a relative word bases on the root");
+  assert.equal(toLinuxPath("./rel", { cwd: "/home/u" }), "/home/u/rel", "a dotted relative bases on the cwd");
+});
+
+check("isWorldPathUnder compares drive roots with their separator", () => {
+  assert.equal(isWorldPathUnder("C:\\a\\b.ts", "C:\\a"), true);
+  assert.equal(isWorldPathUnder("C:\\ab\\c.ts", "C:\\a"), false, "a prefix must end at a separator");
+  assert.equal(isWorldPathUnder("C:\\a\\b.ts", "C:\\"), true, "a drive root keeps its separator in the key");
+});
+
 console.log(`\n${passed} checks passed`);

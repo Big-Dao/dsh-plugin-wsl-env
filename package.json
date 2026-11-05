@@ -36,6 +36,10 @@
       "types": "./lib/fs.d.ts",
       "default": "./lib/fs.js"
     },
+    "./index": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
     "./fs-routing": {
       "types": "./lib/fs-routing.d.ts",
       "default": "./lib/fs-routing.js"
@@ -103,9 +107,9 @@
     "docs/LIMITATIONS.zh.md",
     "docs/CONFIGURATION.zh.md",
     "docs/QUICKSTART.zh.md",
+    "docs/REQUIREMENTS.zh.md",
     "docs/LIMITATIONS.md",
     "docs/RELEASING.md",
-    "docs/REQUIREMENTS.zh.md",
     "docs/root-fs-routing.md",
     "docs/VALUE.zh.md",
     "docs/UPSTREAM-OPEN-IN-APP.md",

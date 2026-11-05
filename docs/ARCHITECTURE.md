@@ -318,6 +318,8 @@ own dialect, described after the table.
 | `FS_ABORTED` | `lib/fsio-agent.js`, `lib/fsio-text.js` | the caller's signal was aborted before or during the operation | not a refusal — the caller cancelled; a fresh call clears it |
 | `FS_EDIT_NOT_FOUND` | `lib/fsio-text.js` (`applyLiteralEdit`) | `old_string` was empty, or matched nothing in the file | give an `old_string` the file actually contains |
 | `FS_AMBIGUOUS_EDIT` | `lib/fsio-text.js` (`applyLiteralEdit`) | `old_string` matched more than once and `replace_all` was not set | make `old_string` unique, or set `replace_all` |
+| `FS_PATCH_MISMATCH` | `lib/fs-substrate.js` (`patchText`; the agent's record dialect, `docs/AGENT-PROTOCOL-V7.md`) | a hunk's `oldLines` no longer match the file at the lines the hunks name — the text drifted between the caller's read and the patch | re-read the file and rebuild the hunks against the fresh text |
+| `FS_SAME_TARGET` | `lib/fs-substrate.js` (`moveFile`) | `moveFile`'s source and destination resolve to the same file | give two distinct paths, or drop the call |
 
 The GUI file service keeps the shipped `workspace-files` row, so its wire
 refusals are the peer's `workspace-file/*` dialect (plus `gateway/bad-request`

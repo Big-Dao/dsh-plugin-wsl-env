@@ -46,7 +46,7 @@ import { sessionScopeSweepScript } from "../lib/session-scope.js";
 import { parseListeningPorts, procNetScript } from "../lib/ports.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const WSL = "wsl.exe";
+let WSL = "wsl.exe";
 const CMD = "cmd.exe";
 const TIMEOUT_MS = 60_000;
 
@@ -284,7 +284,11 @@ function rejectReadOnly() {
  */
 async function main(options) {
   if (options.readOnly && (options.fix || options.install)) return rejectReadOnly();
+  // One rebinding covers every probe below (`-l -q`, `inDistro`, the
+  // resident handshake, the sessions survey): an explicit `--wsl` replaces
+  // the module-level default for this whole run.
   const wslExe = options.wsl.length > 0 ? options.wsl : WSL;
+  WSL = wslExe;
   /** @type {Check[]} */
   const checks = [];
   /**

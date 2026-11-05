@@ -106,7 +106,15 @@ export type WslExecSpec = ShellExecSpec & {
  */
 export declare function doctorReport(distro: string, options?: {
     doctorPath?: string;
+    /** The `wsl.exe` the doctor probes with; forwarded as `--wsl <path>`. */
     wslPath?: string;
+    /**
+     * Prepended to the doctor subprocess's PATH — a caller that stages a fake
+     * `wsl.exe` (tests) passes the staging directory here instead of mutating
+     * `process.env`, whose visibility across spawned grandchildren is exactly
+     * the ambiguity this option removes.
+     */
+    envPath?: string;
     liveStatus?: AgentStatus;
 }): Promise<DoctorReport>;
 /**

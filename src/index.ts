@@ -66,6 +66,7 @@ import { SessionRuntimes, probeSessionRuntime, sessionRuntimes, setSessionNative
 import { configureAgentBackend, ensureNativeSessionAgent } from "./native-agent.js";
 import { mergeLiveResidentStatus, type DoctorReport } from "./doctor-live.js";
 import { execFile } from "node:child_process";
+import type { ExecFileOptionsWithStringEncoding } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { AgentBackend } from "./native-agent.js";
@@ -249,29 +250,50 @@ const DOCTOR_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "..", "scrip
  */
 export async function doctorReport(distro: string, options?: {
   doctorPath?: string;
+  /** The `wsl.exe` the doctor probes with; forwarded as `--wsl <path>`. */
   wslPath?: string;
+  /**
+   * Prepended to the doctor subprocess's PATH — a caller that stages a fake
+   * `wsl.exe` (tests) passes the staging directory here instead of mutating
+   * `process.env`, whose visibility across spawned grandchildren is exactly
+   * the ambiguity this option removes.
+   */
+  envPath?: string;
   liveStatus?: AgentStatus;
 }): Promise<DoctorReport> {
   const script = options?.doctorPath ?? DOCTOR_SCRIPT;
+  const argv = [script, distro, "--json"];
+  if (options?.wslPath !== undefined) argv.push("--wsl", options.wslPath);
   // A nonzero doctor exit usually means an environment check FAILED on the
   // machine being examined — that is a valid report, not a broken collection.
   // The stdout is parsed regardless; only a run that produced no versioned
   // report rejects.
+  const spawnOptions: ExecFileOptionsWithStringEncoding = {
+    timeout: 120_000,
+    maxBuffer: 4 * 1024 * 1024,
+    windowsHide: true,
+    ...(options?.envPath !== undefined ? { env: { ...process.env, PATH: `${options.envPath}:${process.env.PATH ?? ""}` } } : {}),
+  };
   const stdout = await new Promise<string>((resolve, reject) => {
-    execFile(process.execPath, [script, distro, "--json"], { timeout: 120_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true }, (error, out, err) => {
+    execFile(process.execPath, argv, spawnOptions, (error, out, err) => {
       if (!error) {
         resolve(out);
         return;
       }
-      const failedChecks = (() => {
-        try {
-          return (JSON.parse(out) as DoctorReport).checks.filter((check) => check.status === "fail").map((check) => `${check.id}: ${check.detail ?? ""}`).join("; ");
-        } catch {
-          return undefined;
-        }
-      })();
+      let parsed: DoctorReport | undefined;
+      let failedChecks: string | undefined;
+      try {
+        parsed = JSON.parse(out) as DoctorReport;
+        failedChecks = parsed.checks.filter((check) => check.status === "fail").map((check) => `${check.id}: ${check.detail ?? ""}`).join("; ");
+      } catch {
+        parsed = undefined;
+      }
       const stdoutTail = out.trim().slice(0, 200);
-      reject(new Error(`doctor run failed: ${error.message}${failedChecks ? ` (failed checks: ${failedChecks})` : ""}${stdoutTail.length > 0 ? ` — stdout: ${stdoutTail}` : " — no stdout"}${typeof err === "string" && err.length > 0 ? ` — stderr: ${err.trim().slice(-200)}` : " — no stderr"}`));
+      if (parsed === undefined) {
+        reject(new Error(`doctor run failed: ${error.message}${typeof err === "string" && err.length > 0 ? ` — stderr: ${err.trim().slice(-200)}` : " — no stderr"}`));
+        return;
+      }
+      reject(new Error(`doctor run failed (failed checks: ${failedChecks ?? "unreadable report"}): ${error.message}${stdoutTail.length > 0 ? ` — stdout head: ${stdoutTail}` : " — no stdout"}`));
     });
   });
   const report = JSON.parse(stdout) as DoctorReport;

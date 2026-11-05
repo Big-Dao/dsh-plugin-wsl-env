@@ -271,6 +271,7 @@ try {
     {
       const merged = await doctorReport("ubuntu", {
         wslPath: join(bin, "wsl.exe"),
+        envPath: bin,
         liveStatus: { distro: "ubuntu", state: "dead", pid: 7000, lastError: "wedge observed in the live app", deaths: 4, pending: 0 },
       }).catch((error) => {
         assert.fail(`the doctor subprocess produced no report: ${/** @type {Error} */ (error).message}`);
@@ -285,7 +286,7 @@ try {
       // fresh probe verbatim — the merge never invents facts. The same
       // collection-only contract applies: a doctor exit over this machine's
       // own failed environment checks must not fail THIS check.
-      const fresh = await doctorReport("ubuntu", { wslPath: join(bin, "wsl.exe") }).catch((error) => {
+      const fresh = await doctorReport("ubuntu", { wslPath: join(bin, "wsl.exe"), envPath: bin }).catch((error) => {
         assert.fail(`the doctor subprocess produced no report: ${/** @type {Error} */ (error).message}`);
       });
       const freshHandshake = fresh.checks.find((entry) => entry.id === "agent.handshake");

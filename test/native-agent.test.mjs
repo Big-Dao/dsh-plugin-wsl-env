@@ -270,4 +270,33 @@ exit 1
   }
 });
 
+await check("a copy script that fails names its stderr", async () => {
+  if (process.platform === "win32") return; // the fixture is a POSIX script
+  const dir = mkdtempSync(join(tmpdir(), "dsh-native-fail-"));
+  try {
+    const fixture = join(dir, "failing.sh");
+    writeFileSync(fixture, "#!/bin/sh\necho 'no space left on device' >&2\nexit 1\n", { mode: 0o755 });
+    await assert.rejects(
+      () => copyBinary(fixture, "ubuntu", "ignored", Buffer.alloc(1024, 1)),
+      /no space left on device/,
+      "the script's own stderr is the failure's message",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+await check("a copy that answers nothing leaves the backend unprepared", async () => {
+  clearNativeBackendCache();
+  const result = await ensureNativeBackend({
+    wslPath: "wsl.exe",
+    distro: "ze-empty-copy",
+    source: "C:\\native",
+    readSource: async () => Buffer.from("binary"),
+    run: async () => "x86_64",
+    copy: async () => "",
+  });
+  assert.equal(result, undefined, "an empty cache path is no backend, not a crash");
+});
+
 console.log(`\n${passed} native-agent checks pass`);

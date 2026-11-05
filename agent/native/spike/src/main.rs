@@ -362,7 +362,7 @@ fn create_staging(directory: &Path) -> io::Result<std::path::PathBuf> {
     Err(io::Error::new(io::ErrorKind::AlreadyExists, "cannot allocate staging directory"))
 }
 
-fn fs_execute(op: &str, args: &[Vec<u8>]) -> Result<Vec<u8>, (String, String)> {
+fn fs_execute(op: &str, args: &[Vec<u8>], cancelled: &Arc<AtomicBool>) -> Result<Vec<u8>, (String, String)> {
     // One FS op: stat/lstat/read/write/list/realpath plus protocol 7's
     // delete/move. Returns the op's payload, or the (reason, message) the
     // structured FSERR/OK-BAD record carries.
@@ -434,6 +434,15 @@ fn fs_execute(op: &str, args: &[Vec<u8>]) -> Result<Vec<u8>, (String, String)> {
                     let _ = fs::remove_dir_all(&staging);
                     return Err(("stale".to_string(), format!("cannot write \"{path}\": file changed since it was read")));
                 }
+            }
+            // Last cancellation check BEFORE the publish: a KILL that arrived
+            // while this op queued on fs_lock is processed by the main loop
+            // at its own pace, so the flag must be re-read here — publishing
+            // a write the host cancelled is exactly the failure the
+            // queued-cancel test exists to catch.
+            if cancelled.load(Ordering::Acquire) {
+                let _ = fs::remove_dir_all(&staging);
+                return Err(("io".to_string(), "request cancelled".to_string()));
             }
             let published = if publish == "no-replace" {
                 if fs::symlink_metadata(&path).is_ok() {
@@ -521,6 +530,11 @@ fn fs_execute(op: &str, args: &[Vec<u8>]) -> Result<Vec<u8>, (String, String)> {
                 let _ = fs::remove_dir_all(&staging);
                 return Err((reason_for(&error).to_string(), format!("cannot move \"{source}\": {error}")));
             }
+            // Same pre-publish cancellation check as the write arm.
+            if cancelled.load(Ordering::Acquire) {
+                let _ = fs::remove_dir_all(&staging);
+                return Err(("io".to_string(), "request cancelled".to_string()));
+            }
             let published = if guard == "no-replace" {
                 if fs::symlink_metadata(&destination).is_ok() {
                     Err(("exists".to_string(), format!("cannot move \"{source}\" to \"{destination}\": it already exists")))
@@ -559,7 +573,7 @@ fn handle_fs(
         fs_fail(&out, &id, "io", "request cancelled");
         return;
     }
-    match fs_execute(&op, &args) {
+    match fs_execute(&op, &args, &cancelled) {
         Ok(payload) => write_line(&out, &format!("RES|{id}|0|{}||0|0", b64_encode(&payload))),
         Err((reason, message)) => fs_fail(&out, &id, &reason, &message),
     }
@@ -586,7 +600,7 @@ fn handle_fsb(
     let mut records = String::new();
     for (index, (op, args)) in ops.iter().enumerate() {
         let number = index + 1;
-        match fs_execute(op, args) {
+        match fs_execute(op, args, &cancelled) {
             Ok(payload) => {
                 records.push_str(&format!("OK {number}|{}\n", b64_encode(&payload)));
             }

@@ -95,6 +95,11 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
 因此版本管理器可用）且**非交互**（模型的输出流中没有提示符/插件输出）。
 设置 `loginShell: false` 后去掉登录旗标（`<shell> -c <command>`）。
 
+`<shell>` 是 distro 用户的登录 shell（先 `getent passwd`，再 `$SHELL`）。
+两条探测都失败时——冷启动的 distro、首个 `wsl.exe` 调用抖动、没有 `getent`
+的 musl 系——命令**直接报错**，而不是静默落到 bash；失败不缓存，重试即重探测。
+需要钉死就用 `shell:` 指定绝对路径。
+
 - **`~/.zshrc` / `~/.bashrc` 永远不会被读取。** 把机器级的 PATH 设置
   （`fnm`、nvm、cargo）移进 `~/.zprofile` 或 `~/.zshenv`；提示符和补全
   留在 rc 文件里。

@@ -101,6 +101,12 @@ Commands run as `<shell> -lc <command>` — login (profile scripts sourced, so v
 managers work) and **non-interactive** (no prompt/plugin output in the model's
 streams). With `loginShell: false` the login flag is dropped (`<shell> -c <command>`).
 
+`<shell>` is the distro user's login shell (`getent passwd`, then `$SHELL`). When
+both probes fail — a cold distro, a flaky first `wsl.exe` call, a musl distro
+without `getent` — the command **errors out** instead of silently running under
+bash; the failure is not cached, so a retry re-probes. Set `shell:` to an
+absolute path to pin one.
+
 - **`~/.zshrc` / `~/.bashrc` are never read.** Move machine-level PATH setup
   (`fnm`, nvm, cargo) into `~/.zprofile` or `~/.zshenv`; keep prompts and completion
   in the rc file.

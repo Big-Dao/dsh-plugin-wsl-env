@@ -601,13 +601,14 @@ check("maskWindowsDrive reaches the per-command confinement, not only the sessio
   assert.equal(confined.windowsDrive, "masked");
 });
 
-check("a configured shell is cached; a failed probe is retried, not pinned", async () => {
+check("a configured shell is cached; a failed probe refuses loudly and is not pinned", async () => {
   const { executor } = makeExecutor();
   assert.equal(await executor.shell(), "/bin/zsh");
   assert.equal(executor.resolvedShell, "/bin/zsh");
   // Empty config with both probes failing (a wslPath that cannot spawn):
-  // the answer must be the per-call fallback, and the cache must stay empty
-  // so a later call — a warm distro, a fixed path — resolves the real shell.
+  // the command must refuse rather than quietly run under bash, and the
+  // cache must stay empty so a later call — a warm distro, a fixed path —
+  // resolves the real shell.
   const ctx = new Context();
   ctx.provide("sandboxPolicy", { defaultMode: "workspace-write", resolve: () => ({ mode: "workspace-write", workspaceRoot: WORKSPACE }) });
   const retrying = new WslShellExecutor(ctx, WslShellExecutor.Config({
@@ -618,15 +619,39 @@ check("a configured shell is cached; a failed probe is retried, not pinned", asy
     agentBackend: "shell",
     wslPath: "definitely-not-wsl.exe",
   }));
-  assert.equal(await retrying.shell(), "bash", "the fallback answers per call");
-  assert.equal(retrying.resolvedShell.length, 0, "the placeholder is not cached: the next call retries");
+  await assert.rejects(
+    () => retrying.shell(),
+    /** @param {Error} error */ (error) => {
+      assert.match(error.message, /no usable shell/, "the refusal names the failure");
+      assert.match(error.message, new RegExp(`"${DISTRO}"`), "the refusal names the distro");
+      assert.match(error.message, /`shell` at an existing absolute path/, "the refusal names the way out");
+      return true;
+    },
+  );
+  assert.equal(retrying.resolvedShell.length, 0, "the failure is not cached: the next call retries");
+  // The same refusal on the per-distro resolver, whose probe runs directly.
+  await assert.rejects(() => retrying.shellFor("other-distro"), /no usable shell/);
+  assert.equal(retrying.resolvedShells.size, 0, "the per-distro failure is not cached either");
 });
 
-check("shellName strips the shell to its model-facing basename; an exotic name falls back to bash", async () => {
+check("shellName strips the shell to its model-facing basename; a failed probe reads as shell", async () => {
   const { executor } = makeExecutor();
   assert.equal(await executor.shellName(), "zsh", "a zsh distro is never presented as bash");
   executor.resolvedShell = "/usr/bin/weird.shell";
   assert.equal(await executor.shellName(), "bash", "a name outside the POSIX alphabet reads as bash");
+  // The naming path must not crash on a failed probe; the neutral name is
+  // honest, while "bash" would claim an interpreter nothing resolved.
+  const ctx = new Context();
+  ctx.provide("sandboxPolicy", { defaultMode: "workspace-write", resolve: () => ({ mode: "workspace-write", workspaceRoot: WORKSPACE }) });
+  const failing = new WslShellExecutor(ctx, WslShellExecutor.Config({
+    distro: DISTRO,
+    shell: "",
+    sandbox: true,
+    agent: true,
+    agentBackend: "shell",
+    wslPath: "definitely-not-wsl.exe",
+  }));
+  assert.equal(await failing.shellName(), "shell", "a failed probe is named, not invented");
 });
 
 check("linuxOf falls back to the display spelling when the identity is not a distro path", () => {

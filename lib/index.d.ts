@@ -500,7 +500,8 @@ export declare class WslShellExecutor extends LocalBashExecutor {
      * The shell name for the default/pinned distro, as the shell tool presents
      * it.
      *
-     * @returns the basename of the shell, or `bash` when it cannot be named.
+     * @returns the basename of the shell; `shell` while the probe fails, and
+     *   `bash` for an implausible basename.
      */
     shellName(): Promise<string>;
     /**
@@ -510,6 +511,8 @@ export declare class WslShellExecutor extends LocalBashExecutor {
      *
      * @param distro - the distro name.
      * @returns an absolute path to the shell inside the distro.
+     * @throws {Error} when neither the config nor the distro names a usable
+     *   shell — the failure is not cached, so the next call re-probes.
      */
     shellFor(distro: string): Promise<string>;
     /**
@@ -517,6 +520,8 @@ export declare class WslShellExecutor extends LocalBashExecutor {
      * login shell, resolved once and cached.
      *
      * @returns an absolute path to the shell inside the distro.
+     * @throws {Error} when neither the config nor the distro names a usable
+     *   shell — the failure is not cached, so the next call re-probes.
      */
     shell(): Promise<string>;
     /**

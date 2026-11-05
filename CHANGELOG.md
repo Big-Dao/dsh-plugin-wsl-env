@@ -46,6 +46,34 @@ were part of the record.
   one surfaces as `warn` with deaths/pending named, and the report tally
   follows.
 
+### Changed
+
+- **A failed login-shell probe now refuses the command instead of silently
+  running it under bash.** `wsl-shell`'s `shell` key stays empty by default and
+  resolves the distro user's login shell (`getent passwd`, then `$SHELL`); when
+  both probes fail — a cold distro, a flaky first `wsl.exe` call, a musl distro
+  without `getent` — the executor used to answer the literal `bash` for that
+  one call, running the command under an interpreter the user never configured
+  and telling no one. The resolvers now throw the refusal `runInDistro` already
+  used (the distro, both probes, and the `shell:` escape hatch); the failure is
+  still not cached, so a retry re-probes; and the tool's self-presentation
+  reads `shell` rather than a bash that nothing resolved.
+
+### Fixed
+
+- **A wedged unit-test file now fails in three minutes instead of hanging the
+  run.** `node --test` has no per-file deadline, and `--test-timeout` bounds
+  only tests a file has registered — a script-style suite that leaves a handle
+  alive behind an unsettled top-level await hangs before registration, and the
+  runner's "Promise resolution is still pending" message never arrives because
+  the loop never drains. `scripts/test-watchdog.mjs` now wraps `test:unit` and
+  `test:coverage`: the command runs untouched, and at the 180 s deadline the
+  wrapper interrupts the process group (SIGINT, so node prints its
+  "Interrupted while running" list naming the still-running file;
+  `taskkill /T` on Windows) and exits 124. `DSH_TEST_WATCHDOG_MS` overrides the
+  deadline. Observed shape: `test/shell-env.test.mjs` sat 584 s inside a 587 s
+  run, so every re-run paid the caller's whole command budget.
+
 ## [0.18.0] - 2026-11-05
 
 Track the desktop `0.2.2-rc.1` release: the bundle layer is regenerated from

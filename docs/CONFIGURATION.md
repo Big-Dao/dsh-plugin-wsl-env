@@ -51,7 +51,7 @@ after a plugin upgrade that changes the preset.
 | Key | Default / shipped value | Description |
 |---|---|---|
 | `distro` | `''` (shipped) | Empty or `auto` follows the request workdir's distro. `default` selects WSL's default distro; a name pins commands to that distro. |
-| `shell` | `''` | Empty resolves the distro user's login shell. Set an absolute Linux path to pin a shell. |
+| `shell` | `''` | Empty resolves the distro user's login shell (`getent passwd`, then `$SHELL`). When both probes fail the command errors out instead of running under another shell — set an absolute Linux path here to pin one. |
 | `loginShell` | `true` (shipped) | Use login semantics for POSIX shells. Non-POSIX shells use their own command form. |
 | `agent` | `true` | Use the resident agent. If it is unavailable, commands use the one-shot `wsl.exe` path. Set `false` to always use that path. Cwd and sandbox refusals are returned directly. |
 | `agentBackend` | `auto` (shipped) | `auto` selects the packaged static-musl binary at `agent/native/linux-<arch>/dsh-wsl-agent` or the `DSH_WSL_AGENT_NATIVE` override; otherwise it uses the shell agent. `native` fails if it cannot prepare; `shell` forces the shell agent. Applies to commands, confined writes, and shared reads. |

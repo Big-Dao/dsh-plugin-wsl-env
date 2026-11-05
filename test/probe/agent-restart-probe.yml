@@ -1,0 +1,35 @@
+# Agent kill/restart probe overlay — applied on top of the throwaway `wslfs`
+# profile that `test/probe/run.sh` documents.
+#
+# WSL-207's residue named a real-machine kill/restart probe that had never run:
+# the unit suite covers the rebuild with a fake transport, but nothing proved
+# that killing a LIVE resident inside the distro leaves the next command
+# working through the one rebuild. This overlay pins the shell executor to the
+# profile's distro (confinement off — the rebuild, not the sandbox, is the
+# target) and the probe does exactly that.
+#
+# TEMPLATE: `test/probe/agent-restart.sh` substitutes @DISTRO@, @PROBE_UNC@ and
+# @REPORT_UNC@ into a generated copy beside it,
+# `.generated-agent-restart-probe.yml`, and applies that.
+#
+#   test/probe/agent-restart.sh
+- id: bash-sandbox
+  disabled: true
+
+- id: pwsh-sandbox
+  disabled: true
+
+- insert:
+    - id: wsl-shell
+      name: 'dsh-plugin-wsl-env'
+      config:
+        distro: '@DISTRO@'
+        loginShell: true
+        sandbox: false
+        agent: true
+        agentBackend: shell
+
+    - id: agent-restart-probe
+      name: '@PROBE_UNC@'
+      config:
+        report: '@REPORT_UNC@'

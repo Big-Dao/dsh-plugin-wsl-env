@@ -219,8 +219,9 @@ workspace in its own distro, reads a drive-letter path on the host plane, and
 refuses another distro's UNC — one leg of the acceptance below has real-machine
 evidence (a 2026-10-31 run passed all 15 probes on one machine; not a matrix
 result). The concurrent two-distro leg has a dedicated probe since 2026-11-06
-(`test/probe/two-distro.sh`, suite of 16) but has not been RUN — the
-checkboxes stay unchecked until a two-distro machine runs it.
+(`test/probe/two-distro.sh`) but has not been RUN, and WSL-207's
+kill/restart probe was authored the same day (`test/probe/agent-restart.sh`,
+suite of 17) — the checkboxes stay unchecked until a real machine runs them.
 
 **Priority:** P0 · **Size:** L · **Labels:** `area:multi-distro`,
 `type:feature`, `priority:P0`

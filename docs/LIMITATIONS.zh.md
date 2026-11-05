@@ -164,3 +164,14 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
   宿主带着 `ELECTRON_RUN_AS_NODE=1` 运行，启动器会继承它，于是
   `Code.exe` 以 Node 身份启动并以退出码 1 结束。不属于本仓库管：
   [UPSTREAM-OPEN-IN-APP.md](UPSTREAM-OPEN-IN-APP.md)。
+
+## 在运行中的 profile 上启用本插件
+
+- **在繁忙的 profile 上通过 GUI 启用本 bundle 可能失败，重启应用即可生效。**
+  三个根面接管行（`subprocess`、`fs`、`directoryPicker`）以同名替换随包服务。
+  在应用 `0.2.2-rc.1`（cordis 4.1.0）上，正在销毁的提供者在全部依赖方释放之前
+  一直持有服务注册，因此会话存活期间替换行会与随包提供者相撞，启用操作将它们
+  报告为失败。无论如何选择都会持久化；**重启应用即可加载插件**（冷启动组合是
+  正确的）。启用前先关闭会话通常能让热路径成功——没有依赖方时，随包提供者会在
+  重组期间释放。机制与复现：
+  [UPSTREAM-SERVICE-SWAP.md](UPSTREAM-SERVICE-SWAP.md)。

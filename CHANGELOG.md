@@ -14,6 +14,37 @@ document: the 0.1.0 entry's `design-history §` references are to
 keeps the superseded designs under the section numbers they had while they
 were part of the record.
 
+## [Unreleased]
+
+### Fixed
+
+- **Adapted to the desktop `0.2.2-rc.1` release.** The `preset-wsl` row is
+  regenerated from the release's `standard.patch.yml` (`dsh-v0.2.2-rc.1`):
+  `tool-fs` pins `applyPatch: false` (the base `patchText` is the host-side
+  implementation and must not quietly cross the 9p share for a distro
+  workspace), the removed `tool-subagent-list-agents` row is dropped,
+  `tool-subagent` moves from `modelSelectionSettings` to
+  `modelSelection` + `modelDiscovery`, and `tool-plugin-manager` follows the
+  shipped contextual disable. No `src/` changes were needed: every peer
+  symbol the plugin imports survives unchanged in the release's bundled
+  copies (`dsh-fs-local` gained patch machinery the preset keeps disabled;
+  `dsh-sandbox`'s `writableRoots` now honors `additionalWritableRoots`,
+  matching the upstream dialect), and the compatibility audit ran against
+  the release's bundled peer copies. The `peerDependencies` floor against
+  the freshly published `0.2.2-rc.1` npm line is raised in its own
+  commit — the peer-parity re-run the layering rule requires — not in
+  this one.
+- Documented the one genuinely broken path: **enabling the bundle through
+  the GUI on a running profile fails on app `0.2.2-rc.1`** while sessions
+  hold the replaced services, because cordis 4.1.0 retains a disposing
+  provider's registrations until its dependents drain
+  ([UPSTREAM-SERVICE-SWAP.md](docs/UPSTREAM-SERVICE-SWAP.md) — mechanism,
+  isolated repro on both version pairs, and upstream remediation
+  directions; [LIMITATIONS.md](docs/LIMITATIONS.md) records the
+  operator rule: the selection persists and a restart applies it).
+  Cold-boot composition is unaffected and verified against the release's
+  actual bundle layers.
+
 ## [0.17.1] - 2026-11-01
 
 ### Fixed

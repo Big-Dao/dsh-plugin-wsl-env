@@ -167,6 +167,21 @@ streams). With `loginShell: false` the login flag is dropped (`<shell> -c <comma
   close-by-hand. Windows-folder host terminals keep the shipped no-reclamation
   behaviour.
 
+## Enabling the plugin on a running profile
+
+- **A GUI enable of this bundle can fail on a busy profile, and a restart
+  applies it.** The three root-plane takeovers (`subprocess`, `fs`,
+  `directoryPicker`) replace shipped services under the same names. On
+  app `0.2.2-rc.1` (cordis 4.1.0), a disposing provider keeps its service
+  registration until every dependent releases, so the replacements
+  collide with the shipped providers while sessions are live and the
+  enable reports them as failed. The selection is persisted either way;
+  **restarting the app loads the plugin** (the cold composition is
+  correct). Closing sessions before enabling usually lets the hot path
+  succeed — with no dependents the shipped providers release inside the
+  recomposition. Mechanism and repro:
+  [UPSTREAM-SERVICE-SWAP.md](UPSTREAM-SERVICE-SWAP.md).
+
 ## Host "Open in app"
 
 - **Opening VS Code from "Open in app" can fail independently of this plugin** — the

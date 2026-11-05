@@ -4,6 +4,9 @@ Status: proposed upstream as
 [deepseek-ai/deepseek-harness#8769](https://github.com/deepseek-ai/deepseek-harness/discussions/8769)
 (targeting `packages/api/terminal-controller`, version line `0.2.1-rc.x`; the
 gap was re-checked against `dsh-v0.2.1-rc.2` on 2026-10-17 and is unchanged —
+and an online check on 2026-11-06 found upstream `v0.2.2-rc.1` (2026-11-04)
+still without it (release notes to that version add sidebar-terminal FONT
+settings, not a display-name seam) —
 `packages/api/terminal-controller/src/index.ts:327` still builds the terminal
 info with `title: shell.name`, and the spawn spec still carries no display-name
 field). The

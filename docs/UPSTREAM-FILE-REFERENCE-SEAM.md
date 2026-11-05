@@ -3,7 +3,9 @@
 Status: measured and deferred (2026-10-19; checked against a
 `dsh-v0.2.1-rc.2`-era upstream — the checked version was not recorded at
 the time. Plugin-side behavior re-verified 2026-11-02 against the current
-peer floor, `>=0.2.1-rc.3`). The `@` completion in
+peer floor, `>=0.2.1-rc.3`). Online check 2026-11-06: upstream `v0.2.2-rc.1` (2026-11-04) still mounts no
+`FileReferenceTraversal`; the interface lives in open discussion
+[#10264](https://github.com/deepseek-ai/deepseek-harness/discussions/10264) with no implementation. The `@` completion in
 `@deepseek-ai/dsh-file-reference-local` walks the workspace with
 `node:fs/promises` (`readdir` + `lstat`) from the **Windows** harness process.
 For a WSL workspace that walk crosses the 9p share on every directory; the

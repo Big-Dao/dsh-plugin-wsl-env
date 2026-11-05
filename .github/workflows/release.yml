@@ -45,10 +45,20 @@ jobs:
       # The gates import pinned dev dependencies (the composition and boot tests
       # run the loader's real patch algorithm); `pnpm install --frozen-lockfile`
       # reproduces the locked tree.
+      #
+      # pnpm 11.7's lockfile supply-chain re-verification ignores the
+      # `minimumReleaseAgeExclude` list in pnpm-workspace.yaml (the exact list
+      # passed on the command line IS honored in small batches but behaves
+      # erratically in bulk), so a fresh pin that is under 24h old fails the
+      # install with ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION. The pins are
+      # exact release candidates the maintainers choose deliberately — the
+      # exclusion IS the policy — so install runs with the age window off;
+      # the tarball-URL binding and trust checks stay active. Revisit when
+      # pnpm reads the yaml list again.
       - name: Install
         run: |
           corepack enable pnpm
-          pnpm install --frozen-lockfile
+          pnpm install --frozen-lockfile --config.minimum-release-age=0
       - name: Gates
         run: pnpm test && pnpm run test:coverage
       - name: Test shipped native agents

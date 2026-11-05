@@ -428,6 +428,7 @@ checks.push(["readTextForDiff degrades to null on a missing or binary file", asy
 }]);
 
 checks.push(["stat maps notfound to null, non-regular reads refuse, and symlinked children walk their targets", async () => {
+  if (!POSIX) return; // the script-backed substrate is POSIX-side
   await substrate(async (fs, root, agent) => {
     const present = join(root, "walk.txt");
     writeFileSync(present, "walk\n");
@@ -447,6 +448,7 @@ checks.push(["stat maps notfound to null, non-regular reads refuse, and symlinke
 }]);
 
 checks.push(["stat maps a notfound refusal to null and a non-regular lstat to its wire type", async () => {
+  if (!POSIX) return; // the script-backed substrate is POSIX-side
   await substrate(async (fs, root, agent) => {
     assert.equal(await fs.stat(join(root, "absent.txt")), null, "a missing path is null, like the peer's probe");
     const present = join(root, "stat-me.txt");
@@ -464,6 +466,7 @@ checks.push(["stat maps a notfound refusal to null and a non-regular lstat to it
 }]);
 
 checks.push(["the batch's OK-stat/BAD-read and malformed-stat arms map onto their codes", async () => {
+  if (!POSIX) return; // the script-backed substrate is POSIX-side
   await substrate(async (fs, root, agent) => {
     const target = await fs.resolveTarget(join(root, "armed.txt"));
     // An OK stat followed by a BAD read: the read record's reason maps onto
@@ -503,6 +506,7 @@ checks.push(["parseStatRecord refuses a malformed TAB record with the IO code", 
 }]);
 
 checks.push(["readWholeText's batched path maps the batch records onto the coded errors", async () => {
+  if (!POSIX) return; // the script-backed substrate is POSIX-side
   await substrate(async (fs, root, agent) => {
     const target = await fs.resolveTarget(join(root, "batched.txt"));
     // A BAD stat record in the batch maps onto the not-found refusal.

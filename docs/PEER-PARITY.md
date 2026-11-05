@@ -136,6 +136,15 @@ declared extensions, listed at the end.
    fsync (and `sync` builds without `-d`) degrade to the peer's promise
    silently.
 
+7. **Frame-validation hardening (shell agent, 2026-11-06).** The shell agent
+   validates every numeric frame field it acts on — EXEC/FS `timeout_s` and
+   `nargs` (mirroring the FSB checks), and fs_read's `offset`/`max`, where a
+   malformed or non-positive window is a protocol-class refusal rather than a
+   silent empty answer. The native binary trusts the host's numerics the same
+   way it always has; the divergence holds until its next build. The host
+   always sends numerics, so this is drift-hardening at the trust boundary,
+   not a behavioral change for any caller.
+
 ## The peer's 0.2.2-rc.1 operations: implemented over protocol v7
 
 `0.2.2-rc.1` added three operations to the peer's `FileSystem` base —

@@ -8,7 +8,9 @@
 # and speaks a line protocol over stdio. Fields are separated by `|`; binary
 # payloads (cwd, argv words, env values, captured output) travel as single-line
 # base64. The protocol deliberately avoids JSON: the agent must run under a
-# bare POSIX sh with no dependencies beyond coreutils' `base64`, because the
+# bare POSIX sh. The tool floor is GNU coreutils' `base64`, GNU `find`
+# (-printf), `realpath -e/-L`, `sync -f/-d` and `od` — the container suite
+# exercises the BusyBox/apk family against exactly that floor, because the
 # one thing a distro is guaranteed to have is a shell.
 #
 # Handshake — the first line the agent writes:
@@ -506,7 +508,11 @@ fs_read() {
   p=$(b64dec "$1")
   offset=$(b64dec "$2")
   max=$(b64dec "$3")
-  [ "$max" -gt 0 ] || return 0
+  # A malformed window is a protocol-class failure, not an empty answer: the
+  # host always sends numerics, so anything else is a frame worth refusing.
+  case $offset in ''|*[!0-9]*) fs_fail protocol "fs read: offset is not a number";; esac
+  case $max in ''|*[!0-9]*) fs_fail protocol "fs read: max is not a number";; esac
+  [ "$max" -gt 0 ] || fs_fail protocol "fs read: max must be positive, got $max"
   : >"$ERR_FILE"
   tail -c +"$(( offset + 1 ))" -- "$p" 2>"$ERR_FILE" | head -c "$max" -- 2>/dev/null
   if [ -s "$ERR_FILE" ]; then
@@ -953,6 +959,12 @@ while IFS= read -r line; do
       nargs=${rest%%|*}
       rest=${rest#*|}
       maxout=${rest%%|*}
+      case $timeout_s in
+        ''|*[!0-9]*) timeout_s=0 ;;
+      esac
+      case $nargs in
+        ''|*[!0-9]*) nargs=0 ;;
+      esac
       # Protocol v6: an optional seventh field flags one stdin payload line
       # after the argv words. Absent (a stale peer) or 0 keeps the v5 shape —
       # the child reads an empty stdin and immediate EOF.
@@ -1014,6 +1026,12 @@ while IFS= read -r line; do
       rest=${rest#*|}
       timeout_s=${rest%%|*}
       nargs=${rest#*|}
+      case $timeout_s in
+        ''|*[!0-9]*) timeout_s=0 ;;
+      esac
+      case $nargs in
+        ''|*[!0-9]*) nargs=0 ;;
+      esac
       # Arguments stay base64 (write's content must never become a shell
       # variable of raw bytes); handlers decode what they treat as a path.
       # A frame that ends before its declared argument count must never run

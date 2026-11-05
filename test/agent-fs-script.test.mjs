@@ -623,5 +623,33 @@ checks.push(["the lease watchdog does not hold the protocol pipes after exit", a
   }
 }]);
 
+checks.push(["a malformed read window is a protocol refusal, not an empty answer", async () => {
+  if (!POSIX) return;
+  const agent = new Harness();
+  try {
+    await agent.hello();
+    const file = "/etc/hostname";
+    // A non-numeric max, a non-numeric offset, and a non-positive max each
+    // refuse with the protocol class; the host always sends numerics, so any
+    // of these arriving is a frame the agent should name, not obey.
+    // The frame encoder base64-encodes the args itself: the raw spellings
+    // here are what the agent's b64dec will see.
+    /** @type {Array<[string, string, string]>} */
+    const windows = [
+      ["0", "not-a-number", "max is not a number"],
+      ["soon", "1024", "offset is not a number"],
+      ["0", "0", "max must be positive"],
+    ];
+    for (const [offset, max, fragment] of windows) {
+      const result = await agent.call("read", [file, offset, max]);
+      const failure = Harness.fsFailure(result);
+      assert.equal(failure.reason, "protocol", `the class is protocol for ${fragment}`);
+      assert.match(failure.message, new RegExp(fragment));
+    }
+  } finally {
+    await agent.close();
+  }
+}]);
+
 for (const [name, fn] of checks) await check(name, fn);
 console.log(`\n${passed} agent fs script checks pass${POSIX ? "" : " (skipped: not a POSIX shell host)"}`);

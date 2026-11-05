@@ -432,7 +432,35 @@ async function sessionRuntimeWanted(
 }
 
 /**
+ * The distro one operation belongs to, shared by the shell and filesystem
+ * resolvers: a pinned name wins, `default` goes straight to the probe, the
+ * first candidate naming a UNC distro wins, and the probe closes the list.
+ * The probe is lazy on purpose — a pinned row never pays for a default-distro
+ * probe, and a failing probe fails only the calls that actually needed it.
+ * `selectDistro` (distro-route) is the pure sibling whose fallback arrives
+ * already resolved; this one owns the probing.
+ *
+ * @param configured - the row's `distro` value.
+ * @param candidates - paths in any coordinate system, strongest evidence first.
+ * @param probeDefault - the fallback probe, invoked at most once per call.
+ */
+async function resolveOperationDistro(configured: string, candidates: ReadonlyArray<string | undefined>, probeDefault: () => Promise<string>): Promise<string> {
+  const pinned = pinnedDistro(configured);
+  if (pinned !== undefined) return pinned;
+  if (!isDefaultDistro(configured)) {
+    for (const candidate of candidates) {
+      const named = distroOfUnc(candidate);
+      if (named !== undefined) return named;
+    }
+  }
+  return probeDefault();
+}
+
+/**
  * The refusal both shell resolvers share: the probes named no shell, and the
+ * command must not quietly run under some other interpreter. The wording is
+ * the one `runInDistro` already throws with.
+ * the probes named no shell, and the
  * command must not quietly run under some other interpreter. The wording is
  * the one `runInDistro` already throws with.
  *
@@ -655,15 +683,7 @@ export class WslShellExecutor
    */
   async distroFor(workdir?: string, cwd?: string): Promise<string> {
     const config = this.config as unknown as WslShellExecutorConfig;
-    const pinned = pinnedDistro(config.distro);
-    if (pinned !== undefined) return pinned;
-    if (!isDefaultDistro(config.distro)) {
-      for (const candidate of [workdir, cwd ?? configuredCwd(this.config)]) {
-        const named = distroOfUnc(candidate);
-        if (named !== undefined) return named;
-      }
-    }
-    return this.distro();
+    return resolveOperationDistro(config.distro, [workdir, cwd ?? configuredCwd(this.config)], () => this.distro());
   }
 
   /**
@@ -1806,15 +1826,7 @@ export class WslFileSystem extends LocalFileSystem {
    */
   async distroForPath(path: string, cwd?: string): Promise<string> {
     const config = this.config as unknown as WslFileSystemConfig;
-    const pinned = pinnedDistro(config.distro);
-    if (pinned !== undefined) return pinned;
-    if (!isDefaultDistro(config.distro)) {
-      for (const candidate of [path, cwd ?? config.cwd]) {
-        const named = distroOfUnc(candidate);
-        if (named !== undefined) return named;
-      }
-    }
-    return this.distro();
+    return resolveOperationDistro(config.distro, [path, cwd ?? config.cwd], () => this.distro());
   }
 
   /**
@@ -1837,15 +1849,7 @@ export class WslFileSystem extends LocalFileSystem {
    */
   async distroForPolicy(policy: { mode: string, workspaceRoot: string } | undefined): Promise<string> {
     const config = this.config as unknown as WslFileSystemConfig;
-    const pinned = pinnedDistro(config.distro);
-    if (pinned !== undefined) return pinned;
-    if (!isDefaultDistro(config.distro)) {
-      for (const candidate of [policy?.workspaceRoot, config.cwd]) {
-        const named = distroOfUnc(candidate);
-        if (named !== undefined) return named;
-      }
-    }
-    return this.distro();
+    return resolveOperationDistro(config.distro, [policy?.workspaceRoot, config.cwd], () => this.distro());
   }
 
   /**

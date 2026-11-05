@@ -96,7 +96,9 @@ check("terminal routing: WSL workspaces get the distro, Windows folders get the 
   assert.equal(terminalRoute("\\\\wsl.localhost\\ubuntu\\home\\andy\\proj"), "distro");
   assert.equal(terminalRoute("/home/andy/proj"), "distro");
   assert.equal(terminalRoute(""), "distro", "no evidence defaults to the pinned distro");
+  assert.equal(terminalRoute(undefined), "distro", "an absent cwd is the same no-evidence answer");
   assert.equal(terminalRoute("C:\\Users\\you\\project"), "host");
+  assert.equal(terminalRoute("proj"), "distro", "a bare relative word names no host mount: the distro answers");
 });
 
 console.log(`\n${passed} checks passed`);

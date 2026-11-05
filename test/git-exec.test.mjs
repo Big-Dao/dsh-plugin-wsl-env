@@ -87,7 +87,7 @@ function fakeAgent(script) {
 
 check("a successful agent exec fills collected and reports the exit code", async () => {
   const agent = fakeAgent([{ exitCode: 0, stdout: Buffer.from("src/a.ts\0"), stderr: Buffer.alloc(0) }]);
-  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ ({ agent, cwd: CWD, argv: ARGV, env: { GIT_INDEX_FILE: "/tmp/snap/index" }, stdin: Buffer.from("src/a.ts\0"), caps: CAPS })));
+  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent, cwd: CWD, argv: ARGV, env: { GIT_INDEX_FILE: "/tmp/snap/index" }, stdin: Buffer.from("src/a.ts\0"), caps: CAPS }))));
   const outcome = await handle.done;
   assert.deepEqual(outcome, { exitCode: 0, signal: null });
   const stdout = /** @type {GitReader} */ (handle.collected.stdout).readFrom(0);
@@ -111,7 +111,7 @@ check("each stream is cut at its own budget, not the wire cap", async () => {
     stderr: Buffer.alloc(100, 0x62), // well under the 16384 tail
     truncated: { stdout: true, stderr: false },
   }]);
-  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ ({ agent, cwd: CWD, argv: ARGV, env: {}, caps: CAPS })));
+  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent, cwd: CWD, argv: ARGV, env: {}, caps: CAPS }))));
   await handle.done;
   const stdout = /** @type {GitReader} */ (handle.collected.stdout).readFrom(0);
   assert.equal(stdout.lossy, true, "the stdout stream over its cap is lossy");
@@ -123,7 +123,7 @@ check("each stream is cut at its own budget, not the wire cap", async () => {
 
 check("a one-character overflow past the cap flags lossy", async () => {
   const agent = fakeAgent([{ exitCode: 0, stdout: Buffer.alloc(CAPS.stderr + 1, 0x61), stderr: Buffer.alloc(0) }]);
-  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ ({ agent, cwd: CWD, argv: ARGV, env: {}, caps: { stdout: CAPS.stderr, stderr: CAPS.stderr } })));
+  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent, cwd: CWD, argv: ARGV, env: {}, caps: { stdout: CAPS.stderr, stderr: CAPS.stderr } }))));
   await handle.done;
   const stdout = /** @type {GitReader} */ (handle.collected.stdout).readFrom(0);
   assert.equal(stdout.text.length, CAPS.stderr);
@@ -132,7 +132,7 @@ check("a one-character overflow past the cap flags lossy", async () => {
 
 check("a discovery call's absolute path lines come back in UNC form", async () => {
   const agent = fakeAgent([{ exitCode: 0, stdout: Buffer.from("/home/andy/proj\n.git/objects\n"), stderr: Buffer.alloc(0) }]);
-  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ ({ agent, cwd: CWD, argv: ["git", "rev-parse", "--show-toplevel"], env: {}, caps: CAPS, distro: "ubuntu", discovery: true })));
+  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent, cwd: CWD, argv: ["git", "rev-parse", "--show-toplevel"], env: {}, caps: CAPS, distro: "ubuntu", discovery: true }))));
   await handle.done;
   const stdout = /** @type {GitReader} */ (handle.collected.stdout).readFrom(0);
   assert.equal(stdout.text, "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj\n.git/objects\n");
@@ -140,7 +140,7 @@ check("a discovery call's absolute path lines come back in UNC form", async () =
 
 check("a snapshot call's stdout is never translated", async () => {
   const agent = fakeAgent([{ exitCode: 0, stdout: Buffer.from("/home/andy/proj\n"), stderr: Buffer.alloc(0) }]);
-  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ ({ agent, cwd: CWD, argv: ["git", "ls-files"], env: {}, caps: CAPS, distro: "ubuntu" })));
+  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent, cwd: CWD, argv: ["git", "ls-files"], env: {}, caps: CAPS, distro: "ubuntu" }))));
   await handle.done;
   const stdout = /** @type {GitReader} */ (handle.collected.stdout).readFrom(0);
   assert.equal(stdout.text, "/home/andy/proj\n", "snapshot output stays in the caller's own reading");
@@ -148,7 +148,7 @@ check("a snapshot call's stdout is never translated", async () => {
 
 check("an empty stdin keeps the payload off the wire", async () => {
   const agent = fakeAgent([{ exitCode: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }]);
-  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ ({ agent, cwd: CWD, argv: ["git", "write-tree"], env: {}, caps: CAPS })));
+  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent, cwd: CWD, argv: ["git", "write-tree"], env: {}, caps: CAPS }))));
   await handle.done;
   const call = agent.calls[0];
   assert.ok(call !== undefined);
@@ -189,11 +189,45 @@ check("kill settles done as the one-shot path's killed outcome", async () => {
   const agent = fakeAgent([(/** @type {import("../lib/agent-exec.js").AgentExecRequest} */ options) => new Promise((_, reject) => {
     options.signal?.addEventListener("abort", () => reject(options.signal?.reason ?? new Error("aborted")), { once: true });
   })]);
-  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ ({ agent, cwd: CWD, argv: ARGV, env: {}, caps: CAPS })));
+  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent, cwd: CWD, argv: ARGV, env: {}, caps: CAPS }))));
   const settled = handle.done;
   handle.kill?.();
   const outcome = await settled;
   assert.deepEqual(outcome, { exitCode: null, signal: "SIGTERM" });
+});
+
+check("the abort plumbing tolerates a signal object without a listener and a pre-abort", async () => {
+  // A pre-aborted signal arms the controller before the exec ever runs; the
+  // rejecting exec then reads as the command's cancellation, not an error.
+  const controller = new AbortController();
+  controller.abort(new Error("cancelled up front"));
+  const dying = fakeAgent([new Error("the exec saw the abort")]);
+  const abortedHandle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent: dying, cwd: CWD, argv: ARGV, caps: CAPS, signal: controller.signal }))));
+  assert.deepEqual(await abortedHandle.done, { exitCode: null, signal: "SIGTERM" });
+  // No signal at all skips the listener arm entirely (the `?.` false arm);
+  // the plain passthrough still settles.
+  const live = fakeAgent([{ exitCode: 0, stdout: Buffer.from("ok\0"), stderr: Buffer.alloc(0) }]);
+  const plainHandle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent: live, cwd: CWD, argv: ARGV, caps: CAPS }))));
+  assert.deepEqual(await plainHandle.done, { exitCode: 0, signal: null });
+});
+
+check("the collected reader answers empty before the streams exist, and kill is harmless then", async () => {
+  // The exec hangs until the abort reaches it — the shape of a real command
+  // in flight — so the kill's cleanup runs with no streams and no delegate.
+  const hanging = fakeAgent([
+    /** @param {import("../lib/agent-exec.js").AgentExecRequest} request */
+    (request) => new Promise((_, reject) => {
+      if (request.signal?.aborted) reject(new Error("aborted"));
+      else request.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+    }),
+  ]);
+  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent: hanging, cwd: CWD, argv: ARGV, caps: CAPS }))));
+  const early = /** @type {GitReader} */ (handle.collected.stdout).readFrom(0);
+  assert.equal(early.text, "", "no stream yet: the read is empty, not a crash");
+  assert.equal(early.lossy, false);
+  handle.kill?.(); // no delegate: the kill arm is a no-op, not a crash
+  const outcome = await handle.done;
+  assert.deepEqual(outcome, { exitCode: null, signal: "SIGTERM" }, "the kill aborts the in-flight exec");
 });
 
 const run = async () => {

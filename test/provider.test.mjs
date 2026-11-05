@@ -18,7 +18,7 @@
  */
 import assert from "node:assert/strict";
 import { configureAgentBackend } from "../lib/native-agent.js";
-import { mkdtempSync } from "node:fs";
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -1150,6 +1150,281 @@ check("the package entry points re-export the composed classes", () => {
   assert.equal(ShellEntryNamed, WslShellExecutor, "the named export is the same class");
   assert.equal(fsEntry, WslFileSystem, "lib/fs.js forwards the filesystem");
   assert.equal(FsEntryNamed, WslFileSystem, "the named export is the same class");
+});
+
+// --- the arms the refusal-only checks never reached (executor side) --------
+
+/**
+ * A `wsl.exe` stand-in for the fact probes the executor makes directly through
+ * its configured `wslPath`: the passwd shell and the distro home. Everything
+ * else fails fast, so a stray resident spawn cannot hang the suite.
+ */
+const factBin = mkdtempSync(join(tmpdir(), "dsh-wsl-facts-"));
+const FACT_WSL = `#!/bin/sh
+if [ "\$1" = "-l" ]; then echo ze-ubuntu; exit 0; fi
+for arg in "$@"; do
+  case "\$arg" in *getent*) echo /bin/zsh; exit 0 ;; esac
+  case "\$arg" in *HOME*) echo /home/ze-user; exit 0 ;; esac
+done
+exit 1
+`;
+writeFileSync(join(factBin, "wsl.exe"), FACT_WSL);
+chmodSync(join(factBin, "wsl.exe"), 0o755);
+
+/**
+ * An executor wired to the fact-answering fake: no configured shell (the probe
+ * decides) and the fake's path as `wslPath`. It owns a fresh context — the
+ * executor registers the `shell` service, so two on one context collide.
+ * @param {{ distro?: string }} [options] - the distro mode.
+ * @returns {{ executor: WslShellExecutor, agentCalls: AgentFrame[] }} the executor and its scripted agent's calls.
+ */
+function makeProbingExecutor({ distro = DISTRO } = {}) {
+  const policy = { mode: "workspace-write", workspaceRoot: WORKSPACE };
+  const ctx = new Context();
+  ctx.provide("sandboxPolicy", { defaultMode: policy.mode, resolve: () => policy });
+  const executor = new WslShellExecutor(ctx, WslShellExecutor.Config({
+    distro,
+    shell: "",
+    sandbox: true,
+    agent: true,
+    agentBackend: "shell",
+    wslPath: join(factBin, "wsl.exe"),
+  }));
+  /** @type {AgentFrame[]} */
+  const agentCalls = [];
+  executor.executionAgent = () => asAgent({
+    exec: async ({ cwd, argv, timeoutMs, maxOutputBytes }) => {
+      agentCalls.push({ cwd, argv, timeoutMs, maxOutputBytes });
+      return { exitCode: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), truncated: { stdout: false, stderr: false } };
+    },
+  });
+  return { executor, agentCalls };
+}
+
+/**
+ * A confined core whose profile the check customizes; the shape mirrors the
+ * real core's contract the same way `makeExecutor`'s does.
+ * @param {{ runnerFailureRules?: Array<{ fatalSignatures: string[] }> }} [overrides] - the profile arms to override.
+ * @returns {{ confineCalls: Array<{ mode: string, workspaceRoot: string }>, confine: (argv: string[], policyObject: { mode: string, workspaceRoot: string }) => Promise<{ argv: string[], enforcement: "full", denialSignatures: string[], runnerFailureRules: Array<{ fatalSignatures: string[] }>, windowsDrive: "visible" }> }} the scripted core.
+ */
+function executorCore(overrides = {}) {
+  return {
+    confineCalls: [],
+    /** @param {string[]} argv @param {{ mode: string, workspaceRoot: string }} policyObject */
+    async confine(argv, policyObject) {
+      this.confineCalls.push(policyObject);
+      return {
+        argv: ["/usr/bin/bwrap", "--ro-bind / /", "--", ...argv],
+        enforcement: "full",
+        denialSignatures: ["operation not permitted"],
+        runnerFailureRules: [],
+        windowsDrive: "visible",
+        ...overrides,
+      };
+    },
+  };
+}
+
+/**
+ * A settled one-shot result with the canonical stream shapes, one per field.
+ * @param {{ exitCode?: number, stdoutText?: string, stderrText?: string }} [parts] - the fields to override.
+ * @returns {ShellExecution} the fake execution handle.
+ */
+const oneShotResult = ({ exitCode = 0, stdoutText = "", stderrText = "" } = {}) =>
+  /** @type {ShellExecution} */ (/** @type {unknown} */ ({
+    result: async () => ({
+      exitCode,
+      signal: null,
+      timedOut: false,
+      aborted: false,
+      timeoutMs: 5,
+      stdout: { text: stdoutText, lossy: false, truncated: false },
+      stderr: { text: stderrText, lossy: false, truncated: false },
+    }),
+  }));
+
+/** Turns `agent` off so `execute` takes the one-shot path. @param {WslShellExecutor} executor */
+const runOneShot = (executor) => {
+  /** @type {{ agent?: boolean }} */ (/** @type {unknown} */ (executor.config)).agent = false;
+};
+
+check("a non-default distro's shell resolves through the probe and caches", async () => {
+  const { executor } = makeProbingExecutor();
+  assert.equal(await executor.shellFor("ze-debian"), "/bin/zsh", "the probe's answer is the shell");
+  assert.equal(executor.resolvedShells.get("ze-debian"), "/bin/zsh", "the probe result is cached per distro");
+  assert.equal(await executor.shellFor("ze-debian"), "/bin/zsh", "the second call rides the cache");
+});
+
+check("an empty workdir resolves against the probed distro home, on both caches", async () => {
+  const { executor, agentCalls } = makeProbingExecutor();
+  const execution = await executor.execute(spec({ command: "pwd", workdir: "", timeoutMs: 5000 }));
+  await execution.result();
+  const call = agentCalls[0];
+  assert.ok(call !== undefined, "the agent ran once");
+  assert.equal(call.cwd, "/home/ze-user", "the empty workdir became the probed home");
+  assert.equal(executor.resolvedHome, "/home/ze-user", "the legacy single-home cache warms for the resolved distro");
+  assert.equal(executor.resolvedHomes.get("ubuntu"), "/home/ze-user", "the per-distro map warms too");
+});
+
+check("a workdir outside any distro rides the default or pinned distro", async () => {
+  const pinned = makeExecutor();
+  assert.equal(await pinned.executor.distroFor("C:\\proj", ""), DISTRO, "no UNC candidate: the pin answers");
+  // Auto mode falls through the candidate loop to WSL's default, probed once.
+  const auto = makeProbingExecutor({ distro: "" });
+  assert.equal(await auto.executor.distroFor("C:\\proj", ""), "ze-ubuntu", "no candidate names a distro: the default probe answers");
+  assert.equal(auto.executor.resolvedDistro, "ze-ubuntu", "the default is cached for the executor's life");
+});
+
+check("a runner failure on the confined one-shot refuses as sandbox unavailability", async () => {
+  const { executor } = makeExecutor();
+  executor.sandbox = /** @type {WslShellExecutor["sandbox"]} */ (/** @type {unknown} */ (executorCore({ runnerFailureRules: [{ fatalSignatures: ["FATAL-BWRAP"] }] })));
+  runOneShot(executor);
+  spawnView(executor).executeArgv = async (resolved, argvBuilder) => {
+    await argvBuilder(new AbortController().signal); // the prepare runs: confinement is armed
+    return oneShotResult({ exitCode: 1, stderrText: "FATAL-BWRAP: cannot mount /" });
+  };
+  await assert.rejects(
+    async () => {
+      const execution = await executor.execute(spec({ command: "echo hi", workdir: WORKSPACE, timeoutMs: 5000, sandboxPolicy: { mode: "workspace-write", workspaceRoot: WORKSPACE } }));
+      await execution.result();
+    },
+    (error) => error instanceof SandboxUnavailableError && error.message.includes("FATAL-BWRAP"),
+    "the runner failure carries its detail and the distro",
+  );
+});
+
+check("a confined one-shot whose prepare never ran stamps the unconfined facts honestly", async () => {
+  const { executor } = makeExecutor();
+  executor.sandbox = /** @type {WslShellExecutor["sandbox"]} */ (/** @type {unknown} */ (executorCore()));
+  runOneShot(executor);
+  spawnView(executor).executeArgv = async () => oneShotResult(); // never prepares: confinement was never armed
+  const execution = await executor.execute(spec({ command: "echo hi", workdir: WORKSPACE, timeoutMs: 5000, sandboxPolicy: { mode: "workspace-write", workspaceRoot: WORKSPACE } }));
+  const result = await execution.result();
+  assert.deepEqual(factsOf(result), { mode: "workspace-write", denied: false, sessionScope: "per-command" }, "no confinement, no invented enforcement");
+});
+
+check("a runner that cannot spawn on the one-shot path reads as sandbox unavailability", async () => {
+  const { executor } = makeExecutor();
+  executor.sandbox = /** @type {WslShellExecutor["sandbox"]} */ (/** @type {unknown} */ (executorCore()));
+  runOneShot(executor);
+  spawnView(executor).executeArgv = async (resolved, argvBuilder) => {
+    await argvBuilder(new AbortController().signal);
+    // The spawn failure surfaces when the handle settles, not when the spawn
+    // call returns — that is the ordering the decorate handler exists for.
+    return /** @type {ShellExecution} */ (/** @type {unknown} */ ({
+      result: async () => {
+        const failure = new Error("spawn /usr/bin/bwrap ENOENT");
+        Object.assign(failure, { code: "ENOENT", syscall: "spawn /usr/bin/bwrap", path: "/usr/bin/bwrap" });
+        throw failure;
+      },
+    }));
+  };
+  // The classifier stats the caller's spawn workdir to decide the failure is
+  // the runner's; the workdir must be a host directory that exists here, not
+  // the distro UNC the other checks use.
+  const hostWorkdir = mkdtempSync(join(tmpdir(), "dsh-wsl-spawn-"));
+  await assert.rejects(
+    async () => {
+      const execution = await executor.execute(spec({ command: "echo hi", workdir: hostWorkdir, timeoutMs: 5000, sandboxPolicy: { mode: "workspace-write", workspaceRoot: WORKSPACE } }));
+      await execution.result();
+    },
+    (error) => error instanceof SandboxUnavailableError && error.message.includes("/usr/bin/bwrap"),
+    "the spawn failure names the runner through the bwrap hint",
+  );
+});
+
+check("a plain one-shot failure keeps its own error", async () => {
+  const { executor } = makeExecutor({ sandbox: false });
+  runOneShot(executor);
+  // The failure surfaces from the settled handle, the same ordering the real
+  // spawn machinery has — an executeArgv rejection would never reach the
+  // decoration's error mapper at all.
+  spawnView(executor).executeArgv = async () => /** @type {ShellExecution} */ (/** @type {unknown} */ ({
+    result: async () => {
+      throw new Error("the pipe was closed");
+    },
+  }));
+  await assert.rejects(
+    async () => {
+      const execution = await executor.execute(spec({ command: "echo hi", workdir: WORKSPACE, timeoutMs: 5000 }));
+      await execution.result();
+    },
+    /the pipe was closed/,
+    "no sandbox wrapping invents a different verdict",
+  );
+});
+
+check("a runner failure in the agent path refuses as sandbox unavailability too", async () => {
+  const { executor } = makeExecutor();
+  executor.sandbox = /** @type {WslShellExecutor["sandbox"]} */ (/** @type {unknown} */ (executorCore({ runnerFailureRules: [{ fatalSignatures: ["FATAL-BWRAP"] }] })));
+  executor.executionAgent = () => asAgent({
+    exec: async () => ({ exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from("FATAL-BWRAP: cannot mount /"), truncated: { stdout: false, stderr: false } }),
+  });
+  const execution = await executor.execute(spec({ command: "echo hi", workdir: WORKSPACE, timeoutMs: 5000, sandboxPolicy: { mode: "workspace-write", workspaceRoot: WORKSPACE } }));
+  await assert.rejects(
+    () => execution.result(),
+    (error) => error instanceof SandboxUnavailableError && error.message.includes("FATAL-BWRAP"),
+    "the agent path's runner failure carries the same verdict",
+  );
+});
+
+check("an agent error that is not a spawn failure keeps its own error", async () => {
+  const { executor } = makeExecutor();
+  executor.executionAgent = () => asAgent({
+    exec: async () => {
+      throw new Error("the agent lost its protocol stream");
+    },
+  });
+  await assert.rejects(
+    async () => {
+      const execution = await executor.execute(spec({ command: "echo hi", workdir: WORKSPACE, timeoutMs: 5000 }));
+      await execution.result();
+    },
+    /the agent lost its protocol stream/,
+    "only a spawn failure earns the one-shot retry",
+  );
+});
+
+check("a confined one-shot error that names no runner keeps its own error", async () => {
+  const { executor } = makeExecutor();
+  executor.sandbox = /** @type {WslShellExecutor["sandbox"]} */ (/** @type {unknown} */ (executorCore()));
+  runOneShot(executor);
+  spawnView(executor).executeArgv = async (resolved, argvBuilder) => {
+    await argvBuilder(new AbortController().signal);
+    return /** @type {ShellExecution} */ (/** @type {unknown} */ ({
+      result: async () => {
+        throw new Error("the pipe was closed");
+      },
+    }));
+  };
+  await assert.rejects(
+    async () => {
+      const execution = await executor.execute(spec({ command: "echo hi", workdir: WORKSPACE, timeoutMs: 5000, sandboxPolicy: { mode: "workspace-write", workspaceRoot: WORKSPACE } }));
+      await execution.result();
+    },
+    (error) => !(error instanceof SandboxUnavailableError) && /** @type {Error} */ (error).message.includes("the pipe was closed"),
+    "no runner signature: the error is the command's own",
+  );
+});
+
+check("a native spawn failure in the agent path retries once on the one-shot path", async () => {
+  const { executor } = makeExecutor();
+  const { SpawnError } = await import("../lib/agent-errors.js");
+  executor.executionAgent = () => asAgent({
+    exec: async () => {
+      throw new SpawnError("spawn wsl.exe ENOENT");
+    },
+  });
+  /** @type {Array<readonly string[]>} */
+  const oneShots = [];
+  spawnView(executor).executeArgv = async (resolved, argvBuilder) => {
+    oneShots.push(await argvBuilder(new AbortController().signal));
+    return oneShotResult();
+  };
+  const execution = await executor.execute(spec({ command: "echo hi", workdir: WORKSPACE, timeoutMs: 5000 }));
+  const result = await execution.result();
+  assert.equal(result.exitCode, 0);
+  assert.equal(oneShots.length, 1, "the fallback paid exactly one one-shot spawn");
 });
 
 let failed = 0;

@@ -427,6 +427,83 @@ checks.push(["readTextForDiff degrades to null on a missing or binary file", asy
   });
 }]);
 
+checks.push(["stat maps notfound to null, non-regular reads refuse, and symlinked children walk their targets", async () => {
+  await substrate(async (fs, root, agent) => {
+    const present = join(root, "walk.txt");
+    writeFileSync(present, "walk\n");
+    const link = join(root, "link.txt");
+    symlinkSync(present, link);
+    const linkTarget = await fs.resolveTarget(link);
+    // A symlinked child costs one follow-up stat plus one realpath, walking
+    // the link to its target's identity.
+    const rows = await fs.listChildren(await fs.resolveTarget(root));
+    const row = rows.find((entry) => entry.name === "link.txt");
+    assert.ok(row, "the link child is listed");
+    assert.equal(row.type, "file", "the symlink is followed to a regular file");
+    assert.equal(row.target.targetKey, linkTarget.targetKey, "the child's identity is the link's target");
+    // A directory read refuses with NOT_REGULAR_FILE through statRegularFile.
+    await assert.rejects(fs.readWholeText(await fs.resolveTarget(root)), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_NOT_REGULAR_FILE");
+  });
+}]);
+
+checks.push(["stat maps a notfound refusal to null and a non-regular lstat to its wire type", async () => {
+  await substrate(async (fs, root, agent) => {
+    assert.equal(await fs.stat(join(root, "absent.txt")), null, "a missing path is null, like the peer's probe");
+    const present = join(root, "stat-me.txt");
+    writeFileSync(present, "walk\n");
+    const row = await fs.stat(present, { follow: false });
+    assert.ok(row, "the lstat resolves");
+    assert.equal(row.type, "f", "lstat answers the file's own type");
+    // A non-regular target through statRegularFile's read verb.
+    await assert.rejects(fs.readWholeText(await fs.resolveTarget(root)), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_NOT_REGULAR_FILE");
+    // An aborted stat maps onto FS_ABORTED.
+    const controller = new AbortController();
+    controller.abort();
+    await assert.rejects(fs.stat(present, { signal: controller.signal }), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_ABORTED");
+  });
+}]);
+
+checks.push(["the batch's OK-stat/BAD-read and malformed-stat arms map onto their codes", async () => {
+  await substrate(async (fs, root, agent) => {
+    const target = await fs.resolveTarget(join(root, "armed.txt"));
+    // An OK stat followed by a BAD read: the read record's reason maps onto
+    // its code and message.
+    agent.fsb = async () => ({
+      exitCode: 0,
+      stdout: Buffer.from(`OK 1|${Buffer.from("f\t600\t5\t1\t2\t3.000000000\t4.000000000").toString("base64")}\nBAD 2|io|${Buffer.from("read went sideways").toString("base64")}\n`),
+      stderr: Buffer.alloc(0),
+    });
+    await assert.rejects(fs.readWholeText(target), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_IO_ERROR" && /read went sideways/.test(error.message));
+  });
+}]);
+
+checks.push(["parseStatRecord refuses a malformed TAB record with the IO code", () => {
+  assert.throws(
+    () => parseStatRecord(Buffer.from("f\t644\t5\t1\t2")),
+    /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_IO_ERROR" && /malformed stat record/.test(error.message),
+  );
+}]);
+
+checks.push(["readWholeText's batched path maps the batch records onto the coded errors", async () => {
+  await substrate(async (fs, root, agent) => {
+    const target = await fs.resolveTarget(join(root, "batched.txt"));
+    // A BAD stat record in the batch maps onto the not-found refusal.
+    agent.fsb = async () => ({
+      exitCode: 0,
+      stdout: Buffer.from(`BAD 1|notfound|${Buffer.from("cannot stat \"/tmp/batched.txt\": No such file").toString("base64")}\n`),
+      stderr: Buffer.alloc(0),
+    });
+    await assert.rejects(fs.readWholeText(target), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_NOT_FOUND" && /not found/.test(error.message));
+    // An OK stat followed by a BAD read maps the read record's reason.
+    agent.fsb = async () => ({
+      exitCode: 0,
+      stdout: Buffer.from(`OK 1|${Buffer.from("f\t644\t5\t1\t2\t3.000000000\t4.000000000").toString("base64")}\nBAD 2|io|${Buffer.from("read failed").toString("base64")}\n`),
+      stderr: Buffer.alloc(0),
+    });
+    await assert.rejects(fs.readWholeText(target), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_IO_ERROR" && /read failed/.test(error.message));
+  });
+}]);
+
 checks.push(["readWholeText refuses directories, binaries and invalid UTF-8 with the peer's codes", async () => {
   if (!POSIX) return;
   await substrate(async (fs, root) => {

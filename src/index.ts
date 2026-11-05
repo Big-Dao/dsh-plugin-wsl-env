@@ -282,7 +282,7 @@ export async function doctorReport(distro: string, options?: {
   try {
     report = JSON.parse(spawned.stdout) as DoctorReport;
   } catch {
-    throw new Error(`doctor run failed: ${spawned.error?.message ?? "no output"}${spawned.stderr.length > 0 ? ` — ${spawned.stderr.trim().slice(-400)}` : ""}`);
+    throw new Error(`doctor run failed: ${spawned.error?.message ?? `exited with code ${spawned.status}`}${spawned.stderr.length > 0 ? ` — ${spawned.stderr.trim().slice(-400)}` : ""}`);
   }
   const status = options?.liveStatus ?? sharedAgent(distro).status();
   return mergeLiveResidentStatus(report, status);

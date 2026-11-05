@@ -317,6 +317,21 @@ try {
     }
   });
 
+  check("doctorReport rejects with the spawn detail when the doctor produces no report", async () => {
+    // A doctor that exits without versioned JSON (a crash, an unknown-option
+    // throw) must reject with the spawn failure and the stderr tail — the
+    // caller's only diagnostics for a run that never reported. The injected
+    // crasher pins the trigger deterministically (the shipped script cannot
+    // be made to exit silently on a healthy machine).
+    const crasher = join(bin, "crash-doctor.mjs");
+    writeFileSync(crasher, "process.exit(1);\n");
+    await assert.rejects(
+      doctorReport("ubuntu", { doctorPath: crasher, wslPath: join(bin, "wsl.exe"), envPath: bin }),
+      /** @param {Error} error */ (error) => /doctor run failed/.test(error.message) && /exited with code/.test(error.message),
+      "the rejection names the exit and the absent stderr",
+    );
+  });
+
   check("the Windows git trust check reports the whitelist and a missing-git info", () => {
     const report = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
     const ok = report.checks.find((entry) => entry.id === "git.win-safe");

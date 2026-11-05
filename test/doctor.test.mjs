@@ -273,7 +273,8 @@ try {
       const merged = await doctorReport("ubuntu", {
         liveStatus: { distro: "ubuntu", state: "dead", pid: 7000, lastError: "wedge observed in the live app", deaths: 4, pending: 0 },
       }).catch((error) => {
-        assert.fail(`the doctor subprocess produced no report: ${/** @type {Error} */ (error).message}`);
+        const which = spawnSync("bash", ["-lc", "command -v wsl.exe; wsl.exe -l -q; echo rc=$?"], { encoding: "utf8", env: { ...process.env } });
+        assert.fail(`the doctor subprocess produced no report: ${/** @type {Error} */ (error).message}\nPATH=${process.env.PATH?.split(":").slice(0, 3).join(":")}\nwhich/resolution: ${which.stdout.trim()} ${which.stderr.trim()}`);
       });
       const handshake = merged.checks.find((entry) => entry.id === "agent.handshake");
       assert.ok(handshake, "the collected report has the handshake check");

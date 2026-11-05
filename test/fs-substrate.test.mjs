@@ -16,7 +16,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { encodeFsFrame, parseAgentLine } from "../lib/agent-protocol.js";
+import { encodeFsbFrame, encodeFsFrame, parseAgentLine } from "../lib/agent-protocol.js";
 import { AgentSubstrate } from "../lib/fs-substrate.js";
 
 const SCRIPT = fileURLToPath(new URL("../agent/wsl-agent.sh", import.meta.url));
@@ -65,6 +65,10 @@ const asAgent = (fake) => /** @type {WslAgent} */ (/** @type {unknown} */ (fake)
 
 class ScriptAgent {
   constructor() {
+    /** The HELLO-reported protocol version (`hello()` fills it). */
+    this.protocolVersion = 0;
+    /** The HELLO-reported capability set (`hello()` fills it). */
+    this.caps = new Set();
     this.dir = mkdtempSync(join(tmpdir(), "wsl-substrate-"));
     this.child = spawn("sh", [SCRIPT], { stdio: ["pipe", "pipe", "pipe"] });
     this.lines = createInterface({ input: this.child.stdout });
@@ -81,7 +85,10 @@ class ScriptAgent {
   }
 
   async hello() {
-    assert.equal(/** @type {HelloMessage} */ (parseAgentLine(await this.nextLine())).type, "hello");
+    const hello = /** @type {HelloMessage} */ (parseAgentLine(await this.nextLine()));
+    assert.equal(hello.type, "hello");
+    this.protocolVersion = hello.version;
+    this.caps = new Set(hello.caps ?? []);
   }
 
   nextLine() {
@@ -91,7 +98,7 @@ class ScriptAgent {
   /**
    * The `WslAgent.fs` shape, over the script.
    * @param {{ op: string, args: string[], timeoutMs?: number }} request - the op and its wire arguments.
-   * @returns {Promise<{exitCode: number, stdout: Buffer, stderr: Buffer}>} the RES projection for this request.
+   * @returns {Promise<{exitCode: number, stdout: Buffer, stderr: Buffer, reason?: string}>} the settled projection for this request.
    */
   async fs({ op, args, timeoutMs = 30000 }) {
     const id = `t${this.n++}`;
@@ -100,6 +107,28 @@ class ScriptAgent {
       const message = /** @type {AgentMessage} */ (parseAgentLine(await this.nextLine()));
       if (message.type === "result" && message.id === id) {
         return { exitCode: message.exitCode, stdout: message.stdout, stderr: message.stderr };
+      }
+      if (message.type === "fsError" && message.id === id) {
+        return { exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from(message.message), reason: message.reason };
+      }
+    }
+  }
+
+  /**
+   * The `WslAgent.fsb` shape: one batched frame, one RES record stream.
+   * @param {{ ops: Array<{ op: string, args: string[] }>, timeoutMs?: number }} request - the batch request.
+   * @returns {Promise<{ exitCode: number, stdout: Buffer, stderr: Buffer, reason?: string }>} the settled batch.
+   */
+  async fsb({ ops, timeoutMs = 30000 }) {
+    const id = `t${this.n++}`;
+    for (const line of encodeFsbFrame({ id, ops, timeoutMs })) this.child.stdin.write(`${line}\n`);
+    for (;;) {
+      const message = /** @type {AgentMessage} */ (parseAgentLine(await this.nextLine()));
+      if (message.type === "result" && message.id === id) {
+        return { exitCode: message.exitCode, stdout: message.stdout, stderr: message.stderr };
+      }
+      if (message.type === "fsError" && message.id === id) {
+        return { exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from(message.message), reason: message.reason };
       }
     }
   }
@@ -383,5 +412,102 @@ checks.push(["without an agentFor, the substrate keeps stage-one posture on one 
   });
 }]);
 
+
+checks.push(["patchText applies hunks with the peer's mismatch dialect", async () => {
+  await substrate(async (sub, root) => {
+    const file = join(root, "patch.txt");
+    writeFileSync(file, "one\ntail\n");
+    const target = await sub.resolve(file);
+    const stat = await sub.stat(target);
+    assert.ok(stat, "the fixture stat resolves");
+    const patched = await sub.patchText(target, [{ lineNumber: 1, oldLines: ["one"], newLines: ["two"], isEndOfFile: false }], { version: stat.version });
+    assert.equal(readFileSync(file, "utf8"), "two\ntail\n");
+    assert.equal(patched.after, "two\ntail\n");
+    await assert.rejects(
+      sub.patchText(target, [{ lineNumber: 1, oldLines: ["absent"], newLines: ["x"], isEndOfFile: false }], undefined),
+      /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_PATCH_MISMATCH" && /hunk at patch line 1 \(oldLines\) does not match/.test(error.message),
+    );
+    // Failure arms: a vanished file is stale, a stale expected version is
+    // stale, a directory is not a regular file.
+    const missing = await sub.resolve(join(root, "patch-missing.txt"));
+    await assert.rejects(sub.patchText(missing, [], undefined), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_STALE_VERSION");
+    await assert.rejects(sub.patchText(target, [], { version: "bogus" }), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_STALE_VERSION");
+    const directoryTarget = await sub.resolve(root);
+    await assert.rejects(sub.patchText(directoryTarget, [], undefined), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_NOT_REGULAR_FILE");
+  });
+}]);
+
+checks.push(["deleteFile removes the file and refuses a stale version", async () => {
+  await substrate(async (sub, root) => {
+    const file = join(root, "delete.txt");
+    writeFileSync(file, "gone\n");
+    const target = await sub.resolve(file);
+    const stat = await sub.stat(target);
+    assert.ok(stat, "the fixture stat resolves");
+    await assert.rejects(sub.deleteFile(target, { version: "bogus" }), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_STALE_VERSION");
+    assert.equal(readFileSync(file, "utf8"), "gone\n");
+    const outcome = await sub.deleteFile(target, { version: stat.version });
+    assert.equal(outcome.before, "gone\n");
+    assert.throws(() => readFileSync(file, "utf8"));
+    // Failure arms: vanished and non-regular targets.
+    await assert.rejects(sub.deleteFile(target, undefined), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_STALE_VERSION");
+    const directoryTarget = await sub.resolve(root);
+    await assert.rejects(sub.deleteFile(directoryTarget, undefined), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_NOT_REGULAR_FILE");
+  });
+}]);
+
+checks.push(["moveFile publishes the destination, guards both endpoints and removes the source", async () => {
+  await substrate(async (sub, root) => {
+    const source = join(root, "move-src.txt");
+    const destination = join(root, "move-dst.txt");
+    writeFileSync(source, "moving\n");
+    const srcTarget = await sub.resolve(source);
+    const dstTarget = await sub.resolve(destination);
+    const stat = await sub.stat(srcTarget);
+    assert.ok(stat, "the fixture stat resolves");
+    await assert.rejects(sub.moveFile(srcTarget, srcTarget, {}), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_SAME_TARGET");
+    await assert.rejects(sub.moveFile(srcTarget, dstTarget, { expectedSource: { version: "bogus" } }), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_STALE_VERSION");
+    await assert.rejects(sub.moveFile(srcTarget, dstTarget, { expectedDestination: { kind: "replaceIfVersion", version: "bogus" } }), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_STALE_VERSION");
+    writeFileSync(destination, "existing\n");
+    await assert.rejects(sub.moveFile(srcTarget, dstTarget, { expectedDestination: { kind: "createIfAbsent" } }), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_NOT_OBSERVED");
+    rmSync(destination);
+    // A guarded create publishes with no-replace and removes the source.
+    const created = await sub.moveFile(srcTarget, dstTarget, { expectedSource: { version: stat.version }, expectedDestination: { kind: "createIfAbsent" } });
+    assert.equal(created.destination.operation, "create");
+    assert.equal(created.sourceDeleted, true);
+    // The move-with-hunks shape: the text is transformed on the way back.
+    const back = await sub.moveFile(dstTarget, srcTarget, { hunks: [{ lineNumber: 1, oldLines: ["moving"], newLines: ["moved-back"], isEndOfFile: false }] });
+    assert.equal(back.destination.after, "moved-back\n");
+    assert.equal(back.sourceDeleted, true);
+    assert.equal(readFileSync(source, "utf8"), "moved-back\n");
+    assert.throws(() => readFileSync(destination, "utf8"));
+  });
+}]);
+
+checks.push(["protocol-6 residents refuse the destructive ops with a rebuild hint", async () => {
+  if (!POSIX) return;
+  const legacy = { protocolVersion: 6, caps: new Set(), fs: async () => { throw new Error("a v6 agent has no delete/move op"); } };
+  const sub = new AgentSubstrate({ agent: asAgent(legacy), distro: DISTRO });
+  const target = { displayPath: "/tmp/x.txt", targetKey: "\\\\wsl.localhost\\ubuntu\\tmp\\x.txt" };
+  await assert.rejects(sub.deleteFile(target, undefined), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_IO_ERROR" && /protocol-7/.test(error.message));
+  await assert.rejects(sub.moveFile(target, { displayPath: "/tmp/y.txt", targetKey: "\\\\wsl.localhost\\ubuntu\\tmp\\y.txt" }, {}), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_IO_ERROR" && /protocol-7/.test(error.message));
+}]);
+
+checks.push(["moveFile refuses a missing source, a directory source and a mismatched hunk", async () => {
+  await substrate(async (sub, root) => {
+    const missing = await sub.resolve(join(root, "no-such-source.txt"));
+    const destination = await sub.resolve(join(root, "move-target.txt"));
+    await assert.rejects(sub.moveFile(missing, destination, {}), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_STALE_VERSION");
+    const directoryTarget = await sub.resolve(root);
+    await assert.rejects(sub.moveFile(directoryTarget, destination, {}), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_NOT_REGULAR_FILE");
+    const source = join(root, "hunk-source.txt");
+    writeFileSync(source, "plain\n");
+    const sourceTarget = await sub.resolve(source);
+    await assert.rejects(
+      sub.moveFile(sourceTarget, destination, { hunks: [{ lineNumber: 1, oldLines: ["absent"], newLines: ["x"], isEndOfFile: false }] }),
+      /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_PATCH_MISMATCH",
+    );
+  });
+}]);
 for (const [name, fn] of checks) await check(name, fn);
 console.log(`\n${passed} fs-substrate checks pass${POSIX ? "" : " (skipped: not a POSIX shell host)"}`);

@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { mock } from "node:test";
-import { AGENT_NAME, PROTOCOL_VERSION, encodeB64 } from "../lib/agent-protocol.js";
+import { AGENT_NAME, PROTOCOL_VERSION, encodeB64, MIN_PROTOCOL_VERSION } from "../lib/agent-protocol.js";
 import { AgentUnavailableError, CwdError, SpawnError } from "../lib/agent-errors.js";
 import { WslAgent, agentLeaseEnv, pinnedWindowsEnv } from "../lib/agent.js";
 import { effectiveMaskWindowsDrive } from "../lib/index.js";
@@ -664,7 +664,7 @@ checkReg("the transport's Windows env is pinned: no user WSLENV forwarding reach
 });
 
 checkReg("a handshake version mismatch kills the transport and fails the session", async () => {
-  const child = new FakeAgentProcess({ helloVersion: PROTOCOL_VERSION - 1 });
+  const child = new FakeAgentProcess({ helloVersion: MIN_PROTOCOL_VERSION - 1 });
   const { transport } = scriptedTransport([child]);
   const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
   await assert.rejects(
@@ -673,6 +673,20 @@ checkReg("a handshake version mismatch kills the transport and fails the session
     "a mismatched transport is killed and the session fails loudly",
   );
   assert.equal(child.killed, true, "the mismatched transport is killed, not left running");
+});
+
+checkReg("a v6 agent is still accepted (negotiation window)", async () => {
+  const child = new FakeAgentProcess({ helloVersion: MIN_PROTOCOL_VERSION });
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  try {
+    const result = await agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 });
+    assert.equal(result.exitCode, 0);
+    assert.equal(agent.protocolVersion, MIN_PROTOCOL_VERSION, "the negotiated version is recorded");
+    assert.deepEqual([...agent.caps], [], "a v6 HELLO advertises no capabilities");
+  } finally {
+    await agent.close();
+  }
 });
 
 checkReg("spawn failure and stderr chatter surface as diagnostics, not hangs", async () => {

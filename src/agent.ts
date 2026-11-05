@@ -43,7 +43,7 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess, ChildProcessWithoutNullStreams } from "node:child_process";
 import { AgentUnavailableError, BASH_TIMEOUT_REASON, CwdError, SpawnError } from "./agent-errors.js";
-import { AGENT_NAME, MAX_FRAME_BYTES, PROTOCOL_VERSION, encodeExecFrame, encodeFsFrame, encodeKill, parseAgentLine } from "./agent-protocol.js";
+import { AGENT_NAME, MAX_FRAME_BYTES, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, encodeExecFrame, encodeFsbFrame, encodeFsFrame, encodeKill, parseAgentLine } from "./agent-protocol.js";
 import type { AgentMessage } from "./agent-protocol.js";
 
 /** One settled command result, as `exec` resolves it. */
@@ -56,6 +56,12 @@ export interface ExecResult {
   stderr: Buffer;
   /** Which streams the capture cap cut. */
   truncated: { stdout: boolean, stderr: boolean };
+  /**
+   * Protocol 7's FS refusal token (`notfound`, `stale`, …), present only on a
+   * failed FS op answered with the structured FSERR line. FS consumers map it
+   * onto `FsErrorCode` directly; command results never carry one.
+   */
+  reason?: string;
 }
 
 /**
@@ -346,6 +352,10 @@ export class WslAgent {
   declare process: ChildProcess | null;
   /** The lifecycle state. */
   declare state: "idle" | "starting" | "ready" | "dead";
+  /** The protocol version the resident announced in HELLO (0 before one). */
+  declare protocolVersion: number;
+  /** The capabilities the resident advertised in HELLO (`conc`, `batch`). */
+  declare caps: Set<string>;
   /** The in-flight start, shared by concurrent callers. */
   declare startPromise: Promise<void> | null;
   /** The in-flight start's settler, so close() can fail a start it interrupts. */
@@ -464,6 +474,8 @@ export class WslAgent {
     this.revivalBackoffMs = config.revivalBackoffMs ?? DEFAULT_REVIVAL_BACKOFF_MS;
     this.idleTimer = null;
     this.lastError = "";
+    this.protocolVersion = 0;
+    this.caps = new Set();
     this.requestMetrics = emptyAgentMetrics();
     this.prepare = config.prepare;
   }
@@ -694,11 +706,11 @@ export class WslAgent {
     const message = parseAgentLine(line) as AgentMessage;
     switch (message.type) {
       case "hello": {
-        if (message.name !== AGENT_NAME || message.version !== PROTOCOL_VERSION) {
+        if (message.name !== AGENT_NAME || message.version < MIN_PROTOCOL_VERSION || message.version > PROTOCOL_VERSION) {
           // Settle BEFORE killing: the exit event must not overwrite the real
           // reason with the generic handshake message (the fake transports
           // emit exit synchronously inside kill(); a real wsl.exe races it).
-          this.lastError = `agent handshake mismatch: got ${message.name}@${message.version}, want ${AGENT_NAME}@${PROTOCOL_VERSION}`;
+          this.lastError = `agent handshake mismatch: got ${message.name}@${message.version}, want ${AGENT_NAME}@${MIN_PROTOCOL_VERSION}..${PROTOCOL_VERSION}`;
           settleStart(new Error(this.lastError));
           this.process?.kill();
           return;
@@ -715,6 +727,8 @@ export class WslAgent {
         }
         clearTimeout(handshakeTimer);
         this.agentPid = message.pid;
+        this.protocolVersion = message.version;
+        this.caps = new Set(message.caps ?? []);
         settleStart();
         break;
       }
@@ -747,6 +761,22 @@ export class WslAgent {
         if (pending.settled) break;
         pending.settled = true;
         pending.resolve({ exitCode: message.exitCode, stdout: message.stdout, stderr: message.stderr, truncated: message.truncated });
+        break;
+      }
+      case "fsError": {
+        // Protocol 7's structured FS refusal: settle the pending FS request
+        // with the reason preserved, so the adapter maps the code directly
+        // instead of sniffing a synthesized stderr line.
+        const pending = this.pending.get(message.id);
+        if (!pending) break;
+        pending.answered = true;
+        this.clearPending(pending);
+        this.pending.delete(message.id);
+        this.rearmIdleTimer();
+        this.dispatchQueued();
+        if (pending.settled) break;
+        pending.settled = true;
+        pending.resolve({ exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from(message.message), truncated: { stdout: false, stderr: false }, reason: message.reason });
         break;
       }
       case "agentError": {
@@ -1127,6 +1157,31 @@ export class WslAgent {
     await this.start();
     const id = `r${this.nextRequestId++}`;
     const lines = encodeFsFrame({ id, op, args, timeoutMs });
+    return new Promise((resolve, reject) => {
+      this.track({ id, kind: "fs", lines, resolve, reject, timeoutMs, signal });
+    });
+  }
+
+  /**
+   * Run one batched FS frame (protocol 7): the ordered ops execute in one
+   * worker and the resolution is ONE result whose stdout is the per-op
+   * record stream (`OK <i>|<b64>` / `BAD <i>|<reason>|<b64>`). The host sends
+   * this only to a resident that advertised `batch`; `DistroFs` gates it.
+   *
+   * @param request - the batch request.
+   * @returns the settled batch result.
+   */
+  async fsb({ ops, timeoutMs = 0, signal }: {
+    /** The ordered ops, each `{ op, args }` in the FS vocabulary. */
+    ops: Array<{ op: string, args: string[] }>,
+    /** In-distro timeout from the dequeue ACK; `<= 0` means none. */
+    timeoutMs?: number,
+    /** Cancels the request, sending KILL if it was already dispatched. */
+    signal?: AbortSignal,
+  }): Promise<{ exitCode: number, stdout: Buffer, stderr: Buffer, reason?: string }> {
+    await this.start();
+    const id = `r${this.nextRequestId++}`;
+    const lines = encodeFsbFrame({ id, ops, timeoutMs });
     return new Promise((resolve, reject) => {
       this.track({ id, kind: "fs", lines, resolve, reject, timeoutMs, signal });
     });

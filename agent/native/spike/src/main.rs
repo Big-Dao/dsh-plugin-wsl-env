@@ -191,11 +191,10 @@ fn reason_for(error: &std::io::Error) -> &'static str {
 }
 
 fn fs_fail(out: &Out, id: &str, reason: &str, message: &str) {
-    // The v5 convention puts the side channel in the RES's stderr field, as
-    // the first line; the host's DistroFs parses it there. The process's own
-    // stderr stays clean.
-    let line = format!("dsh-fs|{reason}|{}\n", b64_encode(message.as_bytes()));
-    write_line(out, &format!("RES|{id}|1||{}|0|0", b64_encode(line.as_bytes())));
+    // Protocol 7: the structured FSERR line carries the reason and message
+    // directly; the host maps the reason onto its FsErrorCode vocabulary
+    // without sniffing the RES's stderr.
+    write_line(out, &format!("FSERR|{id}|{reason}|{}", b64_encode(message.as_bytes())));
 }
 
 fn stat_record(path: &str, follow: bool) -> Result<String, (String, String)> {
@@ -363,6 +362,187 @@ fn create_staging(directory: &Path) -> io::Result<std::path::PathBuf> {
     Err(io::Error::new(io::ErrorKind::AlreadyExists, "cannot allocate staging directory"))
 }
 
+fn fs_execute(op: &str, args: &[Vec<u8>]) -> Result<Vec<u8>, (String, String)> {
+    // One FS op: stat/lstat/read/write/list/realpath plus protocol 7's
+    // delete/move. Returns the op's payload, or the (reason, message) the
+    // structured FSERR/OK-BAD record carries.
+    let text = |index: usize| -> String {
+        args.get(index)
+            .map(|v| String::from_utf8_lossy(v).into_owned())
+            .unwrap_or_default()
+    };
+    match op {
+        "stat" | "lstat" => {
+            let path = text(0);
+            stat_record(&path, op == "stat").map(String::into_bytes)
+        }
+        "read" => {
+            let path = text(0);
+            let offset: u64 = text(1).parse().unwrap_or(0);
+            let max: usize = text(2).parse().unwrap_or(0);
+            let mut file = File::open(&path)
+                .map_err(|error| (reason_for(&error).to_string(), format!("cannot read \"{path}\": {error}")))?;
+            file.seek(SeekFrom::Start(offset))
+                .map_err(|error| (reason_for(&error).to_string(), format!("cannot read \"{path}\": {error}")))?;
+            let mut buffer = vec![0u8; max];
+            let read = file
+                .read(&mut buffer)
+                .map_err(|error| (reason_for(&error).to_string(), format!("cannot read \"{path}\": {error}")))?;
+            buffer.truncate(read);
+            Ok(buffer)
+        }
+        "write" => {
+            let path = text(0);
+            let mode = text(1);
+            let publish = text(2);
+            let expected = text(3);
+            let content = args.get(4).cloned().unwrap_or_default();
+            let target = Path::new(&path);
+            let directory = target.parent().unwrap_or_else(|| Path::new("."));
+            if !directory.is_dir() {
+                if let Err(error) = fs::create_dir(directory) {
+                    if !directory.is_dir() {
+                        return Err((reason_for(&error).to_string(), format!("cannot write \"{path}\": {error}")));
+                    }
+                }
+            }
+            let base = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            if base.is_empty() {
+                return Err(("notfound".to_string(), "empty file name".to_string()));
+            }
+            let staging = create_staging(directory)
+                .map_err(|error| (reason_for(&error).to_string(), format!("cannot write \"{path}\": {error}")))?;
+            let temp = staging.join("content");
+            let staged = (|| {
+                let mut file = OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temp)?;
+                file.write_all(&content)?;
+                file.sync_all()?;
+                Ok(())
+            })();
+            if let Err(error) = staged {
+                let _ = fs::remove_dir_all(&staging);
+                return Err((reason_for(&error).to_string(), format!("cannot write \"{path}\": {error}")));
+            }
+            if mode != "-" {
+                if let Ok(parsed) = u32::from_str_radix(&mode, 8) {
+                    let _ = fs::set_permissions(&temp, fs::Permissions::from_mode(parsed & 0o7777));
+                }
+            }
+            if publish == "replace" && expected != "-" {
+                let current = version_of(&path);
+                if current.as_deref() != Some(expected.as_str()) {
+                    let _ = fs::remove_dir_all(&staging);
+                    return Err(("stale".to_string(), format!("cannot write \"{path}\": file changed since it was read")));
+                }
+            }
+            let published = if publish == "no-replace" {
+                if fs::symlink_metadata(&path).is_ok() {
+                    Err(("exists".to_string(), format!("cannot write \"{path}\": it already exists")))
+                } else {
+                    fs::hard_link(&temp, &path).map_err(|error| (reason_for(&error).to_string(), format!("cannot write \"{path}\": {error}")))
+                }
+            } else {
+                fs::rename(&temp, &path).map_err(|error| (reason_for(&error).to_string(), format!("cannot write \"{path}\": {error}")))
+            };
+            let _ = fs::remove_dir_all(&staging);
+            published.map(|()| Vec::new())
+        }
+        "list" => {
+            let path = text(0);
+            list_records(&path)
+        }
+        "realpath" => {
+            let path = text(0);
+            resolve_path(&path).map(String::into_bytes)
+        }
+        "delete" => {
+            let path = text(0);
+            let expected = text(1);
+            let metadata = match fs::symlink_metadata(&path) {
+                Ok(metadata) => metadata,
+                Err(_) => return Err(("stale".to_string(), format!("cannot delete \"{path}\": file changed since it was read"))),
+            };
+            if metadata.is_dir() {
+                return Err(("notdir".to_string(), format!("cannot delete \"{path}\": not a regular file")));
+            }
+            if expected != "-" && version_of(&path).as_deref() != Some(expected.as_str()) {
+                return Err(("stale".to_string(), format!("cannot delete \"{path}\": file changed since it was read")));
+            }
+            fs::remove_file(&path)
+                .map_err(|error| (reason_for(&error).to_string(), format!("cannot delete \"{path}\": {error}")))?;
+            Ok(Vec::new())
+        }
+        "move" => {
+            let source = text(0);
+            let destination = text(1);
+            let mode = text(2);
+            let guard = text(3);
+            let source_expected = text(4);
+            let destination_expected = text(5);
+            let metadata = match fs::symlink_metadata(&source) {
+                Ok(metadata) => metadata,
+                Err(_) => return Err(("stale".to_string(), format!("cannot move \"{source}\": file changed since it was read"))),
+            };
+            if metadata.is_dir() {
+                return Err(("notdir".to_string(), format!("cannot move \"{source}\": not a regular file")));
+            }
+            if source_expected != "-" && version_of(&source).as_deref() != Some(source_expected.as_str()) {
+                return Err(("stale".to_string(), format!("cannot move \"{source}\": file changed since it was read")));
+            }
+            let target = Path::new(&destination);
+            let directory = target.parent().unwrap_or_else(|| Path::new("."));
+            match fs::symlink_metadata(&destination) {
+                Ok(existing) => {
+                    if existing.is_dir() {
+                        return Err(("notdir".to_string(), format!("cannot move \"{source}\" to \"{destination}\": not a regular file")));
+                    }
+                    if destination_expected != "-" && version_of(&destination).as_deref() != Some(destination_expected.as_str()) {
+                        return Err(("stale".to_string(), format!("cannot move \"{source}\" to \"{destination}\": file changed since it was read")));
+                    }
+                }
+                Err(_) => {
+                    if destination_expected != "-" {
+                        return Err(("stale".to_string(), format!("cannot move \"{source}\" to \"{destination}\": file no longer exists")));
+                    }
+                }
+            }
+            let staging = create_staging(directory)
+                .map_err(|error| (reason_for(&error).to_string(), format!("cannot move \"{source}\": {error}")))?;
+            let temp = staging.join("content");
+            let staged = fs::copy(&source, &temp).map(|_| ()).and_then(|()| {
+                if mode != "-" {
+                    if let Ok(parsed) = u32::from_str_radix(&mode, 8) {
+                        fs::set_permissions(&temp, fs::Permissions::from_mode(parsed & 0o7777))?;
+                    }
+                }
+                Ok(())
+            });
+            if let Err(error) = staged {
+                let _ = fs::remove_dir_all(&staging);
+                return Err((reason_for(&error).to_string(), format!("cannot move \"{source}\": {error}")));
+            }
+            let published = if guard == "no-replace" {
+                if fs::symlink_metadata(&destination).is_ok() {
+                    Err(("exists".to_string(), format!("cannot move \"{source}\" to \"{destination}\": it already exists")))
+                } else {
+                    fs::hard_link(&temp, &destination).map_err(|error| (reason_for(&error).to_string(), format!("cannot move \"{source}\" to \"{destination}\": {error}")))
+                }
+            } else {
+                fs::rename(&temp, &destination).map_err(|error| (reason_for(&error).to_string(), format!("cannot move \"{source}\" to \"{destination}\": {error}")))
+            };
+            let _ = fs::remove_dir_all(&staging);
+            published?;
+            let mut payload = stat_record(&destination, true)?;
+            if let Err(error) = fs::remove_file(&source) {
+                payload.push('\n');
+                payload.push_str(&format!("SRCFAIL|{}|{}", reason_for(&error), b64_encode(format!("cannot remove \"{source}\": {error}").as_bytes())));
+            }
+            Ok(payload.into_bytes())
+        }
+        _ => Err(("protocol".to_string(), format!("unknown fs op: {op}"))),
+    }
+}
+
 fn handle_fs(
     id: String,
     op: String,
@@ -379,129 +559,43 @@ fn handle_fs(
         fs_fail(&out, &id, "io", "request cancelled");
         return;
     }
-    let text = |index: usize| -> String {
-        args.get(index)
-            .map(|v| String::from_utf8_lossy(v).into_owned())
-            .unwrap_or_default()
-    };
-    match op.as_str() {
-        "stat" | "lstat" => {
-            let path = text(0);
-            match stat_record(&path, op == "stat") {
-                Ok(record) => write_line(&out, &format!("RES|{id}|0|{}||0|0", b64_encode(record.as_bytes()))),
-                Err((reason, message)) => fs_fail(&out, &id, &reason, &message),
-            }
-        }
-        "read" => {
-            let path = text(0);
-            let offset: u64 = text(1).parse().unwrap_or(0);
-            let max: usize = text(2).parse().unwrap_or(0);
-            match File::open(&path).and_then(|mut file| {
-                file.seek(SeekFrom::Start(offset))?;
-                let mut buffer = vec![0u8; max];
-                let read = file.read(&mut buffer)?;
-                buffer.truncate(read);
-                Ok(buffer)
-            }) {
-                Ok(bytes) => write_line(&out, &format!("RES|{id}|0|{}||0|0", b64_encode(&bytes))),
-                Err(error) => fs_fail(&out, &id, reason_for(&error), &format!("cannot read \"{path}\": {error}")),
-            }
-        }
-        "write" => {
-            let path = text(0);
-            let mode = text(1);
-            let publish = text(2);
-            let expected = text(3);
-            let content = args.get(4).cloned().unwrap_or_default();
-            let target = Path::new(&path);
-            let directory = target.parent().unwrap_or_else(|| Path::new("."));
-            if !directory.is_dir() {
-                if let Err(error) = fs::create_dir(directory) {
-                    if !directory.is_dir() {
-                        fs_fail(&out, &id, reason_for(&error), &format!("cannot write \"{path}\": {error}"));
-                        return;
-                    }
-                }
-            }
-            let base = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            if base.is_empty() {
-                fs_fail(&out, &id, "notfound", "empty file name");
-                return;
-            }
-            let staging = match create_staging(directory) {
-                Ok(staging) => staging,
-                Err(error) => {
-                    fs_fail(&out, &id, reason_for(&error), &format!("cannot write \"{path}\": {error}"));
-                    return;
-                }
-            };
-            let temp = match (|| {
-                let temp = staging.join("content");
-                let mut file = OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temp)?;
-                file.write_all(&content)?;
-                file.sync_all()?;
-                Ok(temp)
-            })() {
-                Ok(temp) => temp,
-                Err(error) => {
-                    let _ = fs::remove_dir_all(&staging);
-                    fs_fail(&out, &id, reason_for(&error), &format!("cannot write \"{path}\": {error}"));
-                    return;
-                }
-            };
-            if mode != "-" {
-                if let Ok(parsed) = u32::from_str_radix(&mode, 8) {
-                    let _ = fs::set_permissions(&temp, fs::Permissions::from_mode(parsed & 0o7777));
-                }
-            }
-            if publish == "replace" && expected != "-" {
-                let current = version_of(&path);
-                if current.as_deref() != Some(expected.as_str()) {
-                    let _ = fs::remove_dir_all(&staging);
-                    fs_fail(&out, &id, "stale", &format!("cannot write \"{path}\": file changed since it was read"));
-                    return;
-                }
-            }
-            if cancelled.load(Ordering::Acquire) {
-                let _ = fs::remove_dir_all(&staging);
-                fs_fail(&out, &id, "io", "request cancelled");
-                return;
-            }
-            if publish == "no-replace" {
-                if fs::symlink_metadata(&path).is_ok() {
-                    let _ = fs::remove_dir_all(&staging);
-                    fs_fail(&out, &id, "exists", &format!("cannot write \"{path}\": it already exists"));
-                    return;
-                }
-                if let Err(error) = fs::hard_link(&temp, &path) {
-                    let _ = fs::remove_dir_all(&staging);
-                    fs_fail(&out, &id, reason_for(&error), &format!("cannot write \"{path}\": {error}"));
-                    return;
-                }
-            } else if let Err(error) = fs::rename(&temp, &path) {
-                let _ = fs::remove_dir_all(&staging);
-                fs_fail(&out, &id, reason_for(&error), &format!("cannot write \"{path}\": {error}"));
-                return;
-            }
-            let _ = fs::remove_dir_all(&staging);
-            write_line(&out, &format!("RES|{id}|0|||0|0"));
-        }
-        "list" => {
-            let path = text(0);
-            match list_records(&path) {
-                Ok(records) => write_line(&out, &format!("RES|{id}|0|{}||0|0", b64_encode(&records))),
-                Err((reason, message)) => fs_fail(&out, &id, &reason, &message),
-            }
-        }
-        "realpath" => {
-            let path = text(0);
-            match resolve_path(&path) {
-                Ok(resolved) => write_line(&out, &format!("RES|{id}|0|{}||0|0", b64_encode(resolved.as_bytes()))),
-                Err((reason, message)) => fs_fail(&out, &id, &reason, &message),
-            }
-        }
-        _ => write_line(&out, &format!("ERR|{id}|protocol|{}", b64_encode(format!("FS op not in this spike: {op}").as_bytes()))),
+    match fs_execute(&op, &args) {
+        Ok(payload) => write_line(&out, &format!("RES|{id}|0|{}||0|0", b64_encode(&payload))),
+        Err((reason, message)) => fs_fail(&out, &id, &reason, &message),
     }
+}
+
+fn handle_fsb(
+    id: String,
+    ops: Vec<(String, Vec<Vec<u8>>)>,
+    out: Out,
+    fs_lock: Arc<Mutex<()>>,
+    active: Active,
+    cancelled: Arc<AtomicBool>,
+) {
+    // One worker, in-order execution, one RES: the batch's records
+    // (`OK <i>|<b64 payload>` / `BAD <i>|<reason>|<b64 message>`) are the
+    // payload, so the host gets N op answers for one round trip.
+    let _guard = RequestGuard { active, id: id.clone() };
+    let _serial = fs_lock.lock().unwrap();
+    write_line(&out, &format!("ACK|{id}"));
+    if cancelled.load(Ordering::Acquire) {
+        fs_fail(&out, &id, "io", "request cancelled");
+        return;
+    }
+    let mut records = String::new();
+    for (index, (op, args)) in ops.iter().enumerate() {
+        let number = index + 1;
+        match fs_execute(op, args) {
+            Ok(payload) => {
+                records.push_str(&format!("OK {number}|{}\n", b64_encode(&payload)));
+            }
+            Err((reason, message)) => {
+                records.push_str(&format!("BAD {number}|{reason}|{}\n", b64_encode(message.as_bytes())));
+            }
+        }
+    }
+    write_line(&out, &format!("RES|{id}|0|{}||0|0", b64_encode(records.as_bytes())));
 }
 
 fn handle_exec(
@@ -632,7 +726,7 @@ fn main() {
     // The host binds the running process to the binary it copied: the digest
     // is the sha256 of this executable, read through `/proc/self/exe`.
     let hello_digest = fs::read("/proc/self/exe").map(|bytes| sha256::sha256_hex(&bytes)).unwrap_or_default();
-    write_line(&out, &format!("HELLO|wsl-agent|6|{}|{}", hello_digest, std::process::id()));
+    write_line(&out, &format!("HELLO|wsl-agent|7|{}|{}|conc,batch", hello_digest, std::process::id()));
     let stdin = io::stdin();
     let mut lines = stdin.lock().lines();
     while let Some(Ok(line)) = lines.next() {
@@ -691,6 +785,34 @@ fn main() {
                 let cancelled = Arc::new(AtomicBool::new(false));
                 active.lock().unwrap().insert(id.clone(), ActiveRequest { cancelled: Arc::clone(&cancelled), pgid: None });
                 thread::spawn(move || handle_exec(id, cwd, argv, timeout_secs, cap, stdin_payload, envs, active, cancelled, out));
+            }
+            "FSB" => {
+                let id = fields.get(1).copied().unwrap_or("").to_string();
+                let nops: usize = fields.get(3).and_then(|v| v.parse().ok()).unwrap_or(0);
+                let mut ops: Vec<(String, Vec<Vec<u8>>)> = Vec::with_capacity(nops);
+                for _ in 0..nops {
+                    let spec = match lines.next() {
+                        Some(Ok(spec)) => spec,
+                        _ => break,
+                    };
+                    let spec_fields: Vec<&str> = spec.split('|').collect();
+                    let op = spec_fields.get(1).copied().unwrap_or("").to_string();
+                    let nargs: usize = spec_fields.get(2).and_then(|v| v.parse().ok()).unwrap_or(0);
+                    let mut args = Vec::with_capacity(nargs);
+                    for _ in 0..nargs {
+                        match lines.next() {
+                            Some(Ok(arg)) => args.push(b64_decode(&arg)),
+                            _ => break,
+                        }
+                    }
+                    ops.push((op, args));
+                }
+                let out = Arc::clone(&out);
+                let fs_lock = Arc::clone(&fs_lock);
+                let active = Arc::clone(&active);
+                let cancelled = Arc::new(AtomicBool::new(false));
+                active.lock().unwrap().insert(id.clone(), ActiveRequest { cancelled: Arc::clone(&cancelled), pgid: None });
+                thread::spawn(move || handle_fsb(id, ops, out, fs_lock, active, cancelled));
             }
             "FS" => {
                 let id = fields.get(1).copied().unwrap_or("").to_string();

@@ -32,6 +32,12 @@ export interface AgentFsResult {
     stdout: Buffer;
     /** The op's diagnostic line(s). */
     stderr: Buffer;
+    /**
+     * Protocol 7's FS refusal token, when the op failed through the structured
+     * FSERR line; the adapter maps it onto `FsErrorCode` directly. Undefined
+     * for legacy (v6) agents, whose refusal rides the stderr convention.
+     */
+    reason?: string;
 }
 /**
  * Normalize one agent timestamp ("seconds.frac", 9 or 10 fractional digits
@@ -72,6 +78,14 @@ export declare function parseStatRecord(stdout: Buffer): {
     ino: string;
     version: string;
 };
+export declare const REASON_CODES: Record<string, string>;
+/**
+ * Map one wire reason token onto the peer's `FsErrorCode` vocabulary.
+ *
+ * @param reason - the agent's reason token (`notfound`, `stale`, …).
+ * @returns the corresponding code; unknown tokens read as I/O failures.
+ */
+export declare function reasonToCode(reason: string): string;
 /** One `find` listing row, as `listChildren` shapes it. */
 export interface ChildRow {
     name: string;
@@ -210,6 +224,25 @@ export declare class DistroFs {
      */
     readWholeText(target: ResolvedTarget, signal?: AbortSignal): Promise<string>;
     /**
+     * The single-frame fallback for {@link readWholeText}: one stat, then the
+     * windowed read loop (a v6 peer).
+     *
+     * @param target - the resolved file.
+     * @param signal - aborts the read.
+     * @returns the file's bytes.
+     */
+    private statThenReadWhole;
+    /**
+     * The protocol-7 batch path for {@link readWholeText}: the stat and the
+     * first read window ride ONE FSB frame — the GUI preview's dominant
+     * shape — and further windows stay single reads.
+     *
+     * @param target - the resolved file.
+     * @param signal - aborts the read.
+     * @returns the file's bytes.
+     */
+    private readWholeBatched;
+    /**
      * Read a whole regular file as raw bytes, bounded by `maxBytes`.
      *
      * @param target - the resolved file.
@@ -278,6 +311,84 @@ export declare class DistroFs {
          */
         agent?: WslAgent;
     }): Promise<void>;
+    /**
+     * Whether the resident accepts protocol-7 batch frames.
+     *
+     * @param agent - the agent to ask; the default resident by default.
+     * @returns true when the negotiated version and capabilities allow FSB.
+     */
+    supportsBatch(agent?: WslAgent): boolean;
+    /**
+     * Whether the resident serves the protocol-7 destructive ops
+     * (`delete`, `move`) and the structured FSERR channel.
+     *
+     * @param agent - the agent to ask; the default resident by default.
+     * @returns true for a protocol-7 resident.
+     */
+    supportsDestructive(agent?: WslAgent): boolean;
+    /**
+     * Run one batched FS frame and parse its per-op records.
+     *
+     * @param ops - the ordered ops (`stat`, `list`, `read`, …).
+     * @param signal - cancels the batch.
+     * @param agent - the agent to run it on.
+     * @returns one record per op, in order.
+     */
+    batch(ops: Array<{
+        op: string;
+        args: string[];
+    }>, signal: AbortSignal | undefined, agent?: WslAgent): Promise<Array<{
+        ok: true;
+        payload: Buffer;
+    } | {
+        ok: false;
+        reason: string;
+        message: string;
+    }>>;
+    /**
+     * Remove one regular file through the protocol-7 `delete` op, whose guards
+     * mirror the peer's `requireFile`: a vanished file is stale, a non-regular
+     * target its own refusal, an expected version re-verified distro-side.
+     *
+     * @param linuxPath - the resolved Linux path.
+     * @param expectedVersion - the version the removal was based on.
+     * @param signal - cancels the removal.
+     * @param agent - the agent that must run it.
+     * @returns resolves when the file is gone.
+     */
+    removeFile(linuxPath: string, expectedVersion: string | undefined, signal: AbortSignal | undefined, agent?: WslAgent): Promise<void>;
+    /**
+     * Move one regular file through the protocol-7 `move` op: the destination
+     * publishes through the write machinery's staging (atomic rename, or the
+     * no-replace link for a guarded create), then the source is removed. A
+     * destination that published while the source survived comes back as
+     * `sourceFailure` — the peer's two-effect outcome.
+     *
+     * @param source - the resolved source path.
+     * @param destination - the resolved destination path.
+     * @param options - the destination mode, publish guard and version guards.
+     * @param signal - cancels the move.
+     * @param agent - the agent that must run it.
+     * @returns the destination's fresh stat row and the source-removal outcome.
+     */
+    moveAtomic(source: string, destination: string, options: {
+        /** The mode to publish at the destination (the source's, in practice). */
+        mode: number | undefined;
+        /** `no-replace` for a guarded create, otherwise `replace`. */
+        guard: "replace" | "no-replace";
+        /** The source version the move was based on. */
+        sourceVersion?: string;
+        /** The destination version the move was based on. */
+        destinationVersion?: string;
+        signal?: AbortSignal;
+        agent?: WslAgent;
+    }): Promise<{
+        destination: StatRow;
+        sourceFailure?: {
+            reason: string;
+            message: string;
+        };
+    }>;
     /**
      * Read and decode a file for editing: LF-normalized content plus the style
      * to restore on write-back.

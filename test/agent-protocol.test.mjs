@@ -16,6 +16,7 @@ import {
   decodeB64,
   encodeB64,
   encodeExecFrame,
+  encodeFsbFrame,
   encodeFsFrame,
   encodeKill,
   encodeSetEnv,
@@ -171,6 +172,33 @@ check("relabelFrame rewrites EXEC and KILL ids and leaves SETENV alone", () => {
   assert.deepEqual(relabelled.slice(2), frame.slice(2));
   assert.equal(relabelFrame(["KILL|r1"], "r9")[0], "KILL|r9");
   assert.deepEqual(relabelFrame(["PONG"], "r9"), ["PONG"]);
+});
+
+check("HELLO carries protocol 7 capabilities and older HELLOs parse unchanged", () => {
+  const seven = /** @type {import("../lib/agent-protocol.js").HelloMessage} */ (parseAgentLine("HELLO|wsl-agent|7|digest|4242|conc,batch"));
+  assert.deepEqual(seven.caps, ["conc", "batch"]);
+  assert.equal(seven.pid, 4242);
+  const six = /** @type {import("../lib/agent-protocol.js").HelloMessage} */ (parseAgentLine("HELLO|wsl-agent|6|digest|4242"));
+  assert.equal(six.caps, undefined, "a v6 HELLO has no capability field");
+  assert.equal(six.version, 6);
+});
+
+check("FSERR is parsed as the structured FS refusal", () => {
+  const line = `FSERR|r7|stale|${Buffer.from("cannot delete \"/x\": file changed since it was read").toString("base64")}`;
+  const parsed = /** @type {import("../lib/agent-protocol.js").FsErrorMessage} */ (parseAgentLine(line));
+  assert.equal(parsed.type, "fsError");
+  assert.equal(parsed.id, "r7");
+  assert.equal(parsed.reason, "stale");
+  assert.equal(parsed.message, "cannot delete \"/x\": file changed since it was read");
+});
+
+check("encodeFsbFrame lays out one header plus OP records", () => {
+  const lines = encodeFsbFrame({ id: "b1", timeoutMs: 1500, ops: [{ op: "stat", args: ["/a"] }, { op: "read", args: ["/a", "0", "64"] }] });
+  assert.equal(lines[0], "FSB|b1|2|2");
+  assert.equal(lines[1], "OP|stat|1");
+  assert.equal(lines[2], encodeB64("/a"));
+  assert.equal(lines[3], "OP|read|3");
+  assert.deepEqual(lines.slice(4), ["/a", "0", "64"].map((arg) => encodeB64(arg)));
 });
 
 check("relabelFrame rewrites FS ids so a rebuild-relayed fs request does not collide", () => {

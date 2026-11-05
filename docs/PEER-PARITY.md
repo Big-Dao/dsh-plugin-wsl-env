@@ -127,40 +127,39 @@ declared extensions, listed at the end.
    (`FS_STALE_VERSION`, `lib/index.js:937` via `requireFile` at `:1030`) for
    both. Pinned by `test/fs-substrate.test.mjs`.
 
-## The peer's 0.2.2-rc.1 operations: declared gap, refused at the provider
+## The peer's 0.2.2-rc.1 operations: implemented over protocol v7
 
 `0.2.2-rc.1` added three operations to the peer's `FileSystem` base —
-`patchText` (hunks via the new `@deepseek-ai/dsh-fs-patch`, refusal
-`FS_PATCH_MISMATCH` at `lib/index.js:1036`), `deleteFile`, and `moveFile`
-(same-target refusal `FS_SAME_TARGET`). The agent substrate serves read,
-write and edit only; implementing these would mean a patch-hunks wire op and
-a delete/move pair in the resident protocol, which is substrate work, not
-parity drift. What the release makes load-bearing is that the operations now
-exist on the base class this plugin extends: an inherited call with a distro
-target would run the **host** implementation against a same-named Windows
-path (or refuse with a host-dialect `FS_NOT_FOUND` naming the wrong world).
+`patchText` (hunks via `@deepseek-ai/dsh-fs-patch`, refusal
+`FS_PATCH_MISMATCH`), `deleteFile`, and `moveFile` (same-target refusal
+`FS_SAME_TARGET`). 0.18.0 shipped them as an honest refusal (an inherited
+host call would touch the wrong filesystem); protocol v7
+([AGENT-PROTOCOL-V7.md](AGENT-PROTOCOL-V7.md)) now serves them for real:
 
-So the providers refuse honestly instead of inheriting:
-`WslFileSystem.patchText`/`deleteFile`/`moveFile` (`src/index.ts`) throw
-`FS_IO_ERROR` naming the substrate's gap, and `WslRoutingFileSystem`
-(`src/fs-routing.ts`) routes by the same coordinate rule as `editText` — a
-distro-side endpoint reaches the refusing backend, two Windows endpoints keep
-the inherited host implementation. The shipped preset disables the patch
-tool beside edit (`applyPatch: false` in `cordis.patch.yml`), so no
-model-facing path reaches the refusal today; the overrides exist because the
-peer's own consumers may. Pinned by `test/composition.test.mjs` (distro
-refusals and a host-side `moveFile` round trip). Peer-side mechanics for the
-record: `patchText` re-reads via the whole-buffer `readForEdit`, applies
-`applyHunks`, and publishes through the same atomic write — so divergence 4's
-binary/UTF-8 dialect carries over to the peer's patch path too.
+- **`delete` / `move`** ride two new FS ops in both agent implementations,
+  with the peer's guard dialects (source `requireFile`, destination
+  `writeTarget`, version re-verification distro-side before the destructive
+  step, staging + atomic/no-replace publication, the two-effect
+  `sourceDeleted: false` outcome).
+- **`patchText`** has no frame on purpose: hunks are applied in-process by
+  the peer's own `applyHunks` (`@deepseek-ai/dsh-fs-patch` is now a peer
+  dependency), so the mismatch dialect is the peer's byte-for-byte, then the
+  result publishes through the same guarded atomic write an edit takes.
+- **Structured FS errors**: failed FS ops answer with `FSERR|id|reason|b64`
+  instead of the stderr sniffing notation (which stays parsed for older
+  agents).
+- **Batched FS frames** (`FSB`): one round trip for the GUI preview's
+  stat+list+read shape; `readWholeText` and `listChildren` use it when the
+  resident advertises `batch`. Benchmark: `test/probe/gui-preview-batch.sh`.
+- **Negotiation**: the host accepts agents 6–7 and gates every v7 frame on
+  the HELLO version, so a half-updated mirror degrades to v6 behaviour.
 
-A related `0.2.2-rc.1` surface change lands in the sandbox vocabulary:
-`SandboxExecutionPolicy.additionalWritableRoots` and the
-`workspaceWritableRoots` derivation (`roots.js`), whose together-grant
-contract this backend honors in `wslWritableRoots` (`src/index.ts`) — a
-same-distro UNC extra root is granted as-is; a Windows-path extra root in a
-distro workspace fails closed with the peer's `SandboxInvalidRootError`,
-because the grant cannot be enforced there without lying about the mode.
+Pinned by `test/fs-substrate.test.mjs` (patch/delete/move over the live v7
+script), `test/composition.test.mjs` (routing forwards the three ops),
+`agent/native/spike/test.mjs` (both agents: batch, delete, move, capabilities)
+and `test/agent-protocol.test.mjs` (HELLO caps, FSERR, FSB encoding).
+Divergence 4's binary/UTF-8 dialect note now also covers the patch path, which
+re-reads through `readForEdit`.
 
 ## Maintenance
 

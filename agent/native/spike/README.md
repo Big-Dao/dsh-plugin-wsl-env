@@ -10,17 +10,17 @@ questions with real code before any production work:
 
 ## Scope
 
-Implemented: `HELLO`, `PING`, `SHUTDOWN`, `SETENV`, `EXEC`, `KILL` — v5
-frames, per-request ids, `ACK`/`RES`, output caps, per-request process groups.
+Implemented: `HELLO`, `PING`, `SHUTDOWN`, `SETENV`, `EXEC`, `KILL` — v7
+frames, per-request ids, `ACK`/`RES`, output caps, per-request process groups,
+capability advertisement (`conc,batch`).
 
 Also implemented: `FS` `stat`, `lstat`, `read`, `write` (mode, no-replace,
 replace, expected-version re-check, staging + fsync + atomic publication),
-`list` and `realpath` (including the nearest-existing-ancestor walk and the
-`..`-in-missing-suffix refusal). A failed FS op writes the
-`dsh-fs|reason|base64` side channel as the first line of the **RES stderr**,
-which is where the host's `DistroFs` reads it. FS ops are serialized inside
-the agent (the v5 error channel is process-global); `EXEC`s run concurrently
-with them.
+`list`, `realpath` (including the nearest-existing-ancestor walk and the
+`..`-in-missing-suffix refusal), and v7's `delete`/`move`; the `FSB` batch
+frame; failed FS ops answer with the structured `FSERR|id|reason|base64`
+line. FS ops are serialized among mutations by `fs_lock`; `EXEC`s run
+concurrently with them.
 
 **Not implemented:** the host copy/verify/backend wiring and musl/cross-arch
 builds. This spike does not touch the shipped FS path.

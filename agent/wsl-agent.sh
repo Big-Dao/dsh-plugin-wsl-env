@@ -12,11 +12,16 @@
 # one thing a distro is guaranteed to have is a shell.
 #
 # Handshake — the first line the agent writes:
-#   HELLO|wsl-agent|<protocol version>|<sha256 of this script file>
+#   HELLO|wsl-agent|<protocol version>|<sha256 of this script file>|<pid>|<caps>
 # The digest lets the host verify that the script it is about to rely on is
 # byte-identical to the copy it shipped. The script is read in place — a
 # /mnt/c mirror in the deployed layout — so a stale or half-synced runtime
 # copy would otherwise pass the version handshake while drifting in behavior.
+# Protocol 7 adds the sixth field, `caps`: a comma-separated capability token
+# list (`conc` = FS ops may answer out of order, `batch` = the FSB frame is
+# accepted). This agent advertises `batch` — its read loop is serial, so a
+# batch (one worker, in-order answers) is safe while pipelined single FS
+# frames are not. A v6 peer parser ignores the extra field.
 # Requests the agent accepts, one per line on stdin:
 #   PING                          -> PONG
 #   SHUTDOWN                      -> exits 0
@@ -48,14 +53,36 @@
 #       ops:  stat <path> · lstat <path> · list <dir> · realpath <path>
 #             read <path> <offset> <maxbytes> · write <path> <mode|->
 #                  <replace|no-replace> <expected version|-> <content-b64>
+#             delete <path> <expected version|->            [protocol 7]
+#             move <src> <dst> <dst mode|-> <dst replace|no-replace|->
+#                  <src expected version|-> <dst expected version|->  [7]
 #       -> ACK|<id> at dequeue, then the same RES|<id>|<exit code>|<b64
 #          stdout>|<b64 stderr> line as EXEC.
-#          A failed op writes `dsh-fs|<reason>|<b64 message>` as the FIRST line
-#          of its stderr (reason: notfound notdir perm loop exists stale io),
-#          which the host's adapter maps onto the FsError codes the tool layer
-#          knows. A `replace` write carrying an expected version re-verifies it
-#          against a fresh stat before the rename and refuses with `stale` on
-#          a mismatch; a later concurrent write can still be overwritten.
+#          A failed op answers with the structured line
+#          FSERR|<id>|<reason>|<b64 message> instead of the RES (protocol 7;
+#          the host maps the reason directly), and ALSO writes
+#          `dsh-fs|<reason>|<b64 message>` as the FIRST line of its stderr
+#          (reason: notfound notdir perm loop exists stale io) — the
+#          convention older hosts parse. A `replace` write carrying an
+#          expected version re-verifies it against a fresh stat before the
+#          rename and refuses with `stale` on a mismatch; a later concurrent
+#          write can still be overwritten. A `delete` re-verifies the same
+#          way and refuses with `stale` on a mismatch or a vanished file. A
+#          `move` guards the source the same way, publishes the destination
+#          through the write machinery's staging (atomic rename, or a
+#          no-replace hard link for a guarded create), then removes the
+#          source; its stdout carries the destination's fresh stat record
+#          and — when the source survived — one SRCFAIL|<reason>|<b64 message>
+#          line (the peer's two-effect `FsMoveOutcome`, honestly preserved).
+#   FSB|<id>|<timeout seconds|0>|<n ops>            [protocol 7]
+#       followed by <n ops> records, each an OP|<op>|<n args> line plus its
+#       base64 arguments. The ops run IN ORDER in one worker and the answer
+#       is ONE RES whose payload is the concatenated per-op records:
+#         OK <i>|<b64 payload>
+#         BAD <i>|<reason>|<b64 message>
+#       A failed op records BAD and the batch continues — a batch is a set of
+#       independent reads, not a transaction. One round trip for what costs
+#       four to six FS frames (the GUI preview's stat + list + read shape).
 #
 # Confinement is NOT this script's business: the host wraps argv in the bwrap
 # profile (lib/sandbox.js) before the frame is sent, so the agent executes
@@ -73,7 +100,7 @@ set -u
 # the child without it (NUL bytes — `check-ignore -z` separators — survive).
 # Every known consumer parses line-oriented stdin that tolerates a missing
 # final newline.
-PROTO_VERSION=6
+PROTO_VERSION=7
 TMPDIR_AGENT=$(mktemp -d "${TMPDIR:-/tmp}/wsl-agent.XXXXXX")
 OUT_FILE="$TMPDIR_AGENT/out"
 ERR_FILE="$TMPDIR_AGENT/err"
@@ -225,6 +252,7 @@ timeout_watcher() {
 run_capture() {
   local req_id timeout_s maxout mode rc watcher_pid out_cut err_cut
   local out_fifo err_fifo out_reader err_reader spawn_out spawn_err killer_pid
+  local first_err rest_fs reason_fs msg_fs
   req_id=$1
   timeout_s=$2
   maxout=$3
@@ -331,6 +359,22 @@ run_capture() {
   # the protocol.
   out_cut=0
   err_cut=0
+  # Protocol 7 FS ops answer a failure with the structured FSERR line instead
+  # of a RES the host must sniff: the decision is the captured stderr's first
+  # line, which the handlers pin to the dsh-fs| convention.
+  if [ "$mode" = subshell ] && [ "$rc" -ne 0 ]; then
+    first_err=$(head -n 1 -- "$ERR_FILE" 2>/dev/null)
+    case $first_err in
+      dsh-fs\|*)
+        rest_fs=${first_err#dsh-fs|}
+        reason_fs=${rest_fs%%|*}
+        msg_fs=${rest_fs#*|}
+        printf 'FSERR|%s|%s|%s\n' "$req_id" "$reason_fs" "${msg_fs:-$(printf '' | base64 | tr -d '\n')}"
+        rm -f "$TMPDIR_AGENT/inflight"
+        return 0
+        ;;
+    esac
+  fi
   if [ "$maxout" -gt 0 ]; then
     [ "$(wc -c <"$OUT_FILE" 2>/dev/null || printf 0)" -gt "$maxout" ] && out_cut=1
     [ "$(wc -c <"$ERR_FILE" 2>/dev/null || printf 0)" -gt "$maxout" ] && err_cut=1
@@ -629,6 +673,211 @@ fs_write() {
   drop_staging
 }
 
+fs_delete() {
+  # $1 = base64 path, $2 = base64 expected version (`-` for none). The peer's
+  # requireFile dialect: a vanished file is a stale guard, a non-regular
+  # target its own refusal, a version mismatch stale. One regular file comes
+  # off the disk; the host holds the diff basis it read beforehand.
+  local path expected version err
+  path=$(b64dec "$1")
+  expected=$(b64dec "$2")
+  LC_ALL=C
+  export LC_ALL=C
+  [ -n "$path" ] && [ "$path" != "/" ] || fs_fail notfound "empty file name"
+  if [ ! -e "$path" ] && [ ! -L "$path" ]; then
+    fs_fail stale "cannot delete \"$path\": file changed since it was read"
+  fi
+  if [ -d "$path" ] && [ ! -L "$path" ]; then
+    fs_fail notdir "cannot delete \"$path\": not a regular file"
+  fi
+  if [ "$expected" != "-" ]; then
+    version=$(fs_version "$path")
+    if [ "$version" != "$expected" ]; then
+      fs_fail stale "cannot delete \"$path\": file changed since it was read"
+    fi
+  fi
+  rm -f -- "$path" 2>"$ERR_FILE" || {
+    err=$(cat "$ERR_FILE")
+    fs_fail "$(fs_classify "$err")" "$err"
+  }
+}
+
+fs_move() {
+  # $1 = base64 source, $2 = base64 destination, $3 = base64 destination mode
+  # (`-` keeps the default), $4 = base64 destination publish (`no-replace`
+  # for a guarded create, anything else = `replace`), $5 = base64 source
+  # expected version (`-` for none), $6 = base64 destination expected version
+  # (`-` for none). The peer's moveFile shape: the source passes requireFile,
+  # the destination passes writeTarget, the bytes publish through the write
+  # machinery's staging (atomic rename, or the no-replace link for a guarded
+  # create), and the source is removed last. The stdout carries the
+  # destination's fresh stat record (the host turns it into the outcome's
+  # version) and — when the source survived — one
+  # SRCFAIL|<reason>|<b64 message> line: the two effects are separate, and
+  # the peer's `sourceDeleted=false` shape must stay observable.
+  local src dst mode guard sexp dexp ddir dbase staging tmp err version u src_err
+  src=$(b64dec "$1")
+  dst=$(b64dec "$2")
+  mode=$(b64dec "$3")
+  guard=$(b64dec "$4")
+  sexp=$(b64dec "$5")
+  dexp=$(b64dec "$6")
+  LC_ALL=C
+  export LC_ALL=C
+  ddir=$(dirname -- "$dst")
+  dbase=$(basename -- "$dst")
+  [ -n "$dbase" ] && [ "$dbase" != "/" ] || fs_fail notfound "empty file name"
+  # Source: requireFile's dialect.
+  if [ ! -e "$src" ] && [ ! -L "$src" ]; then
+    fs_fail stale "cannot move \"$src\": file changed since it was read"
+  fi
+  if [ -d "$src" ] && [ ! -L "$src" ]; then
+    fs_fail notdir "cannot move \"$src\": not a regular file"
+  fi
+  if [ "$sexp" != "-" ]; then
+    version=$(fs_version "$src")
+    if [ "$version" != "$sexp" ]; then
+      fs_fail stale "cannot move \"$src\": file changed since it was read"
+    fi
+  fi
+  # Destination: writeTarget's dialect, on whatever the disk holds now.
+  if [ -e "$dst" ] || [ -L "$dst" ]; then
+    if [ -d "$dst" ] && [ ! -L "$dst" ]; then
+      fs_fail notdir "cannot move \"$src\" to \"$dst\": not a regular file"
+    fi
+    if [ "$dexp" != "-" ]; then
+      version=$(fs_version "$dst")
+      if [ "$version" != "$dexp" ]; then
+        fs_fail stale "cannot move \"$src\" to \"$dst\": file changed since it was read"
+      fi
+    fi
+  else
+    if [ "$dexp" != "-" ]; then
+      fs_fail stale "cannot move \"$src\" to \"$dst\": file no longer exists"
+    fi
+  fi
+  sweep_staging "$ddir" "$dbase"
+  u=$(head -c 8 /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \n')
+  staging="$ddir/.$dbase.$$.${u:-0}.tmpdir"
+  mkdir -- "$staging" 2>"$ERR_FILE" || {
+    err=$(cat "$ERR_FILE")
+    fs_fail "$(fs_classify "$err")" "$err"
+  }
+  CURRENT_STAGING=$staging
+  chmod 700 -- "$staging" 2>/dev/null
+  tmp="$staging/$dbase.tmp"
+  # The bytes travel kernel-side (cat to the staged temp) — no base64 round
+  # trip for a move's payload.
+  cat -- "$src" >"$tmp" 2>"$ERR_FILE" || {
+    err=$(cat "$ERR_FILE")
+    drop_staging
+    fs_fail io "$err"
+  }
+  chmod 600 -- "$tmp"
+  sync -f -- "$tmp" 2>/dev/null || :
+  if [ "$mode" != "-" ]; then
+    chmod "$mode" -- "$tmp" 2>"$ERR_FILE" || {
+      err=$(cat "$ERR_FILE")
+      drop_staging
+      fs_fail io "$err"
+    }
+  fi
+  if [ "$guard" = "no-replace" ]; then
+    if [ -e "$dst" ] || [ -L "$dst" ]; then
+      drop_staging
+      fs_fail exists "cannot move \"$src\" to \"$dst\": it already exists"
+    fi
+    ln -- "$tmp" "$dst" 2>"$ERR_FILE" || {
+      err=$(cat "$ERR_FILE")
+      drop_staging
+      fs_fail "$(fs_classify "$err")" "$err"
+    }
+    if ! [ "$tmp" -ef "$dst" ]; then
+      rm -f -- "$dst/$dbase.tmp"
+      drop_staging
+      fs_fail exists "cannot move \"$src\" to \"$dst\": it was created concurrently"
+    fi
+  else
+    mv -f -- "$tmp" "$dst" 2>"$ERR_FILE" || {
+      err=$(cat "$ERR_FILE")
+      drop_staging
+      fs_fail "$(fs_classify "$err")" "$err"
+    }
+  fi
+  drop_staging
+  # The destination's fresh identity, then the source's fate.
+  fs_stat -L "$(printf '%s' "$dst" | base64 | tr -d '\n')"
+  if rm -f -- "$src" 2>"$ERR_FILE"; then
+    :
+  else
+    src_err=$(cat "$ERR_FILE")
+    printf 'SRCFAIL|%s|%s\n' "$(fs_classify "$src_err")" "$(printf '%s' "$src_err" | base64 | tr -d '\n')"
+  fi
+}
+
+fs_batch_runner() {
+  # $1 = the flat batch record the FSB case assembled: op|nargs|arg…repeated.
+  # Every element is pipe-free (base64 alphabet, plain op names), so the
+  # walk below splits exactly. Each op runs in a subshell with its own
+  # capture files; the record stream lands on stdout (run_capture's OUT_FILE,
+  # which becomes the batch's single RES payload).
+  local batch op nargs rest arg n i first_err reason msg
+  batch=$1
+  LC_ALL=C
+  export LC_ALL=C
+  i=0
+  while [ -n "$batch" ]; do
+    i=$((i + 1))
+    op=${batch%%|*}
+    case $batch in
+      *\|*) rest=${batch#*|} ;;
+      *) rest= ;;
+    esac
+    nargs=${rest%%|*}
+    case $rest in
+      *\|*) rest=${rest#*|} ;;
+      *) rest= ;;
+    esac
+    case $nargs in
+      ''|*[!0-9]*) nargs=0 ;;
+    esac
+    set --
+    n=0
+    while [ "$n" -lt "$nargs" ]; do
+      arg=${rest%%|*}
+      case $rest in
+        *\|*) rest=${rest#*|} ;;
+        *) rest= ;;
+      esac
+      n=$((n + 1))
+      set -- "$@" "$arg"
+    done
+    # What remains belongs to the NEXT op record; keep it before the error
+    # parsing below reuses `rest`.
+    batch=$rest
+    opout="$TMPDIR_AGENT/b.$i.out"
+    operr="$TMPDIR_AGENT/b.$i.err"
+    if ( fs_dispatch "$op" "$@" ) >"$opout" 2>"$operr"; then
+      printf 'OK %s|%s\n' "$i" "$(b64enc_file "$opout")" >>"$TMPDIR_AGENT/b.res"
+    else
+      first_err=$(head -n 1 -- "$operr" 2>/dev/null)
+      case $first_err in
+        dsh-fs\|*)
+          rest=${first_err#dsh-fs|}
+          reason=${rest%%|*}
+          msg=${rest#*|}
+          printf 'BAD %s|%s|%s\n' "$i" "$reason" "${msg:-$(printf '' | base64 | tr -d '\n')}" >>"$TMPDIR_AGENT/b.res"
+          ;;
+        *)
+          printf 'BAD %s|io|%s\n' "$i" "$(printf '%s' "$first_err" | base64 | tr -d '\n')" >>"$TMPDIR_AGENT/b.res"
+          ;;
+      esac
+    fi
+    rm -f -- "$opout" "$operr"
+  done
+  cat -- "$TMPDIR_AGENT/b.res"
+}
+
 fs_dispatch() {
   # $1 = op, $2.. = raw base64 arguments (handlers decode what they need to
   # treat as a path; write's content stays base64 until it hits the file).
@@ -644,13 +893,15 @@ fs_dispatch() {
     realpath) fs_realpath "$1" ;;
     read)     fs_read "$1" "$2" "$3" ;;
     write)    fs_write "$1" "$2" "$3" "$4" "$5" ;;
+    delete)   fs_delete "$1" "$2" ;;
+    move)     fs_move "$1" "$2" "$3" "$4" "$5" "$6" ;;
     # A host/agent contract breach is an I/O-class failure, not a file that
     # was not found: the mapped reason reads FS_IO_ERROR host-side.
     *)        fs_fail protocol "unknown fs op" ;;
   esac
 }
 
-printf 'HELLO|wsl-agent|%s|%s|%s\n' "$PROTO_VERSION" "$AGENT_DIGEST" "$$"
+printf 'HELLO|wsl-agent|%s|%s|%s|%s\n' "$PROTO_VERSION" "$AGENT_DIGEST" "$$" batch
 
 while IFS= read -r line; do
   case $line in
@@ -771,6 +1022,50 @@ while IFS= read -r line; do
       # No capture cap — the payloads are the host's own read windows, bounded
       # by the protocol.
       run_capture "$req_id" "$timeout_s" 0 subshell fs_dispatch "$op" "$@"
+      ;;
+    FSB\|*)
+      # Protocol 7's batched FS frame: op records are read into one flat
+      # pipe-free record string and handed to a single worker, whose record
+      # stream becomes the one RES payload. The batch file starts empty so a
+      # previous batch's records can never leak into this answer.
+      header=${line#FSB|}
+      req_id=${header%%|*}
+      rest=${header#*|}
+      timeout_s=${rest%%|*}
+      nops=${rest#*|}
+      case $nops in
+        ''|*[!0-9]*) nops=0 ;;
+      esac
+      batch=
+      n=0
+      while [ "$n" -lt "$nops" ]; do
+        IFS= read -r specline || exit 0
+        specline=${specline#OP|}
+        op=${specline%%|*}
+        case $specline in
+          *\|*) rest=${specline#*|} ;;
+          *) rest= ;;
+        esac
+        nargs=${rest%%|*}
+        case $rest in
+          *\|*) rest=${rest#*|} ;;
+          *) rest= ;;
+        esac
+        case $nargs in
+          ''|*[!0-9]*) nargs=0 ;;
+        esac
+        n=$((n + 1))
+        batch="${batch:+$batch|}$op|$nargs"
+        k=0
+        while [ "$k" -lt "$nargs" ]; do
+          IFS= read -r arg_b64 || exit 0
+          k=$((k + 1))
+          batch="$batch|$arg_b64"
+        done
+      done
+      : >"$TMPDIR_AGENT/b.res"
+      run_capture "$req_id" "$timeout_s" 0 subshell fs_batch_runner "$batch"
+      rm -f -- "$TMPDIR_AGENT/b.res"
       ;;
     *)
       printf 'ERR||protocol|%s\n' "$(printf '%s' "unrecognized request" | base64 | tr -d '\n')"

@@ -53,6 +53,12 @@ export interface ExecResult {
         stdout: boolean;
         stderr: boolean;
     };
+    /**
+     * Protocol 7's FS refusal token (`notfound`, `stale`, …), present only on a
+     * failed FS op answered with the structured FSERR line. FS consumers map it
+     * onto `FsErrorCode` directly; command results never carry one.
+     */
+    reason?: string;
 }
 /**
  * One request in flight on an agent: its frame, its settlement callbacks, and
@@ -248,6 +254,10 @@ export declare class WslAgent {
     process: ChildProcess | null;
     /** The lifecycle state. */
     state: "idle" | "starting" | "ready" | "dead";
+    /** The protocol version the resident announced in HELLO (0 before one). */
+    protocolVersion: number;
+    /** The capabilities the resident advertised in HELLO (`conc`, `batch`). */
+    caps: Set<string>;
     /** The in-flight start, shared by concurrent callers. */
     startPromise: Promise<void> | null;
     /** The in-flight start's settler, so close() can fail a start it interrupts. */
@@ -502,6 +512,31 @@ export declare class WslAgent {
         exitCode: number;
         stdout: Buffer;
         stderr: Buffer;
+    }>;
+    /**
+     * Run one batched FS frame (protocol 7): the ordered ops execute in one
+     * worker and the resolution is ONE result whose stdout is the per-op
+     * record stream (`OK <i>|<b64>` / `BAD <i>|<reason>|<b64>`). The host sends
+     * this only to a resident that advertised `batch`; `DistroFs` gates it.
+     *
+     * @param request - the batch request.
+     * @returns the settled batch result.
+     */
+    fsb({ ops, timeoutMs, signal }: {
+        /** The ordered ops, each `{ op, args }` in the FS vocabulary. */
+        ops: Array<{
+            op: string;
+            args: string[];
+        }>;
+        /** In-distro timeout from the dequeue ACK; `<= 0` means none. */
+        timeoutMs?: number;
+        /** Cancels the request, sending KILL if it was already dispatched. */
+        signal?: AbortSignal;
+    }): Promise<{
+        exitCode: number;
+        stdout: Buffer;
+        stderr: Buffer;
+        reason?: string;
     }>;
     /**
      * Liveness probe, also used to warm the agent up.

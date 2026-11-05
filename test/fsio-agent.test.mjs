@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FsTargetKey } from "@deepseek-ai/dsh-fs";
-import { encodeExecFrame, encodeFsFrame, parseAgentLine } from "../lib/agent-protocol.js";
+import { encodeExecFrame, encodeFsFrame, parseAgentLine, encodeFsbFrame } from "../lib/agent-protocol.js";
 import { DistroFs, nanoseconds, parseStatRecord, versionOf } from "../lib/fsio-agent.js";
 import { applyLiteralEdit, restoreLineEndings } from "../lib/fsio-text.js";
 
@@ -82,6 +82,10 @@ const seamsOf = (fs) => /** @type {DistroFsSeams} */ (/** @type {unknown} */ (fs
 /** An agent-like transport backed by the real script under the local `sh`. */
 class ScriptAgent {
   constructor() {
+    /** The HELLO-reported protocol version (`hello()` fills it). */
+    this.protocolVersion = 0;
+    /** The HELLO-reported capability set (`hello()` fills it). */
+    this.caps = new Set();
     this.dir = mkdtempSync(join(tmpdir(), "wsl-fsio-"));
     this.child = spawn("sh", [SCRIPT], { stdio: ["pipe", "pipe", "pipe"] });
     this.lines = createInterface({ input: this.child.stdout });
@@ -100,6 +104,8 @@ class ScriptAgent {
   async hello() {
     const message = /** @type {HelloMessage} */ (parseAgentLine(await this.nextLine()));
     assert.equal(message.type, "hello");
+    this.protocolVersion = message.version;
+    this.caps = new Set(message.caps ?? []);
   }
 
   nextLine() {
@@ -109,7 +115,7 @@ class ScriptAgent {
   /**
    * The `WslAgent.fs` shape, over the script.
    * @param {{ op: string, args: string[], timeoutMs?: number }} request - the op and its wire arguments.
-   * @returns {Promise<{exitCode: number, stdout: Buffer, stderr: Buffer}>} the RES projection for this request.
+   * @returns {Promise<{exitCode: number, stdout: Buffer, stderr: Buffer, reason?: string}>} the settled projection for this request.
    */
   async fs({ op, args, timeoutMs = 30000 }) {
     const id = `t${this.n++}`;
@@ -118,6 +124,30 @@ class ScriptAgent {
       const message = /** @type {AgentMessage} */ (parseAgentLine(await this.nextLine()));
       if (message.type === "result" && message.id === id) {
         return { exitCode: message.exitCode, stdout: message.stdout, stderr: message.stderr };
+      }
+      if (message.type === "fsError" && message.id === id) {
+        // Protocol 7's structured refusal, projected onto the shape the
+        // adapter's legacy branch parses (the reason rides alongside).
+        return { exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from(message.message), reason: message.reason };
+      }
+    }
+  }
+
+  /**
+   * The `WslAgent.fsb` shape: one batched frame, one RES record stream.
+   * @param {{ ops: Array<{ op: string, args: string[] }>, timeoutMs?: number }} request - the batch request.
+   * @returns {Promise<{ exitCode: number, stdout: Buffer, stderr: Buffer, reason?: string }>} the settled batch.
+   */
+  async fsb({ ops, timeoutMs = 30000 }) {
+    const id = `b${this.n++}`;
+    for (const line of encodeFsbFrame({ id, ops, timeoutMs })) this.child.stdin.write(`${line}\n`);
+    for (;;) {
+      const message = /** @type {AgentMessage} */ (parseAgentLine(await this.nextLine()));
+      if (message.type === "result" && message.id === id) {
+        return { exitCode: message.exitCode, stdout: message.stdout, stderr: message.stderr };
+      }
+      if (message.type === "fsError" && message.id === id) {
+        return { exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from(message.message), reason: message.reason };
       }
     }
   }

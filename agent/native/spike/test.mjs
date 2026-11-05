@@ -1,7 +1,7 @@
 /**
  * Spike test for the native agent prototype (ADR 0002, stage 2).
  *
- * It drives the Rust binary over the real v6 frames and compares the shape
+ * It drives the Rust binary over the real v7 frames and compares the shape
  * with the shipped shell agent where it matters. Not part of the unit suite:
  * the binary is built on demand.
  *
@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
-import { decodeB64, encodeExecFrame, encodeFsFrame, encodeKill, encodeSetEnv } from "../../../lib/agent-protocol.js";
+import { decodeB64, encodeExecFrame, encodeFsbFrame, encodeFsFrame, encodeKill, encodeSetEnv } from "../../../lib/agent-protocol.js";
 import { WslAgent } from "../../../lib/agent.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -60,7 +60,7 @@ class Session {
     this.lines.on("line", (line) => {
       const f = line.split("|");
       if (f[0] === "HELLO") {
-        this.helloResolve({ name: f[1], version: Number(f[2]), digest: f[3], pid: Number(f[4]) });
+        this.helloResolve({ name: f[1], version: Number(f[2]), digest: f[3], pid: Number(f[4]), caps: f[5] ?? "" });
         return;
       }
       if (f[0] === "PONG") {
@@ -68,6 +68,19 @@ class Session {
         return;
       }
       if (f[0] === "ACK") return;
+      if (f[0] === "FSERR") {
+        const entry = this.pending.get(f[1]);
+        if (entry === undefined) return;
+        this.pending.delete(f[1]);
+        entry.resolve({
+          exitCode: 1,
+          stdout: Buffer.alloc(0),
+          stderr: Buffer.from(`dsh-fs|${f[2]}|${f[3]}\n`),
+          truncated: { stdout: false, stderr: false },
+          reason: f[2],
+        });
+        return;
+      }
       if (f[0] === "RES" || f[0] === "ERR") {
         const entry = this.pending.get(f[1]);
         if (entry === undefined) return;
@@ -111,6 +124,12 @@ class Session {
     return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }));
   }
 
+  fsb({ ops }) {
+    const id = `r${this.next += 1}`;
+    this.send(encodeFsbFrame({ id, ops }));
+    return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }));
+  }
+
   kill(id) {
     this.send([encodeKill(id)]);
   }
@@ -130,11 +149,12 @@ await check("HELLO digest is the running binary's sha256", async () => {
   await session.close();
 });
 
-await check("HELLO names wsl-agent/v6", async () => {
+await check("HELLO names wsl-agent/v7 with the native capabilities", async () => {
   const session = new Session(binary, []);
   const hello = await session.hello;
   assert.equal(hello.name, "wsl-agent");
-  assert.equal(hello.version, 6);
+  assert.equal(hello.version, 7);
+  assert.match(hello.caps, /(^|,)batch(,|$)/, "the native agent advertises the batch frame");
   await session.close();
 });
 
@@ -577,11 +597,89 @@ await check("request environments stay isolated for both agents", async () => {
   }
 });
 
+await check("FSB answers a batch of ops in one round trip (both agents)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spike-fsb-"));
+  try {
+    const file = join(root, "a.txt");
+    writeFileSync(file, "batch-body");
+    for (const [name, command, args] of [["native", binary, []], ["shell", "sh", [shellAgent]]]) {
+      const session = new Session(command, args);
+      await session.hello;
+      const missing = join(root, "missing.txt");
+      const result = await session.fsb({
+        ops: [
+          { op: "stat", args: [file] },
+          { op: "read", args: [file, "0", "100"] },
+          { op: "stat", args: [missing] },
+        ],
+      });
+      assert.equal(result.exitCode, 0, `${name}: ${result.stderr}`);
+      const records = result.stdout.toString().trim().split("\n");
+      assert.equal(records.length, 3, `${name}: one record per op`);
+      assert.match(records[0], /^OK 1\|/, `${name}: stat succeeded`);
+      assert.match(records[1], /^OK 2\|/, `${name}: read succeeded`);
+      assert.equal(Buffer.from(records[1].slice("OK 2|".length), "base64").toString(), "batch-body");
+      assert.match(records[2], /^BAD 3\|notfound\|/, `${name}: a failed member keeps the batch going`);
+      await session.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+await check("FS delete guards its version and removes the file", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spike-del-"));
+  try {
+    for (const [name, command, args] of [["native", binary, []], ["shell", "sh", [shellAgent]]]) {
+      const session = new Session(command, args);
+      await session.hello;
+      const file = join(root, `${name}-del.txt`);
+      writeFileSync(file, "gone-soon");
+      const stat = parseStat((await session.fs({ op: "stat", args: [file] })).stdout);
+      const stale = await session.fs({ op: "delete", args: [file, "0:0:0:0:0"] });
+      assert.equal(stale.reason, "stale", `${name}: a wrong version is stale`);
+      assert.equal(readFileSync(file, "utf8"), "gone-soon", `${name}: the file survived the refusal`);
+      const removed = await session.fs({ op: "delete", args: [file, versionOf(stat)] });
+      assert.equal(removed.exitCode, 0, `${name}: delete with the observed version succeeds`);
+      assert.equal(existsSync(file), false, `${name}: the file is gone`);
+      await session.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+await check("FS move publishes the destination, guards the source and removes it", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spike-mv-"));
+  try {
+    for (const [name, command, args] of [["native", binary, []], ["shell", "sh", [shellAgent]]]) {
+      const session = new Session(command, args);
+      await session.hello;
+      const source = join(root, `${name}-src.txt`);
+      const destination = join(root, `${name}-dst.txt`);
+      writeFileSync(source, "moved-body");
+      const stat = parseStat((await session.fs({ op: "stat", args: [source] })).stdout);
+      const stale = await session.fs({ op: "move", args: [source, destination, "600", "replace", "0:0:0:0:0", "-"] });
+      assert.equal(stale.reason, "stale", `${name}: a wrong source version is stale`);
+      assert.equal(existsSync(source), true, `${name}: the source survived the refusal`);
+      const moved = await session.fs({ op: "move", args: [source, destination, "600", "replace", versionOf(stat), "-"] });
+      assert.equal(moved.exitCode, 0, `${name}: ${moved.stderr}`);
+      assert.equal(readFileSync(destination, "utf8"), "moved-body");
+      assert.equal(existsSync(source), false, `${name}: the source is removed after publication`);
+      await session.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 await check("the shell agent answers the same EXEC shape (differential)", async () => {
   const session = new Session("sh", [shellAgent]);
   const hello = await session.hello;
   assert.equal(hello.name, "wsl-agent");
-  assert.equal(hello.version, 6);
+  assert.equal(hello.version, 7);
+  assert.match(hello.caps, /(^|,)batch(,|$)/, "the shell agent advertises the batch frame");
+  assert.doesNotMatch(hello.caps, /(^|,)conc(,|$)/, "the shell agent's serial loop does not advertise concurrency");
   const result = await session.exec({ argv: ["sh", "-c", "printf out; printf err >&2; exit 7"] });
   assert.equal(result.exitCode, 7);
   assert.equal(result.stdout.toString(), "out");

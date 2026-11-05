@@ -112,6 +112,18 @@ class Harness {
     const id = this.fs(op, args);
     for (;;) {
       const message = /** @type {AgentMessage} */ (parseAgentLine(await this.nextLine()));
+      if (message.type === "fsError" && message.id === id) {
+        // Project protocol 7's structured refusal onto the RES shape the
+        // existing assertions parse, so both error channels stay covered.
+        return {
+          type: /** @type {const} */ ("result"),
+          id,
+          exitCode: 1,
+          stdout: Buffer.alloc(0),
+          stderr: Buffer.from(`dsh-fs|${message.reason}|${Buffer.from(message.message).toString("base64")}\n`),
+          truncated: { stdout: false, stderr: false },
+        };
+      }
       if (message.type !== "result" || message.id !== id) continue;
       return message;
     }
@@ -198,6 +210,26 @@ checks.push(["a cancelled write waiting behind a shell command never runs", asyn
     writeFileSync(marker, "");
     await agent.close();
     rmSync(dir, { recursive: true, force: true });
+  }
+}]);
+
+checks.push(["a failed op answers with the structured FSERR line (protocol 7)", async () => {
+  const agent = new Harness();
+  try {
+    await agent.hello();
+    const id = agent.fs("stat", [join(agent.dir, "does-not-exist")]);
+    for (;;) {
+      const line = await agent.nextLine();
+      if (line.startsWith(`FSERR|${id}|`)) {
+        const [, , reason, encoded] = line.split("|");
+        assert.equal(reason, "notfound");
+        assert.match(Buffer.from(encoded, "base64").toString("utf8"), /(No such file|not found|cannot stat)/);
+        break;
+      }
+      assert.ok(!line.startsWith(`RES|${id}|`), "a failed op does not also answer with a RES");
+    }
+  } finally {
+    await agent.close();
   }
 }]);
 

@@ -18,6 +18,22 @@ were part of the record.
 
 ### Added
 
+- **Agent protocol v7 (WSL-312): concurrent-ready FS frames, structured
+  errors, batched reads, and the peer's patch/delete/move operations.** HELLO
+  now advertises capabilities (`conc`, `batch`); failed FS ops answer with the
+  structured `FSERR|id|reason|b64` line; the new `FSB` batch frame answers a
+  GUI-preview-shaped stat+list+read in one round trip
+  (`test/probe/gui-preview-batch.sh` measures it); and the FS vocabulary grows
+  `delete`/`move` with the peer's guard dialects. `patchText` applies hunks
+  in-process through `@deepseek-ai/dsh-fs-patch` (new peer dependency), so the
+  `FS_PATCH_MISMATCH` dialect is the peer's byte-for-byte. Both agent
+  implementations ship v7 in lockstep (shell script + native binaries for
+  x86_64/aarch64), the host accepts agents 6–7 and gates every v7 frame on the
+  negotiated version, and the `0.18.0` declared gap for the peer's three new
+  operations is closed. Design: [docs/AGENT-PROTOCOL-V7.md](docs/AGENT-PROTOCOL-V7.md);
+  evidence: `agent/native/spike/test.mjs` (28 checks), `test/fs-substrate.test.mjs`
+  (17), `test/agent-protocol.test.mjs` (20).
+
 - **The doctor can now report a live resident's failures (WSL-313).** The
   CLI's handshake check states its probe source ("probed: a fresh resident")
   and keeps saying that a live resident's `lastError` is host-private — the

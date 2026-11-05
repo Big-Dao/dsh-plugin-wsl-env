@@ -30,6 +30,7 @@
  *
  * @module dsh-plugin-wsl/fs-substrate
  */
+import type { PatchHunk } from "@deepseek-ai/dsh-fs-patch";
 import { DistroFs } from "./fsio-agent.js";
 import type { WslAgent } from "./agent.js";
 /**
@@ -255,6 +256,93 @@ export declare class AgentSubstrate {
         version: string;
         before: string;
         after: string;
+    }>;
+    /**
+     * Apply parsed hunks to a text file (protocol 7): the peer's `patchText`
+     * semantics, using the peer's own `applyHunks` for matching and its exact
+     * `FS_PATCH_MISMATCH` dialect, then the same guarded atomic publication a
+     * write takes. The hunks travel in-process; the distro sees one read and
+     * one guarded replace.
+     *
+     * @param target - the resolved regular file.
+     * @param hunks - ordered hunks from the caller's patch parse.
+     * @param expected - the version the patch was based on.
+     * @param signal - cancels the patch.
+     * @param policy - the resolved policy this patch was fenced with.
+     * @returns the pre/post text and the published version.
+     */
+    patchText(target: ResolvedTarget, hunks: readonly PatchHunk[], expected: {
+        version: string;
+    } | undefined, signal?: AbortSignal, policy?: {
+        mode: string;
+        workspaceRoot: string;
+        sessionId?: string;
+    } | undefined): Promise<{
+        version: string;
+        before: string;
+        after: string;
+    }>;
+    /**
+     * Remove one regular file (protocol 7), mirroring the peer's
+     * `deleteFile`: missing/stale/mismatched targets refuse, the read-basis is
+     * best effort and bounded by `diffBasisMaxBytes`, and the removal itself is
+     * re-guarded distro-side by the expected version.
+     *
+     * @param target - the resolved file.
+     * @param expected - the version the removal was based on.
+     * @param signal - cancels the removal.
+     * @param policy - the resolved policy this removal was fenced with.
+     * @returns the bounded pre-removal text basis.
+     */
+    deleteFile(target: ResolvedTarget, expected: {
+        version: string;
+    } | undefined, signal?: AbortSignal, policy?: {
+        mode: string;
+        workspaceRoot: string;
+        sessionId?: string;
+    } | undefined): Promise<{
+        before: string | null;
+    }>;
+    /**
+     * Move a regular file (protocol 7), mirroring the peer's `moveFile`: the
+     * source passes `requireFile`, the destination `writeTarget`, an optional
+     * hunk set transforms the text on the way, and the two effects (publish,
+     * remove) are reported separately — a destination that landed while the
+     * source survived returns `sourceDeleted: false` plus the failure.
+     *
+     * @param source - the resolved source.
+     * @param destination - the resolved destination.
+     * @param options - the hunks and the source/destination guards.
+     * @param signal - cancels before publication.
+     * @param policy - the resolved policy both paths run under.
+     * @returns the bounded source basis and the destination outcome.
+     */
+    moveFile(source: ResolvedTarget, destination: ResolvedTarget, options: {
+        hunks?: readonly PatchHunk[];
+        expectedSource?: {
+            version: string;
+        };
+        expectedDestination?: {
+            kind: string;
+            version?: string;
+        };
+    }, signal?: AbortSignal, policy?: {
+        mode: string;
+        workspaceRoot: string;
+        sessionId?: string;
+    } | undefined): Promise<{
+        sourceBefore: string | null;
+        sourceDeleted: boolean;
+        sourceFailure?: {
+            code: string;
+            message: string;
+        };
+        destination: {
+            operation: string;
+            version: string;
+            before: string | null;
+            after: string;
+        };
     }>;
 }
 export default AgentSubstrate;

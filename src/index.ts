@@ -2139,48 +2139,69 @@ export class WslFileSystem extends LocalFileSystem {
   }
 
   /**
-   * Refuse the peer's 0.2.2-rc.1 patch operation. This backend serves the
-   * distro world only, and every target it resolves carries a UNC identity:
-   * the inherited host implementation would apply the hunks to a same-named
-   * path on the Windows filesystem — or refuse with a host-dialect
-   * `FS_NOT_FOUND` that names the wrong world. Fail closed here until the
-   * agent substrate grows a patch op (see `docs/PEER-PARITY.md`, the new-peer
-   * operations section).
+   * Apply parsed hunks (protocol 7): hunk matching and application run
+   * in-process through the peer's own `applyHunks` (the same dialect and
+   * `FS_PATCH_MISMATCH` the peer emits), against the distro's bytes, then
+   * publish through the same guarded atomic write an edit takes.
    *
-   * @param target - the resolved target.
-   * @param _hunks - ordered hunks from the caller's patch parse; unused while the operation refuses.
-   * @param _expected - the version guard; unused while the operation refuses.
-   * @param _signal - cancellation; unused while the operation refuses.
-   * @param _sandboxPolicy - the per-call policy; unused while the operation refuses.
+   * @param target - the resolved regular file.
+   * @param hunks - ordered hunks from the caller's patch parse.
+   * @param expected - the version the patch was based on.
+   * @param signal - cancels the patch.
+   * @param sandboxPolicy - the per-call policy; omit for the deployment default.
+   * @returns the pre/post text and the published version.
    */
-  async patchText(target: FsTarget, _hunks: PatchHunks, _expected?: { version: FsVersion }, _signal?: AbortSignal, _sandboxPolicy?: SandboxExecutionPolicy): Promise<FsEditOutcome> {
-    throw new FsError(`cannot patch "${target.displayPath}": the WSL substrate does not serve patch operations; the host implementation would target the wrong filesystem`, "FS_IO_ERROR");
+  async patchText(target: FsTarget, hunks: PatchHunks, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<FsEditOutcome> {
+    const policy = sandboxPolicy ?? this.ctx.sandboxPolicy.resolve();
+    const fenced = await this.checkedTarget(target, policy);
+    try {
+      return (await (await this.substrateForTarget(fenced)).patchText(fenced, hunks, expected, signal, policy)) as FsEditOutcome;
+    } catch (error) {
+      throw this.peerError(error);
+    }
   }
 
   /**
-   * Refuse the peer's 0.2.2-rc.1 delete operation, for the same wrong-world
-   * reason as {@link patchText}.
+   * Remove one regular file (protocol 7) after fencing the target by the
+   * per-call policy; the guarded removal re-verifies the expected version
+   * distro-side.
    *
-   * @param target - the resolved target.
-   * @param _expected - the version guard; unused while the operation refuses.
-   * @param _signal - cancellation; unused while the operation refuses.
-   * @param _sandboxPolicy - the per-call policy; unused while the operation refuses.
+   * @param target - the resolved file.
+   * @param expected - the version the removal was based on.
+   * @param signal - cancels the removal.
+   * @param sandboxPolicy - the per-call policy; omit for the deployment default.
+   * @returns the bounded pre-removal text basis.
    */
-  async deleteFile(target: FsTarget, _expected?: { version: FsVersion }, _signal?: AbortSignal, _sandboxPolicy?: SandboxExecutionPolicy): Promise<FsDeleteOutcome> {
-    throw new FsError(`cannot delete "${target.displayPath}": the WSL substrate does not serve delete operations; the host implementation would target the wrong filesystem`, "FS_IO_ERROR");
+  async deleteFile(target: FsTarget, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<FsDeleteOutcome> {
+    const policy = sandboxPolicy ?? this.ctx.sandboxPolicy.resolve();
+    const fenced = await this.checkedTarget(target, policy);
+    try {
+      return (await (await this.substrateForTarget(fenced)).deleteFile(fenced, expected, signal, policy)) as FsDeleteOutcome;
+    } catch (error) {
+      throw this.peerError(error);
+    }
   }
 
   /**
-   * Refuse the peer's 0.2.2-rc.1 move operation, for the same wrong-world
-   * reason as {@link patchText}.
+   * Move one regular file (protocol 7) after fencing BOTH endpoints by the
+   * per-call policy — the destination publishes and the source is removed, so
+   * each must be writable under the same roots.
    *
    * @param source - the resolved source.
    * @param destination - the resolved destination.
-   * @param _options - the hunks and guards; unused while the operation refuses.
-   * @param _signal - cancellation; unused while the operation refuses.
-   * @param _sandboxPolicy - the per-call policy; unused while the operation refuses.
+   * @param options - the hunks and the source/destination guards.
+   * @param signal - cancels before publication.
+   * @param sandboxPolicy - the per-call policy; omit for the deployment default.
+   * @returns the bounded source basis and the destination outcome.
    */
-  async moveFile(source: FsTarget, destination: FsTarget, _options?: MoveFileOptions, _signal?: AbortSignal, _sandboxPolicy?: SandboxExecutionPolicy): Promise<FsMoveOutcome> {
-    throw new FsError(`cannot move "${source.displayPath}" to "${destination.displayPath}": the WSL substrate does not serve move operations; the host implementation would target the wrong filesystem`, "FS_IO_ERROR");
+  async moveFile(source: FsTarget, destination: FsTarget, options: MoveFileOptions, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<FsMoveOutcome> {
+    const policy = sandboxPolicy ?? this.ctx.sandboxPolicy.resolve();
+    const fencedSource = await this.checkedTarget(source, policy);
+    const fencedDestination = await this.checkedTarget(destination, policy);
+    try {
+      return (await (await this.substrateForTarget(fencedSource)).moveFile(fencedSource, fencedDestination, options, signal, policy)) as FsMoveOutcome;
+    } catch (error) {
+      throw this.peerError(error);
+    }
   }
 }

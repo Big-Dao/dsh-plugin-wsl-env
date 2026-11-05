@@ -22,7 +22,7 @@ import Include from "@deepseek-ai/cordis-plugin-include";
 import Loader from "@deepseek-ai/cordis-plugin-loader";
 import { WslRoutingFileSystem } from "../lib/fs-routing.js";
 import { WslFileSystem } from "../lib/index.js";
-import { FsError, FsTargetKey } from "@deepseek-ai/dsh-fs";
+import { FsTargetKey } from "@deepseek-ai/dsh-fs";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -263,13 +263,15 @@ check("the routed root filesystem actually starts through the Loader, not just c
     assert.equal((await router.writeText(target, "x"))?.operation, "update");
     assert.equal((await router.editText(target, { oldString: "a", newString: "b", replaceAll: false }))?.version, "v");
 
-    // The peer's 0.2.2-rc.1 operations route by the same coordinates, and the
-    // distro branch refuses honestly: the agent substrate has no patch/delete/
-    // move op, and the inherited host implementation would touch the Windows
-    // filesystem under a same-named path instead.
-    await assert.rejects(router.patchText(target, [], undefined), /** @param {FsError} error */ (error) => error.code === "FS_IO_ERROR" && /patch operations/.test(error.message));
-    await assert.rejects(router.deleteFile(target, undefined), /** @param {FsError} error */ (error) => error.code === "FS_IO_ERROR" && /delete operations/.test(error.message));
-    await assert.rejects(router.moveFile(target, directory, {}), /** @param {FsError} error */ (error) => error.code === "FS_IO_ERROR" && /move operations/.test(error.message));
+    // The peer's 0.2.2-rc.1 operations route by the same coordinates (the
+    // distro branch reaches the backend, which serves them over protocol-7
+    // frames; the host side keeps the inherited implementation).
+    surface.patchText = async () => ({ version: "v", before: "", after: "" });
+    surface.deleteFile = async () => ({ before: "" });
+    surface.moveFile = async () => ({ sourceBefore: null, sourceDeleted: true, destination: { operation: "create", version: "v", before: null, after: "" } });
+    assert.equal((await router.patchText(target, [], undefined))?.version, "v");
+    assert.equal((await router.deleteFile(target, undefined))?.before, "");
+    assert.equal((await router.moveFile(target, directory, {}))?.sourceDeleted, true);
 
     // `additionalWritableRoots` (peer 0.2.2-rc.1) in a distro workspace: a
     // same-distro UNC extra root is granted together with the workspace, a

@@ -50,7 +50,7 @@ case "$all" in
 esac
 case "$all" in
   *"--exec sh /"*)
-    if [ "\${FAKE_AGENT_DIGEST:-}" = bad ]; then printf 'HELLO|wsl-agent|6|deadbeef|4242\\n'; else printf 'HELLO|wsl-agent|6|${AGENT_DIGEST}|4242\\n'; fi
+    if [ "\${FAKE_AGENT_DIGEST:-}" = bad ]; then printf 'HELLO|wsl-agent|7|deadbeef|4242|batch\\n'; else printf 'HELLO|wsl-agent|7|${AGENT_DIGEST}|4242|batch\\n'; fi
     exit 0 ;;
 esac
 case "$all" in

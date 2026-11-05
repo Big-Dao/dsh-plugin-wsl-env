@@ -773,6 +773,41 @@ export declare class WslShellExecutor extends LocalBashExecutor {
      * @returns the decorated execution result.
      */
     executeOneShot(resolved: WslExecSpec, distro: string, shell: string): Promise<ShellExecution>;
+    /**
+     * The confined one-shot's argv prepare: confine the distro argv under the
+     * policy, keep the resulting profile for the fact-stamper and the settlement
+     * mapping, and hand back the wrapped host argv.
+     *
+     * @param resolved - the resolved spec.
+     * @param distro - the resolved distro name.
+     * @param shell - the resolved distro shell.
+     * @param policy - the confined policy (narrowed in by `executeOneShot`).
+     * @param slot - the closure the builder assigns the profile into.
+     * @param signal - the caller's cancellation.
+     */
+    private prepareConfinedArgv;
+    /**
+     * Stamp the per-process sandbox facts before `done` settles, so a background
+     * process reports the same mode, denial and enforcement a foreground run
+     * would.
+     *
+     * @param resolved - the resolved spec.
+     * @param mode - the confined policy's mode.
+     * @param slot - the closure holding the assigned profile.
+     * @param process - the spawned handle.
+     */
+    private stampConfinedFacts;
+    /**
+     * Settle one confined one-shot result: the distro and workdir verdicts, the
+     * never-armed honesty stamp, the runner-failure throw, and the denial facts.
+     *
+     * @param result - the settled process result.
+     * @param distro - the resolved distro name.
+     * @param resolved - the resolved spec.
+     * @param mode - the confined policy's mode.
+     * @param confined - the profile the argv prepare armed, when it ran.
+     */
+    private settleConfinedOneShot;
 }
 /**
  * Filesystem backend over a WSL distro's UNC share.

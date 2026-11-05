@@ -1298,64 +1298,111 @@ export class WslShellExecutor
         },
       );
     }
-    const mode = policy.mode;
-    let confined: ConfinedProfile | undefined;
+    // The confined prepare closes over this slot: the argv builder assigns it,
+    // the fact-stamper and the settlement mapping read it. `executeArgv` runs
+    // the builder before either callback can fire, so the reads always see the
+    // assigned profile (or the run never happened). The mode is captured once
+    // here: the guard above narrowed it, and property narrowings do not reach
+    // closures.
+    const mode: ConfinedSandboxMode = policy.mode;
+    const confinement: { profile: ConfinedProfile | undefined } = { profile: undefined };
     const execution = await this.executeArgv(
       resolved,
-      async (signal) => {
-        // Preparation is async, so it runs under executeArgv's deadline and
-        // cancellation handling rather than before them. A distro without a
-        // usable runner throws here, before anything is spawned. The outer
-        // guard narrowed the sandbox in, but narrowings do not reach closures —
-        // so the confined sandbox is asserted here, type-level only.
-        confined = await (this.sandbox as InstanceType<typeof WslSandbox>).confine(this.distroArgv(resolved, shell), { ...policy, mode }, { distro, signal });
-        signal.throwIfAborted();
-        return this.argv(resolved, distro, shell, confined.argv);
-      },
-      (process) => {
-        // The outer guard cannot narrow the captured profile inside the
-        // callback, so the confined shape is asserted once here.
-        const profile = confined as ConfinedProfile;
-        this.processFacts.set(process as ShellExecution, {
-          mode,
-          enforcement: profile.enforcement,
-          denialSignatures: profile.denialSignatures,
-          runnerFailureRules: profile.runnerFailureRules,
-          runnerProgram: profile.argv[0] ?? "",
-          workdir: resolved.workdir,
-          windowsDrive: profile.windowsDrive,
-          sessionScope: "per-command",
-        });
-      },
+      (signal) => this.prepareConfinedArgv(resolved, distro, shell, policy, mode, confinement, signal),
+      (process) => this.stampConfinedFacts(resolved, mode, confinement, process),
     );
     return WslShellExecutor.decorateResult(execution, (result) => {
-      this.throwIfDistroUnavailable(result, distro);
-      this.throwIfWorkdirMissing(result, resolved.workdir);
-      if (confined === undefined) {
-        return ({ ...result, sandbox: { mode, denied: false, sessionScope: "per-command" } }) as typeof result;
-      }
-      const { enforcement, denialSignatures, runnerFailureRules, windowsDrive } = confined;
-      // Runner failure outranks denial because the command did not run at all.
-      const runnerFailure = classifyRunnerFailure(result.exitCode, result.stderr.text, runnerFailureRules);
-      if (runnerFailure !== undefined) throw new SandboxUnavailableError(mode, withBwrapHint(runnerFailure.detail, distro));
-      return ({
-        ...result,
-        sandbox: {
-          mode,
-          denied: matchesSignature(result.exitCode, result.stderr.text, denialSignatures),
-          enforcement,
-          windowsDrive,
-          sessionScope: "per-command",
-        },
-      }) as typeof result;
+      return this.settleConfinedOneShot(result, distro, resolved, mode, confinement.profile);
     }, (error) => {
       // An upstream abort remains cancellation even when it prevents spawn.
       if (resolved.signal?.aborted === true) resolved.signal.throwIfAborted();
-      if (confined !== undefined && isRunnerSpawnFailure(error, confined.argv[0], resolved.workdir)) {
+      if (confinement.profile !== undefined && isRunnerSpawnFailure(error, confinement.profile.argv[0], resolved.workdir)) {
         throw new SandboxUnavailableError(mode, withBwrapHint(String(error), distro));
       }
       throw error;
     });
+  }
+
+  /**
+   * The confined one-shot's argv prepare: confine the distro argv under the
+   * policy, keep the resulting profile for the fact-stamper and the settlement
+   * mapping, and hand back the wrapped host argv.
+   *
+   * @param resolved - the resolved spec.
+   * @param distro - the resolved distro name.
+   * @param shell - the resolved distro shell.
+   * @param policy - the confined policy (narrowed in by `executeOneShot`).
+   * @param slot - the closure the builder assigns the profile into.
+   * @param signal - the caller's cancellation.
+   */
+  private async prepareConfinedArgv(resolved: WslExecSpec, distro: string, shell: string, policy: SandboxExecutionPolicy, mode: ConfinedSandboxMode, slot: { profile: ConfinedProfile | undefined }, signal: AbortSignal): Promise<readonly string[]> {
+    // Preparation is async, so it runs under executeArgv's deadline and
+    // cancellation handling rather than before them. A distro without a
+    // usable runner throws here, before anything is spawned. The outer
+    // guard narrowed the sandbox in, but narrowings do not reach closures —
+    // so the confined sandbox is asserted here, type-level only.
+    const profile = await (this.sandbox as InstanceType<typeof WslSandbox>).confine(this.distroArgv(resolved, shell), { ...policy, mode }, { distro, signal });
+    slot.profile = profile;
+    signal.throwIfAborted();
+    return this.argv(resolved, distro, shell, profile.argv);
+  }
+
+  /**
+   * Stamp the per-process sandbox facts before `done` settles, so a background
+   * process reports the same mode, denial and enforcement a foreground run
+   * would.
+   *
+   * @param resolved - the resolved spec.
+   * @param mode - the confined policy's mode.
+   * @param slot - the closure holding the assigned profile.
+   * @param process - the spawned handle.
+   */
+  private stampConfinedFacts(resolved: WslExecSpec, mode: ConfinedSandboxMode, slot: { profile: ConfinedProfile | undefined }, process: ShellExecution | unknown): void {
+    // The builder has run before any process callback can fire; the confined
+    // shape is asserted once here, type-level only.
+    const profile = slot.profile as ConfinedProfile;
+    this.processFacts.set(process as ShellExecution, {
+      mode,
+      enforcement: profile.enforcement,
+      denialSignatures: profile.denialSignatures,
+      runnerFailureRules: profile.runnerFailureRules,
+      runnerProgram: profile.argv[0] ?? "",
+      workdir: resolved.workdir,
+      windowsDrive: profile.windowsDrive,
+      sessionScope: "per-command",
+    });
+  }
+
+  /**
+   * Settle one confined one-shot result: the distro and workdir verdicts, the
+   * never-armed honesty stamp, the runner-failure throw, and the denial facts.
+   *
+   * @param result - the settled process result.
+   * @param distro - the resolved distro name.
+   * @param resolved - the resolved spec.
+   * @param mode - the confined policy's mode.
+   * @param confined - the profile the argv prepare armed, when it ran.
+   */
+  private settleConfinedOneShot(result: Awaited<ReturnType<ShellExecution["result"]>>, distro: string, resolved: WslExecSpec, mode: ConfinedSandboxMode, confined: ConfinedProfile | undefined): Awaited<ReturnType<ShellExecution["result"]>> {
+    this.throwIfDistroUnavailable(result, distro);
+    this.throwIfWorkdirMissing(result, resolved.workdir);
+    if (confined === undefined) {
+      return ({ ...result, sandbox: { mode, denied: false, sessionScope: "per-command" } }) as typeof result;
+    }
+    const { enforcement, denialSignatures, runnerFailureRules, windowsDrive } = confined;
+    // Runner failure outranks denial because the command did not run at all.
+    const runnerFailure = classifyRunnerFailure(result.exitCode, result.stderr.text, runnerFailureRules);
+    if (runnerFailure !== undefined) throw new SandboxUnavailableError(mode, withBwrapHint(runnerFailure.detail, distro));
+    return ({
+      ...result,
+      sandbox: {
+        mode,
+        denied: matchesSignature(result.exitCode, result.stderr.text, denialSignatures),
+        enforcement,
+        windowsDrive,
+        sessionScope: "per-command",
+      },
+    }) as typeof result;
   }
 }
 

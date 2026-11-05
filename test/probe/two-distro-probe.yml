@@ -1,0 +1,47 @@
+# Two-distro concurrency probe overlay — applied on top of the throwaway
+# `wslfs` profile that `test/probe/run.sh` documents.
+#
+# WSL-101's acceptance asked for a concurrent two-distro leg and none existed
+# (docs/ROADMAP-1.0.md, WSL-101): every probe pinned one distro, so the
+# per-distro agent singletons, shell routing and env facts were only ever
+# exercised one distro at a time. This overlay swaps the composition's shell
+# executor for the WSL one in AUTO mode — the workdir's UNC decides the distro —
+# and the probe drives two distros' commands, sequentially and concurrently.
+#
+# Confinement is deliberately off: this probe is about routing and isolation,
+# not the distro-side sandbox (the sandbox probes cover that, and the second
+# distro is not required to carry bubblewrap).
+#
+# TEMPLATE: `test/probe/two-distro.sh` substitutes @DISTRO_A@, @DISTRO_B@,
+# @ROOT_A@, @ROOT_B@, @PROBE_UNC@ and @REPORT_UNC@ into a generated copy beside
+# it, `.generated-two-distro-probe.yml`, and applies that.
+#
+#   test/probe/two-distro.sh
+- id: bash-sandbox
+  disabled: true
+
+- id: pwsh-sandbox
+  disabled: true
+
+- insert:
+    - id: wsl-shell
+      name: 'dsh-plugin-wsl-env'
+      config:
+        # AUTO: the request workdir's UNC names the distro, which is the whole
+        # point of this probe.
+        distro: ''
+        loginShell: true
+        sandbox: false
+        agent: true
+        agentBackend: shell
+
+    - id: two-distro-probe
+      name: '@PROBE_UNC@'
+      config:
+        # The report goes beside this module by absolute UNC — the harness
+        # process's console does not reach the terminal.
+        report: '@REPORT_UNC@'
+        distroA: '@DISTRO_A@'
+        distroB: '@DISTRO_B@'
+        rootA: '@ROOT_A@'
+        rootB: '@ROOT_B@'

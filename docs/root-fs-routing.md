@@ -4,7 +4,7 @@
 > `lib/fs-routing.js` 是其编译产物；当前开发依赖及 peer 范围以
 > `package.json` 为准。
 > 时效：§5 的验证与回退小节于 2026-10-31 对照现行测试与探针清单复核
-> （组合测试 12 项、单测 4 项、真机套件 15 项含 `fs-routing.sh`）；
+> （组合测试 12 项、单测 4 项、真机套件 16 项含 `fs-routing.sh` 与 `two-distro.sh`，2026-11-06 复核）；
 > 其余章节保留设计时的历史表述。
 > 关联：promotion-map 附录 C（workspace-files 接管评审）、附录 B（剩余 9P
 > 消费者）、`docs/upstream/rfc-wsl-workspaces.md` 增补（根平面路由 fs 的
@@ -156,8 +156,8 @@ export `./fs-routing`）。config 承载两侧旋钮：宿主侧 `cwd`/`diffBasi
   `distroContains`/`inputIsDistro`/`linuxJoin`）；类本体改由上一项的组合测试经
   服务代理覆盖。该文件自 2026-10-19 起已在 `test:unit` 与 `test:coverage`
   清单里（`docs/REQUIREMENTS.zh.md` 的 OI-7，已解决）。
-- 真机探针全套（`test/probe/run-all-when-closed.sh --include-fs`，14 项常规
-  + `run.sh` 共 15 项）覆盖 agent、watch、substrate 等底座，并包含本路由的
+- 真机探针全套（`test/probe/run-all-when-closed.sh --include-fs`，15 项常规
+  + `run.sh` 共 16 项，2026-11-06 起）覆盖 agent、watch、substrate 等底座，并包含本路由的
   `test/probe/fs-routing.sh`：临时 profile 以本路由为根 `fs`，经 UNC 坐标读
   distro 内 ext4 文件、经盘符路径读 Windows 文件，并拒绝另一 distro 的 UNC。
 

@@ -32,7 +32,7 @@ LOG="$(mktemp "$SCRATCH/full-probe.XXXXXX.log")"
 
 echo "full probe suite; log: $LOG" >&2
 
-declare -a SUITE=(terminal.sh mode.sh missing-wsl.sh sandbox.sh sandbox-shell.sh interop-shell.sh sandbox-off.sh picker.sh fs-routing.sh agent.sh watch.sh substrate.sh exec.sh native-session.sh)
+declare -a SUITE=(terminal.sh mode.sh missing-wsl.sh sandbox.sh sandbox-shell.sh interop-shell.sh sandbox-off.sh picker.sh two-distro.sh fs-routing.sh agent.sh watch.sh substrate.sh exec.sh native-session.sh)
 if [ "${1:-}" = "--include-fs" ]; then
   SUITE=("run.sh" "${SUITE[@]}")
 fi

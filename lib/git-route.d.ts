@@ -51,7 +51,7 @@
  * run `pnpm run build` — the artifact under `lib/` is generated, and `pnpm test`
  * fails when it drifts.
  *
- * @module dsh-plugin-wsl/git-route
+ * @module dsh-plugin-wsl-env/git-route
  */
 /**
  * The program path `resolveExecutable` returns for git when the HOST has no

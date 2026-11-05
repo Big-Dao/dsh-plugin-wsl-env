@@ -45,7 +45,7 @@
  * `pnpm run build` — the artifact under `lib/` is generated, and `pnpm test`
  * fails when it drifts.
  *
- * @module dsh-plugin-wsl/picker
+ * @module dsh-plugin-wsl-env/picker
  */
 import z from "@deepseek-ai/schemastery";
 import { DirectoryPicker } from "@deepseek-ai/dsh-host-directory-picker";

@@ -21,7 +21,7 @@
  * run `pnpm run build` — the artifact under `lib/` is generated, and
  * `pnpm test` fails when it drifts.
  *
- * @module dsh-plugin-wsl/preflight
+ * @module dsh-plugin-wsl-env/preflight
  */
 import z from "@deepseek-ai/schemastery";
 import type { Context } from "@deepseek-ai/cordis";

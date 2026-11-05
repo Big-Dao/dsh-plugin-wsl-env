@@ -8,7 +8,7 @@
  * run `pnpm run build` — the artifact under `lib/` is generated, and `pnpm test`
  * fails when it drifts.
  *
- * @module dsh-plugin-wsl/listing
+ * @module dsh-plugin-wsl-env/listing
  */
 /** One picker row: a display name, its jump target, and the dot-entry flag. */
 export interface ListingRow {

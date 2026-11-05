@@ -28,7 +28,7 @@
  * run `pnpm run build` — the artifact under `lib/` is generated, and `pnpm test`
  * fails when it drifts.
  *
- * @module dsh-plugin-wsl/fs-routing
+ * @module dsh-plugin-wsl-env/fs-routing
  */
 import z from "@deepseek-ai/schemastery";
 import { LocalFileSystem } from "@deepseek-ai/dsh-fs-local";

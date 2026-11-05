@@ -28,7 +28,7 @@
  * and run `pnpm run build` — the artifact under `lib/` is generated, and
  * `pnpm test` fails when it drifts.
  *
- * @module dsh-plugin-wsl/fs-substrate
+ * @module dsh-plugin-wsl-env/fs-substrate
  */
 import type { PatchHunk } from "@deepseek-ai/dsh-fs-patch";
 import { ResolvedTarget } from "./fsio-agent.js";

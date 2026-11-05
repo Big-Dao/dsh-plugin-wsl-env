@@ -11,7 +11,7 @@
  * to `lib/agent-protocol.js`; edit THIS file and run `pnpm run build` — the
  * artifact under `lib/` is generated, and `pnpm test` fails when it drifts.
  *
- * @module dsh-plugin-wsl/agent-protocol
+ * @module dsh-plugin-wsl-env/agent-protocol
  */
 /** The protocol version this host side speaks. */
 export declare const PROTOCOL_VERSION = 7;

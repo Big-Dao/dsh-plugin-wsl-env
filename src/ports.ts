@@ -17,7 +17,7 @@
  * `pnpm run build` — the artifact under `lib/` is generated, and `pnpm test`
  * fails when it drifts.
  *
- * @module dsh-plugin-wsl/ports
+ * @module dsh-plugin-wsl-env/ports
  */
 
 import type { AgentExecRunner } from "./agent-exec.js";

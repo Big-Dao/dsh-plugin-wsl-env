@@ -80,7 +80,7 @@
  * run `pnpm run build` — the artifact under `lib/` is generated, and `pnpm test`
  * fails when it drifts.
  *
- * @module dsh-plugin-wsl/subprocess
+ * @module dsh-plugin-wsl-env/subprocess
  */
 import z from "@deepseek-ai/schemastery";
 import { LocalSubprocessRuntime } from "@deepseek-ai/dsh-subprocess-local";

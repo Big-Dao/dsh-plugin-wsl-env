@@ -34,7 +34,7 @@
  * run `pnpm run build` — the artifact under `lib/` is generated, and
  * `pnpm test` fails when it drifts.
  *
- * @module dsh-plugin-wsl/git-exec
+ * @module dsh-plugin-wsl-env/git-exec
  */
 
 import { AgentUnavailableError } from "./agent-errors.js";

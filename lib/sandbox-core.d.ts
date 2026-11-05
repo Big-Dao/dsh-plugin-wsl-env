@@ -14,7 +14,7 @@
  * and run `pnpm run build` — the artifact under `lib/` is generated, and
  * `pnpm test` fails when it drifts.
  *
- * @module dsh-plugin-wsl/sandbox-core
+ * @module dsh-plugin-wsl-env/sandbox-core
  */
 /**
  * The canonical remedy for a distro whose `bwrap` is missing — also the

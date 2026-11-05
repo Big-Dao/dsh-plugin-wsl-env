@@ -33,7 +33,7 @@
  * file and run `pnpm run build` — the artifact under `lib/` is generated, and
  * `pnpm test` fails when it drifts.
  *
- * @module dsh-plugin-wsl/terminal-activity
+ * @module dsh-plugin-wsl-env/terminal-activity
  */
 
 import type { SubprocessTerminalHandle } from "@deepseek-ai/dsh-subprocess";

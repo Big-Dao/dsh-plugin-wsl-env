@@ -10,7 +10,7 @@
  * `pnpm run build` — the artifact under `lib/` is generated, and `pnpm test`
  * fails when it drifts.
  *
- * @module dsh-plugin-wsl/wsl
+ * @module dsh-plugin-wsl-env/wsl
  */
 /**
  * What every `wsl.exe` call may tune: the executable path and cancellation.

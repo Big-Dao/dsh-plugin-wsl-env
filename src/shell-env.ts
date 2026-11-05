@@ -24,7 +24,7 @@
  * run `pnpm run build` — the artifact under `lib/` is generated, and `pnpm test`
  * fails when it drifts.
  *
- * @module dsh-plugin-wsl/shell-env
+ * @module dsh-plugin-wsl-env/shell-env
  */
 
 import z from "@deepseek-ai/schemastery";

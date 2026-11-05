@@ -34,7 +34,7 @@
  * `pnpm run build` — the artifact under `lib/` is generated, and `pnpm test`
  * fails when it drifts.
  *
- * @module dsh-plugin-wsl/sandbox
+ * @module dsh-plugin-wsl-env/sandbox
  */
 export { bwrapProfileArgs } from "./bwrap.js";
 /**

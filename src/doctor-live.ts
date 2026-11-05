@@ -11,7 +11,7 @@
  * collected report — no transport is invented, and a status that answers for
  * no resident (pid unknown) changes nothing.
  *
- * @module dsh-plugin-wsl/doctor-live
+ * @module dsh-plugin-wsl-env/doctor-live
  */
 import type { AgentStatus } from "./agent.js";
 

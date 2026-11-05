@@ -15,7 +15,7 @@
  * and run `pnpm run build` — the artifact under `lib/` is generated, and
  * `pnpm test` fails when it drifts.
  *
- * @module dsh-plugin-wsl/fs-decisions
+ * @module dsh-plugin-wsl-env/fs-decisions
  */
 /** A refusal descriptor the provider wraps in `FsError` at one choke point. */
 export interface Refusal {

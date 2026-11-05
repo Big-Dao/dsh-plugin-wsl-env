@@ -17,7 +17,7 @@
  * `pnpm run build` — the artifact under `lib/` is generated, and `pnpm test`
  * fails when it drifts.
  *
- * @module dsh-plugin-wsl/paths
+ * @module dsh-plugin-wsl-env/paths
  */
 
 /** The WSL UNC share prefix Node can read. `\\wsl$\<distro>\...` is the legacy spelling. */

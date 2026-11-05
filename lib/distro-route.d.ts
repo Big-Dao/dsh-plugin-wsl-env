@@ -14,7 +14,7 @@
  * run `pnpm run build` — the artifact under `lib/` is generated, and `pnpm test`
  * fails when it drifts.
  *
- * @module dsh-plugin-wsl/distro-route
+ * @module dsh-plugin-wsl-env/distro-route
  */
 /** Why a distro was selected, for diagnostics and for the docs. */
 export type DistroSource = "pinned" | "workspace" | "default";

@@ -37,7 +37,7 @@
  * `pnpm run build` — the artifact under `lib/` is generated, and `pnpm test`
  * fails when it drifts.
  *
- * @module dsh-plugin-wsl/agent
+ * @module dsh-plugin-wsl-env/agent
  */
 
 import { spawn } from "node:child_process";

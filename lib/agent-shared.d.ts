@@ -11,7 +11,7 @@
  * and run `pnpm run build` — the artifact under `lib/` is generated, and
  * `pnpm test` fails when it drifts.
  *
- * @module dsh-plugin-wsl/agent-shared
+ * @module dsh-plugin-wsl-env/agent-shared
  */
 import { WslAgent } from "./agent.js";
 /** The agent script as a host-side path, for factories that need both spellings. */

@@ -42,7 +42,7 @@
  * file and run `pnpm run build` — the artifact under `lib/` is generated, and
  * `pnpm test` fails when it drifts.
  *
- * @module dsh-plugin-wsl/file-reference-wsl
+ * @module dsh-plugin-wsl-env/file-reference-wsl
  */
 import type { WslAgent } from "./agent.js";
 /**

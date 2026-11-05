@@ -19,7 +19,7 @@
  * run `pnpm run build` — the artifact under `lib/` is generated, and `pnpm test`
  * fails when it drifts.
  *
- * @module dsh-plugin-wsl/fsio-agent
+ * @module dsh-plugin-wsl-env/fsio-agent
  */
 import { normalizeLineEndings, restoreLineEndings, applyLiteralEdit } from "./fsio-text.js";
 import type { WslAgent } from "./agent.js";

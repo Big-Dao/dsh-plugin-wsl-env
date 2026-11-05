@@ -19,7 +19,7 @@
  * and run `pnpm run build` — the artifact under `lib/` is generated, and
  * `pnpm test` fails when it drifts.
  *
- * @module dsh-plugin-wsl/native-agent
+ * @module dsh-plugin-wsl-env/native-agent
  */
 /** The host environment variable naming the native binary to opt in. */
 export declare const NATIVE_AGENT_ENV = "DSH_WSL_AGENT_NATIVE";

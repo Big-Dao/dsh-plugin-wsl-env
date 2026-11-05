@@ -17,7 +17,7 @@
  * `pnpm run build` — the artifact under `lib/` is generated, and `pnpm test`
  * fails when it drifts.
  *
- * @module dsh-plugin-wsl/paths
+ * @module dsh-plugin-wsl-env/paths
  */
 /** A distro identity and the Linux path inside it, as {@link uncToPosix} returns. */
 export interface DistroPath {

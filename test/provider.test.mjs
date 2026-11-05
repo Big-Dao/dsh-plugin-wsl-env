@@ -140,10 +140,10 @@ const spawnView = (executor) => /** @type {OneShotSeam} */ (/** @type {unknown} 
 
 /**
  * A filesystem provider over a fake substrate; the agent never spawns.
- * @param {{ sandbox?: boolean, restrictToDistro?: boolean, sessionSandbox?: boolean | "auto", distro?: string, policy?: { mode: "read-only"|"workspace-write"|"danger-full-access", workspaceRoot: string } }} [options] - the provider switches, the distro mode, and the policy the fake resolves.
+ * @param {{ sandbox?: boolean, restrictToDistro?: boolean, sessionSandbox?: boolean | "auto", distro?: string, policy?: { mode: "read-only"|"workspace-write"|"danger-full-access", workspaceRoot: string }, wslPath?: string }} [options] - the provider switches, the distro mode, the policy the fake resolves, and an optional `wslPath` for the home and default-distro probes.
  * @returns {{ fs: WslFileSystem, substrate: MockSubstrate }} the provider and its scripted substrate.
  */
-function makeFs({ sandbox = true, restrictToDistro = true, distro = DISTRO, policy, sessionSandbox = false } = {}) {
+function makeFs({ sandbox = true, restrictToDistro = true, distro = DISTRO, policy, sessionSandbox = false, wslPath } = {}) {
   // The unit suite must never resolve the packaged native binary: no wsl.exe.
   configureAgentBackend("shell");
   const resolved = policy ?? { mode: "workspace-write", workspaceRoot: WORKSPACE };
@@ -154,6 +154,7 @@ function makeFs({ sandbox = true, restrictToDistro = true, distro = DISTRO, poli
     sandbox,
     restrictToDistro,
     sessionSandbox,
+    ...(wslPath !== undefined ? { wslPath } : {}),
   }));
   /** @type {MockSubstrate} */
   const substrate = {
@@ -1425,6 +1426,133 @@ check("a native spawn failure in the agent path retries once on the one-shot pat
   const result = await execution.result();
   assert.equal(result.exitCode, 0);
   assert.equal(oneShots.length, 1, "the fallback paid exactly one one-shot spawn");
+});
+
+// --- the arms the refusal-only checks never reached (filesystem side) -------
+
+check("a host-path workspace root computes writable roots in the host vocabulary", async () => {
+  const { fs } = makeFs();
+  const target = { displayPath: "/home/andy/proj/a.ts", targetKey: FsTargetKey(`${WORKSPACE}\\a.ts`) };
+  await assert.rejects(
+    () => fs.checkedTarget(target, { mode: "workspace-write", workspaceRoot: "C:\\host\\proj" }),
+    (error) => /** @type {{ code?: string }} */ (error).code === "FS_SANDBOX_DENIED",
+    "a host root grants nothing inside the distro",
+  );
+});
+
+check("a second distro's substrate is minted per distro and cached", async () => {
+  const { fs } = makeFs();
+  // No spawn until used: construction resolves the shared agent's shape only.
+  const substrate = await fs.agentSubstrateFor("ze-debian");
+  assert.ok(substrate, "the per-distro substrate constructs over the shared agent");
+  assert.equal(await fs.agentSubstrateFor("ze-debian"), substrate, "the second call rides the cache");
+  const agent = await fs.publicationAgentFor("ze-debian");
+  assert.ok(agent, "the per-distro publication agent resolves through the same cache shape");
+});
+
+check("resolve answers through the substrate; a relative path bases on the probed home", async () => {
+  const { fs, substrate } = makeFs({ wslPath: join(factBin, "wsl.exe") });
+  const absolute = await fs.resolve("/home/andy/proj/a.ts");
+  assert.equal(absolute.displayPath, "/home/andy/proj/a.ts", "a linux path resolves to itself");
+  const relative = await fs.resolve("proj/a.ts");
+  assert.equal(relative.displayPath, "/home/ze-user/proj/a.ts", "the empty cwd bases on the probed distro home");
+  assert.deepEqual(substrate.resolveCalls, ["/home/andy/proj/a.ts", "/home/ze-user/proj/a.ts"], "the substrate saw the linux coordinates");
+  // A substrate refusal surfaces in the peer dialect, not as a raw crash.
+  methodTable(substrate).resolve = async () => {
+    throw new FsCodedError(`cannot resolve "/x": stale`, "FS_STALE_VERSION");
+  };
+  await assert.rejects(
+    () => fs.resolve("/home/andy/proj/a.ts"),
+    (error) => /** @type {{ code?: string }} */ (error).code === "FS_STALE_VERSION",
+    "resolve maps refusals",
+  );
+});
+
+check("lstat answers through the substrate with the same base resolution", async () => {
+  const { fs, substrate } = makeFs({ wslPath: join(factBin, "wsl.exe") });
+  const methods = methodTable(substrate);
+  methods.lstat = async () => ({ type: "file" });
+  const info = await fs.lstat("proj/a.ts");
+  assert.equal(/** @type {{ type?: string }} */ (info).type, "file", "the substrate's answer rides the wrapper");
+  methods.lstat = async () => {
+    throw new FsCodedError(`cannot inspect "/x": stale`, "FS_STALE_VERSION");
+  };
+  await assert.rejects(
+    () => fs.lstat("/home/andy/proj/a.ts"),
+    (error) => /** @type {{ code?: string }} */ (error).code === "FS_STALE_VERSION",
+    "lstat maps refusals",
+  );
+});
+
+check("a Windows drive path is served through its linux mount and the distro fallback", async () => {
+  const { fs, substrate } = makeFs({ wslPath: join(factBin, "wsl.exe") });
+  const resolved = await fs.resolve("C:\\proj\\file.txt");
+  assert.equal(resolved.displayPath, "/mnt/c/proj/file.txt", "the drive path rides its mount");
+  methodTable(substrate).lstat = async () => ({ type: "file" });
+  const info = await fs.lstat("C:\\proj\\file.txt");
+  assert.equal(/** @type {{ type?: string }} */ (info).type, "file", "lstat takes the same mount road");
+});
+
+check("distroForPolicy falls through the policy root to the probed default", async () => {
+  const auto = makeFs({ distro: "", wslPath: join(factBin, "wsl.exe") });
+  assert.equal(
+    await auto.fs.distroForPolicy({ mode: "workspace-write", workspaceRoot: "C:\\host\\proj" }),
+    "ze-ubuntu",
+    "no candidate names a distro: the probe answers",
+  );
+});
+
+check("distroForPath falls through candidates to the probed default", async () => {
+  const auto = makeFs({ distro: "", wslPath: join(factBin, "wsl.exe") });
+  assert.equal(await auto.fs.distroForPath("C:\\proj"), "ze-ubuntu", "no candidate names a distro: the probe answers");
+  assert.equal(auto.fs.resolvedDistro, "ze-ubuntu", "the probed default is cached for the provider's life");
+});
+
+check("distroForTarget falls back to the display path when the key names no distro", async () => {
+  const { fs } = makeFs();
+  const target = { displayPath: "/home/x/f", targetKey: FsTargetKey("C:\\proj\\f") };
+  assert.equal(await fs.distroForTarget(target), DISTRO, "the key names no distro: the pin answers");
+});
+
+check("the v7 mutation wrappers fence through checkedTarget and ride the substrate", async () => {
+  const { fs, substrate } = makeFs();
+  const target = { displayPath: "/home/andy/proj/a.ts", targetKey: FsTargetKey(`${WORKSPACE}\\a.ts`) };
+  const policy = /** @type {{ mode: "workspace-write", workspaceRoot: string }} */ ({ mode: "workspace-write", workspaceRoot: WORKSPACE });
+  const hunks = [{ lineNumber: 1, oldLines: ["one"], newLines: ["two"], isEndOfFile: false }];
+  const methods = methodTable(substrate);
+  /** @type {string[]} */
+  const calls = [];
+  methods.patchText = async () => { calls.push("patchText"); return { version: "v9", after: "new" }; };
+  methods.deleteFile = async () => { calls.push("deleteFile"); return { version: "v10" }; };
+  methods.moveFile = async () => { calls.push("moveFile"); return { version: "v11" }; };
+  await fs.patchText(target, hunks, undefined, undefined, policy);
+  await fs.deleteFile(target, undefined, undefined, policy);
+  await fs.moveFile(target, target, {}, undefined, policy);
+  assert.deepEqual(calls, ["patchText", "deleteFile", "moveFile"], "each wrapper reached its substrate route");
+  // A refusal from the substrate surfaces in the peer dialect on every route.
+  /** @type {Array<[string, () => Promise<unknown>]>} */
+  const refusalRoutes = [
+    ["patchText", () => fs.patchText(target, hunks, undefined, undefined, policy)],
+    ["deleteFile", () => fs.deleteFile(target, undefined, undefined, policy)],
+    ["moveFile", () => fs.moveFile(target, target, {}, undefined, policy)],
+  ];
+  for (const [name, run] of refusalRoutes) {
+    methods[name] = async () => {
+      throw new FsCodedError(`cannot ${name} "/x": stale`, "FS_STALE_VERSION");
+    };
+    await assert.rejects(run, (error) => /** @type {{ code?: string }} */ (error).code === "FS_STALE_VERSION", `${name} maps refusals`);
+  }
+});
+
+check("watch arms the distro watcher for an in-distro target", async () => {
+  const { fs } = makeFs({ wslPath: join(factBin, "wsl.exe") }); // the fake fails the watch spawn fast
+  const target = { displayPath: "/home/andy/proj", targetKey: FsTargetKey(WORKSPACE) };
+  const controller = new AbortController();
+  await assert.rejects(
+    () => fs.watch(target, () => {}, controller.signal),
+    (error) => error instanceof Error,
+    "the watcher surfaces its spawn failure instead of watching nothing",
+  );
 });
 
 let failed = 0;

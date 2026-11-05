@@ -70,3 +70,11 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-util-values@0.2.2-rc.1'
   - '@deepseek-ai/dsh-win32-process@0.2.2-rc.1'
   - '@deepseek-ai/schemastery@3.19.0'
+
+# pnpm 11.7's verify-deps-before-run spawns a bare `pnpm install` whose
+# supply-chain re-verification ignores the minimumReleaseAgeExclude list
+# above, so any `pnpm run` while a fresh pin is under 24h dies before the
+# script does (CI hit this on the v0.18.0 release). The check is redundant
+# after a real install and reads no config, so it is off; `pnpm install`
+# itself still enforces the policies it can.
+verifyDepsBeforeRun: false

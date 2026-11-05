@@ -113,13 +113,20 @@ const doctor = (args, env = {}) => spawnSync(process.execPath, ["scripts/doctor.
 
 let passed = 0;
 /**
- * Run one named check.
+ * Run one named check, awaiting an async body before it can pass.
+ *
+ * The body may be async — `doctorReport` spawns the real script — so the
+ * helper awaits it. A synchronous `fn()` call used to print PASS before any
+ * assertion ran, turn a rejection into an unhandled one, and let the fixture
+ * cleanup below the loop delete the fake `wsl.exe` while the subprocess was
+ * still using it.
+ *
  * @param {string} name - the check name.
- * @param {() => void} fn - the assertions.
+ * @param {() => void | Promise<void>} fn - the assertions.
  */
-const check = (name, fn) => {
+const check = async (name, fn) => {
   try {
-    fn();
+    await fn();
     passed += 1;
     console.log(`PASS  ${name}`);
   } catch (error) {
@@ -129,14 +136,14 @@ const check = (name, fn) => {
 };
 
 try {
-  check("the ports survey lists listeners with their URL and the LAN line", () => {
+  await check("the ports survey lists listeners with their URL and the LAN line", () => {
     const run = doctor(["--read-only"]);
     assert.match(run.stdout, /listening ports in ubuntu/);
     assert.match(run.stdout, /http:\/\/localhost:3000/);
     assert.match(run.stdout, /netsh interface portproxy add v4tov4 listenport=3000 listenaddress=0\.0\.0\.0 connectport=3000 connectaddress=172\.20\.0\.5/);
   });
 
-  check("a healthy machine reports no failures and exits 0", () => {
+  await check("a healthy machine reports no failures and exits 0", () => {
     const run = doctor(["--json"]);
     assert.equal(run.status, 0, run.stderr);
     const report = /** @type {Report} */ (JSON.parse(run.stdout));
@@ -146,7 +153,7 @@ try {
     assert.equal(report.checks.find((entry) => entry.id === "peers.versions")?.status, "ok");
   });
 
-  check("missing bubblewrap fails with a copy-paste install remedy", () => {
+  await check("missing bubblewrap fails with a copy-paste install remedy", () => {
     const run = doctor(["--json"], { FAKE_BWRAP: "no" });
     assert.equal(run.status, 1);
     const report = /** @type {Report} */ (JSON.parse(run.stdout));
@@ -156,7 +163,7 @@ try {
     assert.match(String(bwrap?.remedy), /pnpm run bootstrap ubuntu --install/);
   });
 
-  check("no systemd fails and names the wsl.conf remedy", () => {
+  await check("no systemd fails and names the wsl.conf remedy", () => {
     const run = doctor(["--json"], { FAKE_SYSTEMD: "no" });
     assert.equal(run.status, 1);
     const systemd = /** @type {Report} */ (JSON.parse(run.stdout)).checks.find((entry) => entry.id === "session.systemd");
@@ -164,7 +171,7 @@ try {
     assert.match(String(systemd?.remedy), /\[boot\] systemd=true/);
   });
 
-  check("stale scopes warn, and --fix sweeps them", () => {
+  await check("stale scopes warn, and --fix sweeps them", () => {
     const warn = doctor(["--json"], { FAKE_STALE: "yes" });
     assert.equal(warn.status, 0);
     assert.equal(/** @type {Report} */ (JSON.parse(warn.stdout)).checks.find((entry) => entry.id === "runtime.scopes")?.status, "warn");
@@ -173,13 +180,13 @@ try {
     assert.equal(/** @type {Report} */ (JSON.parse(fixed.stdout)).checks.find((entry) => entry.id === "fix.scopes")?.status, "ok");
   });
 
-  check("read-only refusal gives a runnable fix command", () => {
+  await check("read-only refusal gives a runnable fix command", () => {
     const run = doctor(["--read-only", "--fix"]);
     assert.equal(run.status, 2);
     assert.match(run.stderr, /pnpm run doctor --fix/);
   });
 
-  check("profile patch warning gives a runnable preset command", () => {
+  await check("profile patch warning gives a runnable preset command", () => {
     const profile = join(home, "profiles", "bad");
     mkdirSync(profile, { recursive: true });
     writeFileSync(join(profile, "cordis.patch.yml"), "- id: wsl-shell\n");
@@ -189,7 +196,7 @@ try {
     rmSync(profile, { recursive: true, force: true });
   });
 
-  check("the agent handshake names its probe source and catches a digest mismatch", () => {
+  await check("the agent handshake names its probe source and catches a digest mismatch", () => {
     const good = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
     const ok = good.checks.find((entry) => entry.id === "agent.handshake");
     assert.equal(ok?.status, "ok");
@@ -201,7 +208,7 @@ try {
     assert.match(String(mismatch?.remedy), /sync:windows/);
   });
 
-  check("the live-resident merge names the probe source and keeps the fresh facts (WSL-313)", () => {
+  await check("the live-resident merge names the probe source and keeps the fresh facts (WSL-313)", () => {
     /** The minimal healthy report shape the merge expects. @type {Report} */
     const report = {
       schemaVersion: 1,
@@ -260,7 +267,7 @@ try {
     assert.match(String(mergedSparse.checks[0]?.detail), /fresh-probe facts: $/, "a detail-less fresh check degrades to an empty tail");
   });
 
-  check("doctorReport collects the real script and merges the injected live snapshot", async () => {
+  await check("doctorReport collects the real script and merges the injected live snapshot", async () => {
     // doctorReport spawns `node scripts/doctor.mjs --json`; the doctor's own
     // wsl.exe resolution is pinned with --wsl so the fake is authoritative
     // regardless of the runner's PATH. The check asserts COLLECTION and MERGE
@@ -317,7 +324,7 @@ try {
     }
   });
 
-  check("doctorReport rejects with the spawn detail when the doctor produces no report", async () => {
+  await check("doctorReport rejects with the spawn detail when the doctor produces no report", async () => {
     // A doctor that exits without versioned JSON (a crash, an unknown-option
     // throw) must reject with the spawn failure and the stderr tail — the
     // caller's only diagnostics for a run that never reported. The injected
@@ -332,21 +339,21 @@ try {
     );
   });
 
-  check("the Windows git trust check reports the whitelist and a missing-git info", () => {
+  await check("the Windows git trust check reports the whitelist and a missing-git info", () => {
     const report = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
     const ok = report.checks.find((entry) => entry.id === "git.win-safe");
     assert.equal(ok?.status, "ok", "the fake git.exe whitelists the share");
     assert.match(String(ok?.detail), /whitelisted/);
   });
 
-  check("the human output names the failing check and its remedy", () => {
+  await check("the human output names the failing check and its remedy", () => {
     const run = doctor([], { FAKE_BWRAP: "no" });
     assert.equal(run.status, 1);
     assert.match(run.stdout, /fail {2}bubblewrap/);
     assert.match(run.stdout, /fix: wsl\.exe -d ubuntu -u root -- apt-get install -y bubblewrap/);
   });
 
-  check("a stopped distro is classified with a recovery remedy", () => {
+  await check("a stopped distro is classified with a recovery remedy", () => {
     const run = doctor(["--json"], { FAKE_STOPPED: "yes" });
     assert.equal(run.status, 1);
     const reachable = /** @type {Report} */ (JSON.parse(run.stdout)).checks.find((entry) => entry.id === "distro.reachable");
@@ -354,7 +361,7 @@ try {
     assert.match(String(reachable?.remedy), /wsl\.exe --shutdown/);
   });
 
-  check("peerSatisfied understands exact pins, floor ranges and caret ranges", () => {
+  await check("peerSatisfied understands exact pins, floor ranges and caret ranges", () => {
     assert.equal(peerSatisfied("0.2.1-rc.2", "0.2.1-rc.2"), true);
     assert.equal(peerSatisfied("0.2.2-rc.2", "0.2.1-rc.2"), false);
     assert.equal(peerSatisfied("0.2.1-rc.2", ">=0.2.1-rc.3"), false);

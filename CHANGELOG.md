@@ -86,6 +86,17 @@ were part of the record.
   `lib/shell.js` and `lib/fs.js` re-exports now, so the measured set is 38 of
   41 instead of 35.
 
+- **Two test-harness defects that could hang the gate or misreport it.** The
+  `check()` helper in `test/doctor.test.mjs` called its body synchronously
+  while two checks were `async`: `PASS` printed before any assertion ran, a
+  rejection escaped as an unhandled one, and the fixture cleanup could delete
+  the fake `wsl.exe` while `doctorReport` was still spawning it. The helper now
+  awaits. The live-agent helpers in `test/fs-substrate.test.mjs` and
+  `test/fsio-agent.test.mjs` close in `finally`, and the `close()` methods of
+  the three script-backed harnesses bound the SHUTDOWN wait at 2 s and kill on
+  timeout, so a failing check cannot leak a `sh` that makes `node --test` wait
+  forever.
+
 ## [0.18.0] - 2026-11-05
 
 Track the desktop `0.2.2-rc.1` release: the bundle layer is regenerated from

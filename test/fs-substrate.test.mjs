@@ -135,7 +135,20 @@ class ScriptAgent {
 
   async close() {
     this.child.stdin.write("SHUTDOWN\n");
-    await new Promise((resolve) => this.child.once("exit", resolve));
+    // A resident that ignores SHUTDOWN must not wedge teardown: wait for the
+    // exit under a deadline, then kill. Without the bound a cleanup failure is
+    // a file-level hang that no assertion can report.
+    await Promise.race([
+      new Promise((resolve) => this.child.once("exit", resolve)),
+      new Promise((resolve) => setTimeout(resolve, 2000).unref()),
+    ]);
+    if (this.child.exitCode === null && this.child.signalCode === null) {
+      this.child.kill("SIGKILL");
+      await Promise.race([
+        new Promise((resolve) => this.child.once("exit", resolve)),
+        new Promise((resolve) => setTimeout(resolve, 2000).unref()),
+      ]);
+    }
     rmSync(this.dir, { recursive: true, force: true });
   }
 }
@@ -146,12 +159,18 @@ class ScriptAgent {
  */
 async function substrate(setup) {
   const agent = new ScriptAgent();
-  await agent.hello();
-  const sub = new AgentSubstrate({ agent: asAgent(agent), distro: DISTRO });
-  const root = join(agent.dir, "root");
-  mkdirSync(root, { recursive: true });
-  await setup(sub, root, agent);
-  await agent.close();
+  try {
+    await agent.hello();
+    const sub = new AgentSubstrate({ agent: asAgent(agent), distro: DISTRO });
+    const root = join(agent.dir, "root");
+    mkdirSync(root, { recursive: true });
+    await setup(sub, root, agent);
+  } finally {
+    // A failed assertion must not leak the live `sh` behind this substrate:
+    // an orphaned agent keeps `node --test` alive at file level, where no
+    // assertion can report the failure.
+    await agent.close();
+  }
 }
 
 /**

@@ -142,7 +142,20 @@ class Harness {
 
   async close() {
     this.child.stdin.write("SHUTDOWN\n");
-    await new Promise((resolve) => this.child.once("exit", resolve));
+    // A resident that ignores SHUTDOWN must not wedge teardown: wait for the
+    // exit under a deadline, then kill. Without the bound a cleanup failure is
+    // a file-level hang that no assertion can report.
+    await Promise.race([
+      new Promise((resolve) => this.child.once("exit", resolve)),
+      new Promise((resolve) => setTimeout(resolve, 2000).unref()),
+    ]);
+    if (this.child.exitCode === null && this.child.signalCode === null) {
+      this.child.kill("SIGKILL");
+      await Promise.race([
+        new Promise((resolve) => this.child.once("exit", resolve)),
+        new Promise((resolve) => setTimeout(resolve, 2000).unref()),
+      ]);
+    }
     rmSync(this.dir, { recursive: true, force: true });
   }
 }

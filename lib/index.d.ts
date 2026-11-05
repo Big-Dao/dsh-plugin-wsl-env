@@ -50,9 +50,17 @@ import { SessionRuntimes } from "./session-runtime.js";
 import type { AgentBackend } from "./native-agent.js";
 import type { SessionRuntimeEntry } from "./session-runtime.js";
 import type { Context } from "@deepseek-ai/cordis";
-import type { FsDirEntry, FsEditOutcome, FsEditRequest, FsInfo, FsPathInfo, FsTarget, FsVersion, FsWriteIntent, FsWriteOutcome } from "@deepseek-ai/dsh-fs";
+import type { FsDeleteOutcome, FsDirEntry, FsEditOutcome, FsEditRequest, FsInfo, FsMoveOutcome, FsPathInfo, FsTarget, FsVersion, FsWriteIntent, FsWriteOutcome, FileSystem } from "@deepseek-ai/dsh-fs";
 import type { SandboxExecutionPolicy, SandboxMode } from "@deepseek-ai/dsh-sandbox";
 import type { SubprocessSpawnSpec } from "@deepseek-ai/dsh-subprocess";
+/**
+ * The 0.2.2-rc.1 patch/move operations' parameter shapes, derived from the
+ * peer's abstract surface: `PatchHunk` lives in `@deepseek-ai/dsh-fs-patch`,
+ * which this package does not depend on, so the types ride in through the
+ * `FileSystem` declaration instead.
+ */
+type PatchHunks = Parameters<FileSystem["patchText"]>[1];
+type MoveFileOptions = Parameters<FileSystem["moveFile"]>[2];
 /**
  * Upstream shell vocabulary, derived through `@deepseek-ai/dsh-bash-local` —
  * this package does not depend on `@deepseek-ai/dsh-shell` directly, so the
@@ -1326,5 +1334,46 @@ export declare class WslFileSystem extends LocalFileSystem {
     editText(target: FsTarget, edit: FsEditRequest, expected?: {
         version: FsVersion;
     }, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<FsEditOutcome>;
+    /**
+     * Refuse the peer's 0.2.2-rc.1 patch operation. This backend serves the
+     * distro world only, and every target it resolves carries a UNC identity:
+     * the inherited host implementation would apply the hunks to a same-named
+     * path on the Windows filesystem — or refuse with a host-dialect
+     * `FS_NOT_FOUND` that names the wrong world. Fail closed here until the
+     * agent substrate grows a patch op (see `docs/PEER-PARITY.md`, the new-peer
+     * operations section).
+     *
+     * @param target - the resolved target.
+     * @param _hunks - ordered hunks from the caller's patch parse; unused while the operation refuses.
+     * @param _expected - the version guard; unused while the operation refuses.
+     * @param _signal - cancellation; unused while the operation refuses.
+     * @param _sandboxPolicy - the per-call policy; unused while the operation refuses.
+     */
+    patchText(target: FsTarget, _hunks: PatchHunks, _expected?: {
+        version: FsVersion;
+    }, _signal?: AbortSignal, _sandboxPolicy?: SandboxExecutionPolicy): Promise<FsEditOutcome>;
+    /**
+     * Refuse the peer's 0.2.2-rc.1 delete operation, for the same wrong-world
+     * reason as {@link patchText}.
+     *
+     * @param target - the resolved target.
+     * @param _expected - the version guard; unused while the operation refuses.
+     * @param _signal - cancellation; unused while the operation refuses.
+     * @param _sandboxPolicy - the per-call policy; unused while the operation refuses.
+     */
+    deleteFile(target: FsTarget, _expected?: {
+        version: FsVersion;
+    }, _signal?: AbortSignal, _sandboxPolicy?: SandboxExecutionPolicy): Promise<FsDeleteOutcome>;
+    /**
+     * Refuse the peer's 0.2.2-rc.1 move operation, for the same wrong-world
+     * reason as {@link patchText}.
+     *
+     * @param source - the resolved source.
+     * @param destination - the resolved destination.
+     * @param _options - the hunks and guards; unused while the operation refuses.
+     * @param _signal - cancellation; unused while the operation refuses.
+     * @param _sandboxPolicy - the per-call policy; unused while the operation refuses.
+     */
+    moveFile(source: FsTarget, destination: FsTarget, _options?: MoveFileOptions, _signal?: AbortSignal, _sandboxPolicy?: SandboxExecutionPolicy): Promise<FsMoveOutcome>;
 }
 export {};

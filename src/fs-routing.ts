@@ -36,8 +36,15 @@ import z from "@deepseek-ai/schemastery";
 import { LocalFileSystem } from "@deepseek-ai/dsh-fs-local";
 import { WslFileSystem } from "./index.js";
 import type { Context } from "@deepseek-ai/cordis";
-import type { FsTarget, FsVersion, FsWriteIntent, FsEditRequest } from "@deepseek-ai/dsh-fs";
+import type { FileSystem, FsEditRequest, FsTarget, FsVersion, FsWriteIntent } from "@deepseek-ai/dsh-fs";
 import type { SandboxExecutionPolicy } from "@deepseek-ai/dsh-sandbox";
+
+/**
+ * The 0.2.2-rc.1 patch/move parameter shapes, derived from the peer's abstract
+ * surface so this file needs no dependency on `@deepseek-ai/dsh-fs-patch`.
+ */
+type PatchHunks = Parameters<FileSystem["patchText"]>[1];
+type MoveFileOptions = Parameters<FileSystem["moveFile"]>[2];
 
 /**
  * The router's config: the host backend's own knobs plus the distro knobs the
@@ -318,6 +325,64 @@ export class WslRoutingFileSystem extends LocalFileSystem {
       return (await this.distro()).editText(target, edit, expected, signal, sandboxPolicy);
     }
     return super.editText(target, edit, expected, signal);
+  }
+
+  /**
+   * Route the peer's 0.2.2-rc.1 patch operation by the same coordinate rule
+   * as {@link editText}: a distro target reaches the distro backend (which
+   * refuses the operation honestly — the agent substrate has no patch op),
+   * a Windows target keeps the inherited host implementation.
+   *
+   * @param target - the resolved target.
+   * @param hunks - ordered hunks from the caller's patch parse.
+   * @param expected - the version the patch was based on.
+   * @param signal - cancels the patch.
+   * @param sandboxPolicy - the confined policy the distro side honors; the
+   *   host backend takes no such parameter.
+   */
+  async patchText(target: FsTarget, hunks: PatchHunks, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy) {
+    if (targetIsDistro(target.targetKey)) {
+      return (await this.distro()).patchText(target, hunks, expected, signal, sandboxPolicy);
+    }
+    return super.patchText(target, hunks, expected, signal);
+  }
+
+  /**
+   * Route the peer's 0.2.2-rc.1 delete operation like {@link patchText}:
+   * distro targets refuse at the distro backend, Windows targets keep the
+   * inherited host implementation.
+   *
+   * @param target - the resolved target.
+   * @param expected - the version the removal was based on.
+   * @param signal - cancels the removal.
+   * @param sandboxPolicy - the confined policy the distro side honors; the
+   *   host backend takes no such parameter.
+   */
+  async deleteFile(target: FsTarget, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy) {
+    if (targetIsDistro(target.targetKey)) {
+      return (await this.distro()).deleteFile(target, expected, signal, sandboxPolicy);
+    }
+    return super.deleteFile(target, expected, signal);
+  }
+
+  /**
+   * Route the peer's 0.2.2-rc.1 move operation like {@link patchText}: any
+   * distro-side endpoint sends the call to the distro backend (which refuses
+   * it honestly), two Windows endpoints keep the inherited host
+   * implementation.
+   *
+   * @param source - the resolved source.
+   * @param destination - the resolved destination.
+   * @param options - the hunks and the source/destination guards.
+   * @param signal - checked before the destination stages.
+   * @param sandboxPolicy - the confined policy the distro side honors; the
+   *   host backend takes no such parameter.
+   */
+  async moveFile(source: FsTarget, destination: FsTarget, options: MoveFileOptions, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy) {
+    if (targetIsDistro(source.targetKey) || targetIsDistro(destination.targetKey)) {
+      return (await this.distro()).moveFile(source, destination, options, signal, sandboxPolicy);
+    }
+    return super.moveFile(source, destination, options, signal);
   }
 
   /**

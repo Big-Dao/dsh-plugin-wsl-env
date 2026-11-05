@@ -16,6 +16,30 @@ were part of the record.
 
 ## [Unreleased]
 
+### Changed
+
+- **Raised the peer floor and dev pins to the `0.2.2-rc.1` npm line, with the
+  peer-parity re-run the layering rule requires.** All ten `@deepseek-ai/dsh-*`
+  peers move to `0.2.2-rc.1` (`peerDependencies >=0.2.2-rc.1`), cordis to
+  `^4.1.0` with dev pins `4.1.0`, and schemastery to `^3.19.0` — the release's
+  own pairing. Two companion fixes rode the move: the `cordis-plugin-*` dev
+  pins (`*`) resolved to `1.0.x`, which cordis 4.1.0 breaks at boot (the
+  `internal/config` waterfall dereferences a null `parent`; both pins are now
+  the release's `1.1.0`), and the `pnpm-workspace.yaml`
+  `minimumReleaseAgeExclude` list follows the pins as pnpm rewrites it.
+  `src/` changes, all defensive and documented in
+  [PEER-PARITY.md](docs/PEER-PARITY.md): the peer's new `patchText`/
+  `deleteFile`/`moveFile` operations are refused honestly on the distro side
+  (`FS_IO_ERROR` naming the substrate gap — the inherited host implementation
+  would target the wrong filesystem) and routed by the usual coordinates
+  otherwise; `wslWritableRoots` now honors `additionalWritableRoots` under the
+  upstream together-grant contract (a same-distro UNC extra root is granted,
+  a Windows-path extra root in a distro workspace fails closed with the
+  peer's `SandboxInvalidRootError`). The parity table was re-walked against
+  the `0.2.2-rc.1` tarballs: every replicated read/edit string survived
+  verbatim, both declared divergences stand, and the line references were
+  re-recorded (`dsh-fs-local`'s `lib/index.js` grew 909 → 1048 lines).
+
 ### Fixed
 
 - **Adapted to the desktop `0.2.2-rc.1` release.** The `preset-wsl` row is

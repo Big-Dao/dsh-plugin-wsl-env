@@ -45,7 +45,7 @@ import { randomUUID } from "node:crypto";
 import { LocalBashExecutor } from "@deepseek-ai/dsh-bash-local";
 import { LocalFileSystem } from "@deepseek-ai/dsh-fs-local";
 import { FsError } from "@deepseek-ai/dsh-fs";
-import { canonicalPath, classifyRunnerFailure, isRunnerSpawnFailure, matchesSignature, SandboxUnavailableError, writableRoots } from "@deepseek-ai/dsh-sandbox";
+import { canonicalPath, classifyRunnerFailure, isRunnerSpawnFailure, matchesSignature, SandboxInvalidRootError, SandboxUnavailableError, writableRoots } from "@deepseek-ai/dsh-sandbox";
 import { isAnotherDistrosUnc, isRelativeWorldPath, isWorldPathUnder, isWslUnc, posixToUnc, toLinuxPath, toWorldPath, uncToPosix, windowsToLinuxMount } from "./paths.js";
 import { isConfinedMutation, mutationModeRefusal, outsideDistroRefusal, shareSubstrateRefusal, substrateFailure, workspaceWriteDenial } from "./fs-decisions.js";
 import { distroOfUnc, isDefaultDistro, pinnedDistro, selectDistro } from "./distro-route.js";
@@ -70,9 +70,18 @@ import type { SessionRuntimeEntry } from "./session-runtime.js";
 // can use them without pulling this file's executor and filesystem peers in.
 import { defaultDistro, defaultShell, linuxHomePath, runCapture, shellArgs, workdirFailure, wslErrorCode } from "./wsl.js";
 import type { Context } from "@deepseek-ai/cordis";
-import type { FsDirEntry, FsEditOutcome, FsEditRequest, FsErrorCode, FsInfo, FsPathInfo, FsTarget, FsVersion, FsWriteIntent, FsWriteOutcome } from "@deepseek-ai/dsh-fs";
+import type { FsDeleteOutcome, FsDirEntry, FsEditOutcome, FsEditRequest, FsErrorCode, FsInfo, FsMoveOutcome, FsPathInfo, FsTarget, FsVersion, FsWriteIntent, FsWriteOutcome, FileSystem } from "@deepseek-ai/dsh-fs";
 import type { ConfinedSandboxMode, SandboxExecutionPolicy, SandboxMode } from "@deepseek-ai/dsh-sandbox";
 import type { SubprocessSpawnSpec } from "@deepseek-ai/dsh-subprocess";
+
+/**
+ * The 0.2.2-rc.1 patch/move operations' parameter shapes, derived from the
+ * peer's abstract surface: `PatchHunk` lives in `@deepseek-ai/dsh-fs-patch`,
+ * which this package does not depend on, so the types ride in through the
+ * `FileSystem` declaration instead.
+ */
+type PatchHunks = Parameters<FileSystem["patchText"]>[1];
+type MoveFileOptions = Parameters<FileSystem["moveFile"]>[2];
 
 /**
  * Upstream shell vocabulary, derived through `@deepseek-ai/dsh-bash-local` —
@@ -174,13 +183,21 @@ async function distroHome(owner: WslShellExecutor | WslFileSystem, distro: strin
  * The roots a `workspace-write` policy may write under, in the vocabulary this
  * backend's targets are spelled in.
  *
- * Upstream's {@link writableRoots} grants the workspace plus the platform temp
- * areas (`/tmp`, `os.tmpdir()`). A session whose workspace lives inside a
- * distro speaks UNC, where neither host spelling matches anything, and the temp
- * area that world actually exposes is the distro's own `/tmp` — so that is what
- * is granted instead, and the Windows temp dir deliberately is NOT: it lies
- * outside the execution world the policy describes. A session whose workspace
- * is a Windows folder keeps upstream's grant verbatim.
+ * Upstream's {@link writableRoots} grants the workspace, its explicit extra
+ * directories (`additionalWritableRoots`), and the platform temp areas (`/tmp`,
+ * `os.tmpdir()`). A session whose workspace lives inside a distro speaks UNC,
+ * where neither host spelling matches anything, and the temp area that world
+ * actually exposes is the distro's own `/tmp` — so that is what is granted
+ * instead, and the Windows temp dir deliberately is NOT: it lies outside the
+ * execution world the policy describes. A session whose workspace is a Windows
+ * folder keeps upstream's grant verbatim.
+ *
+ * Extra directories follow the same world rule as the temp areas, and the same
+ * together-grant contract: an extra root that is a UNC path of the same distro
+ * is granted as-is; a Windows-path extra root cannot be granted inside the
+ * distro, and upstream's contract is that every backend grants every extra
+ * root together — so it fails closed with {@link SandboxInvalidRootError}
+ * rather than silently narrowing what `workspace-write` promised.
  *
  * @param policy - the per-call file-effect policy.
  * @param distro - the distro a UNC workspace belongs to.
@@ -191,6 +208,13 @@ function wslWritableRoots(policy: SandboxExecutionPolicy, distro: string): strin
   const roots = new Set([canonicalPath(policy.workspaceRoot)]);
   if (isWslUnc(policy.workspaceRoot)) {
     roots.add(canonicalPath(posixToUnc(distro, "/tmp")));
+    for (const root of policy.additionalWritableRoots ?? []) {
+      const parsed = uncToPosix(root);
+      if (parsed === undefined || parsed.distro !== distro) {
+        throw new SandboxInvalidRootError(root, `the workspace is inside distro ${JSON.stringify(distro)}; a Windows-path extra directory cannot be granted there`);
+      }
+      roots.add(canonicalPath(root));
+    }
   } else {
     for (const root of writableRoots(policy)) roots.add(root);
   }
@@ -2070,5 +2094,51 @@ export class WslFileSystem extends LocalFileSystem {
     } catch (error) {
       throw this.peerError(error);
     }
+  }
+
+  /**
+   * Refuse the peer's 0.2.2-rc.1 patch operation. This backend serves the
+   * distro world only, and every target it resolves carries a UNC identity:
+   * the inherited host implementation would apply the hunks to a same-named
+   * path on the Windows filesystem — or refuse with a host-dialect
+   * `FS_NOT_FOUND` that names the wrong world. Fail closed here until the
+   * agent substrate grows a patch op (see `docs/PEER-PARITY.md`, the new-peer
+   * operations section).
+   *
+   * @param target - the resolved target.
+   * @param _hunks - ordered hunks from the caller's patch parse; unused while the operation refuses.
+   * @param _expected - the version guard; unused while the operation refuses.
+   * @param _signal - cancellation; unused while the operation refuses.
+   * @param _sandboxPolicy - the per-call policy; unused while the operation refuses.
+   */
+  async patchText(target: FsTarget, _hunks: PatchHunks, _expected?: { version: FsVersion }, _signal?: AbortSignal, _sandboxPolicy?: SandboxExecutionPolicy): Promise<FsEditOutcome> {
+    throw new FsError(`cannot patch "${target.displayPath}": the WSL substrate does not serve patch operations; the host implementation would target the wrong filesystem`, "FS_IO_ERROR");
+  }
+
+  /**
+   * Refuse the peer's 0.2.2-rc.1 delete operation, for the same wrong-world
+   * reason as {@link patchText}.
+   *
+   * @param target - the resolved target.
+   * @param _expected - the version guard; unused while the operation refuses.
+   * @param _signal - cancellation; unused while the operation refuses.
+   * @param _sandboxPolicy - the per-call policy; unused while the operation refuses.
+   */
+  async deleteFile(target: FsTarget, _expected?: { version: FsVersion }, _signal?: AbortSignal, _sandboxPolicy?: SandboxExecutionPolicy): Promise<FsDeleteOutcome> {
+    throw new FsError(`cannot delete "${target.displayPath}": the WSL substrate does not serve delete operations; the host implementation would target the wrong filesystem`, "FS_IO_ERROR");
+  }
+
+  /**
+   * Refuse the peer's 0.2.2-rc.1 move operation, for the same wrong-world
+   * reason as {@link patchText}.
+   *
+   * @param source - the resolved source.
+   * @param destination - the resolved destination.
+   * @param _options - the hunks and guards; unused while the operation refuses.
+   * @param _signal - cancellation; unused while the operation refuses.
+   * @param _sandboxPolicy - the per-call policy; unused while the operation refuses.
+   */
+  async moveFile(source: FsTarget, destination: FsTarget, _options?: MoveFileOptions, _signal?: AbortSignal, _sandboxPolicy?: SandboxExecutionPolicy): Promise<FsMoveOutcome> {
+    throw new FsError(`cannot move "${source.displayPath}" to "${destination.displayPath}": the WSL substrate does not serve move operations; the host implementation would target the wrong filesystem`, "FS_IO_ERROR");
   }
 }

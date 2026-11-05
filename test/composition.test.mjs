@@ -22,7 +22,7 @@ import Include from "@deepseek-ai/cordis-plugin-include";
 import Loader from "@deepseek-ai/cordis-plugin-loader";
 import { WslRoutingFileSystem } from "../lib/fs-routing.js";
 import { WslFileSystem } from "../lib/index.js";
-import { FsTargetKey } from "@deepseek-ai/dsh-fs";
+import { FsError, FsTargetKey } from "@deepseek-ai/dsh-fs";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -262,6 +262,30 @@ check("the routed root filesystem actually starts through the Loader, not just c
     assert.deepEqual(await router.listDir(directory), []);
     assert.equal((await router.writeText(target, "x"))?.operation, "update");
     assert.equal((await router.editText(target, { oldString: "a", newString: "b", replaceAll: false }))?.version, "v");
+
+    // The peer's 0.2.2-rc.1 operations route by the same coordinates, and the
+    // distro branch refuses honestly: the agent substrate has no patch/delete/
+    // move op, and the inherited host implementation would touch the Windows
+    // filesystem under a same-named path instead.
+    await assert.rejects(router.patchText(target, [], undefined), /** @param {FsError} error */ (error) => error.code === "FS_IO_ERROR" && /patch operations/.test(error.message));
+    await assert.rejects(router.deleteFile(target, undefined), /** @param {FsError} error */ (error) => error.code === "FS_IO_ERROR" && /delete operations/.test(error.message));
+    await assert.rejects(router.moveFile(target, directory, {}), /** @param {FsError} error */ (error) => error.code === "FS_IO_ERROR" && /move operations/.test(error.message));
+
+    // `additionalWritableRoots` (peer 0.2.2-rc.1) in a distro workspace: a
+    // same-distro UNC extra root is granted together with the workspace, a
+    // Windows-path extra root cannot be granted inside the distro and fails
+    // closed (upstream's together-grant contract), as does another distro's.
+    const uncPolicy = (/** @type {string | undefined} */ extraRoot) => ({
+      mode: "workspace-write",
+      workspaceRoot: "\\\\wsl.localhost\\Ubuntu\\home\\andy",
+      additionalWritableRoots: extraRoot === undefined ? undefined : [extraRoot],
+    });
+    const extraTarget = { targetKey: FsTargetKey("\\\\wsl.localhost\\Ubuntu\\home\\andy\\extra\\file.txt"), displayPath: "/home/andy/extra/file.txt" };
+    const backendFs = /** @type {WslFileSystem} */ (/** @type {unknown} */ (backend));
+    const granted = await backendFs.checkedTarget(extraTarget, /** @type {never} */ (uncPolicy("\\\\wsl.localhost\\Ubuntu\\home\\andy\\extra")));
+    assert.equal(granted.targetKey, extraTarget.targetKey, "a same-distro UNC extra root is granted");
+    await assert.rejects(backendFs.checkedTarget(extraTarget, /** @type {never} */ (uncPolicy("C:\\extra"))), /** @param {Error} error */ (error) => /Windows-path extra directory/.test(error.message));
+    await assert.rejects(backendFs.checkedTarget(extraTarget, /** @type {never} */ (uncPolicy("\\\\wsl.localhost\\Debian\\home\\extra"))), /** @param {Error} error */ (error) => /Windows-path extra directory/.test(error.message));
     const closeDistro = await router.watch(target, () => {}, new AbortController().signal);
     assert.equal(typeof closeDistro, "function");
     await closeDistro();
@@ -291,6 +315,11 @@ check("the routed root filesystem actually starts through the Loader, not just c
     assert.deepEqual((await router.listDir(hostDir)).map((entry) => entry.name), ["child.txt"]);
     assert.equal((await router.writeText(hostFile, "reset\n"))?.operation, "update");
     assert.equal((await router.editText(hostFile, { oldString: "reset", newString: "edited", replaceAll: false }))?.after, "edited\n");
+    // The peer's 0.2.2-rc.1 move operation keeps its inherited host
+    // implementation for two Windows endpoints: the router forwards nothing.
+    const moved = await router.moveFile(hostFile, await router.resolve(join(root, "moved.txt")), {});
+    assert.equal(moved.destination.operation, "create", "the host move published the destination");
+    assert.equal(moved.sourceDeleted, true, "the host move removed its source");
     assert.equal(router.processPath(hostFile), String(hostFile.targetKey));
     assert.equal(router.contains(hostDir, hostFile), false);
     assert.equal(router.contains(hostDir, await router.resolve(join(root, "host-dir", "child.txt"))), true);

@@ -36,7 +36,6 @@ import {
 } from "./fsio-text.js";
 import { posixToUnc, uncToPosix } from "./paths.js";
 import type { WslAgent } from "./agent.js";
-import type { ResolvedTarget } from "./fs-substrate.js";
 
 /** One FS frame's in-distro watchdog; fs ops are short, writes bounded by content size. */
 const FS_OP_TIMEOUT_MS = 30_000;
@@ -105,6 +104,18 @@ export function parseStatRecord(stdout: Buffer): { type: string, mode: number, s
     ino,
     version: versionOf({ dev, ino, size, mtimeNs: nanoseconds(mtime), ctimeNs: nanoseconds(ctime) }),
   };
+}
+
+/**
+ * One resolved filesystem target: the display spelling the model sees and the
+ * UNC identity the operations key on. Lives here because the substrate's
+ * operations consume it and the substrate layer builds on this one.
+ */
+export interface ResolvedTarget {
+  /** The canonical Linux path spelling. */
+  displayPath: string;
+  /** The UNC identity this target keys on. */
+  targetKey: string;
 }
 
 export const REASON_CODES: Record<string, string> = {

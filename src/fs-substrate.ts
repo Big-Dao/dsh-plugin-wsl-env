@@ -33,7 +33,7 @@
 
 import { applyHunks } from "@deepseek-ai/dsh-fs-patch";
 import type { PatchHunk } from "@deepseek-ai/dsh-fs-patch";
-import { reasonToCode } from "./fsio-agent.js";
+import{ reasonToCode, ResolvedTarget } from "./fsio-agent.js";
 import { applyLiteralEdit, FsCodedError, normalizeLineEndings, restoreLineEndings } from "./fsio-text.js";
 import { DistroFs } from "./fsio-agent.js";
 import { posixToUnc, uncToPosix } from "./paths.js";
@@ -43,13 +43,6 @@ import type { WslAgent } from "./agent.js";
  * A resolved target: the Linux spelling the model sees and the UNC identity
  * the harness keys on, as returned by {@linkcode AgentSubstrate#resolve}.
  */
-export interface ResolvedTarget {
-  /** The canonical Linux path spelling. */
-  displayPath: string;
-  /** The UNC identity this target keys on. */
-  targetKey: string;
-}
-
 /**
  * The provider's stat/lstat row, type-spelled the way the tool layer reads it.
  *

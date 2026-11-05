@@ -31,18 +31,9 @@
  * @module dsh-plugin-wsl/fs-substrate
  */
 import type { PatchHunk } from "@deepseek-ai/dsh-fs-patch";
+import { ResolvedTarget } from "./fsio-agent.js";
 import { DistroFs } from "./fsio-agent.js";
 import type { WslAgent } from "./agent.js";
-/**
- * A resolved target: the Linux spelling the model sees and the UNC identity
- * the harness keys on, as returned by {@linkcode AgentSubstrate#resolve}.
- */
-export interface ResolvedTarget {
-    /** The canonical Linux path spelling. */
-    displayPath: string;
-    /** The UNC identity this target keys on. */
-    targetKey: string;
-}
 /**
  * One distro's provider-shaped filesystem face.
  */

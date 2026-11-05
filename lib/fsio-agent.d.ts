@@ -23,7 +23,6 @@
  */
 import { normalizeLineEndings, restoreLineEndings, applyLiteralEdit } from "./fsio-text.js";
 import type { WslAgent } from "./agent.js";
-import type { ResolvedTarget } from "./fs-substrate.js";
 /** One agent FS round trip's result — the shape `WslAgent#fs` resolves to. */
 export interface AgentFsResult {
     /** The op's exit status. */
@@ -81,6 +80,17 @@ export declare function parseStatRecord(stdout: Buffer): {
     ino: string;
     version: string;
 };
+/**
+ * One resolved filesystem target: the display spelling the model sees and the
+ * UNC identity the operations key on. Lives here because the substrate's
+ * operations consume it and the substrate layer builds on this one.
+ */
+export interface ResolvedTarget {
+    /** The canonical Linux path spelling. */
+    displayPath: string;
+    /** The UNC identity this target keys on. */
+    targetKey: string;
+}
 export declare const REASON_CODES: Record<string, string>;
 /**
  * Map one wire reason token onto the peer's `FsErrorCode` vocabulary.

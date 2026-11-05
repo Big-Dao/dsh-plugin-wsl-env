@@ -268,6 +268,16 @@ try {
     // machine's business, not this suite's, so a nonzero exit with a
     // well-formed report is fine (CI runners have no bubblewrap). What must
     // fail is a subprocess that produced no report.
+    //
+    // A staged fake that does not answer its own probe means this runner
+    // cannot host the e2e (observed on CI's ubuntu runners, whose exec
+    // environment rejects the fake's shebang interop); skip it like every
+    // environment-gated probe instead of failing on a foreign machine.
+    const staged = spawnSync(join(bin, "wsl.exe"), ["-l", "-q"], { encoding: "utf8", timeout: 10000 });
+    if (staged.status !== 0 || !/ubuntu/.test(staged.stdout)) {
+      console.log(`SKIP  (e2e) the staged fake did not answer -l -q (status ${staged.status}, stdout ${JSON.stringify(staged.stdout.slice(0, 40))})`);
+      return;
+    }
     {
       const merged = await doctorReport("ubuntu", {
         wslPath: join(bin, "wsl.exe"),

@@ -284,7 +284,13 @@ try {
         envPath: bin,
         liveStatus: { distro: "ubuntu", state: "dead", pid: 7000, lastError: "wedge observed in the live app", deaths: 4, pending: 0 },
       }).catch((error) => {
-        assert.fail(`the doctor subprocess produced no report: ${/** @type {Error} */ (error).message}`);
+        // Full facts for the CI-only failure: what the fake answers when the
+        // doctor suite calls it directly, and the doctor's own human output.
+        const direct = spawnSync(join(bin, "wsl.exe"), ["-l", "-q"], { encoding: "utf8", timeout: 10_000 });
+        const human = spawnSync(process.execPath, [join(ROOT, "scripts", "doctor.mjs"), "ubuntu"], { encoding: "utf8", timeout: 60_000, env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` } });
+        assert.fail(`the doctor subprocess produced no report: ${/** @type {Error} */ (error).message}\n`
+          + `direct fake -l -q: status=${direct.status} stdout=${JSON.stringify(direct.stdout)} stderr=${JSON.stringify(direct.stderr.slice(0, 120))}\n`
+          + `doctor human tail: ${human.stdout.split("\n").filter((line) => /host\.|distro\./.test(line)).join(" | ") || human.stderr.slice(0, 200)}`);
       });
       const handshake = merged.checks.find((entry) => entry.id === "agent.handshake");
       assert.ok(handshake, "the collected report has the handshake check");

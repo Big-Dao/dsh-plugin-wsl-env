@@ -50,8 +50,11 @@ export interface AgentFsResult {
 export declare function nanoseconds(value: string): string;
 /**
  * The peer's `versionOf`: dev, inode, size and both nanosecond timestamps.
- * Self-consistency within this provider is what versions need; the ingredients
- * come from one kernel, so a change in any byte of the file changes the string.
+ * Self-consistency within this provider is what versions need. The string's
+ * granularity is the file's stat identity, not its bytes: a write that moves
+ * size or either timestamp moves the string, while a same-size write that
+ * leaves both timestamps untouched does not — the peer's own `versionOf`
+ * has exactly the same granularity, so guard comparisons behave alike.
  *
  * @param ingredients - the stat record's identity fields.
  * @returns the opaque version string.

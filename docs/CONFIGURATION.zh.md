@@ -49,7 +49,7 @@ profile 层；检测到时会打印应使用的块。`--out` 会整体替换目�
 | 键 | 默认 / shipped 值 | 说明 |
 |---|---|---|
 | `distro` | `''`（shipped） | 空或 `auto` 跟随请求工作目录所属的发行版。`default` 选择 WSL 默认发行版；给出名字则把命令固定到该发行版。 |
-| `shell` | `''` | 空则解析发行版用户的登录 shell。设置绝对 Linux 路径可固定一个 shell。 |
+| `shell` | `''` | 空则解析发行版用户的登录 shell（先 `getent passwd`，再 `$SHELL`）。两条探测都失败时命令直接报错，而不是落到另一个 shell——在此设置绝对 Linux 路径可固定一个。 |
 | `loginShell` | `true`（shipped） | 对 POSIX shell 使用登录语义。非 POSIX shell 使用各自的命令形式。 |
 | `agent` | `true` | 使用常驻 agent。不可用时，命令走一次性的 `wsl.exe` 路径。设为 `false` 则总是走该路径。Cwd 与沙箱拒绝会被直接返回。 |
 | `agentBackend` | `auto`（shipped） | `auto` 选择包内 `agent/native/linux-<arch>/dsh-wsl-agent` 的静态 musl 二进制或 `DSH_WSL_AGENT_NATIVE` 覆盖；否则使用 shell agent。`native` 在准备失败时报错；`shell` 强制使用 shell agent。适用于命令、受限写入和共享读取。 |

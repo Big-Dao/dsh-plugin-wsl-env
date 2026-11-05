@@ -488,3 +488,12 @@ src/wsl.ts                   wsl.exe interop primitives (no DSH imports)
   same three archived files, the second so a reader who does not read Chinese can
   still tell what is there; the records themselves are Chinese.
 - [`README.md`](../README.md) is the only statement of current state.
+
+## Diagnostics
+
+`pnpm run doctor` (and `pnpm run diagnose`) is the operator-facing entry
+point over everything above: it probes the Windows/WSL versions, the distro
+and its shell, bubblewrap, systemd/Linger, the peer floor, a fresh agent
+handshake and the stale session scopes, and reports the versioned
+`doctorReport` structure (`scripts/doctor.mjs`, `lib/doctor-live.js`) with a
+remedy per failure.

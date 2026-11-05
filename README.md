@@ -176,6 +176,9 @@ Real-machine probes run on Windows + WSL only. See [CONTRIBUTING.md](CONTRIBUTIN
 |---|---|
 | [docs/QUICKSTART.md](docs/QUICKSTART.md) | first run, recipes, compatibility |
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | ext4 agent vs 9p, measured latency, how to reproduce |
+| [docs/MIGRATION.md](docs/MIGRATION.md) | upgrading from earlier versions, release gates |
+| [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) | the tested Windows/WSL/distro matrix and scope decisions |
+| [docs/API.md](docs/API.md) | the package's subpath exports at a glance |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | every configuration key and how to override it |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | services, path routing, sandbox, error codes |
 | [docs/LIMITATIONS.md](docs/LIMITATIONS.md) | what the plugin does not do |

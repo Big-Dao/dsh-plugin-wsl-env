@@ -299,9 +299,13 @@ mutation fence; that row reports `sandboxMode: undefined` either way.
 
 ## Diagnose configuration and refusals
 
-Use `dsh --profile <name> --dump-config` to inspect the composed profile
-without booting it. The output shows whether a row override applied. Use
-`scripts/bootstrap.sh <distro>` to inspect distro prerequisites.
+`pnpm run doctor` is the one-command environment check: Windows/WSL versions,
+the distro and its shell, bubblewrap, systemd/Linger, the peer floor, a fresh
+agent handshake, stale session scopes and the known profile-patch traps — each
+failure with a copyable remedy (`--json` for scripts, `--fix` for the stale
+scopes). Use `dsh --profile <name> --dump-config` to inspect the composed
+profile without booting it; the output shows whether a row override applied.
+Use `scripts/bootstrap.sh <distro>` to inspect distro prerequisites.
 
 | Symptom | Result | Action |
 |---|---|---|

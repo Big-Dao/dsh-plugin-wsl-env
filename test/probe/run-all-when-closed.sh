@@ -13,8 +13,8 @@
 #
 # --include-fs also runs run.sh, the filesystem-mutation probe (the slowest,
 # and the one that needs the throwaway wslfs profile set up per its header).
-# Without it: terminal.sh, mode.sh, missing-wsl.sh, sandbox.sh, sandbox-shell.sh,
-# sandbox-off.sh, picker.sh, fs-routing.sh — the fast behavioural set. native-session.sh needs
+# Without it: the fast behavioural set — the SUITE array below is the
+# authoritative list (16 names plus run.sh under --include-fs). native-session.sh needs
 # the packaged native binary and exercises its own session scope (the app may
 # be running; the probe releases the scope it creates).
 

@@ -167,13 +167,6 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
   `unattendedTimeoutMs`（2 h）。`terminalIdleReclaim: false` 恢复手动关闭。
   Windows 文件夹的宿主终端保持随包的不回收行为。
 
-## 宿主的"在应用中打开"
-
-- **从"在应用中打开"启动 VS Code 可能独立于本插件而失败** ——
-  宿主带着 `ELECTRON_RUN_AS_NODE=1` 运行，启动器会继承它，于是
-  `Code.exe` 以 Node 身份启动并以退出码 1 结束。不属于本仓库管：
-  [UPSTREAM-OPEN-IN-APP.md](UPSTREAM-OPEN-IN-APP.md)。
-
 ## 在运行中的 profile 上启用本插件
 
 - **在繁忙的 profile 上通过 GUI 启用本 bundle 可能失败，重启应用即可生效。**
@@ -184,3 +177,10 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
   正确的）。启用前先关闭会话通常能让热路径成功——没有依赖方时，随包提供者会在
   重组期间释放。机制与复现：
   [UPSTREAM-SERVICE-SWAP.md](UPSTREAM-SERVICE-SWAP.md)。
+
+## 宿主的"在应用中打开"
+
+- **从"在应用中打开"启动 VS Code 可能独立于本插件而失败** ——
+  宿主带着 `ELECTRON_RUN_AS_NODE=1` 运行，启动器会继承它，于是
+  `Code.exe` 以 Node 身份启动并以退出码 1 结束。不属于本仓库管：
+  [UPSTREAM-OPEN-IN-APP.md](UPSTREAM-OPEN-IN-APP.md)。

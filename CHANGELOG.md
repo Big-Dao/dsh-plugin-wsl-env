@@ -18,6 +18,12 @@ were part of the record.
 
 ### Added
 
+- **`doctor --wsl <path>` pins the `wsl.exe` every probe uses.** The doctor's
+  probes resolved `wsl.exe` from `PATH`, so a PATH race (one probe seeing one
+  binary, the next another) could not be ruled out; the flag rebinds every
+  probe and `doctorReport` forwards it, and the reject path carries the full
+  diagnostics.
+
 - **Agent protocol v7 (WSL-312): concurrent-ready FS frames, structured
   errors, batched reads, and the peer's patch/delete/move operations.** HELLO
   now advertises capabilities (`conc`, `batch`); failed FS ops answer with the

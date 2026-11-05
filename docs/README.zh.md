@@ -146,7 +146,7 @@ wsl preset（每个会话）
 | 现象 | 处理 |
 |---|---|
 | 每条命令都报 `SANDBOX_UNAVAILABLE` | 在发行版内安装 `bubblewrap`，或设置 `sandbox: false` |
-| 会话在第一条命令前就被拒绝 | 启用 systemd 和 linger，或在 `wsl-shell`、`wsl-fs` 上设置 `sessionSandbox: false` |
+| 会话在第一条命令前就被拒绝 | 运行 `pnpm run doctor`；启用 systemd 和 linger，或在 `wsl-shell`、`wsl-fs` 上设置 `sessionSandbox: false` |
 | 发行版内 `glob`、`grep` 很慢 | 运行 `pnpm run bootstrap <发行版>`，使用打印的安装命令安装 `ripgrep` |
 | `dsh plugin add` 没有输出 | 插件已安装；这是成功 |
 | 对 `wsl-shell`/`wsl-fs` 的 profile 补丁不生效 | 这些行嵌套在 `preset-wsl` 里。运行 `pnpm run preset --check <补丁>`；它会失败并输出需要粘贴的完整块 |
@@ -172,8 +172,10 @@ pnpm run sync:windows  # 更新应用加载的 Windows 侧副本
 
 | 文档 | 内容 |
 |---|---|
+| [docs/QUICKSTART.md](QUICKSTART.md) | 首次运行、常用配方、兼容性 |
 | [docs/CONFIGURATION.md](CONFIGURATION.md) | 所有配置键及覆盖方法 |
 | [docs/ARCHITECTURE.md](ARCHITECTURE.md) | 服务、路径路由、沙箱、错误码 |
+| [docs/PERFORMANCE.md](PERFORMANCE.md) | ext4 agent 对比 9p 的实测延迟与复现方法 |
 | [docs/LIMITATIONS.md](LIMITATIONS.md) | 插件不做的事 |
 | [docs/ROADMAP.md](ROADMAP.md) | 当前计划和推迟项 |
 | [docs/ROADMAP-1.0.md](ROADMAP-1.0.md) | 1.0 与生态优化计划 |

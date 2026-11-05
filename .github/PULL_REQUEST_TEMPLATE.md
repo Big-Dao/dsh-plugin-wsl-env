@@ -13,7 +13,7 @@ they could not do before? -->
 - [ ] `pnpm run test:coverage` passes, or the drop is explained in a comment
 - [ ] Behaviour changed, so `CHANGELOG.md` has an entry under `## [Unreleased]`
 - [ ] The two READMEs still match section for section (`README.md`, `docs/README.zh.md`)
-- [ ] Probes run where they apply, or this PR says why not. The full set of twelve is
+- [ ] Probes run where they apply, or this PR says why not. The full set of seventeen is
       `test/probe/run-all-when-closed.sh --include-fs`, which waits for the harness to
       close first; individually: `pnpm run probe`, `pnpm run probe:sandbox`,
       `pnpm run probe:sandbox-shell`, `pnpm run probe:terminal`,

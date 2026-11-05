@@ -146,6 +146,8 @@
     "lint:requirements": "node scripts/check-requirements.mjs",
     "prepublishOnly": "pnpm test",
     "probe": "bash test/probe/run.sh",
+    "probe:clean": "rm -rf test/probe/.scratch && mkdir -p test/probe/.scratch",
+    "probe:all-closed": "bash test/probe/run-all-when-closed.sh",
     "probe:missing-wsl": "bash test/probe/missing-wsl.sh",
     "probe:mode": "bash test/probe/mode.sh",
     "probe:picker": "bash test/probe/picker.sh",

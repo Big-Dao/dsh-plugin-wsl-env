@@ -120,8 +120,11 @@ absolute path to pin one.
 ## Agent diagnostics
 
 - **The doctor's `agent.handshake` probes a fresh resident**, not the live one —
-  a running resident's `lastError` stays in the app log (`WslAgent.status()` exposes
-  it in-process).
+  a running resident's own view is folded in where a shared agent exists
+  (`doctorReport` merges `WslAgent.status()` via `mergeLiveResidentStatus`,
+  0.18.0), but the CLI's handshake check still names its probe source
+  (`probed: a fresh resident`); without an app-side call the `lastError`
+  stays in the app log.
 - **`dsh-wsl-*.scope` counts are point-in-time**; `--fix` runs the preflight's sweep.
 - **The doctor's `git.win-safe` probe reports the Windows git trust through interop
   `git.exe`** — the `safe.directory` whitelist that WSL change review needs when

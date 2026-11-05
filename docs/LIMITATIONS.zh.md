@@ -112,8 +112,10 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
 ## Agent 诊断
 
 - **doctor 的 `agent.handshake` 探测的是一个新起的常驻 agent**，而不是
-  在跑的那个——运行中常驻 agent 的 `lastError` 留在应用日志里
-  （进程内可通过 `WslAgent.status()` 查看）。
+  在跑的那个——存在共享 agent 时，doctorReport 会经
+  `mergeLiveResidentStatus` 合入 `WslAgent.status()` 的在驻视角（0.18.0），
+  但 CLI 的握手检查仍会标注其探测来源（`probed: a fresh resident`）；
+  没有应用侧调用时，`lastError` 仍留在应用日志里。
 - **`dsh-wsl-*.scope` 计数是某一时刻的快照**；`--fix` 会执行预检的清扫。
 - **doctor 的 `git.win-safe` 探针通过 interop 的 `git.exe` 报告 Windows git
   的信任状态** —— 装了 Windows git 时，WSL 变更审查需要那份

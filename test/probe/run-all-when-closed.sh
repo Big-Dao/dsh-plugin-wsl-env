@@ -23,6 +23,11 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRATCH="$HERE/.scratch"
 mkdir -p "$SCRATCH"
+# The probes mktemp into .scratch and a crashed run leaves them behind; a suite
+# start sweeps what no live run owns. Entries newer than a day are kept: a
+# concurrently running probe suite (or this one's own earlier stages) may own
+# them. `pnpm run probe:clean` removes everything without the age guard.
+find "$SCRATCH" -mindepth 1 -maxdepth 1 -mmin +1440 -exec rm -rf -- {} + 2>/dev/null
 LOG="$(mktemp "$SCRATCH/full-probe.XXXXXX.log")"
 
 echo "full probe suite; log: $LOG" >&2

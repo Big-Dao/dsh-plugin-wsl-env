@@ -512,6 +512,7 @@ export declare class WslAgent {
         exitCode: number;
         stdout: Buffer;
         stderr: Buffer;
+        reason?: string;
     }>;
     /**
      * Run one batched FS frame (protocol 7): the ordered ops execute in one

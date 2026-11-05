@@ -24,8 +24,12 @@ import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import * as shellEnvRow from "../lib/shell-env.js";
 
-/** What the registry stand-in receives, reduced to what this test reads. */
-/** @typedef {{ name: string, variables: Record<string, { description: string }> }} Contributor */
+/**
+ * What the registry stand-in receives, reduced to what this test reads.
+ * `resolve` is the row's per-session variable resolver, called with the
+ * harness's structural execution object.
+ * @typedef {{ name: string, variables: Record<string, { description: string }>, resolve?: (execution: { agent?: { session?: { header?: { cwd?: string | undefined } | undefined } | undefined } }) => Record<string, string> }} Contributor
+ */
 
 /** A PATH with no `wsl.exe`: every probe the mount performs fails at once. */
 const emptyPath = await mkdtemp(join(tmpdir(), "dsh-wsl-env-no-shell-"));
@@ -95,3 +99,17 @@ console.log("PASS  a composition with agents mounts and sweeps");
 const withoutAgents = await mount({ withAgents: false });
 assert.equal(withoutAgents.registered.length, 1, "a composition without agents still activates");
 console.log("PASS  a composition without agents still activates");
+
+// The contributor's resolve maps a session's UNC cwd onto the four managed
+// keys, refuses other distros/pinnings, and defaults PORTS to empty.
+{
+  const mounted = await mount({ withAgents: true });
+  const resolve = /** @type {NonNullable<Contributor["resolve"]>} */ (mounted.registered[0]?.resolve);
+  // Only the early-refusal guards are exercised here: the accept path calls
+  // ensurePorts, which spawns the shared resident and would make this unit
+  // test depend on a real distro (and hold its child process).
+  assert.deepEqual(resolve({}), {}, "no session cwd resolves to no variables");
+  assert.deepEqual(resolve({ agent: { session: { header: { cwd: "C:\\proj" } } } }), {}, "a Windows-path session resolves to nothing");
+  assert.deepEqual(resolve({ agent: { session: { header: { cwd: "\\\\wsl.localhost\\debian\\home" } } } }), {}, "another distro's session resolves to nothing under a pinned ubuntu");
+  console.log("PASS  resolve refuses sessions outside the pinned distro's world");
+}

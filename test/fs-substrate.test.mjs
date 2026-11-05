@@ -506,6 +506,27 @@ checks.push(["protocol-6 residents refuse the destructive ops with a rebuild hin
   await assert.rejects(sub.moveFile(target, { displayPath: "/tmp/y.txt", targetKey: "\\\\wsl.localhost\\ubuntu\\tmp\\y.txt" }, {}), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_IO_ERROR" && /protocol-7/.test(error.message));
 }]);
 
+checks.push(["moveFile over an existing destination reports update and replaces its content", async () => {
+  await substrate(async (sub, root) => {
+    const source = join(root, "over-src.txt");
+    const destination = join(root, "over-dst.txt");
+    writeFileSync(source, "new-body\n");
+    writeFileSync(destination, "old-body\n");
+    const srcTarget = await sub.resolve(source);
+    const dstTarget = await sub.resolve(destination);
+    const dstStat = await sub.stat(dstTarget);
+    assert.ok(dstStat, "the destination is observed before the move");
+    const moved = await sub.moveFile(srcTarget, dstTarget, { expectedDestination: { kind: "replaceIfVersion", version: dstStat.version } });
+    assert.equal(moved.destination.operation, "update", "an existing destination reports update");
+    assert.equal(readFileSync(destination, "utf8"), "new-body\n");
+    assert.equal(moved.destination.before, "old-body\n", "the destination's pre-move text is the diff basis");
+    assert.throws(() => readFileSync(source, "utf8"), "the source is removed");
+    // A destination that is a directory refuses with the write dialect.
+    const directoryTarget = await sub.resolve(root);
+    await assert.rejects(sub.moveFile(dstTarget, directoryTarget, {}), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_NOT_REGULAR_FILE" && /cannot write/.test(error.message));
+  });
+}]);
+
 checks.push(["moveFile refuses a missing source, a directory source and a mismatched hunk", async () => {
   await substrate(async (sub, root) => {
     const missing = await sub.resolve(join(root, "no-such-source.txt"));

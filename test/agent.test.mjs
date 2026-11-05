@@ -48,7 +48,7 @@ const checks = [];
  */
 const checkReg = (name, fn) => checks.push([name, fn]);
 
-/** @typedef {{ dieAfterHello?: boolean, dieOnRequest?: boolean, noHello?: boolean, helloVersion?: number, helloDigest?: string, helloPid?: number, hangOnExec?: boolean }} FakeAgentOptions */
+/** @typedef {{ dieAfterHello?: boolean, dieOnRequest?: boolean, noHello?: boolean, helloVersion?: number, helloDigest?: string, helloPid?: number, hangOnExec?: boolean, fsRefusal?: { reason: string, message: string }, fsbPayload?: Buffer }} FakeAgentOptions */
 
 /** A fake `wsl.exe --exec sh wsl-agent.sh` child the tests script directly. */
 class FakeAgentProcess extends EventEmitter {
@@ -64,8 +64,10 @@ class FakeAgentProcess extends EventEmitter {
   hangOnExec = false;
 
   /** @param {FakeAgentOptions} [options] - the fake's behaviour. */
-  constructor({ dieAfterHello = false, dieOnRequest = false, noHello = false, helloVersion = PROTOCOL_VERSION, helloDigest = TEST_DIGEST, helloPid = undefined, hangOnExec = false } = {}) {
+  constructor({ dieAfterHello = false, dieOnRequest = false, noHello = false, helloVersion = PROTOCOL_VERSION, helloDigest = TEST_DIGEST, helloPid = undefined, hangOnExec = false, fsRefusal = undefined, fsbPayload = undefined } = {}) {
     super();
+    this.fsRefusal = fsRefusal;
+    this.fsbPayload = fsbPayload;
     this.stdin = new PassThrough();
     this.stdout = new PassThrough();
     this.stderr = new PassThrough();
@@ -121,6 +123,13 @@ class FakeAgentProcess extends EventEmitter {
       this.pendingWords = [];
       return;
     }
+    if (line.startsWith("FSB|")) {
+      const [, id] = line.split("|");
+      this.stdout.write(`ACK|${id}\n`);
+      const payload = this.fsbPayload ?? Buffer.from("OK 1|\n");
+      this.stdout.write(`RES|${id}|0|${encodeB64(payload)}|${encodeB64(Buffer.alloc(0))}|0|0\n`);
+      return;
+    }
     if (line.startsWith("FS|")) {
       if (this.dieOnRequest) {
         this.exitCode = 1;
@@ -129,6 +138,11 @@ class FakeAgentProcess extends EventEmitter {
       }
       const [, id, op] = line.split("|");
       this.stdout.write(`ACK|${id}\n`);
+      if (this.fsRefusal !== undefined) {
+        // Protocol 7's structured refusal channel.
+        this.stdout.write(`FSERR|${id}|${this.fsRefusal.reason}|${encodeB64(this.fsRefusal.message)}\n`);
+        return;
+      }
       const payload = op === "read" ? Buffer.from("hello-bytes\n") : Buffer.alloc(0);
       this.stdout.write(`RES|${id}|0|${encodeB64(payload)}|${encodeB64(Buffer.alloc(0))}\n`);
       return;
@@ -222,6 +236,36 @@ checkReg("a shell crash refuses unsent writes and relays the active read", async
   assert.match(error.message, /never ran/);
   assert.equal(healthy.frames.some((line) => line.includes("|write|")), false);
   await agent.close();
+});
+
+checkReg("a refused FS op settles with the reason token from the FSERR line", async () => {
+  const child = new FakeAgentProcess({ fsRefusal: { reason: "stale", message: "cannot delete \"/x\": file changed since it was read" } });
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  try {
+    const result = await agent.fs({ op: "delete", args: ["/x", "v1"] });
+    assert.equal(result.exitCode, 1, "the refusal settles the request");
+    assert.equal(result.reason, "stale", "the structured reason rides the settled result");
+    assert.equal(result.stderr.toString(), "cannot delete \"/x\": file changed since it was read");
+  } finally {
+    await agent.close();
+  }
+});
+
+checkReg("fsb() sends one batched frame and settles with its per-op records", async () => {
+  const records = Buffer.from(`OK 1|${encodeB64(Buffer.from("stat-row"))}\nBAD 2|notfound|${encodeB64(Buffer.from("gone"))}\n`);
+  const child = new FakeAgentProcess({ fsbPayload: records });
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  try {
+    const result = await agent.fsb({ ops: [{ op: "stat", args: ["/a"] }, { op: "read", args: ["/a", "0", "4"] }] });
+    assert.equal(result.exitCode, 0, "the batch settles");
+    assert.equal(result.stdout.toString(), records.toString(), "the record stream is delivered verbatim");
+    assert.ok(child.frames.some((line) => line.startsWith("FSB|")), "the batch rides one FSB header");
+    assert.ok(child.frames.includes("OP|stat|1") && child.frames.includes("OP|read|3"), "each op rides its own OP record");
+  } finally {
+    await agent.close();
+  }
 });
 
 checkReg("a shell send failure counts as a rejection without a settled request", async () => {

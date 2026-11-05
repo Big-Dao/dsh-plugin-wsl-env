@@ -1153,7 +1153,7 @@ export class WslAgent {
     timeoutMs?: number,
     /** Cancels the request, sending KILL if it was already dispatched. */
     signal?: AbortSignal,
-  }): Promise<{ exitCode: number, stdout: Buffer, stderr: Buffer }> {
+  }): Promise<{ exitCode: number, stdout: Buffer, stderr: Buffer, reason?: string }> {
     await this.start();
     const id = `r${this.nextRequestId++}`;
     const lines = encodeFsFrame({ id, op, args, timeoutMs });

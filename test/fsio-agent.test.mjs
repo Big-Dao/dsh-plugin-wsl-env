@@ -477,6 +477,24 @@ checks.push(["the batch's OK-stat/BAD-read and malformed-stat arms map onto thei
   });
 }]);
 
+checks.push(["removeFile and moveAtomic map the v7 refusals and the SRCFAIL record", async () => {
+  /** @type {import("../lib/agent.js").WslAgent} */
+  const fake = /** @type {never} */ ({
+    protocolVersion: 7,
+    caps: new Set(["batch"]),
+    fs: async (/** @type {{ op: string }} */ { op }) => (op === "delete"
+      ? { exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from("cannot delete \"/x\": file changed since it was read"), reason: "stale" }
+      : { exitCode: 0, stdout: Buffer.from(`f\t644\t5\t1\t2\t3.000000000\t4.000000000\nSRCFAIL|perm|${Buffer.from("cannot remove").toString("base64")}`), stderr: Buffer.alloc(0) }),
+  });
+  const fs = new DistroFs({ agent: asAgent(fake), distro: DISTRO });
+  await assert.rejects(fs.removeFile("/x", undefined, undefined), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_STALE_VERSION");
+  const moved = await fs.moveAtomic("/x", "/y", { mode: 0o644, guard: "replace" });
+  assert.ok(moved.sourceFailure, "the SRCFAIL record rides the outcome");
+  assert.equal(moved.sourceFailure.reason, "perm");
+  assert.equal(moved.sourceFailure.message, "cannot remove");
+  assert.equal(moved.destination.type, "f");
+}]);
+
 checks.push(["parseStatRecord refuses a malformed TAB record with the IO code", () => {
   assert.throws(
     () => parseStatRecord(Buffer.from("f\t644\t5\t1\t2")),

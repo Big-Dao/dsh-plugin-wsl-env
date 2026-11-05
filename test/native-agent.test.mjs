@@ -223,4 +223,51 @@ if (process.platform !== "win32") {
   });
 }
 
+await check("the shared agent's native prepare arms the real binary transport", async () => {
+  if (process.platform === "win32") return; // the fake wsl.exe is a POSIX script
+  const { chmodSync } = await import("node:fs");
+  const { sharedAgent } = await import("../lib/agent-shared.js");
+  const bin = mkdtempSync(join(tmpdir(), "dsh-native-shared-"));
+  // The native prepare's probes, answered locally: `uname -m` names the arch,
+  // and any `sh -c <script>` payload — the cache install — runs right here
+  // with HOME pointed at a scratch dir, so nothing real is written and no
+  // real distro is touched. The resident spawn itself matches neither shape
+  // and fails fast, which is fine: the arm under test is the handover.
+  const FAKE = `#!/bin/sh
+for a in "$@"; do
+  case "$a" in
+    uname) echo x86_64; exit 0 ;;
+  esac
+done
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "-c" ] && [ -n "$a" ]; then
+    HOME="$(mktemp -d)" exec sh -c "$a" sh
+  fi
+  prev="$a"
+done
+exit 1
+`;
+  writeFileSync(join(bin, "wsl.exe"), FAKE);
+  chmodSync(join(bin, "wsl.exe"), 0o755);
+  const savedPath = process.env.PATH;
+  process.env.PATH = `${bin}:${savedPath}`;
+  configureAgentBackend("auto");
+  clearNativeBackendCache();
+  try {
+    const agent = sharedAgent("ze-native-prepare");
+    // The prepare itself must run and arm the native transport; the resident
+    // spawn then fails against the fake (no HELLO), which is fine — the arm
+    // under test is the prepare's handover, not a working resident.
+    const startOutcome = await agent.start().then(() => "started", (error) => error);
+    assert.ok(startOutcome instanceof Error, "the fake resident cannot complete a handshake");
+    assert.equal(sharedAgent("ze-native-prepare"), agent, "the singleton answers the same agent");
+    const retryOutcome = await agent.start().then(() => "started", (error) => error);
+    assert.ok(retryOutcome instanceof Error, "the retry fails the same way, through the same transport");
+  } finally {
+    process.env.PATH = savedPath;
+    configureAgentBackend("shell");
+  }
+});
+
 console.log(`\n${passed} native-agent checks pass`);

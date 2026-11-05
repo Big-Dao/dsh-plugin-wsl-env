@@ -424,6 +424,64 @@ checks.push(["close stops the loop by the PID it announced, not just by killing 
   assert.equal(child.killed, true, "the transport is killed too");
 }]);
 
+checks.push(["a loop's stderr tail rides the failure, and close waits for the exit", async () => {
+  if (process.platform === "win32") return; // the fake children are POSIX-shaped events
+  /** One fake loop child: pipes to write into, a kill that does nothing yet. */
+  const fakeChild = () => {
+    const child = /** @type {Omit<ChildProcess, "stdout" | "stderr"> & { stdout: PassThrough, stderr: PassThrough, kill: () => boolean }} */ (
+      /** @type {unknown} */ (new EventEmitter())
+    );
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    /** @type {number | null} */
+    let exitCode = null;
+    Object.defineProperty(child, "exitCode", { get: () => exitCode });
+    Object.defineProperty(child, "signalCode", { get: () => null });
+    child.kill = () => true;
+    return /** @type {ChildProcess} */ (/** @type {unknown} */ (child));
+  };
+  /** @type {Array<ChildProcess>} */
+  const children = [];
+  const spawnFake = () => {
+    const child = fakeChild();
+    children.push(child);
+    return child;
+  };
+  /** @type {Error[]} */
+  const errors = [];
+  const controller = new AbortController();
+  const armed = armDistroWatcher({
+    wslPath: "wsl.exe",
+    distro: "ubuntu",
+    linuxPath: "/home/u/proj",
+    onChange: () => {},
+    onError: (error) => errors.push(error),
+    signal: controller.signal,
+    spawn: spawnFake,
+  });
+  const loop = children[0];
+  assert.ok(loop !== undefined, "the loop child spawned first");
+  const loopPipes = /** @type {{ stdout: PassThrough, stderr: PassThrough }} */ (/** @type {unknown} */ (loop));
+  loopPipes.stderr.write("loop went sideways\n");
+  loopPipes.stdout.write("R\n"); // READY arms the watcher
+  const close = await armed;
+  loopPipes.stdout.write("P 4242\n"); // the loop's pid lands before the failure
+  loopPipes.stdout.write("E\n"); // the vanished-target failure carries the stderr tail
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(
+    errors[0]?.message ?? "",
+    /loop went sideways/,
+    "the bounded tail names the loop's complaint",
+  );
+  // Closing while the child is alive waits for the exit event, not just the
+  // kill call — the already-exited shortcut is the other arm.
+  const done = close();
+  await new Promise((resolve) => setImmediate(resolve));
+  loop.emit("exit", 0, null);
+  await done;
+  assert.equal(children.length, 2, "the pid stopper spawned exactly once");
+}]);
+
 for (const [name, fn] of checks) await check(name, fn);
 console.log(`\n${passed} watcher checks pass`);
 

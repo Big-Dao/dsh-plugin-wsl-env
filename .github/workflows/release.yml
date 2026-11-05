@@ -36,6 +36,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
@@ -86,7 +87,31 @@ jobs:
       # and hand it to this step as `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}`.
       - name: Publish
         if: steps.published.outputs.exists != 'true'
-        run: npm publish --provenance --access public
+        # A prerelease version must never move npm's `latest` tag — every
+        # `npm install dsh-plugin-wsl-env` consumer would take the rc. The
+        # tag↔version discipline lives in scripts/check-release-tag.mjs; the
+        # dist-tag policy lives here.
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          if echo "$version" | grep -qE -- '-(rc|alpha|beta|next)\.'; then
+            npm publish --provenance --access public --tag next
+          else
+            npm publish --provenance --access public
+          fi
+      # The step that used to be docs-only (RELEASING.md's registry
+      # verification; skipping it is how the 0.1.1 README incident shipped):
+      # the tarball's file count must match npm pack's, and the readme must
+      # be the one on disk.
+      - name: Verify what the registry now serves
+        if: steps.published.outputs.exists != 'true'
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          local_count="$(npm pack --dry-run --json --ignore-scripts 2>/dev/null | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8"))[0].files.length')"
+          served_count="$(npm view "dsh-plugin-wsl-env@$version" dist.fileCount --registry=https://registry.npmjs.org/)"
+          served_readme="$(npm view "dsh-plugin-wsl-env@$version" readmeFilename --registry=https://registry.npmjs.org/)"
+          echo "tarball files: $local_count; registry serves: $served_count; readme: $served_readme"
+          [ "$local_count" = "$served_count" ] || { echo "file-count mismatch — the tarball on the registry is not what npm pack built" >&2; exit 1; }
+          [ "$served_readme" = "README.md" ] || { echo "readmeFilename is '$served_readme', expected README.md" >&2; exit 1; }
       - name: GitHub Release, notes from the changelog
         env:
           GH_TOKEN: ${{ github.token }}

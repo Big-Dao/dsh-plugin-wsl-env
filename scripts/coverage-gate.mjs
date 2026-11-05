@@ -27,7 +27,7 @@
  * through unchanged.
  */
 import { spawn } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 /** Per-module floors, deliberately above the global ones in package.json. */
@@ -129,6 +129,16 @@ child.on("close", (code) => {
     `coverage-gate: ${rows.size} of ${libs.size} shipped module(s) measured, ${allowlist.size} allowlisted ` +
       `(floors ${FLOORS.line}/${FLOORS.branch}/${FLOORS.function})`,
   );
+  // On CI, the per-module table belongs on the run page, not just in the logs.
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (summaryPath !== undefined && summaryPath.length > 0) {
+    const table = ["| module | lines % | branches % | functions % |", "|---|---|---|---|"];
+    for (const [name, row] of [...rows.entries()].sort()) {
+      table.push(`| ${name} | ${row.line.toFixed(2)} | ${row.branch.toFixed(2)} | ${row.function.toFixed(2)} |`);
+    }
+    const verdict = problems.length === 0 ? "all floors met" : `violations: ${problems.join("; ")}`;
+    writeFileSync(summaryPath, `${table.join("\n")}\n\n${verdict}\n`);
+  }
   if (problems.length > 0) {
     console.error("coverage-gate: FAIL");
     for (const problem of problems) console.error(`  ${problem}`);

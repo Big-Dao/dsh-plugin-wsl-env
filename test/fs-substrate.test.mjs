@@ -484,6 +484,19 @@ checks.push(["moveFile publishes the destination, guards both endpoints and remo
   });
 }]);
 
+checks.push(["readWholeText and statRegularFile refuse with the peer's codes", async () => {
+  await substrate(async (sub, root) => {
+    const missingTarget = await sub.resolve(join(root, "absent.txt"));
+    await assert.rejects(sub.readWholeText(missingTarget), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_NOT_FOUND");
+    await assert.rejects(sub.readWholeText(missingTarget), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_NOT_FOUND" && /not found/.test(error.message));
+    const directoryTarget = await sub.resolve(root);
+    await assert.rejects(sub.readWholeText(directoryTarget), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_NOT_REGULAR_FILE");
+    writeFileSync(join(root, "bin.txt"), "MZ");
+    const binaryTarget = await sub.resolve(join(root, "bin.txt"));
+    await assert.rejects(sub.readWholeText(binaryTarget), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_NOT_TEXT");
+  });
+});
+
 checks.push(["protocol-6 residents refuse the destructive ops with a rebuild hint", async () => {
   if (!POSIX) return;
   const legacy = { protocolVersion: 6, caps: new Set(), fs: async () => { throw new Error("a v6 agent has no delete/move op"); } };

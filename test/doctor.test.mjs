@@ -16,6 +16,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { peerSatisfied } from "../scripts/doctor.mjs";
+import { mergeLiveResidentStatus } from "../lib/doctor-live.js";
+import { doctorReport } from "../lib/index.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /** The digest the agent script self-reports; the fake HELLO carries it. */
@@ -187,16 +189,101 @@ try {
     rmSync(profile, { recursive: true, force: true });
   });
 
-  check("the agent handshake reports the pid and catches a digest mismatch", () => {
+  check("the agent handshake names its probe source and catches a digest mismatch", () => {
     const good = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
     const ok = good.checks.find((entry) => entry.id === "agent.handshake");
     assert.equal(ok?.status, "ok");
-    assert.match(String(ok?.detail), /pid 4242/);
+    assert.match(String(ok?.detail), /probed: a fresh resident, pid 4242/, "the report states the probe source (WSL-313 acceptance)");
     const bad = /** @type {Report} */ (JSON.parse(doctor(["--json"], { FAKE_AGENT_DIGEST: "bad" }).stdout));
     const mismatch = bad.checks.find((entry) => entry.id === "agent.handshake");
     assert.equal(mismatch?.status, "fail");
     assert.match(String(mismatch?.detail), /MISMATCH/);
     assert.match(String(mismatch?.remedy), /sync:windows/);
+  });
+
+  check("the live-resident merge names the probe source and keeps the fresh facts (WSL-313)", () => {
+    /** The minimal healthy report shape the merge expects. @type {Report} */
+    const report = {
+      schemaVersion: 1,
+      checks: [
+        { id: "wsl.version", status: "ok", detail: "WSL version: 2.0.0" },
+        { id: "agent.handshake", status: "ok", detail: "probed: a fresh resident, pid 4242, protocol 6, digest matches" },
+        { id: "runtime.scopes", status: "info", detail: "none" },
+      ],
+      summary: { ok: 1, info: 1, warn: 0, fail: 0 },
+    };
+    /** A snapshot answering for a resident this process holds. @type {import("../lib/agent.js").AgentStatus} */
+    const LIVE = { distro: "ubuntu", state: "ready", pid: 7000, lastError: "", deaths: 0, pending: 0 };
+    assert.equal(mergeLiveResidentStatus(report, undefined), report, "no snapshot, no merge");
+    assert.equal(mergeLiveResidentStatus(report, { ...LIVE, pid: undefined }), report, "a never-started singleton says nothing about the app's resident");
+    const noHandshake = { ...report, checks: report.checks.filter((entry) => entry.id !== "agent.handshake") };
+    assert.equal(mergeLiveResidentStatus(noHandshake, LIVE), noHandshake, "no handshake check, no merge");
+
+    const healthy = mergeLiveResidentStatus(report, LIVE);
+    const hand = healthy.checks.find((entry) => entry.id === "agent.handshake");
+    assert.match(String(hand?.detail), /probed: the live resident \(pid 7000, state ready, deaths 0, pending 0\)/);
+    assert.match(String(hand?.detail), /fresh-probe facts: probed: a fresh resident, pid 4242/, "the fresh probe's digest facts are kept");
+    assert.equal(hand?.status, "ok", "no error, no verdict change");
+    assert.equal(healthy.checks.find((entry) => entry.id === "wsl.version"), report.checks[0], "the other checks pass through");
+
+    const wounded = mergeLiveResidentStatus(report, { ...LIVE, lastError: "agent handshake timed out after 30000ms", deaths: 2 });
+    const warn = wounded.checks.find((entry) => entry.id === "agent.handshake");
+    assert.equal(warn?.status, "warn", "a lastError on a running resident surfaces as warn");
+    assert.match(String(warn?.detail), /deaths 2/);
+    assert.match(String(warn?.detail), /lastError: agent handshake timed out/);
+    assert.equal(wounded.summary.ok, 0, "the ok tally drops");
+    assert.equal(wounded.summary.warn, 1, "the warn tally rises");
+    assert.equal(report.summary.ok, 1, "the input report is not mutated");
+
+    const dead = mergeLiveResidentStatus(report, { ...LIVE, state: "dead", lastError: "permanently out after 4 deaths", deaths: 4 });
+    assert.equal(dead.checks.find((entry) => entry.id === "agent.handshake")?.status, "fail", "a dead live resident fails the check");
+
+    // A fresh probe that carries a remedy keeps it through the merge — the
+    // digest-mismatch shape, merged instead of discarded.
+    const withRemedy = {
+      ...report,
+      checks: [{ id: "agent.handshake", status: "fail", detail: "probed: a fresh resident, pid 4242, digest MISMATCH", remedy: "resync the runtime copy (pnpm run sync:windows), then restart the app" }, ...report.checks.filter((entry) => entry.id !== "agent.handshake")],
+      summary: { ok: 0, info: 1, warn: 0, fail: 1 },
+    };
+    const mergedRemedy = mergeLiveResidentStatus(withRemedy, LIVE);
+    assert.equal(mergedRemedy.checks.find((entry) => entry.id === "agent.handshake")?.remedy, "resync the runtime copy (pnpm run sync:windows), then restart the app", "the remedy survives the merge");
+
+    // Degenerate shapes: a detail-less check and a summary without the key
+    // the tally shift touches must not crash the merge.
+    const sparse = {
+      schemaVersion: 1,
+      checks: [{ id: "agent.handshake", status: "ok" }],
+      summary: { ok: 1 },
+    };
+    const mergedSparse = mergeLiveResidentStatus(sparse, { ...LIVE, lastError: "transient", state: "ready" });
+    assert.equal(mergedSparse.summary.warn, 1, "a missing tally key counts up from zero");
+    assert.match(String(mergedSparse.checks[0]?.detail), /fresh-probe facts: $/, "a detail-less fresh check degrades to an empty tail");
+  });
+
+  check("doctorReport collects the real script and merges the injected live snapshot", async () => {
+    // doctorReport spawns `node scripts/doctor.mjs --json`; the fakes must be
+    // on the inherited PATH for that child, not just the `doctor()` helper.
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${bin}:${previousPath ?? ""}`;
+    try {
+      const merged = await doctorReport("ubuntu", {
+        liveStatus: { distro: "ubuntu", state: "dead", pid: 7000, lastError: "wedge observed in the live app", deaths: 4, pending: 0 },
+      });
+      const handshake = merged.checks.find((entry) => entry.id === "agent.handshake");
+      assert.ok(handshake, "the collected report has the handshake check");
+      assert.equal(handshake.status, "fail", "the dead live resident fails the merged check");
+      assert.match(String(handshake?.detail), /probed: the live resident/);
+      assert.match(String(handshake?.detail), /fresh-probe facts: probed: a fresh resident, pid 4242/);
+
+      // Outside the app (no resident this process holds), the report is the
+      // fresh probe verbatim — the merge never invents facts.
+      const fresh = await doctorReport("ubuntu");
+      const freshHandshake = fresh.checks.find((entry) => entry.id === "agent.handshake");
+      assert.match(String(freshHandshake?.detail), /probed: a fresh resident/);
+      assert.doesNotMatch(String(freshHandshake?.detail), /probed: the live resident/);
+    } finally {
+      process.env.PATH = previousPath;
+    }
   });
 
   check("the Windows git trust check reports the whitelist and a missing-git info", () => {

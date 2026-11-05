@@ -16,6 +16,20 @@ were part of the record.
 
 ## [Unreleased]
 
+### Added
+
+- **The doctor can now report a live resident's failures (WSL-313).** The
+  CLI's handshake check states its probe source ("probed: a fresh resident")
+  and keeps saying that a live resident's `lastError` is host-private — the
+  CLI is a separate process and no IPC is invented. The merge happens only
+  where the context is reachable: `doctorReport(distro)` in `lib/index.js`
+  collects the shipped script as a subprocess and folds
+  `sharedAgent(distro).status()` in via `mergeLiveResidentStatus`
+  (`lib/doctor-live.js`) — a snapshot that answers for no resident changes
+  nothing; a `dead` live resident fails the check; a `lastError` on a running
+  one surfaces as `warn` with deaths/pending named, and the report tally
+  follows.
+
 ## [0.18.0] - 2026-11-05
 
 Track the desktop `0.2.2-rc.1` release: the bundle layer is regenerated from

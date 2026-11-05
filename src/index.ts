@@ -52,7 +52,7 @@ import { distroOfUnc, isDefaultDistro, pinnedDistro, selectDistro } from "./dist
 import { WslSandbox } from "./sandbox.js";
 import { bwrapFailure, missingBwrapRemedy, withBwrapHint } from "./sandbox-core.js";
 import { armDistroWatcher } from "./watcher.js";
-import type { WslAgent } from "./agent.js";
+import type { WslAgent, AgentStatus } from "./agent.js";
 import { AgentUnavailableError, SpawnError } from "./agent-errors.js";
 
 /** The settled shape the agent handle's `result()` resolves with. */
@@ -64,6 +64,10 @@ import { FsCodedError } from "./fsio-text.js";
 import { confinedAgent } from "./agent-confined.js";
 import { SessionRuntimes, probeSessionRuntime, sessionRuntimes, setSessionNativeAgent } from "./session-runtime.js";
 import { configureAgentBackend, ensureNativeSessionAgent } from "./native-agent.js";
+import { mergeLiveResidentStatus, type DoctorReport } from "./doctor-live.js";
+import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import type { AgentBackend } from "./native-agent.js";
 import type { SessionRuntimeEntry } from "./session-runtime.js";
 // `runCapture` and distro discovery live in ./wsl.js so the directory picker
@@ -219,6 +223,44 @@ function wslWritableRoots(policy: SandboxExecutionPolicy, distro: string): strin
     for (const root of writableRoots(policy)) roots.add(root);
   }
   return [...roots];
+}
+
+/** The doctor script this package ships, resolved from the compiled module. */
+const DOCTOR_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "..", "scripts", "doctor.mjs");
+
+/**
+ * Collect the doctor's versioned JSON report and merge the live resident's
+ * own lifecycle facts when this process holds one (WSL-313).
+ *
+ * The doctor CLI is a separate process, so its handshake check can only probe
+ * a fresh resident; a live resident's `deaths` and `lastError` are
+ * host-process state with no IPC to reach them. This entry point runs from
+ * the plugin's own context instead: it collects the report as a subprocess
+ * (no plugin code is re-entered) and folds `sharedAgent(distro).status()` in
+ * — the sanctioned merge, since a snapshot that answers for no resident
+ * changes nothing. Outside the app the singleton was never started, so the
+ * returned report is the fresh probe verbatim; inside it, a wedged live
+ * resident's failures finally reach the report.
+ *
+ * @param distro - the distro the doctor examines.
+ * @param options - `doctorPath` overrides the shipped script (tests);
+ *   `liveStatus` overrides the in-process status snapshot (tests).
+ * @returns the merged report.
+ */
+export async function doctorReport(distro: string, options?: {
+  doctorPath?: string;
+  liveStatus?: AgentStatus;
+}): Promise<DoctorReport> {
+  const script = options?.doctorPath ?? DOCTOR_SCRIPT;
+  const stdout = await new Promise<string>((resolve, reject) => {
+    execFile(process.execPath, [script, distro, "--json"], { timeout: 120_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true }, (error, out, err) => {
+      if (error) reject(new Error(`doctor run failed: ${error.message}${typeof err === "string" && err.length > 0 ? ` — ${err.trim().slice(-400)}` : ""}`));
+      else resolve(out);
+    });
+  });
+  const report = JSON.parse(stdout) as DoctorReport;
+  const status = options?.liveStatus ?? sharedAgent(distro).status();
+  return mergeLiveResidentStatus(report, status);
 }
 
 /**

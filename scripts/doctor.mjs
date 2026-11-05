@@ -23,6 +23,12 @@
  * `--json` prints one machine-readable report instead of the human sections.
  * The report shape is versioned (`schemaVersion`).
  *
+ * This CLI always probes a **fresh** resident — the app process's live
+ * resident's `deaths`/`lastError` are host-private (no IPC), and the report
+ * says so at the handshake check. Consumers holding the plugin's context
+ * merge them through `doctorReport()` in `lib/index.js` / the
+ * `mergeLiveResidentStatus` helper in `lib/doctor-live.js` (WSL-313).
+ *
  * @module dsh-plugin-wsl/scripts/doctor
  */
 import { execFile, spawn } from "node:child_process";
@@ -424,10 +430,10 @@ async function main(options) {
     const handshake = await probeResident(distro, agentScript);
     if (handshake.ok) {
       const live = livePids.length > 0
-        ? `; a live resident (pid${livePids.length > 1 ? "s" : ""} ${livePids.join(", ")}) is already running in this distro — this check starts a fresh one, which cannot read its last error`
+        ? `; a live resident (pid${livePids.length > 1 ? "s" : ""} ${livePids.join(", ")}) is already running in this distro — this check starts a fresh one, which cannot read its last error; the app-side doctorReport() merge surfaces it`
         : "";
       check("agent.handshake", handshake.digestMatches ? "ok" : "fail", "Agent handshake",
-        `pid ${handshake.pid}, protocol ${PROTOCOL_VERSION}, digest ${handshake.digestMatches ? "matches" : "MISMATCH — the distro reads a different script than this package"}${live}`,
+        `probed: a fresh resident, pid ${handshake.pid}, protocol ${PROTOCOL_VERSION}, digest ${handshake.digestMatches ? "matches" : "MISMATCH — the distro reads a different script than this package"}${live}`,
         handshake.digestMatches ? undefined : "resync the runtime copy (pnpm run sync:windows), then restart the app");
     } else {
       check("agent.handshake", "fail", "Agent handshake", handshake.detail, "restart the DSH app; if it persists, delete ~/.cache/dsh-wsl/agent inside the distro and rerun the doctor");

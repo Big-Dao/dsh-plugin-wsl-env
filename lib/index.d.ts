@@ -44,9 +44,10 @@ import { LocalBashExecutor } from "@deepseek-ai/dsh-bash-local";
 import { LocalFileSystem } from "@deepseek-ai/dsh-fs-local";
 import { FsError } from "@deepseek-ai/dsh-fs";
 import { WslSandbox } from "./sandbox.js";
-import type { WslAgent } from "./agent.js";
+import type { WslAgent, AgentStatus } from "./agent.js";
 import { AgentSubstrate } from "./fs-substrate.js";
 import { SessionRuntimes } from "./session-runtime.js";
+import { type DoctorReport } from "./doctor-live.js";
 import type { AgentBackend } from "./native-agent.js";
 import type { SessionRuntimeEntry } from "./session-runtime.js";
 import type { Context } from "@deepseek-ai/cordis";
@@ -84,6 +85,29 @@ export type ConfinedProfile = Awaited<ReturnType<InstanceType<typeof WslSandbox>
 export type WslExecSpec = ShellExecSpec & {
     relativeWorkdir?: string;
 };
+/**
+ * Collect the doctor's versioned JSON report and merge the live resident's
+ * own lifecycle facts when this process holds one (WSL-313).
+ *
+ * The doctor CLI is a separate process, so its handshake check can only probe
+ * a fresh resident; a live resident's `deaths` and `lastError` are
+ * host-process state with no IPC to reach them. This entry point runs from
+ * the plugin's own context instead: it collects the report as a subprocess
+ * (no plugin code is re-entered) and folds `sharedAgent(distro).status()` in
+ * — the sanctioned merge, since a snapshot that answers for no resident
+ * changes nothing. Outside the app the singleton was never started, so the
+ * returned report is the fresh probe verbatim; inside it, a wedged live
+ * resident's failures finally reach the report.
+ *
+ * @param distro - the distro the doctor examines.
+ * @param options - `doctorPath` overrides the shipped script (tests);
+ *   `liveStatus` overrides the in-process status snapshot (tests).
+ * @returns the merged report.
+ */
+export declare function doctorReport(distro: string, options?: {
+    doctorPath?: string;
+    liveStatus?: AgentStatus;
+}): Promise<DoctorReport>;
 /**
  * The WSL shell executor's validated config — the keys of
  * {@link WslShellExecutor.Config}, which the upstream `LocalBashExecutor`

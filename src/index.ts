@@ -252,10 +252,24 @@ export async function doctorReport(distro: string, options?: {
   liveStatus?: AgentStatus;
 }): Promise<DoctorReport> {
   const script = options?.doctorPath ?? DOCTOR_SCRIPT;
+  // A nonzero doctor exit usually means an environment check FAILED on the
+  // machine being examined — that is a valid report, not a broken collection.
+  // The stdout is parsed regardless; only a run that produced no versioned
+  // report rejects.
   const stdout = await new Promise<string>((resolve, reject) => {
     execFile(process.execPath, [script, distro, "--json"], { timeout: 120_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true }, (error, out, err) => {
-      if (error) reject(new Error(`doctor run failed: ${error.message}${typeof err === "string" && err.length > 0 ? ` — ${err.trim().slice(-400)}` : ""}`));
-      else resolve(out);
+      if (!error) {
+        resolve(out);
+        return;
+      }
+      const failedChecks = (() => {
+        try {
+          return (JSON.parse(out) as DoctorReport).checks.filter((check) => check.status === "fail").map((check) => check.id).join(", ");
+        } catch {
+          return undefined;
+        }
+      })();
+      reject(new Error(`doctor run failed: ${error.message}${failedChecks ? ` (failed checks: ${failedChecks})` : ""}${typeof err === "string" && err.length > 0 ? ` — ${err.trim().slice(-400)}` : ""}`));
     });
   });
   const report = JSON.parse(stdout) as DoctorReport;

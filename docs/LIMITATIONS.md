@@ -24,8 +24,11 @@ operations never use the 9p share.
   `FS_STALE_VERSION`, but a change between check and rename can still be overwritten.
 - **A cancelled write can have an unknown outcome** — inspect the file before
   retrying.
-- **A successful write is not crash-durable.** The staged file is synced, the
-  containing directory is not: a power loss can lose the entry.
+- **A successful write is as crash-durable as the platform's `sync -d`.** The
+  staged file is synced, and the containing directory is fsynced best effort
+  after the rename (shell agent). The native agent keeps its file-level
+  `sync_all` only — see the peer-parity divergence note. A filesystem that
+  refuses a directory fsync keeps the peer's own promise.
 - **A Linux filename containing a backslash cannot be addressed** — the backslash is
   the UNC separator, so `a\b.ts` round-trips to `a/b.ts`. Rename away from backslash
   names; this is the coordinate system's own limit.

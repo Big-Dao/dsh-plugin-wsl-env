@@ -670,6 +670,11 @@ fs_write() {
       fs_fail "$(fs_classify "$err")" "$err"
     }
   fi
+  # The published name is only as durable as its directory entry: fsync the
+  # containing directory too, so a power loss cannot lose the rename that the
+  # file sync already made safe. Best effort — sync builds without -d and
+  # filesystems that refuse a directory fsync keep the peer's own promise.
+  sync -d -- "$(dirname -- "$path")" 2>/dev/null || :
   drop_staging
 }
 
@@ -804,6 +809,8 @@ fs_move() {
       fs_fail "$(fs_classify "$err")" "$err"
     }
   fi
+  # Same directory-entry durability as the write's publish above.
+  sync -d -- "$(dirname -- "$dst")" 2>/dev/null || :
   drop_staging
   # The destination's fresh identity, then the source's fate.
   fs_stat -L "$(printf '%s' "$dst" | base64 | tr -d '\n')"

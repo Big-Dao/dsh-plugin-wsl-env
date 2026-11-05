@@ -126,6 +126,15 @@ declared extensions, listed at the end.
    `FS_NOT_FOUND`). The peer throws `file changed since it was read`
    (`FS_STALE_VERSION`, `lib/index.js:937` via `requireFile` at `:1030`) for
    both. Pinned by `test/fs-substrate.test.mjs`.
+6. **Publication durability (shell agent, 2026-11-06).** After the publish
+   rename, the shell agent fsyncs the destination's containing directory
+   (`sync -d`, best effort), so a power loss cannot lose an entry whose file
+   contents already survived. The peer's publication makes no directory-fsync
+   promise, and the native agent keeps its file-level `sync_all` only
+   (`agent/native/spike/src/main.rs` stat write path) — the divergence holds
+   until the native binary's next build. Filesystems that refuse a directory
+   fsync (and `sync` builds without `-d`) degrade to the peer's promise
+   silently.
 
 ## The peer's 0.2.2-rc.1 operations: implemented over protocol v7
 

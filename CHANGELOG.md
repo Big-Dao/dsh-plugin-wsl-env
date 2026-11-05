@@ -61,6 +61,16 @@ were part of the record.
 
 ### Fixed
 
+- **The published name survives a power loss with its contents.** The shell
+  agent synced the staged file but not the containing directory, so the
+  rename that published a write or a move could vanish on restart while the
+  data survived (REVIEW 2026-10-03, still-open 1). After the publish rename —
+  both the write path and the move-over path — the agent now fsyncs the
+  destination's containing directory (`sync -d`, best effort: sync builds
+  without `-d` and filesystems refusing a directory fsync degrade to the
+  peer's promise silently). The native agent keeps its file-level `sync_all`
+  until its next build; the divergence is declared in `docs/PEER-PARITY.md`
+  (divergence 6).
 - **A wedged unit-test file now fails in three minutes instead of hanging the
   run.** `node --test` has no per-file deadline, and `--test-timeout` bounds
   only tests a file has registered — a script-style suite that leaves a handle

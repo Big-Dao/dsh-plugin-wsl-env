@@ -43,7 +43,8 @@ that row unless you pass `--force`. Prefer manual merging for existing profiles.
 To edit the preset manually, replace the entire `preset-wsl` row. Its config is
 not deep-merged: preserve `id`, `order`, and every item in `plugins`. Copy the
 current block from `cordis.patch.yml` or from
-`dsh --profile <name> --dump-config`, then change the nested values. Re-copy it
+`dsh --profile <name> --dump-config` (CLI distribution — the desktop app has no
+`dsh` command), then change the nested values. Re-copy it
 after a plugin upgrade that changes the preset.
 
 ### `wsl-shell`
@@ -303,8 +304,10 @@ mutation fence; that row reports `sandboxMode: undefined` either way.
 the distro and its shell, bubblewrap, systemd/Linger, the peer floor, a fresh
 agent handshake, stale session scopes and the known profile-patch traps — each
 failure with a copyable remedy (`--json` for scripts, `--fix` for the stale
-scopes). Use `dsh --profile <name> --dump-config` to inspect the composed
-profile without booting it; the output shows whether a row override applied.
+scopes). With the CLI distribution, `dsh --profile <name> --dump-config` inspects
+the composed profile without booting it and shows whether a row override
+applied; the desktop app has no `dsh` command, so read `cordis.patch.yml` and
+the Plugins page there.
 Use `scripts/bootstrap.sh <distro>` to inspect distro prerequisites.
 
 | Symptom | Result | Action |

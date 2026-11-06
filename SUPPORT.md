@@ -96,7 +96,7 @@ what it cannot see:
 | The diagnose report | `pnpm run diagnose <distro>` (read-only; review and redact before sharing) |
 | Plugin version | `npm ls dsh-plugin-wsl-env`, or the git tag you built from |
 | DSH version | the version of the harness you run |
-| The composed configuration | `dsh --profile <name> --dump-config`, in particular the `dsh-plugin-wsl-env` layer and the rows it patches |
+| The composed configuration | On the CLI distribution, `dsh --profile <name> --dump-config` (the `dsh-plugin-wsl-env` layer and the rows it patches). The desktop app has no `dsh` command; attach the profile's `cordis.patch.yml` instead |
 | Sandbox behaviour, in depth | the output of `npm run probe:sandbox`, run from inside the distro (`wsl.exe -d <distro>` first) — the probe calls `bwrap` and reads `lib/bwrap.js` there, so it needs both in the distro |
 | What you expected and what happened | one paragraph each |
 | A reproduction | the exact command, or the exact sequence of clicks |

@@ -42,6 +42,7 @@ profile 层；检测到时会打印应使用的块。`--out` 会整体替换目�
 要手动编辑 preset，需替换整个 `preset-wsl` 行。它的 config
 不做深度合并：保留 `id`、`order` 以及 `plugins` 中的每一项。
 从 `cordis.patch.yml` 或 `dsh --profile <name> --dump-config`
+（CLI 发行版；桌面应用没有 `dsh` 命令）
 复制当前块，再修改嵌套的值。插件升级改变了 preset 后要重新复制。
 
 ### `wsl-shell`
@@ -288,8 +289,9 @@ profile 不使用会话 runtime 时，设置 `sessionSandbox: false`。
 
 ## 诊断配置问题与拒绝
 
-使用 `dsh --profile <name> --dump-config` 检查合成后的 profile，
-无需真正启动。输出会显示某行的覆盖是否生效。
+CLI 发行版可用 `dsh --profile <name> --dump-config` 检查合成后的 profile，
+无需真正启动；输出会显示某行的覆盖是否生效。桌面应用没有 `dsh` 命令，
+请直接查看 `cordis.patch.yml` 与 Plugins 页面。
 使用 `scripts/bootstrap.sh <distro>` 检查发行版前置依赖。
 
 | 现象 | 结果 | 处理 |

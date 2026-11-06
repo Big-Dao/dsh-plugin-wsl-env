@@ -130,7 +130,7 @@ correct once configured" and "the plugin is correct on first contact".
 |---|---|---|---|
 | [P1.1](#wsl-201--sessionsandbox-auto) | `sessionSandbox: auto` for distros without systemd | Non-systemd distro runs the first command under per-command bwrap and reports the narrower scope; explicit `true` still refuses | M |
 | [P1.2](#wsl-202--compatibility-matrix-and-aarch64) | Compatibility matrix and real validation | Tier 1 (Ubuntu/Debian, systemd, x86_64) green; aarch64 spike runs under qemu; Tier 2 status documented | L |
-| [P1.3](#wsl-203--installupgradeuninstall-e2e) | Install/upgrade/uninstall E2E | Temporary `DSH_HOME`, packed tarball, `dsh plugin add`, `--dump-config`, remove; upgrade from the previous minor | M |
+| [P1.3](#wsl-203--installupgradeuninstall-e2e) | Install/upgrade/uninstall E2E | Temporary `DSH_HOME`, packed tarball, profile install (Plugins page or `dsh plugin add`), `--dump-config` where the CLI exists, remove; upgrade from the previous minor | M |
 | [P1.4](#wsl-204--references-seam) | `@` references seam | Measure the 9p cost; land the upstream `FileReferenceTraversal` seam or a declared, tested fallback | L |
 | [P1.5](#wsl-205--lsp-provider-spike) | LSP provider spike | A documented plan and prototype for `ctx.lsp` over fs + subprocess, conditional on the desktop composition mounting LSP | M |
 | [P1.6](#wsl-206--gui-preview-performance) | GUI preview performance | Baseline measured; p95 <= 1s/MiB for a representative page; v6 only if the measurement justifies it | M |

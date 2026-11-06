@@ -57,7 +57,16 @@ Windows 上的编程工具要在 WSL 项目中工作，有三条路：把整个�
 
 ## 安装
 
-在 Windows 终端执行：
+Windows 桌面应用**没有 `dsh` 可执行程序**：安装器只写 `DeepSeek Harness.exe`，
+CLI 入口在 `resources/app.asar` 内部（探针脚本通过 `ELECTRON_RUN_AS_NODE` 启动它）。
+按你手上的发行版二选一。
+
+**桌面应用**：打开 **设置 → Plugins → Add plugin**，填精确包名
+`dsh-plugin-wsl-env` 并启用。插件管理器写入当前 profile 的 `package.json`
+（依赖项与 `dsh.profile.bundles`），与下面的 CLI 命令得到的状态一致。从检出
+目录运行时，改为以链接形式添加该目录。
+
+**CLI 发行版**（`dsh` 在 `PATH` 上），在 Windows 终端执行：
 
 ```powershell
 dsh wsl --from-default-profile web --dump-config   # 创建 profile
@@ -74,7 +83,7 @@ wsl.exe -d <发行版> -u root -- apt-get install -y bubblewrap
 
 在插件检出目录中，`pnpm run doctor` 是一键环境体检：Windows/WSL 版本、发行版及其 shell、bubblewrap 可用性、systemd / user manager / Linger、可选工具、peer 版本、agent 缓存、新 agent 握手、残留会话 scope 和已知的 profile 补丁陷阱。每个失败都打印一条可复制的处理办法；`--json` 供脚本使用，`--fix` 清理残留 scope（安装包需要 `--fix --install` 并显式确认）。`pnpm run diagnose` 是其只读别名。`pnpm run bootstrap <发行版>` 仍是较窄的工具安装助手：检查四个发行版工具，并按包管理器打印安装命令；加 `--install` 仅在缺少 bubblewrap 时执行该命令。若只缺少其他工具，请自行执行打印的命令。
 
-升级：再次执行 `add` 命令。卸载：`dsh plugin --profile wsl remove dsh-plugin-wsl-env`；之后可删除 `~/.cache/dsh-wsl`。如果你为了恢复预览在 profile 里加过 `workspace-files-wsl` 的临时覆盖，升级后请删掉：插件不再挂载该行。
+升级：在 Plugins 页面重新安装，或再次执行 `add` 命令。卸载：在 Plugins 页面移除，或在 CLI 发行版执行 `dsh plugin --profile wsl remove dsh-plugin-wsl-env`；之后可删除 `~/.cache/dsh-wsl`。如果你为了恢复预览在 profile 里加过 `workspace-files-wsl` 的临时覆盖，升级后请删掉：插件不再挂载该行。
 
 ## 使用
 
@@ -148,7 +157,7 @@ wsl preset（每个会话）
 | 每条命令都报 `SANDBOX_UNAVAILABLE` | 在发行版内安装 `bubblewrap`，或设置 `sandbox: false` |
 | 会话在第一条命令前就被拒绝 | 运行 `pnpm run doctor`；启用 systemd 和 linger，或在 `wsl-shell`、`wsl-fs` 上设置 `sessionSandbox: false` |
 | 发行版内 `glob`、`grep` 很慢 | 运行 `pnpm run bootstrap <发行版>`，使用打印的安装命令安装 `ripgrep` |
-| `dsh plugin add` 没有输出 | 插件已安装；这是成功 |
+| `dsh plugin add` 没有输出，或 Plugins 页面装完没有日志 | 以 profile 的 `package.json` 与 `dsh.profile.bundles` 为准：列出插件即安装成功 |
 | 对 `wsl-shell`/`wsl-fs` 的 profile 补丁不生效 | 这些行嵌套在 `preset-wsl` 里。运行 `pnpm run preset --check <补丁>`；它会失败并输出需要粘贴的完整块 |
 | 改了 `lib/` 但不生效 | 运行 `pnpm run sync:windows`，然后重启应用 |
 

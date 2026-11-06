@@ -77,7 +77,9 @@ Three modules support them and import no DSH package.
 
 [`cordis.patch.yml`](../cordis.patch.yml) is the bundle layer. It is a top-level
 YAML array of patch entries, and `dsh plugin --profile <name> add
-dsh-plugin-wsl-env` applies it as one layer.
+dsh-plugin-wsl-env` applies it as one layer on the CLI distribution; the
+desktop app applies the same bundle through **Settings → Plugins → Add plugin**
+and records it in the profile's `dsh.profile.bundles`.
 
 The environment is per session, not per process:
 

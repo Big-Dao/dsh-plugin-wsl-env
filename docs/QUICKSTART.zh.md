@@ -22,7 +22,11 @@ doctor（`scripts/doctor.mjs`，或在检出目录中运行 `pnpm run doctor`）
 
 ## 2. 安装
 
-在一个可以使用 DSH CLI 的 Windows PowerShell 中：
+桌面应用没有 `dsh` 命令；在它的 **设置 → Plugins → Add plugin** 页面按精确包名
+`dsh-plugin-wsl-env` 安装。这一步写入该 profile 的 `package.json` 与
+`dsh.profile.bundles`。
+
+使用 CLI 发行版（`dsh` 在 `PATH` 上）时，在 Windows PowerShell 中：
 
 ```powershell
 dsh plugin --profile <profile> add dsh-plugin-wsl-env

@@ -138,6 +138,17 @@ were part of the record.
   timeout, so a failing check cannot leak a `sh` that makes `node --test` wait
   forever.
 
+### Documentation
+
+- **The install steps no longer assume a `dsh` executable.** The Windows
+  desktop app ships `DeepSeek Harness.exe` only — the CLI entry lives inside
+  `resources/app.asar`, and the probe scripts start it through
+  `ELECTRON_RUN_AS_NODE`. The README, QUICKSTART (both languages),
+  CONFIGURATION, MIGRATION, ARCHITECTURE, SUPPORT and the first-use template
+  now lead with the desktop path (**Settings → Plugins → Add plugin**, which
+  writes the profile's `package.json` and `dsh.profile.bundles`) and label the
+  `dsh ...` forms as the CLI distribution's.
+
 ## [0.18.0] - 2026-11-05
 
 Track the desktop `0.2.2-rc.1` release: the bundle layer is regenerated from

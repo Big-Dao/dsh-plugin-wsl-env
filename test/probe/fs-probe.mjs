@@ -8,9 +8,12 @@
  * share has no Windows security descriptors, so that step is what this probe
  * pins down, together with the POSIX mode bits the share is known to drop.
  *
- * Runs inside a probe-only profile that binds `ctx.fs` to the distro:
+ * Runs inside a probe-only profile that binds `ctx.fs` to the distro. The
+ * desktop app ships no `dsh` command, so the probe runner starts its bundled
+ * CLI through `env.sh`'s `$APP`/`$CLI`:
  *
- *   dsh --profile wslfs --patch <this dir>/wslfs-probe.yml --no-open --port 0
+ *   ELECTRON_RUN_AS_NODE=1 "$APP/DeepSeek Harness.exe" --expose-internals "$CLI" \
+ *     --profile wslfs --patch <this dir>/wslfs-probe.yml --no-open --port 0
  *
  * It writes its findings beside itself and exits the process.
  *

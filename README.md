@@ -59,10 +59,21 @@ No Node.js is required inside the distro.
 
 ## Install
 
-Run these commands in a Windows terminal:
+The Windows desktop app ships **no `dsh` executable**: the installer writes
+`DeepSeek Harness.exe`, and the CLI entry lives inside `resources/app.asar`
+(the probe scripts launch it through `ELECTRON_RUN_AS_NODE`). Use the
+distribution you have.
+
+**Desktop app.** Open **Settings → Plugins → Add plugin**, enter the exact
+package name `dsh-plugin-wsl-env`, then enable it. The plugin manager writes the
+active profile's `package.json` — the dependency and the `dsh.profile.bundles`
+entry — which is the same state the CLI command below produces. To run from a
+checkout, add it as a linked package instead of a name.
+
+**CLI distribution** (`dsh` on `PATH`), in a Windows terminal:
 
 ```powershell
-dsh wsl --from-default-profile web --dump-config   # create the profile
+dsh wsl --from-default-profile web --dump-config   # create a profile named wsl
 dsh plugin --profile wsl add dsh-plugin-wsl-env    # install the plugin and its settings
 dsh --profile wsl --dump-config                    # verify: prints "# == dsh-plugin-wsl-env"
 dsh --profile wsl                                  # start
@@ -76,7 +87,12 @@ wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap
 
 From a checkout, `pnpm run doctor` is the one-command environment check: Windows/WSL versions, the distro and its shell, bubblewrap usability, systemd / the user manager / Linger, the optional tools, peer versions, the agent cache, a fresh-agent handshake, stale session scopes and the known profile-patch trap. Each failure prints one copy-paste remedy; `--json` is for scripts, and `--fix` sweeps stale scopes (package installation needs `--fix --install` and an explicit confirmation). `pnpm run diagnose` is its read-only alias. `pnpm run bootstrap <distro>` remains the narrower tool-install helper.
 
-Upgrade by running the `add` command again. Uninstall with `dsh plugin --profile wsl remove dsh-plugin-wsl-env`; the agent cache under `~/.cache/dsh-wsl` can then be deleted. If you added a local `workspace-files-wsl` workaround to your profile to restore previews, remove it after upgrading: the plugin no longer mounts that row.
+Upgrade by installing again (Plugins page, or the `add` command). Uninstall on
+the Plugins page, or with `dsh plugin --profile wsl remove dsh-plugin-wsl-env`
+where the CLI is installed; the agent cache under `~/.cache/dsh-wsl` can then be
+deleted. If you added a local `workspace-files-wsl` workaround to your profile to
+restore previews, remove it after upgrading: the plugin no longer mounts that
+row.
 
 ## Using it
 

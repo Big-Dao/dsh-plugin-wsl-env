@@ -5,8 +5,10 @@
 # top-level `ctx.fs` to the distro; its patch layer is checked in beside this
 # script.
 #
-#   dsh wslfs --from-default-profile web --dump-config
-#   dsh plugin --profile wslfs add "link:$RUNTIME_MIRROR"   # see test/probe/sync-to-windows.sh
+#   ELECTRON_RUN_AS_NODE=1 "$APP/DeepSeek Harness.exe" --expose-internals "$CLI" \
+#     wslfs --from-default-profile web --dump-config
+#   ELECTRON_RUN_AS_NODE=1 "$APP/DeepSeek Harness.exe" --expose-internals "$CLI" \
+#     plugin --profile wslfs add "link:$RUNTIME_MIRROR"   # see test/probe/sync-to-windows.sh
 #   cp test/probe/wslfs-profile.patch.yml "$WIN_HOME/.dsh/profiles/wslfs/cordis.patch.yml"
 #
 # The profile layer is a copy, not a link: re-run that `cp` after any change to

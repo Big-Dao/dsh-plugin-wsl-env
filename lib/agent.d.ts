@@ -411,6 +411,71 @@ export declare class WslAgent {
      */
     private handleLine;
     /**
+     * The agent named itself. A refusal settles BEFORE killing: the exit event
+     * must not overwrite the real reason with the generic handshake message (the
+     * fake transports emit exit synchronously inside kill(); a real wsl.exe races
+     * it).
+     *
+     * @param message - the agent's HELLO.
+     * @param settleStart - the handshake settler.
+     * @param handshakeTimer - the handshake watchdog.
+     */
+    private acceptHandshake;
+    /**
+     * Why this HELLO is refused, or undefined when it is accepted: the name and
+     * version window first, then the digest of the script the distro actually
+     * read.
+     *
+     * @param message - the agent's HELLO.
+     * @returns the refusal reason, or undefined when the handshake is accepted.
+     */
+    private handshakeRefusal;
+    /**
+     * The agent dequeued this request: start its own budget clock NOW. Armed
+     * here instead of at submission, a queued request can no longer time out on
+     * a queue it never chose to join — and its watchdog can never kill the
+     * shared transport for a stall that was never its own. A request cancelled
+     * while it was queued is killed only now, when it is the one running.
+     *
+     * @param message - the agent's ACK.
+     */
+    private acceptAck;
+    /**
+     * Take the entry an answer settles, running the bookkeeping every answer
+     * shares: mark it answered, release its timers, drop it from the map, and
+     * move the queue on. An answer for an entry the caller already gave up on is
+     * noise: it cleans up and settles nothing.
+     *
+     * @param id - the request id the answer names.
+     * @returns the entry to settle, or undefined when there is nothing to settle.
+     */
+    private takeAnswered;
+    /**
+     * Settle a normal answer. A cancelled request keeps its entry only until this
+     * answer arrives.
+     *
+     * @param message - the agent's RES.
+     */
+    private settleResult;
+    /**
+     * Protocol 7's structured FS refusal: settle the pending FS request with the
+     * reason preserved, so the adapter maps the code directly instead of sniffing
+     * a synthesized stderr line.
+     *
+     * @param message - the agent's FSERR.
+     */
+    private settleFsError;
+    /**
+     * A refused request. A cwd rejection is the command's own failure, not the
+     * agent's — it becomes a CwdError so the execution layer can report it
+     * exactly like the one-shot path's relay text. A `spawn` rejection is the
+     * same class of failure on the native agent (it cannot distinguish a missing
+     * workdir), so it gets its own class and the executor retries it one-shot.
+     *
+     * @param message - the agent's ERR.
+     */
+    private settleAgentError;
+    /**
      * The process died. Requests in flight ride exactly one rebuild; a second
      * death is permanent.
      *
@@ -430,6 +495,25 @@ export declare class WslAgent {
      * @param request - the request to register.
      */
     private track;
+    /**
+     * Build one pending entry: the caller's settle wrappers (which record the
+     * metric once) and, when the request carries a budget, the stuck-request
+     * watchdog armed by the agent's ACK.
+     *
+     * @param request - the request being tracked.
+     * @param kind - the metric bucket, with the caller's default resolved.
+     * @returns the entry, not yet registered.
+     */
+    private newPendingRequest;
+    /**
+     * Wire the caller's abort. An unsent request dies immediately; a sent one
+     * writes the KILL frame and, when the request is running, arms the signal
+     * that interrupts the command where it lives.
+     *
+     * @param pending - the tracked request.
+     * @param signal - the caller's cancellation.
+     */
+    private attachCancellation;
     /** Send a tracked request, recording dispatch before synchronous responses. */
     private sendPending;
     /** Dispatch the next shell request only after the preceding answer. */

@@ -44,7 +44,7 @@ import { spawn } from "node:child_process";
 import type { ChildProcess, ChildProcessWithoutNullStreams } from "node:child_process";
 import { AgentUnavailableError, BASH_TIMEOUT_REASON, CwdError, SpawnError } from "./agent-errors.js";
 import { AGENT_NAME, MAX_FRAME_BYTES, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, encodeExecFrame, encodeFsbFrame, encodeFsFrame, encodeKill, parseAgentLine } from "./agent-protocol.js";
-import type { AgentMessage } from "./agent-protocol.js";
+import type { AckMessage, AgentErrorMessage, AgentMessage, FsErrorMessage, HelloMessage, ResultMessage } from "./agent-protocol.js";
 
 /** One settled command result, as `exec` resolves it. */
 export interface ExecResult {
@@ -107,6 +107,23 @@ export interface PendingRequest {
   answered: boolean;
   /** The delayed cancel signal, so it can be dropped when the request settles. */
   signalTimer: NodeJS.Timeout | null;
+}
+/** One request the transport is asked to run. */
+interface TrackRequest {
+  /** The request id. */
+  id: string;
+  /** The metric bucket; exec when omitted. */
+  kind?: "fs" | "exec";
+  /** The frame lines to write. */
+  lines: string[];
+  /** Settles a RES. */
+  resolve: (result: ExecResult) => void;
+  /** Settles a failure. */
+  reject: (error: Error) => void;
+  /** The in-distro timeout in ms; 0 means none. */
+  timeoutMs: number;
+  /** The caller's cancellation. */
+  signal?: AbortSignal;
 }
 
 /** Per-kind request metrics. */
@@ -705,112 +722,162 @@ export class WslAgent {
   private handleLine(line: string, settleStart: (error?: unknown) => void, handshakeTimer: NodeJS.Timeout): void {
     const message = parseAgentLine(line) as AgentMessage;
     switch (message.type) {
-      case "hello": {
-        if (message.name !== AGENT_NAME || message.version < MIN_PROTOCOL_VERSION || message.version > PROTOCOL_VERSION) {
-          // Settle BEFORE killing: the exit event must not overwrite the real
-          // reason with the generic handshake message (the fake transports
-          // emit exit synchronously inside kill(); a real wsl.exe races it).
-          this.lastError = `agent handshake mismatch: got ${message.name}@${message.version}, want ${AGENT_NAME}@${MIN_PROTOCOL_VERSION}..${PROTOCOL_VERSION}`;
-          settleStart(new Error(this.lastError));
-          this.process?.kill();
-          return;
-        }
-        if (this.expectedDigest !== undefined && message.digest !== this.expectedDigest) {
-          // The script is read in place from the distro-visible path — in the
-          // deployed layout a /mnt/c mirror — so a digest that differs from
-          // the copy this package shipped means the runtime copy is stale,
-          // half-synced, or edited. Fail closed with the fix in the message.
-          this.lastError = `agent digest mismatch: the file the distro read at ${this.scriptPath} hashes to ${message.digest || "(nothing)"}, but this package shipped ${this.expectedDigest} — resync the runtime copy (npm run sync:windows) or reinstall the plugin`;
-          settleStart(new Error(this.lastError));
-          this.process?.kill();
-          return;
-        }
-        clearTimeout(handshakeTimer);
-        this.agentPid = message.pid;
-        this.protocolVersion = message.version;
-        this.caps = new Set(message.caps ?? []);
-        settleStart();
-        break;
-      }
-      case "ack": {
-        // Dequeue signal: start this request's own budget clock NOW. Armed
-        // here instead of at submission, a queued request can no longer time
-        // out on a queue it never chose to join — and its watchdog can never
-        // kill the shared transport for a stall that was never its own. A
-        // request cancelled while it was queued is killed only now, when it is
-        // the one running.
-        const pending = this.pending.get(message.id);
-        if (pending) {
-          pending.started = true;
-          this.lastAckedSeq = pending.seq;
-          this.recordAck(pending);
-          if (pending.cancelled) this.armCancelSignal(pending);
-          pending.armWatchdog?.();
-        }
-        break;
-      }
-      case "result": {
-        const pending = this.pending.get(message.id);
-        if (!pending) break; // answered after its caller gave up — noise
-        pending.answered = true;
-        this.clearPending(pending);
-        this.pending.delete(message.id);
-        this.rearmIdleTimer();
-        this.dispatchQueued();
-        // A cancelled request keeps its entry only until this answer arrives.
-        if (pending.settled) break;
-        pending.settled = true;
-        pending.resolve({ exitCode: message.exitCode, stdout: message.stdout, stderr: message.stderr, truncated: message.truncated });
-        break;
-      }
-      case "fsError": {
-        // Protocol 7's structured FS refusal: settle the pending FS request
-        // with the reason preserved, so the adapter maps the code directly
-        // instead of sniffing a synthesized stderr line.
-        const pending = this.pending.get(message.id);
-        if (!pending) break;
-        pending.answered = true;
-        this.clearPending(pending);
-        this.pending.delete(message.id);
-        this.rearmIdleTimer();
-        this.dispatchQueued();
-        if (pending.settled) break;
-        pending.settled = true;
-        pending.resolve({ exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from(message.message), truncated: { stdout: false, stderr: false }, reason: message.reason });
-        break;
-      }
-      case "agentError": {
-        const pending = this.pending.get(message.id);
-        if (!pending) break;
-        pending.answered = true;
-        this.clearPending(pending);
-        this.pending.delete(message.id);
-        this.rearmIdleTimer();
-        this.dispatchQueued();
-        if (pending.settled) break;
-        pending.settled = true;
-        // A cwd rejection is the command's own failure, not the agent's — it
-        // becomes a CwdError so the execution layer can report it exactly like
-        // the one-shot path's relay text. A `spawn` rejection is the same
-        // class of failure on the native agent (it cannot distinguish a
-        // missing workdir), so it gets its own class and the executor retries
-        // it one-shot.
-        if (message.reason === "cwd") {
-          pending.reject(new CwdError(message.message));
-        } else if (message.reason === "spawn") {
-          pending.reject(new SpawnError(message.message));
-        } else {
-          pending.reject(new AgentUnavailableError(`agent rejected request ${message.id} (${message.reason}): ${message.message}`));
-        }
-        break;
-      }
+      case "hello":
+        this.acceptHandshake(message, settleStart, handshakeTimer);
+        return;
+      case "ack":
+        this.acceptAck(message);
+        return;
+      case "result":
+        this.settleResult(message);
+        return;
+      case "fsError":
+        this.settleFsError(message);
+        return;
+      case "agentError":
+        this.settleAgentError(message);
+        return;
       default:
         // Garbage after the handshake is logged and dropped: a late RES for an
         // abandoned request is expected noise, not a broken pipe.
-        break;
+        return;
     }
   }
 
+  /**
+   * The agent named itself. A refusal settles BEFORE killing: the exit event
+   * must not overwrite the real reason with the generic handshake message (the
+   * fake transports emit exit synchronously inside kill(); a real wsl.exe races
+   * it).
+   *
+   * @param message - the agent's HELLO.
+   * @param settleStart - the handshake settler.
+   * @param handshakeTimer - the handshake watchdog.
+   */
+  private acceptHandshake(message: HelloMessage, settleStart: (error?: unknown) => void, handshakeTimer: NodeJS.Timeout): void {
+    const refusal = this.handshakeRefusal(message);
+    if (refusal !== undefined) {
+      this.lastError = refusal;
+      settleStart(new Error(refusal));
+      this.process?.kill();
+      return;
+    }
+    clearTimeout(handshakeTimer);
+    this.agentPid = message.pid;
+    this.protocolVersion = message.version;
+    this.caps = new Set(message.caps ?? []);
+    settleStart();
+  }
+
+  /**
+   * Why this HELLO is refused, or undefined when it is accepted: the name and
+   * version window first, then the digest of the script the distro actually
+   * read.
+   *
+   * @param message - the agent's HELLO.
+   * @returns the refusal reason, or undefined when the handshake is accepted.
+   */
+  private handshakeRefusal(message: HelloMessage): string | undefined {
+    if (message.name !== AGENT_NAME || message.version < MIN_PROTOCOL_VERSION || message.version > PROTOCOL_VERSION) {
+      return `agent handshake mismatch: got ${message.name}@${message.version}, want ${AGENT_NAME}@${MIN_PROTOCOL_VERSION}..${PROTOCOL_VERSION}`;
+    }
+    if (this.expectedDigest !== undefined && message.digest !== this.expectedDigest) {
+      // The script is read in place from the distro-visible path — in the
+      // deployed layout a /mnt/c mirror — so a digest that differs from the
+      // copy this package shipped means the runtime copy is stale, half-synced,
+      // or edited. Fail closed with the fix in the message.
+      return `agent digest mismatch: the file the distro read at ${this.scriptPath} hashes to ${message.digest || "(nothing)"}, but this package shipped ${this.expectedDigest} — resync the runtime copy (npm run sync:windows) or reinstall the plugin`;
+    }
+    return undefined;
+  }
+
+  /**
+   * The agent dequeued this request: start its own budget clock NOW. Armed
+   * here instead of at submission, a queued request can no longer time out on
+   * a queue it never chose to join — and its watchdog can never kill the
+   * shared transport for a stall that was never its own. A request cancelled
+   * while it was queued is killed only now, when it is the one running.
+   *
+   * @param message - the agent's ACK.
+   */
+  private acceptAck(message: AckMessage): void {
+    const pending = this.pending.get(message.id);
+    if (pending === undefined) return;
+    pending.started = true;
+    this.lastAckedSeq = pending.seq;
+    this.recordAck(pending);
+    if (pending.cancelled) this.armCancelSignal(pending);
+    pending.armWatchdog?.();
+  }
+
+  /**
+   * Take the entry an answer settles, running the bookkeeping every answer
+   * shares: mark it answered, release its timers, drop it from the map, and
+   * move the queue on. An answer for an entry the caller already gave up on is
+   * noise: it cleans up and settles nothing.
+   *
+   * @param id - the request id the answer names.
+   * @returns the entry to settle, or undefined when there is nothing to settle.
+   */
+  private takeAnswered(id: string): PendingRequest | undefined {
+    const pending = this.pending.get(id);
+    if (pending === undefined) return undefined; // answered after its caller gave up — noise
+    pending.answered = true;
+    this.clearPending(pending);
+    this.pending.delete(id);
+    this.rearmIdleTimer();
+    this.dispatchQueued();
+    return pending.settled ? undefined : pending;
+  }
+
+  /**
+   * Settle a normal answer. A cancelled request keeps its entry only until this
+   * answer arrives.
+   *
+   * @param message - the agent's RES.
+   */
+  private settleResult(message: ResultMessage): void {
+    const pending = this.takeAnswered(message.id);
+    if (pending === undefined) return;
+    pending.settled = true;
+    pending.resolve({ exitCode: message.exitCode, stdout: message.stdout, stderr: message.stderr, truncated: message.truncated });
+  }
+
+  /**
+   * Protocol 7's structured FS refusal: settle the pending FS request with the
+   * reason preserved, so the adapter maps the code directly instead of sniffing
+   * a synthesized stderr line.
+   *
+   * @param message - the agent's FSERR.
+   */
+  private settleFsError(message: FsErrorMessage): void {
+    const pending = this.takeAnswered(message.id);
+    if (pending === undefined) return;
+    pending.settled = true;
+    pending.resolve({ exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from(message.message), truncated: { stdout: false, stderr: false }, reason: message.reason });
+  }
+
+  /**
+   * A refused request. A cwd rejection is the command's own failure, not the
+   * agent's — it becomes a CwdError so the execution layer can report it
+   * exactly like the one-shot path's relay text. A `spawn` rejection is the
+   * same class of failure on the native agent (it cannot distinguish a missing
+   * workdir), so it gets its own class and the executor retries it one-shot.
+   *
+   * @param message - the agent's ERR.
+   */
+  private settleAgentError(message: AgentErrorMessage): void {
+    const pending = this.takeAnswered(message.id);
+    if (pending === undefined) return;
+    pending.settled = true;
+    if (message.reason === "cwd") {
+      pending.reject(new CwdError(message.message));
+    } else if (message.reason === "spawn") {
+      pending.reject(new SpawnError(message.message));
+    } else {
+      pending.reject(new AgentUnavailableError(`agent rejected request ${message.id} (${message.reason}): ${message.message}`));
+    }
+  }
   /**
    * The process died. Requests in flight ride exactly one rebuild; a second
    * death is permanent.
@@ -926,27 +993,51 @@ export class WslAgent {
    *
    * @param request - the request to register.
    */
-  private track({ id, kind = "exec", lines, resolve, reject, timeoutMs, signal }: {
-    /** The request's id. */
-    id: string,
-    /** The metric bucket. */
-    kind?: "fs" | "exec",
-    /** The frame lines to write. */
-    lines: string[],
-    /** Settles a RES. */
-    resolve: (result: ExecResult) => void,
-    /** Settles a failure. */
-    reject: (error: Error) => void,
-    /** The in-distro timeout in ms; 0 means none. */
-    timeoutMs: number,
-    /** The caller's cancellation. */
-    signal?: AbortSignal,
-  }): void {
+  private track(request: TrackRequest): void {
+    const { id, kind = "exec", signal } = request;
     if (this.pending.size >= this.maxPending) {
       this.noteRejected(kind);
-      reject(new Error(`the resident agent has ${this.pending.size} requests in flight (max ${this.maxPending}); retry when the queue drains`));
+      request.reject(new Error(`the resident agent has ${this.pending.size} requests in flight (max ${this.maxPending}); retry when the queue drains`));
       return;
     }
+    const pending = this.newPendingRequest(request, kind);
+    this.pending.set(id, pending);
+    this.requestMetrics.inFlightMax = Math.max(this.requestMetrics.inFlightMax, this.pending.size);
+    if (signal) {
+      if (signal.aborted) {
+        this.pending.delete(id);
+        this.noteRejected(kind);
+        request.reject(signal.reason instanceof Error ? signal.reason : new Error("aborted"));
+        return;
+      }
+      this.attachCancellation(pending, signal);
+    }
+    // A frame that cannot be WRITTEN must fail its caller now. Silently
+    // dropping it used to strand the request: nothing would ever answer, the
+    // watchdog (armed on an ACK that will not come) had no process to kill,
+    // and with no timeout the caller waited forever.
+    if (this.serialRequests) {
+      this.dispatchQueued();
+    } else if (!this.sendPending(pending)) {
+      this.clearPending(pending);
+      this.pending.delete(pending.id);
+      this.noteRejected(kind);
+      request.reject(new AgentUnavailableError("the agent exited before the request could be sent; it never ran"));
+      return;
+    }
+    this.rearmIdleTimer();
+  }
+
+  /**
+   * Build one pending entry: the caller's settle wrappers (which record the
+   * metric once) and, when the request carries a budget, the stuck-request
+   * watchdog armed by the agent's ACK.
+   *
+   * @param request - the request being tracked.
+   * @param kind - the metric bucket, with the caller's default resolved.
+   * @returns the entry, not yet registered.
+   */
+  private newPendingRequest({ id, lines, resolve, reject, timeoutMs, signal }: TrackRequest, kind: "fs" | "exec"): PendingRequest {
     const pending: PendingRequest = {
       id,
       seq: Number(id.slice(1)),
@@ -990,63 +1081,50 @@ export class WslAgent {
             }
           : null,
     };
-    this.pending.set(id, pending);
-    this.requestMetrics.inFlightMax = Math.max(this.requestMetrics.inFlightMax, this.pending.size);
-    if (signal) {
-      if (signal.aborted) {
-        this.pending.delete(id);
-        this.noteRejected(kind);
-        reject(signal.reason instanceof Error ? signal.reason : new Error("aborted"));
-        return;
-      }
-      pending.onAbort = () => {
-        pending.cancelled = true;
-        if (!pending.sent) {
-          this.pending.delete(pending.id);
-          this.clearPending(pending);
-          pending.settled = true;
-          pending.reject(signal.reason instanceof Error ? signal.reason : new Error("aborted"));
-          this.rearmIdleTimer();
-          return;
-        }
-        // The frame is the fallback for an agent that cannot be signalled (a
-        // confined resident, a build without the USR1 trap); the signal is what
-        // interrupts the command the agent is blocked on right now.
-        this.writeLines([encodeKill(pending.id)]);
-        if (pending.settled) return;
-        pending.settled = true;
-        // Keep the entry until the agent answers: a request cancelled while it
-        // was QUEUED is killed when its ACK arrives, and its late RES only
-        // cleans the map.
-        this.clearPending(pending);
-        pending.reject(signal.reason instanceof Error ? signal.reason : new Error("aborted"));
-        // Arm AFTER clearPending: the clear releases the per-request timers,
-        // and the signal is the one timer that must outlive this rejection.
-        // A host timeout is excluded: the distro-side watcher already kills
-        // that command, and a USR1 delivered after it settled would hit the
-        // request that took its place (observed as an exit-138 "completed").
-        const reason = pending.signal?.reason;
-        const timedOut = reason instanceof Error && reason.message === BASH_TIMEOUT_REASON;
-        if (pending.started && !timedOut) this.armCancelSignal(pending);
-      };
-      signal.addEventListener("abort", pending.onAbort, { once: true });
-    }
-    // A frame that cannot be WRITTEN must fail its caller now. Silently
-    // dropping it used to strand the request: nothing would ever answer, the
-    // watchdog (armed on an ACK that will not come) had no process to kill,
-    // and with no timeout the caller waited forever.
-    if (this.serialRequests) {
-      this.dispatchQueued();
-    } else if (!this.sendPending(pending)) {
-      this.clearPending(pending);
-      this.pending.delete(pending.id);
-      this.noteRejected(kind);
-      reject(new AgentUnavailableError("the agent exited before the request could be sent; it never ran"));
-      return;
-    }
-    this.rearmIdleTimer();
+    return pending;
   }
 
+  /**
+   * Wire the caller's abort. An unsent request dies immediately; a sent one
+   * writes the KILL frame and, when the request is running, arms the signal
+   * that interrupts the command where it lives.
+   *
+   * @param pending - the tracked request.
+   * @param signal - the caller's cancellation.
+   */
+  private attachCancellation(pending: PendingRequest, signal: AbortSignal): void {
+    pending.onAbort = () => {
+      pending.cancelled = true;
+      if (!pending.sent) {
+        this.pending.delete(pending.id);
+        this.clearPending(pending);
+        pending.settled = true;
+        pending.reject(signal.reason instanceof Error ? signal.reason : new Error("aborted"));
+        this.rearmIdleTimer();
+        return;
+      }
+      // The frame is the fallback for an agent that cannot be signalled (a
+      // confined resident, a build without the USR1 trap); the signal is what
+      // interrupts the command the agent is blocked on right now.
+      this.writeLines([encodeKill(pending.id)]);
+      if (pending.settled) return;
+      pending.settled = true;
+      // Keep the entry until the agent answers: a request cancelled while it
+      // was QUEUED is killed when its ACK arrives, and its late RES only
+      // cleans the map.
+      this.clearPending(pending);
+      pending.reject(signal.reason instanceof Error ? signal.reason : new Error("aborted"));
+      // Arm AFTER clearPending: the clear releases the per-request timers,
+      // and the signal is the one timer that must outlive this rejection.
+      // A host timeout is excluded: the distro-side watcher already kills
+      // that command, and a USR1 delivered after it settled would hit the
+      // request that took its place (observed as an exit-138 "completed").
+      const reason = pending.signal?.reason;
+      const timedOut = reason instanceof Error && reason.message === BASH_TIMEOUT_REASON;
+      if (pending.started && !timedOut) this.armCancelSignal(pending);
+    };
+    signal.addEventListener("abort", pending.onAbort, { once: true });
+  }
   /** Send a tracked request, recording dispatch before synchronous responses. */
   private sendPending(pending: PendingRequest): boolean {
     pending.sent = true;

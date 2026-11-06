@@ -218,10 +218,15 @@ acceptance list in each issue is the contract; filter by priority:
 workspace in its own distro, reads a drive-letter path on the host plane, and
 refuses another distro's UNC — one leg of the acceptance below has real-machine
 evidence (a 2026-10-31 run passed all 15 probes on one machine; not a matrix
-result). The concurrent two-distro leg has a dedicated probe since 2026-11-06
-(`test/probe/two-distro.sh`) but has not been RUN, and WSL-207's
-kill/restart probe was authored the same day (`test/probe/agent-restart.sh`,
-suite of 17) — the checkboxes stay unchecked until a real machine runs them.
+result). The concurrent two-distro leg's dedicated probe
+(`test/probe/two-distro.sh`) passed on the real machine on 2026-11-06
+(`docs/superpowers/probe-runs/2026-11-06-probe-suite.md`): after its first run
+failed on a wrong assertion vehicle (the session-scoped `DSH_WSL_DISTRO` is
+absent on a direct `ctx.shell` seam), the probe was reworked to plant a marker
+in each distro's `/tmp` and assert no leg sees the other's — sequential,
+concurrent and burst interleave all stayed in their own distro. WSL-207's
+kill/restart probe (`test/probe/agent-restart.sh`) passed in the same suite
+run.
 
 **Priority:** P0 · **Size:** L · **Labels:** `area:multi-distro`,
 `type:feature`, `priority:P0`
@@ -231,15 +236,15 @@ another distro is refused instead of served.
 
 **Acceptance:**
 
-- [ ] `distro: "auto"` resolves the distro from the workspace UNC; an explicit
+- [x] `distro: "auto"` resolves the distro from the workspace UNC; an explicit
       name still pins; `"default"` forces the WSL default.
-- [ ] `wsl-shell`, `wsl-fs`, `fs-routing`, `subprocess-wsl` and `shell-env`
+- [x] `wsl-shell`, `wsl-fs`, `fs-routing`, `subprocess-wsl` and `shell-env`
       all follow the same coordinate rule.
-- [ ] The shared agent and session runtime are keyed by distro; two distros run
+- [x] The shared agent and session runtime are keyed by distro; two distros run
       concurrently.
-- [ ] A workspace in its own distro never raises `FS_OUTSIDE_DISTRO`; another
+- [x] A workspace in its own distro never raises `FS_OUTSIDE_DISTRO`; another
       distro's path still does.
-- [ ] Migration note documents the `""`/`auto`/`default` semantics.
+- [x] Migration note documents the `""`/`auto`/`default` semantics.
 
 **Tests/probes:** unit tests for the resolver; two-distro real-machine probe;
 cross-distro refusal leg; composition test through the service proxy.
@@ -616,7 +621,8 @@ the app restarts; users experience "everything suddenly fails".
 
 **Tests/probes:** `test/agent.test.mjs` (revival, budget exhaustion, status,
 EXEC/read/write fault injection); `test/doctor.test.mjs` (handshake, digest
-mismatch); a real-machine kill/restart probe is still unrun.
+mismatch); the real-machine kill/restart probe (`test/probe/agent-restart.sh`)
+passed on 2026-11-06 (`docs/superpowers/probe-runs/2026-11-06-probe-suite.md`).
 
 **Depends on:** WSL-102 for status output.
 

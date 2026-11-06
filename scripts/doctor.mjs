@@ -1401,8 +1401,22 @@ function probeResident(distro, scriptPath, wslExe = WSL) {
       finish({ ok: true, pid: Number(pid), digestMatches: digest === expected });
     });
     child.on("error", (error) => finish({ ok: false, detail: error.message }));
-    child.on("exit", () => {
-      if (!settled) finish({ ok: false, detail: `agent exited before its HELLO (${buffered.trim().slice(0, 80)})` });
+    child.on("close", () => {
+      if (settled) return;
+      // 'exit' can fire before the stdio pipes are drained — the HELLO sits
+      // in the pipe while the parent-side buffer looks empty (a loaded host
+      // widens the window). 'close' fires after the streams flush, so the
+      // harvest here sees everything the agent wrote.
+      const first = buffered.split("\n")[0]?.trim() ?? "";
+      if (first.startsWith("HELLO|")) {
+        const [kind, name, version, digest, pid] = first.split("|");
+        if (kind === "HELLO" && name === AGENT_NAME && Number(version) === PROTOCOL_VERSION) {
+          const expected = createHash("sha256").update(readFileSync(scriptPath)).digest("hex");
+          finish({ ok: true, pid: Number(pid), digestMatches: digest === expected });
+          return;
+        }
+      }
+      finish({ ok: false, detail: `agent exited before its HELLO (${buffered.trim().slice(0, 80)})` });
     });
     child.stdin.end();
   });
@@ -1475,8 +1489,15 @@ function runSmokeLegs(distro, scriptPath, wslExe = WSL) {
     // A dead resident's pipe surfaces as EPIPE on the write side; the exit
     // handler names the cause, so the write-side error is swallowed.
     child.stdin.on("error", () => { /* named by the exit handler */ });
-    child.on("exit", () => {
+    child.on("close", () => {
       childGone = true;
+      if (settled) return;
+      // The same pipe-ordering race the handshake probe guards: a buffered
+      // HELLO counts even when the data event has not fired yet.
+      if (!helloSeen && buffer.includes("HELLO|")) {
+        helloSeen = true;
+        helloResolve?.(true);
+      }
       if (!settled && waiters.size > 0) finish({ execOk: false, execDetail: "the resident exited mid-smoke", fsOk: false, fsDetail: "the resident exited mid-smoke" });
     });
     /** Send one request and resolve with the reply line that answers it.

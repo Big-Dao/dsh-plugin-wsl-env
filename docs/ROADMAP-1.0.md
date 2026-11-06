@@ -825,7 +825,7 @@ release gate; full probe suite.
 **Priority:** P2 · **Size:** L · **Labels:** `area:onboarding`,
 `type:feature`, `priority:P2`
 
-**Status:** designed and in implementation (2026-11-07). The initial three
+**Status:** implemented on the plugin side (2026-11-07); the app-closed probe suite legs and the GUI-session closed-loop leg are on the maintainer checklist — the real-machine record is [2026-11-07 doctor real-machine](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/superpowers/probe-runs/2026-11-07-doctor-real-machine.md). Designed and implemented the same day. The initial three
 check groups (`distro.wsl-mode`, `config.wslconfig`, `distro.wsl-conf-*`) were
 filed in [issue #35](https://github.com/Big-Dao/dsh-plugin-wsl-env/issues/35)
 from the competitive triage (gaps #2/#3/#4). A commercial-doctor review added

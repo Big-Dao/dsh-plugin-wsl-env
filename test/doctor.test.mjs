@@ -771,6 +771,28 @@ try {
     assert.equal(report.verdict, "ready");
   });
 
+  await check("deprecated profile keys are named with their migration", () => {
+    const report = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
+    assert.equal(report.checks.find((entry) => entry.id === "config.deprecated")?.status, "ok", "the earlier fixture profiles carry no retired keys");
+    const retiredDir = join(home, "profiles", "retired");
+    mkdirSync(retiredDir, { recursive: true });
+    writeFileSync(join(retiredDir, "cordis.patch.yml"), "- id: fs-routing\n  config:\n    substrate: share\n");
+    const blocked = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
+    const retired = blocked.checks.find((entry) => entry.id === "config.deprecated");
+    assert.equal(retired?.status, "warn", "a boot refusal the doctor can name before the session even starts");
+    assert.match(String(retired?.detail), /refuses to boot/);
+    assert.match(String(retired?.remedy), /docs\/MIGRATION\.md/);
+    rmSync(retiredDir, { recursive: true, force: true });
+    const emptyDir = join(home, "profiles", "empty-distro");
+    mkdirSync(emptyDir, { recursive: true });
+    writeFileSync(join(emptyDir, "cordis.patch.yml"), "- id: fs-routing\n  config:\n    distro: ''\n");
+    const empty = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
+    const note = empty.checks.find((entry) => entry.id === "config.deprecated");
+    assert.equal(note?.status, "info", "the empty-distro meaning change boots, so it informs instead of warning");
+    assert.match(String(note?.detail), /has meant auto.*since 0\.12\.0|since 0\.12\.0/);
+    rmSync(emptyDir, { recursive: true, force: true });
+  });
+
   await check("the git whitelist joins the fixable set behind the confirmation gate", () => {
     rmSync(join(stateDir, "git-whitelisted"), { force: true });
     const unfixed = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));

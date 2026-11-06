@@ -1160,14 +1160,19 @@ async function main(options) {
       : "the shipped preset rows were not recognized; the conservative defaults apply (sessionSandbox: true, so a missing systemd blocks) — see docs/CONFIGURATION.md");
 
   phase("update-peers");
-  // ---- profile-patch trap --------------------------------------------------
+  // ---- profile-patch trap and deprecated keys ------------------------------
   const dshHome = process.env.DSH_HOME !== undefined && process.env.DSH_HOME.length > 0 ? process.env.DSH_HOME : join(homedir(), ".dsh");
   const profilesDir = join(dshHome, "profiles");
   if (!existsSync(profilesDir)) {
     check("config.profiles", "info", "Profile patches", `no profiles under ${profilesDir}`);
+    check("config.deprecated", "info", "Deprecated keys", "no profile layers to scan");
   } else {
     /** @type {string[]} */
     const trapped = [];
+    /** @type {string[]} */
+    const retired = [];
+    /** @type {string[]} */
+    const emptyDistro = [];
     let seen = 0;
     for (const entry of readdirSync(profilesDir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
@@ -1176,11 +1181,20 @@ async function main(options) {
       seen += 1;
       const text = readFileSync(patch, "utf8");
       if (/^\s*-\s*id:\s*(wsl-shell|wsl-fs)\s*$/m.test(text)) trapped.push(entry.name);
+      if (/substrate:\s*["']?share["']?/m.test(text)) retired.push(entry.name);
+      if (/^\s*distro:\s*['"]['"]\s*$/m.test(text)) emptyDistro.push(entry.name);
     }
     if (trapped.length > 0) {
       check("config.preset-trap", "warn", "Profile patches", `nested rows patched by id in: ${trapped.join(", ")}`, "wsl-shell and wsl-fs live inside preset-wsl; an id patch matches nothing and is ignored with a warning. Run \"pnpm run preset --check <patch>\" to get the complete block, or see docs/CONFIGURATION.md#configure-wsl-shell-and-wsl-fs");
     } else {
       check("config.profiles", "ok", "Profile patches", `${seen} profile patch(es) scanned`);
+    }
+    if (retired.length > 0) {
+      check("config.deprecated", "warn", "Deprecated keys", `substrate: share in ${retired.join(", ")} — the plugin refuses to boot this profile, because serving the 9p share is exactly what it must not do`, "delete the substrate line (the agent substrate is the only shape), then restart the session — docs/MIGRATION.md#keeping-the-old-spelling");
+    } else if (emptyDistro.length > 0) {
+      check("config.deprecated", "info", "Deprecated keys", `distro: '' in ${emptyDistro.join(", ")} — empty has meant auto (follow the workspace) since 0.12.0, not WSL's default`, `pin distro: default on both rows to keep the old posture — docs/MIGRATION.md#case-study-distro-0120`);
+    } else {
+      check("config.deprecated", "ok", "Deprecated keys", `${seen} profile patch(es) scanned, none carry retired keys`);
     }
   }
 

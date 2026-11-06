@@ -40,6 +40,9 @@
   无人值守运行的执行计划；[首轮记录](superpowers/runs/2026-11-06-autonomous-run.md) 和
   [次轮记录](superpowers/runs/2026-11-06-enterprise-grade-run.md) 记实际结果。计划与
   运行记录都是带日期的历史，不改写产品现状。
+- [2026-11-07 Doctor 闭环运行规划](superpowers/plans/2026-11-07-doctor-closed-loop.md)
+  是 WSL-316（doctor 商业级达标）的执行计划；契约以
+  [issue #35](https://github.com/Big-Dao/dsh-plugin-wsl-env/issues/35) 为准。
 - [Remote-WSL 对照](PARITY.md) 是阶段性契约审计；
   [peer 对拍](PEER-PARITY.md) 记录指定版本的字节和行为对照。
 

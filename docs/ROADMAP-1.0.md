@@ -1,6 +1,6 @@
 # Roadmap 1.0: the WSL plugin the DSH ecosystem should have
 
-Status: working plan, last refreshed 2026-11-06 against `0.18.0` (autonomous run: coverage arms, `two-distro.sh`/`agent-restart.sh` authored, directory-fsync durability).
+Status: working plan, last refreshed 2026-11-07 against `0.19.0` (WSL-316 doctor closed-loop planning; the §2 area tables were last refreshed at 0.15.0).
 The 0.12.0 baseline that motivated the plan is kept below as history.
 Audience: maintainers and contributors. This is a plan, not a release promise.
 The short version: **from "the only WSL plugin" to "the default WSL plugin"** —
@@ -819,6 +819,40 @@ closed in 0.15.0.
 release gate; full probe suite.
 
 **Depends on:** WSL-101, WSL-102, WSL-202, WSL-203.
+
+### WSL-316 — Doctor closed loop: WSL mode, `.wslconfig`/`wsl.conf` diagnostics, verdict and smoke legs
+
+**Priority:** P2 · **Size:** L · **Labels:** `area:onboarding`,
+`type:feature`, `priority:P2`
+
+**Status:** designed and in implementation (2026-11-07). The initial three
+check groups (`distro.wsl-mode`, `config.wslconfig`, `distro.wsl-conf-*`) were
+filed in [issue #35](https://github.com/Big-Dao/dsh-plugin-wsl-env/issues/35)
+from the competitive triage (gaps #2/#3/#4). A commercial-doctor review added
+A-level gaps (multi-distro `--all` with per-distro verdicts, the disk-full
+class, `.wslconfig` semantics, the error-code matrix document, per-section
+timing) and accepted B-level items (`--bundle`, DNS/clock legs, the
+`git.win-safe` fix, `skipped` hygiene, deprecated-key detection) — the design
+addendum and the acceptance list in the issue are the contract. Execution plan:
+[2026-11-07 doctor closed-loop plan](superpowers/plans/2026-11-07-doctor-closed-loop.md).
+
+**Why:** the doctor is the onboarding promise's enforcement point; the bar is
+the closed loop — after `doctor` and its named remedies, the first command
+works, and `verdict: ready | blocked` says so machine-readably under the
+**effective configuration** (a `session.systemd` failure blocks only under
+`sessionSandbox: true`; with `auto` the fallback runs).
+
+**Acceptance:** the issue's revised checklist (fake-`wsl.exe` matrix per new
+check, smoke-leg fault injection, the fix-loop before→after re-verify, the
+Tier 1 closed loop run with the GUI-session leg executed by the maintainer,
+bilingual DIAGNOSTICS coverage of every shipped error code).
+
+**Tests/probes:** `test/doctor.test.mjs` fake-`wsl.exe`/`cmd.exe` matrix;
+`pnpm run doctor` against the real `wsl.exe` (read-only); the app-closed probe
+suite for the maintainer-run legs.
+
+**Depends on:** none upstream; the GUI verdict surface stays behind the
+session-notice seam (#10263, deferred).
 
 ## 10. Release gates
 

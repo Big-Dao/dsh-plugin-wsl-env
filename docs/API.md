@@ -19,6 +19,7 @@ this page is the quick tour.
 | `./picker` | `WslDirectoryPicker` | the distro-aware directory picker |
 | `./auto-preset` | the `auto-preset` row | first-run profile bootstrap |
 | `./shell-env` | the `wsl-shell-env` row | the `DSH_WSL_*` facts registry |
+| `./update-check` | the `wsl-update-check` row | the once-a-day update notice (fact store + host-delegated check) |
 
 Stability: tool names and error codes are API (docs/MIGRATION.md); the
 runtime rows' config keys are documented in docs/CONFIGURATION.md.

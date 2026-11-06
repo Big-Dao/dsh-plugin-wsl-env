@@ -33,6 +33,20 @@ were part of the record.
   [CONFIGURATION.md — Message language](docs/CONFIGURATION.md#message-language)
   and [LIMITATIONS.md](docs/LIMITATIONS.md).
 
+- **The plugin notices its own updates.** A new `wsl-update-check` row asks the
+  app's plugin manager for this package's version list on a slow timer (first
+  check 2–10 minutes after startup, then once a day; `intervalMs` configures
+  it, floored at one minute, and `enabled: false` stops the check). When the
+  stable channel has moved, the managed `DSH_WSL_PLUGIN_UPDATE` variable in
+  every distro session carries the fact, deprecation and "requires a newer
+  DSH" marks included; every other answer — no host plugin-manager, a linked
+  checkout, an unreachable registry — stays silent at debug level. The check
+  never fetches on its own and never installs: upgrading stays manual (Plugins
+  page, or `dsh plugin add`), then a restart, because the harness has no hot
+  reload. `node scripts/doctor.mjs` gained an `update.latest` section that
+  asks the same question on demand, `DSH_UPDATE_REGISTRIES` pins or empties
+  its registry list.
+
 ## [0.19.0] - 2026-11-06
 
 One theme: the wire and the doctor catch up with the substrate — protocol v7

@@ -6,7 +6,8 @@
  * read-only pass: Windows and WSL versions, the distro and its shell, bubblewrap
  * usability, systemd / the user manager / `systemd-run` / Linger, the optional
  * tools, the peer versions the plugin is loaded against, the native-agent cache,
- * a fresh-agent handshake, stale session scopes, and the known profile-patch trap.
+ * a fresh-agent handshake, stale session scopes, the known profile-patch trap,
+ * and whether a newer stable release exists on the registry.
  *
  *   node scripts/doctor.mjs [distro] [--json] [--fix] [--install] [--yes] [--read-only]
  *                            [--wsl <path to wsl.exe>]
@@ -44,6 +45,7 @@ import { parseDistroList } from "../lib/wsl.js";
 import { AGENT_NAME, PROTOCOL_VERSION } from "../lib/agent-protocol.js";
 import { sessionScopeSweepScript } from "../lib/session-scope.js";
 import { parseListeningPorts, procNetScript } from "../lib/ports.js";
+import { updateFactMessage } from "../lib/update-check.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 let WSL = "wsl.exe";
@@ -256,6 +258,72 @@ function installedPeer(packageName) {
   } catch {
     return undefined;
   }
+}
+
+/** The registries the update check asks, in order; the official one first. */
+const UPDATE_REGISTRIES = ["https://registry.npmjs.org", "https://registry.npmmirror.com"];
+
+/**
+ * The registries one run asks: `DSH_UPDATE_REGISTRIES` overrides the defaults
+ * (comma-separated, for an operator pinned to one mirror); set it empty to ask
+ * none at all — an air-gapped machine's way to keep the check silent without
+ * paying two connect timeouts.
+ * @returns {string[]} the registry base URLs.
+ */
+function updateRegistries() {
+  const configured = process.env.DSH_UPDATE_REGISTRIES;
+  if (configured !== undefined) return configured.split(",").map((entry) => entry.trim()).filter((entry) => entry.length > 0);
+  return UPDATE_REGISTRIES;
+}
+
+/**
+ * Read the stable channel's newest release off one registry packument. The
+ * full document (not the abbreviated one) is requested, because only it
+ * carries the per-version deprecation message.
+ * @param {unknown} body - the parsed packument JSON.
+ * @returns {{ version: string, deprecated?: string, publishedAt?: string } | undefined} the release, or undefined when the document names none.
+ */
+export function latestFromPackument(body) {
+  if (typeof body !== "object" || body === null) return undefined;
+  const packument = /** @type {{ "dist-tags"?: Record<string, unknown>, versions?: Record<string, unknown> }} */ (body);
+  const tags = packument["dist-tags"];
+  const versions = packument.versions;
+  if (typeof tags !== "object" || tags === null || typeof versions !== "object" || versions === null) return undefined;
+  const latest = tags.latest;
+  if (typeof latest !== "string" || latest.length === 0) return undefined;
+  const manifest = /** @type {{ deprecated?: unknown } | undefined} */ (versions[latest]);
+  if (manifest === undefined || typeof manifest !== "object") return undefined;
+  return {
+    version: latest,
+    ...(typeof manifest.deprecated === "string" && manifest.deprecated.length > 0 ? { deprecated: manifest.deprecated } : {}),
+  };
+}
+
+/**
+ * Ask the registries for the stable channel's newest release, official first,
+ * mirror second — the same fallback order the harness's plugin install uses.
+ * A short timeout keeps an offline run from stalling; every failure is an
+ * undefined, never a throw.
+ * @param {string[]} [registries] - the registries to ask; absent, `DSH_UPDATE_REGISTRIES` or the defaults (see {@link updateRegistries}).
+ * @param {number} [timeoutMs] - per-registry timeout, for tests.
+ * @returns {Promise<{ version: string, deprecated?: string, registry: string } | undefined>} the release and the registry that answered.
+ */
+export async function fetchLatestRelease(registries, timeoutMs = 5_000) {
+  for (const registry of registries ?? updateRegistries()) {
+    try {
+      const response = await fetch(`${registry}/dsh-plugin-wsl-env`, {
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!response.ok) continue;
+      const latest = latestFromPackument(await response.json());
+      if (latest !== undefined) return { ...latest, registry };
+    } catch {
+      // Offline, a blocked proxy, or a mirror that does not answer: the next
+      // registry (or the undefined) speaks for this run.
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -528,7 +596,7 @@ async function main(options) {
   }
 
   // ---- peers ---------------------------------------------------------------
-  const manifest = /** @type {{ peerDependencies?: Record<string, string> }} */ (JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")));
+  const manifest = /** @type {{ version?: string, peerDependencies?: Record<string, string> }} */ (JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")));
   const peers = Object.entries(manifest.peerDependencies ?? {});
   const badPeers = [];
   const unknownPeers = [];
@@ -540,6 +608,23 @@ async function main(options) {
   }
   if (badPeers.length === 0) check("peers.versions", "ok", "Peer versions", `${peers.length} pinned peer(s) match${unknownPeers.length > 0 ? `; ${unknownPeers.length} unchecked` : ""}`);
   else check("peers.versions", "fail", "Peer versions", badPeers.join("; "), "install the peer set this plugin pins (pnpm install in the plugin, or reinstall/upgrade it against this harness); see docs/PEER-PARITY.md");
+
+  // ---- update check ----------------------------------------------------------
+  // The same question the app's Versions page asks, answered on demand: the
+  // stable channel's newest release against this checkout's version. A
+  // registry the doctor cannot reach is normal (offline, a proxy), so it
+  // reports as `info` and points at the page that asks it live — never a
+  // warning, and never a network side effect beyond the two GETs.
+  const installedVersion = manifest.version ?? "";
+  const latest = installedVersion.length > 0 ? await fetchLatestRelease() : undefined;
+  if (latest === undefined) {
+    check("update.latest", "info", "Update check", "the registry was unreachable (offline, or a proxy is in the way); the app's Versions page asks the same question live");
+  } else if (compareVersions(latest.version, installedVersion) > 0) {
+    const message = updateFactMessage({ installed: installedVersion, latest: latest.version, incompatible: false, ...(latest.deprecated === undefined ? {} : { deprecated: latest.deprecated }), checkedAt: 0 });
+    check("update.latest", "info", "Update check", `${message} (from ${latest.registry})`, "the app's Plugins page, Versions section, or `dsh plugin --profile <name> add dsh-plugin-wsl-env`, then restart DSH");
+  } else {
+    check("update.latest", "ok", "Update check", `${installedVersion} is the newest stable release`);
+  }
 
   // ---- profile-patch trap --------------------------------------------------
   const dshHome = process.env.DSH_HOME !== undefined && process.env.DSH_HOME.length > 0 ? process.env.DSH_HOME : join(homedir(), ".dsh");

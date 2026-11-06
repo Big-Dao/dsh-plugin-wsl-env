@@ -172,6 +172,20 @@
     - id: wsl-preflight
       name: 'dsh-plugin-wsl-env/preflight'
 
+    # Update check: on a slow timer (first check 2-10 minutes after boot, then
+    # once a day) ask the host's plugin-manager whether a newer stable release
+    # of this package exists, and publish one fact the shell-env row serves as
+    # DSH_WSL_PLUGIN_UPDATE. Advisory only: it never installs, never fetches on
+    # its own (the host's plugin-manager does the registry work), and a host
+    # without the service — or a bundle loaded from a linked checkout — skips
+    # the check quietly. Upgrading stays manual; the harness has no HMR, so a
+    # fresh version needs a restart to take effect.
+    - id: wsl-update-check
+      name: 'dsh-plugin-wsl-env/update-check'
+      config:
+        enabled: true
+        intervalMs: 86400000
+
 - insert:
     # ═════════════════════════════════════════════════════════════════════════════
     # preset-wsl — the WSL environment, scoped to agents that select this preset.

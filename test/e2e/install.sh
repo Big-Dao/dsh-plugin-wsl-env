@@ -131,7 +131,8 @@ fi
 run_cli "$HOME_A" --profile e2e --dump-config >"$LOGS/dump-installed.yml" 2>"$LOGS/dump-installed.err"
 if grep -qE '^\- id: preset-wsl$' "$LOGS/dump-installed.yml" \
   && grep -q 'name: dsh-plugin-wsl-env/fs-routing' "$LOGS/dump-installed.yml" \
-  && grep -q 'name: dsh-plugin-wsl-env/preflight' "$LOGS/dump-installed.yml"; then
+  && grep -q 'name: dsh-plugin-wsl-env/preflight' "$LOGS/dump-installed.yml" \
+  && grep -q 'name: dsh-plugin-wsl-env/update-check' "$LOGS/dump-installed.yml"; then
   ok "--dump-config composes the plugin rows"
 else
   bad "--dump-config is missing the plugin rows"
@@ -184,6 +185,12 @@ elif npm pack "$PKG_NAME@$PREVIOUS" --pack-destination "$SCRATCH" >"$LOGS/pack-p
         ok "the installed CHANGELOG carries the migration note"
       else
         bad "the installed CHANGELOG has no migration note"
+      fi
+      if run_cli "$HOME_B" --profile e2e --dump-config >"$LOGS/up-dump.yml" 2>"$LOGS/up-dump.err" \
+        && grep -q 'name: dsh-plugin-wsl-env/update-check' "$LOGS/up-dump.yml"; then
+        ok "the upgraded bundle composes the update-check row"
+      else
+        bad "the upgraded bundle does not compose the update-check row"
       fi
     else
       bad "upgrading to $CURRENT"

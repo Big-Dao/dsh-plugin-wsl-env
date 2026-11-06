@@ -24,6 +24,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import * as shellEnvRow from "../lib/shell-env.js";
+import { setUpdateFact } from "../lib/update-check.js";
 
 /**
  * What the registry stand-in receives, reduced to what this test reads.
@@ -136,8 +137,8 @@ assert.ok(contributor, "the registry received a contributor");
 assert.equal(contributor.name, "dsh-plugin-wsl-env", "the contributor owns a stable name");
 assert.deepEqual(
   Object.keys(contributor.variables).sort(),
-  ["DSH_WSL_DISTRO", "DSH_WSL_HOME", "DSH_WSL_PORTS", "DSH_WSL_SHELL"],
-  "the four managed keys are declared together",
+  ["DSH_WSL_DISTRO", "DSH_WSL_HOME", "DSH_WSL_PLUGIN_UPDATE", "DSH_WSL_PORTS", "DSH_WSL_SHELL"],
+  "the five managed keys are declared together",
 );
 assert.equal(withAgents.swept, true, "the live-agent sweep reaches the optional agents service");
 console.log("PASS  a composition with agents mounts and sweeps");
@@ -147,7 +148,7 @@ withoutAgents.restorePath();
 assert.equal(withoutAgents.registered.length, 1, "a composition without agents still activates");
 console.log("PASS  a composition without agents still activates");
 
-// The contributor's resolve maps a session's UNC cwd onto the four managed
+// The contributor's resolve maps a session's UNC cwd onto the five managed
 // keys, refuses other distros/pinnings, and defaults PORTS to empty.
 {
   const mounted = await mount({ withAgents: true });
@@ -163,7 +164,7 @@ console.log("PASS  a composition without agents still activates");
 }
 
 // With the fact probes answered, auto mode lists the distros, warms the
-// default one's facts at mount, and resolve() publishes all four keys — the
+// default one's facts at mount, and resolve() publishes all five keys — the
 // accept path the earlier checks deliberately avoided (it spawns the shared
 // resident, which here fails closed against the fake's `*) exit 1` arm).
 if (POSIX) {
@@ -174,6 +175,7 @@ if (POSIX) {
   assert.equal(accepted.DSH_WSL_SHELL, "/bin/zsh", "the warmed shell fact is published");
   assert.equal(accepted.DSH_WSL_HOME, "/home/ze-user", "the warmed home fact is published");
   assert.equal(accepted.DSH_WSL_PORTS, "", "a failed port scan resolves to an empty list, not a lie");
+  assert.equal(accepted.DSH_WSL_PLUGIN_UPDATE, "", "no update check yet, no invented update fact");
   // A distro whose facts never warmed resolves under its own name with the
   // optional keys absent — the canonical lookup falls back to the named distro.
   const cold = resolve({ agent: { session: { header: { cwd: "\\\\wsl.localhost\\ze-debian\\home" } } } });
@@ -262,4 +264,27 @@ if (POSIX) {
     console.log("PASS  disposal skipped: cordis returned no fiber handle");
   }
   mounted.restorePath();
+}
+
+// The update fact rides the accepted-branch as a timer-fed read: staged via
+// the tests-only setter, it resolves into the managed key, and clearing it
+// returns the key to its empty posture. The staged fact must be cleared even
+// when the checks below fail, so later suites start from a clean slate.
+{
+  const mounted = await mount({ fakeWsl: true, config: { distro: "ze-ubuntu", portsRefreshMs: 3_600_000 } });
+  mounted.restorePath();
+  const resolve = /** @type {NonNullable<Contributor["resolve"]>} */ (mounted.registered[0]?.resolve);
+  setUpdateFact({ installed: "0.19.0", latest: "0.20.0", incompatible: false, checkedAt: 1 });
+  try {
+    const resolved = resolve({ agent: { session: { header: { cwd: "C:\\proj" } } } });
+    assert.deepEqual(resolved, {}, "no update fact leaks into a refused session");
+    const accepted = resolve({ agent: { session: { header: { cwd: "\\\\wsl.localhost\\ze-ubuntu\\home\\u" } } } });
+    assert.equal(accepted.DSH_WSL_PLUGIN_UPDATE, "0.20.0 available (installed 0.19.0)", "the staged fact resolves verbatim");
+    setUpdateFact({ installed: "0.19.0", latest: "0.20.0", incompatible: true, deprecated: "known bug", checkedAt: 1 });
+    const marked = resolve({ agent: { session: { header: { cwd: "\\\\wsl.localhost\\ze-ubuntu\\home\\u" } } } });
+    assert.equal(marked.DSH_WSL_PLUGIN_UPDATE, "0.20.0 available (installed 0.19.0) — requires a newer DSH first; deprecated: known bug", "the fact carries its marks");
+  } finally {
+    setUpdateFact(undefined);
+  }
+  console.log("PASS  the update fact resolves into DSH_WSL_PLUGIN_UPDATE and clears back to empty");
 }

@@ -115,9 +115,9 @@ Install `bubblewrap` before the first command:
 wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap
 ```
 
-From a checkout, `pnpm run doctor` is the one-command environment check: Windows/WSL versions, the distro and its shell, bubblewrap usability, systemd / the user manager / Linger, the optional tools, peer versions, the agent cache, a fresh-agent handshake, stale session scopes and the known profile-patch trap. Each failure prints one copy-paste remedy; `--json` is for scripts, and `--fix` sweeps stale scopes (package installation needs `--fix --install` and an explicit confirmation). `pnpm run diagnose` is its read-only alias. `pnpm run bootstrap <distro>` remains the narrower tool-install helper.
+From a checkout, `pnpm run doctor` is the one-command environment check: Windows/WSL versions, the distro and its shell, bubblewrap usability, systemd / the user manager / Linger, the optional tools, peer versions, the agent cache, a fresh-agent handshake, stale session scopes, the known profile-patch trap and whether a newer stable release exists on the registry. Each failure prints one copy-paste remedy; `--json` is for scripts, and `--fix` sweeps stale scopes (package installation needs `--fix --install` and an explicit confirmation). `pnpm run diagnose` is its read-only alias. `pnpm run bootstrap <distro>` remains the narrower tool-install helper.
 
-Upgrade by installing again (Plugins page, or the `add` command). Uninstall on
+The plugin notices its own updates about once a day (first check a few minutes after startup) by asking the app's plugin manager — it never fetches on its own. When a newer stable release exists, the managed `DSH_WSL_PLUGIN_UPDATE` variable in every distro session carries the fact; `wsl-update-check.enabled: false` in the patch config turns the check off, and `DSH_UPDATE_REGISTRIES` overrides which registries the doctor's on-demand check asks (comma-separated, or empty to skip it on an air-gapped machine). Upgrading stays manual, because the harness has no hot reload: install again (Plugins page, or the `add` command), then restart. Uninstall on
 the Plugins page, or with `dsh plugin --profile wsl remove dsh-plugin-wsl-env`
 where the CLI is installed; the agent cache under `~/.cache/dsh-wsl` can then be
 deleted. If you added a local `workspace-files-wsl` workaround to your profile to

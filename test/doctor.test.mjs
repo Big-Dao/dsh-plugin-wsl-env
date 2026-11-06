@@ -15,7 +15,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { peerSatisfied } from "../scripts/doctor.mjs";
+import { peerSatisfied, latestFromPackument } from "../scripts/doctor.mjs";
 import { mergeLiveResidentStatus } from "../lib/doctor-live.js";
 import { doctorReport } from "../lib/index.js";
 
@@ -30,6 +30,12 @@ if (process.platform === "win32") {
   console.log("SKIP  doctor tests: the fake wsl.exe is a POSIX script");
   process.exit(0);
 }
+
+// The update check asks the live registry; these checks must not depend on the
+// network. An empty override asks no registry at all — the doctor reports its
+// `info` unreachable line, and the packument parser is exercised directly
+// below instead.
+process.env.DSH_UPDATE_REGISTRIES = "";
 
 const scratch = mkdtempSync(join(tmpdir(), "dsh-doctor-"));
 const bin = join(scratch, "bin");
@@ -379,6 +385,37 @@ try {
     assert.equal(peerSatisfied("3.9.9", ">=4"), false);
     assert.equal(peerSatisfied("4.0.5", "<4.0.0"), undefined);
     assert.equal(peerSatisfied("4.0.5", "*"), undefined, "shapes outside the manifest's vocabulary stay unchecked");
+  });
+
+  await check("the update check answers on demand and never fails the run", () => {
+    const run = doctor(["--json"]);
+    assert.equal(run.status, 0, run.stderr);
+    const update = /** @type {Report} */ (JSON.parse(run.stdout)).checks.find((entry) => entry.id === "update.latest");
+    // The empty override asked no registry: the honest answer is "cannot tell",
+    // as `info`, with the page that asks it live named as the way out.
+    assert.equal(update?.status, "info");
+    assert.match(String(update?.detail), /registry was unreachable/);
+  });
+
+  await check("latestFromPackument reads the stable channel and its marks", () => {
+    const packument = {
+      name: "dsh-plugin-wsl-env",
+      "dist-tags": { latest: "0.20.0", next: "0.21.0-rc.1" },
+      versions: {
+        "0.20.0": { deprecated: "superseded by 0.20.1" },
+        "0.21.0-rc.1": {},
+      },
+    };
+    assert.deepEqual(latestFromPackument(packument), { version: "0.20.0", deprecated: "superseded by 0.20.1" });
+    assert.deepEqual(
+      latestFromPackument({ "dist-tags": { latest: "0.20.0" }, versions: { "0.20.0": {} } }),
+      { version: "0.20.0" },
+      "a healthy release carries no marks",
+    );
+    assert.equal(latestFromPackument({}), undefined, "no dist-tags, no release");
+    assert.equal(latestFromPackument({ "dist-tags": {} }), undefined, "no latest tag, no release");
+    assert.equal(latestFromPackument({ "dist-tags": { latest: "0.20.0" }, versions: {} }), undefined, "a tag without a document names no release");
+    assert.equal(latestFromPackument("not an object"), undefined, "a non-object body names no release");
   });
 } finally {
   rmSync(scratch, { recursive: true, force: true });

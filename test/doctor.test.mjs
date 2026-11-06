@@ -40,8 +40,10 @@ process.env.DSH_UPDATE_REGISTRIES = "";
 const scratch = mkdtempSync(join(tmpdir(), "dsh-doctor-"));
 const bin = join(scratch, "bin");
 const home = join(scratch, "dsh-home");
+const stateDir = join(scratch, "state");
 mkdirSync(bin);
 mkdirSync(home);
+mkdirSync(stateDir);
 
 const FAKE_WSL = `#!/bin/sh
 case "$*" in
@@ -56,6 +58,9 @@ case "$all" in
 esac
 case "$all" in
   *"-d debian"*) [ "\${FAKE_STOP_DEBIAN:-no}" = yes ] && { printf 'WSL_E_DISTRO_NOT_FOUND\\n' >&2; exit 1; } ;;
+esac
+case "$all" in
+  *"-u root"*) : > "\${FAKE_STATE_DIR:-/nonexistent}/installed-bwrap"; exit 0 ;;
 esac
 case "$all" in
   *"--exec bwrap"*)
@@ -92,7 +97,8 @@ case "$all" in
       *'printf %s "$HOME"'*) printf '/home/andy' ;;
       *'uname -r'*) printf '6.6.87.2' ;;
       *'for f in apt-get'*) printf 'apt-get' ;;
-      *'command -v bwrap'*) [ "\${FAKE_BWRAP:-yes}" = no ] || printf '/usr/bin/bwrap' ;;
+      *'apt-get install'*) : > "\${FAKE_STATE_DIR:-/nonexistent}/installed-bwrap"; exit 0 ;;
+      *'command -v bwrap'*) [ -f "\${FAKE_STATE_DIR:-/nonexistent}/installed-bwrap" ] && printf '/usr/bin/bwrap' || { [ "\${FAKE_BWRAP:-yes}" = no ] || printf '/usr/bin/bwrap'; } ;;
       *'bwrap --ro-bind'*)
         case "$all" in
           *dsh-doctor-smoke-refuse*) exit 1 ;;
@@ -101,7 +107,8 @@ case "$all" in
         esac ;;
       *'/run/systemd/system'*) [ "\${FAKE_SYSTEMD:-yes}" = no ] && printf 'none init' || printf 'systemd systemd' ;;
       *'command -v systemd-run'*) printf '/usr/bin/systemd-run' ;;
-      *'echo "$unit'*) [ "\${FAKE_STALE:-no}" = yes ] && printf 'dsh-wsl-ubuntu-x.scope stale' || true ;;
+      *'systemctl --user stop'*) : > "\${FAKE_STATE_DIR:-/nonexistent}/swept-scopes"; exit 0 ;;
+      *'echo "$unit'*) { [ -f "\${FAKE_STATE_DIR:-/nonexistent}/swept-scopes" ] || [ "\${FAKE_STALE:-no}" != yes ]; } || printf 'dsh-wsl-ubuntu-x.scope stale' ;;
       *'systemctl --user stop'*) exit 0 ;;
       *'systemctl --user is-system-running'*) printf 'running' ;;
       *'loginctl show-user'*) printf 'Linger=yes' ;;
@@ -136,7 +143,8 @@ esac
 const FAKE_GIT_EXE = `#!/bin/sh
 case "$*" in
   "--version") printf 'git version 2.54.0.windows.1\n' ;;
-  *"--get-all safe.directory"*) printf '//wsl.localhost/*\n' ;;
+  *"--get-all safe.directory"*) [ -f "\${FAKE_STATE_DIR:-/nonexistent}/git-whitelisted" ] && printf '//wsl.localhost/*\n'; exit 0 ;;
+  *"--add safe.directory"*) : > "\${FAKE_STATE_DIR:-/nonexistent}/git-whitelisted"; exit 0 ;;
   *) exit 0 ;;
 esac
 `;
@@ -156,7 +164,7 @@ chmodSync(join(bin, "git.exe"), 0o755);
 const doctor = (args, env = {}) => spawnSync(process.execPath, ["scripts/doctor.mjs", ...args], {
   cwd: ROOT,
   encoding: "utf8",
-  env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}`, DSH_HOME: home, ...env },
+  env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}`, DSH_HOME: home, FAKE_STATE_DIR: stateDir, ...env },
 });
 
 let passed = 0;
@@ -664,6 +672,7 @@ try {
   });
 
   await check("the Windows git trust check reports the whitelist and a missing-git info", () => {
+    writeFileSync(join(stateDir, "git-whitelisted"), "");
     const report = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
     const ok = report.checks.find((entry) => entry.id === "git.win-safe");
     assert.equal(ok?.status, "ok", "the fake git.exe whitelists the share");
@@ -734,6 +743,47 @@ try {
     assert.equal(latestFromPackument({ "dist-tags": {} }), undefined, "no latest tag, no release");
     assert.equal(latestFromPackument({ "dist-tags": { latest: "0.20.0" }, versions: {} }), undefined, "a tag without a document names no release");
     assert.equal(latestFromPackument("not an object"), undefined, "a non-object body names no release");
+  });
+
+  await check("the fix loop re-verifies: swept scopes show before → after and the verdict recomputes", () => {
+    rmSync(join(stateDir, "swept-scopes"), { force: true });
+    const before = /** @type {Report} */ (JSON.parse(doctor(["--json"], { FAKE_STALE: "yes" }).stdout));
+    assert.equal(before.checks.find((entry) => entry.id === "runtime.scopes")?.status, "warn");
+    const fixed = doctor(["--json", "--fix"], { FAKE_STALE: "yes" });
+    assert.equal(fixed.status, 0, "after the sweep the verdict is recomputed as ready");
+    const report = /** @type {Report} */ (JSON.parse(fixed.stdout));
+    const fix = report.checks.find((entry) => entry.id === "fix.scopes");
+    assert.equal(fix?.status, "ok");
+    assert.match(String(fix?.detail), /1 stale before → 0 after/);
+    const scopes = report.checks.find((entry) => entry.id === "runtime.scopes");
+    assert.notEqual(scopes?.status, "warn", "the runtime.scopes entry carries the after state (no stale left)");
+  });
+
+  await check("the install fix re-verifies bubblewrap and the fence", () => {
+    const run = doctor(["--json", "--fix", "--install", "--yes"], { FAKE_BWRAP: "no" });
+    assert.equal(run.status, 0, "the install lands, the fence runs, the verdict is recomputed");
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    const fix = report.checks.find((entry) => entry.id === "fix.install");
+    assert.equal(fix?.status, "ok");
+    assert.match(String(fix?.detail), /now at \/usr\/bin\/bwrap/);
+    assert.equal(report.checks.find((entry) => entry.id === "sandbox.bwrap")?.status, "ok", "the sandbox.bwrap entry carries the after state");
+    assert.equal(report.checks.find((entry) => entry.id === "sandbox.bwrap-usable")?.status, "ok");
+    assert.equal(report.verdict, "ready");
+  });
+
+  await check("the git whitelist joins the fixable set behind the confirmation gate", () => {
+    rmSync(join(stateDir, "git-whitelisted"), { force: true });
+    const unfixed = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
+    assert.equal(unfixed.checks.find((entry) => entry.id === "git.win-safe")?.status, "warn");
+    const fixed = doctor(["--json", "--fix", "--yes"]);
+    assert.equal(fixed.status, 0);
+    const report = /** @type {Report} */ (JSON.parse(fixed.stdout));
+    const fix = report.checks.find((entry) => entry.id === "fix.git-trust");
+    assert.equal(fix?.status, "ok");
+    assert.match(String(fix?.detail), /added "\/\/wsl\.localhost\/\*"/);
+    const trust = report.checks.find((entry) => entry.id === "git.win-safe");
+    assert.equal(trust?.status, "ok", "the git.win-safe entry carries the after state");
+    assert.equal(report.verdict, "ready");
   });
 } finally {
   rmSync(scratch, { recursive: true, force: true });

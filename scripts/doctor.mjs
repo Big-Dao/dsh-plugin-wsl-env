@@ -1041,10 +1041,12 @@ async function main(options) {
   // WSL workspaces). A machine without Windows git is fine too — the provider
   // resolves git to a distro sentinel and routes everything. What the doctor
   // can probe cheaply from here is interop git.exe and its whitelist.
+  let winGitOk = false;
   const winGitVersion = await run(["git.exe", "--version"]);
   if (!winGitVersion.ok) {
     check("git.win-safe", "info", "Windows git trust", "Windows git not found through interop — WSL change review uses the distro fallback; host (C:\\...) workspaces would need git for their own review");
   } else {
+    winGitOk = true;
     const entries = (await run(["git.exe", "config", "--global", "--get-all", "safe.directory"])).stdout.split(/\r?\n/).filter(Boolean);
     const whitelisted = entries.some((entry) => /wsl\.localhost/i.test(entry));
     check("git.win-safe", whitelisted ? "ok" : "warn", "Windows git trust",
@@ -1183,11 +1185,32 @@ async function main(options) {
   }
 
   phase("config");
-  // ---- fixes ---------------------------------------------------------------
+  // ---- fixes (the loop ends in a re-verified report) ------------------------
   // Safe actions only, per target: the sweep the session preflight runs, and
-  // package installation behind --install plus an explicit confirmation. A
-  // distro that never became reachable has no state to fix.
+  // package installation behind --install plus an explicit confirmation. Every
+  // fix is followed by a fresh probe of what it claims to have fixed — the
+  // revised check carries the after state (so the verdict at the end is the
+  // post-fix verdict, ready or the remaining blockers), and the fix.* row
+  // narrates the before → after transition. A distro that never became
+  // reachable has no state to fix.
   if (options.fix) {
+    /** Replace one pushed check's verdict in place — the fix loop's "after".
+     * @param {string} id - the check id.
+     * @param {string | undefined} distro - the distro scope, for distro-scoped ids.
+     * @param {Partial<Check>} patch - the fields to revise. */
+    const reviseCheck = (/** @type {string} */ id, /** @type {string | undefined} */ distro, /** @type {Partial<Check>} */ patch, /** @type {string | undefined} */ title = undefined) => {
+      const entry = checks.find((entry) => entry.id === id && (distro === undefined || entry.distro === distro));
+      if (entry === undefined) {
+        // A check the first pass never pushed (its prerequisite was missing)
+        // still deserves an after-state row once the fix created it.
+        if (title === undefined) return;
+        const created = /** @type {Check} */ ({ id, status: "ok", title: title ?? id, detail: "", ...(distro === undefined ? {} : { distro }) });
+        Object.assign(created, patch);
+        checks.push(created);
+        return;
+      }
+      Object.assign(entry, patch);
+    };
     for (const [target, state] of states) {
       if (!state.reachable) continue;
       const fixCheck = (/** @type {string} */ id, /** @type {Check["status"]} */ status, /** @type {string} */ title, /** @type {string | undefined} */ detail = undefined, /** @type {string | undefined} */ remedy = undefined) => {
@@ -1195,7 +1218,14 @@ async function main(options) {
       };
       if (state.stale > 0) {
         const swept = await inDistro(target, sessionScopeSweepScript());
-        fixCheck("fix.scopes", swept.ok ? "ok" : "warn", "Swept stale scopes", swept.ok ? `${state.stale} stale scope(s) stopped` : "the sweep failed", swept.ok ? undefined : `systemctl --user list-units 'dsh-wsl-*.scope' inside "${target}"`);
+        const afterReport = (await inDistro(target, STALE_SCOPE_REPORT)).stdout.trim();
+        const afterLines = afterReport === "none" || afterReport.length === 0 ? [] : afterReport.split(/\r?\n/);
+        const afterStale = afterLines.filter((line) => /\sstale(\s|$)/.test(line)).length;
+        const fixed = swept.ok && afterStale === 0;
+        fixCheck("fix.scopes", fixed ? "ok" : "warn", "Swept stale scopes", `${state.stale} stale before → ${afterStale} after`, fixed ? undefined : `systemctl --user list-units 'dsh-wsl-*.scope' inside "${target}"`);
+        reviseCheck("runtime.scopes", target, afterLines.length === 0
+          ? { status: "info", detail: "none (the fix above swept them)", remedy: undefined }
+          : { status: afterStale === 0 ? "ok" : "warn", detail: `${afterLines.length} live, ${afterStale} stale after the fix`, remedy: afterStale === 0 ? undefined : "--fix stops them; they are safe to stop when no agent process is inside" });
       }
       if (state.bwrapPath.length === 0) {
         const install = installRemedy(target, state.family);
@@ -1206,7 +1236,37 @@ async function main(options) {
         } else {
           const command = INSTALL[state.family] ?? INSTALL["apt-get"] ?? `apt-get install -y ${PACKAGES}`;
           const installed = await run([WSL, "-d", target, "-u", "root", "--", "sh", "-c", command]);
-          fixCheck("fix.install", installed.ok ? "ok" : "warn", "Package installation", installed.ok ? "completed" : "failed; see the output above", installed.ok ? undefined : install);
+          const bwrapAfter = (await inDistro(target, "command -v bwrap")).stdout.trim();
+          const usableAfter = bwrapAfter.length > 0 ? (await inDistro(target, "bwrap --ro-bind / / -- true")).ok : false;
+          const done = installed.ok && bwrapAfter.length > 0;
+          fixCheck("fix.install", done ? "ok" : "warn", "Package installation", installed.ok
+            ? `completed; bubblewrap ${bwrapAfter.length > 0 ? `now at ${bwrapAfter}${usableAfter ? ", a read-only profile runs" : ", but the read-only profile still fails"}` : "STILL MISSING after the install"}`
+            : "failed; see the output above", done ? undefined : install);
+          reviseCheck("sandbox.bwrap", target, bwrapAfter.length > 0
+            ? { status: "ok", detail: bwrapAfter, remedy: undefined }
+            : { status: "fail", detail: "still missing after the install", remedy: install });
+          reviseCheck("sandbox.bwrap-usable", target, bwrapAfter.length > 0
+            ? { status: usableAfter ? "ok" : "fail", detail: usableAfter ? "a read-only profile runs" : "installed but the read-only profile failed", remedy: usableAfter ? undefined : "the kernel likely disables unprivileged user namespaces; reinstalling will not help — see docs/LIMITATIONS.md" }
+            : {}, "bubblewrap usability");
+        }
+      }
+    }
+    // B3: the Windows git whitelist is user-scoped and reversible — the same
+    // confirmation gate as a package install, then a fresh probe. Without a
+    // TTY the fix declines loudly instead of silently doing nothing.
+    if (winGitOk) {
+      const gitEntry = checks.find((entry) => entry.id === "git.win-safe");
+      if (gitEntry !== undefined && gitEntry.status === "warn") {
+        if (await confirm('Add "//wsl.localhost/*" to the Windows git safe.directory whitelist?', options.yes)) {
+          const added = await run(["git.exe", "config", "--global", "--add", "safe.directory", "//wsl.localhost/*"]);
+          const entries = (await run(["git.exe", "config", "--global", "--get-all", "safe.directory"])).stdout.split(/\r?\n/).filter(Boolean);
+          const whitelisted = entries.some((entry) => /wsl\.localhost/i.test(entry));
+          reviseCheck("git.win-safe", undefined, whitelisted
+            ? { status: "ok", detail: `the \\wsl.localhost share is whitelisted (${entries.length} entr${entries.length === 1 ? "y" : "ies"}) — it was untrusted before this run's fix`, remedy: undefined }
+            : {});
+          checks.push({ id: "fix.git-trust", status: added.ok && whitelisted ? "ok" : "warn", title: "Git trust whitelist", detail: added.ok && whitelisted ? 'added "//wsl.localhost/*" to the Windows git safe.directory whitelist' : "the add did not take effect; see the output above", remedy: added.ok && whitelisted ? undefined : 'on Windows: git config --global --add safe.directory "//wsl.localhost/*", then restart the app' });
+        } else {
+          checks.push({ id: "fix.git-trust", status: "info", title: "Git trust whitelist", detail: "declined", remedy: 're-run with --fix (and --yes for a non-interactive run), or on Windows: git config --global --add safe.directory "//wsl.localhost/*"' });
         }
       }
     }

@@ -106,6 +106,15 @@ try {
   });
 
   check("relative links in packaged Markdown resolve inside the tarball", () => {
+    // Named exceptions: link targets that exist in the repository but are
+    // deliberately NOT shipped. Each entry is upstream-derived archive code,
+    // kept out of the published package; the shipping doc names it as a local
+    // archive. A target that stops being an archive must leave this list.
+    /** @type {Record<string, string>} */
+    const localOnly = {
+      "docs/upstream/app.asar.0.2.1-rc.5.open-in-app.index.js": "patched upstream app.asar module, archived for the open-in-app investigation only",
+      "docs/upstream/app.asar.0.2.2-rc.1.open-in-app.index.js": "patched upstream app.asar module, archived for the open-in-app investigation only",
+    };
     const broken = [];
     for (const file of files.filter((entry) => entry.endsWith(".md"))) {
       const text = readFileSync(join(ROOT, file), "utf8");
@@ -113,6 +122,7 @@ try {
         const target = match[1];
         if (target === undefined || /^(?:[a-z][a-z\d+.-]*:|#)/i.test(target)) continue;
         const path = posix.normalize(posix.join(posix.dirname(file), decodeURIComponent(target.split("#")[0] ?? "")));
+        if (localOnly[path] !== undefined) continue;
         if (!has(path) && !files.some((entry) => entry.startsWith(`${path}/`))) broken.push(`${file}: ${target}`);
       }
     }

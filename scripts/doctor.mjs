@@ -51,6 +51,7 @@ import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { parseDistroList } from "../lib/wsl.js";
+import { effectiveMaskWindowsDrive } from "../lib/index.js";
 import { AGENT_NAME, PROTOCOL_VERSION } from "../lib/agent-protocol.js";
 import { sessionScopeSweepScript } from "../lib/session-scope.js";
 import { parseListeningPorts, procNetScript } from "../lib/ports.js";
@@ -118,6 +119,7 @@ const CACHE_REPORT = [
  * @property {string} agentBackend - `auto`, `native` or `shell`.
  * @property {string} sandbox - the fs-routing confinement stance.
  * @property {string} maskWindowsDrive - the drive-masking stance (when `interopVisibility` is unset).
+ * @property {string} interopVisibility - the one-key stance (`""` unset, `visible`, `masked` or `disabled`); when set it takes precedence over `maskWindowsDrive`.
  * @property {string} source - where the values came from.
  * @property {string[]} overrides - the profile layers that changed keys, "`<name>`: `<keys>`".
  */
@@ -244,6 +246,34 @@ export function parseWslConfig(text) {
 }
 
 /**
+ * Parse an INI-shaped file (`wsl.conf` and `.wslconfig` share the shape) into
+ * sections. Section and key names are lowercased for lookup; the last value
+ * per key wins; comment lines and lines without `=` are skipped.
+ * @param {string} text - the file's text.
+ * @returns {Record<string, Record<string, string>>} the sections, keyed by their lowercase name.
+ */
+export function parseIni(text) {
+  /** @type {Record<string, Record<string, string>>} */
+  const sections = {};
+  let current = "";
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (line.length === 0 || line.startsWith("#") || line.startsWith(";")) continue;
+    const heading = /^\[(.+)\]$/.exec(line);
+    if (heading !== null) {
+      current = (/** @type {RegExpExecArray} */ (heading)[1] ?? "").trim().toLowerCase();
+      sections[current] ??= {};
+      continue;
+    }
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const section = sections[current] ?? (sections[current] = {});
+    section[line.slice(0, eq).trim().toLowerCase()] = line.slice(eq + 1).trim();
+  }
+  return sections;
+}
+
+/**
  * The text of one patch row (`- id: <rowId>` down to the next row at the same
  * or shallower indent). This is the same line discipline the preset helper
  * applies to the shipped patch, so both tools read rows identically by
@@ -296,7 +326,7 @@ export function rowKey(block, key) {
  */
 export function effectiveConfig(dshHome, root) {
   /** @type {EffectiveConfig} */
-  let config = { distro: "auto", sessionSandbox: "true", agentBackend: "auto", sandbox: "true", maskWindowsDrive: "false", source: "the shipped preset", overrides: [] };
+  let config = { distro: "auto", sessionSandbox: "true", agentBackend: "auto", sandbox: "true", maskWindowsDrive: "false", interopVisibility: "", source: "the shipped preset", overrides: [] };
   let recognized = false;
   const shipped = readFileSync(join(root, "cordis.patch.yml"), "utf8");
   const preset = rowBlock(shipped, "preset-wsl");
@@ -314,6 +344,7 @@ export function effectiveConfig(dshHome, root) {
       agentBackend: agentBackend ?? "auto",
       sandbox: sandbox ?? "true",
       maskWindowsDrive: maskWindowsDrive ?? "false",
+      interopVisibility: rowKey(routing, "interopVisibility") ?? "",
       source: "the shipped preset",
       overrides: [],
     };
@@ -333,7 +364,7 @@ export function effectiveConfig(dshHome, root) {
     for (const [block, keys] of [[layerPreset, ["distro", "sessionSandbox", "agentBackend"]], [layerRouting, ["sandbox", "maskWindowsDrive"]]]) {
       const source = /** @type {string} */ (block);
       /** The scalar keys the overlay may change; `source`/`overrides` are bookkeeping, not overlay inputs. */
-      const scalar = /** @type {const} */ (["distro", "sessionSandbox", "agentBackend", "sandbox", "maskWindowsDrive"]);
+      const scalar = /** @type {const} */ (["distro", "sessionSandbox", "agentBackend", "sandbox", "maskWindowsDrive", "interopVisibility"]);
       for (const key of /** @type {string[]} */ (keys)) {
         const value = rowKey(source, key);
         if (value === undefined || value === next[/** @type {keyof EffectiveConfig} */ (key)]) continue;
@@ -665,6 +696,11 @@ async function main(options) {
    * @param {string} detail - the prerequisite's own evidence.
    * @returns {string} the evidence, with the fallback named when the scope is optional. */
   const withScopeNote = (detail) => (scopeMode === "true" ? detail : `${detail}${scopeNote}`);
+  /** The drive-masking stance in effect, computed with the shipped precedence (interopVisibility over maskWindowsDrive). */
+  const interopMasked = effectiveMaskWindowsDrive({
+    interopVisibility: effective.interopVisibility === "" ? undefined : /** @type {"visible" | "masked" | "disabled"} */ (effective.interopVisibility),
+    maskWindowsDrive: effective.maskWindowsDrive === "true",
+  });
 
   // ---- target selection ----------------------------------------------------
   // An explicit `--distro` wins; `--all` checks every installed distro;
@@ -781,6 +817,49 @@ async function main(options) {
     const linger = (await inDistro(target, 'loginctl show-user "$(id -un)" -p Linger 2>/dev/null')).stdout.trim();
     if (linger === "Linger=yes") check("session.linger", "ok", "Linger", linger);
     else check("session.linger", sessionStatus(), "Linger", withScopeNote(linger.length > 0 ? linger : "unset"), `wsl.exe -d ${target} -- loginctl enable-linger "$(id -un)" (this needs the user's own session; run it inside the distro)`);
+
+    // ---- /etc/wsl.conf cross-checks ------------------------------------------
+    // The distro-level settings the plugin cannot change (LIMITATIONS): boot,
+    // interop, automount. Each check reads the conf against the runtime facts
+    // the probes above collected and names the terminate semantics — a conf
+    // value that is not in effect is a different problem from one that is.
+    const confAnswer = await inDistro(target, "cat /etc/wsl.conf 2>/dev/null || true");
+    const conf = parseIni(confAnswer.stdout);
+    const noConf = confAnswer.stdout.trim().length === 0;
+    const runtimeSystemd = systemd.stdout.startsWith("systemd");
+    const bootSystemd = ((noConf ? undefined : conf.boot?.systemd) ?? "").trim().toLowerCase();
+    if (noConf) {
+      check("distro.wsl-conf-boot", "info", "/etc/wsl.conf [boot]", "no /etc/wsl.conf — the default (systemd off) applies, and the runtime matches it");
+    } else if (bootSystemd === "true" && !runtimeSystemd) {
+      check("distro.wsl-conf-boot", "warn", "/etc/wsl.conf [boot]", `[boot] systemd=true but PID 1 is ${systemd.stdout.trim() || "not systemd"} — the value is set but not in effect`, `wsl.exe --terminate ${target} (or "wsl.exe --shutdown"), then reopen the session`);
+    } else if (bootSystemd === "false" && runtimeSystemd) {
+      check("distro.wsl-conf-boot", "warn", "/etc/wsl.conf [boot]", "[boot] systemd=false but PID 1 is systemd — the running boot predates the value", `wsl.exe --terminate ${target} applies it; check sessionSandbox first, because the scope needs systemd`);
+    } else {
+      check("distro.wsl-conf-boot", "ok", "/etc/wsl.conf [boot]", bootSystemd === "" ? "no [boot] systemd line (the off default) — the runtime matches" : `[boot] systemd=${bootSystemd} — the runtime matches`);
+    }
+
+    const interopEnabled = ((noConf ? undefined : conf.interop?.enabled) ?? "").trim().toLowerCase();
+    if (interopEnabled === "false") {
+      const binfmt = (await inDistro(target, "[ -e /proc/sys/fs/binfmt_misc/WSLInterop ] && printf yes || printf no")).stdout.trim();
+      check("distro.wsl-conf-interop", "warn", "/etc/wsl.conf [interop]", `interop is disabled in wsl.conf${binfmt === "yes" ? " but the WSLInterop handler is still loaded (stale boot)" : ""} — Windows git, open-in-app and the cmd.exe probes are unreachable from this distro`, `remove the [interop] enabled=false line in /etc/wsl.conf, then wsl.exe --terminate ${target}`);
+    } else {
+      const appendWindowsPath = ((noConf ? undefined : conf.interop?.appendWindowsPath) ?? "").trim().toLowerCase();
+      check("distro.wsl-conf-interop", "ok", "/etc/wsl.conf [interop]", noConf
+        ? "no /etc/wsl.conf — interop on (the default)"
+        : `enabled=${interopEnabled || "true (the default)"}${appendWindowsPath === "false" ? "; appendWindowsPath=false (Windows PATH not appended — Windows tools need full paths)" : ""}`);
+    }
+
+    const automountEnabled = ((noConf ? undefined : conf.automount?.enabled) ?? "").trim().toLowerCase();
+    const automountRoot = ((noConf ? undefined : conf.automount?.root) ?? "").trim();
+    if (automountEnabled === "false") {
+      check("distro.wsl-conf-automount", "warn", "/etc/wsl.conf [automount]", "automount is disabled — /mnt has no Windows drives and Windows files are unreachable from this distro; the masking stance is moot", `remove [automount] enabled=false in /etc/wsl.conf, then wsl.exe --terminate ${target}`);
+    } else if (automountRoot.length > 0 && automountRoot !== "/mnt" && interopMasked) {
+      check("distro.wsl-conf-automount", "warn", "/etc/wsl.conf [automount]", `the automount root is ${automountRoot}, not /mnt — the drive-masking stance is in effect and targets /mnt, so ${automountRoot} is not covered`, `reset [automount] root to /mnt in /etc/wsl.conf, then wsl.exe --terminate ${target}`);
+    } else {
+      check("distro.wsl-conf-automount", "ok", "/etc/wsl.conf [automount]", noConf
+        ? "no /etc/wsl.conf — /mnt mounts (the default)"
+        : `enabled=${automountEnabled || "true (the default)"}, root=${automountRoot || "/mnt"}`);
+    }
 
     // ---- optional tools ------------------------------------------------------
     /** The optional tools, in the order users notice them losing. */
@@ -968,7 +1047,7 @@ async function main(options) {
   // ---- effective configuration (verdict inputs, reported) ------------------
   check("config.effective", configRecognized ? "ok" : "info", "Effective configuration",
     configRecognized
-      ? `distro=${effective.distro}, sessionSandbox=${effective.sessionSandbox}, agentBackend=${effective.agentBackend}, sandbox=${effective.sandbox}, maskWindowsDrive=${effective.maskWindowsDrive} — from ${effective.source}${effective.overrides.length > 0 ? ` (overrides: ${effective.overrides.join("; ")})` : ""}`
+      ? `distro=${effective.distro}, sessionSandbox=${effective.sessionSandbox}, agentBackend=${effective.agentBackend}, sandbox=${effective.sandbox}, maskWindowsDrive=${effective.maskWindowsDrive}, interopVisibility=${effective.interopVisibility || "unset"} — from ${effective.source}${effective.overrides.length > 0 ? ` (overrides: ${effective.overrides.join("; ")})` : ""}`
       : "the shipped preset rows were not recognized; the conservative defaults apply (sessionSandbox: true, so a missing systemd blocks) — see docs/CONFIGURATION.md");
 
   // ---- profile-patch trap --------------------------------------------------

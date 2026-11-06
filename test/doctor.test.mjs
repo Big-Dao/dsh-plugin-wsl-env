@@ -15,7 +15,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { peerSatisfied, latestFromPackument, parseWslConfig, parseWslSize } from "../scripts/doctor.mjs";
+import { peerSatisfied, latestFromPackument, parseWslConfig, parseWslSize, parseIni } from "../scripts/doctor.mjs";
 import { mergeLiveResidentStatus } from "../lib/doctor-live.js";
 import { doctorReport } from "../lib/index.js";
 
@@ -81,6 +81,8 @@ case "$all" in
       *'command -v rg'*) printf '/usr/bin/rg' ;;
       *'command -v git'*) printf '/usr/bin/git' ;;
       *'command -v inotifywait'*) printf '/usr/bin/inotifywait' ;;
+      *'cat /etc/wsl.conf'*) printf '%s' "\${FAKE_WSLCONF:-}" ;;
+      *'binfmt_misc/WSLInterop'*) [ "\${FAKE_BINFMT:-yes}" = no ] || printf 'yes' ;;
       *'cat /proc/net/tcp'*) printf '  sl  local_address rem_address   st tx_queue rx_queue\n   0: 00000000:0BB8 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 0 1\n' ;;
       *'hostname -I'*) printf '172.20.0.5 ' ;;
       *'uname -m'*) printf 'x86_64' ;;
@@ -306,6 +308,59 @@ try {
     const healthy = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
     assert.equal(healthy.checks.find((entry) => entry.id === "config.wslconfig")?.status, "ok", "no content means the defaults apply");
     assert.equal(healthy.checks.find((entry) => entry.id === "config.wslconfig")?.distro, undefined, "the global VM config is host-level");
+  });
+
+  await check("parseIni reads wsl.conf sections for the cross-checks", () => {
+    const conf = parseIni("[boot]\nsystemd=true\n\n[interop]\nEnabled=false\n# comment\nappendWindowsPath=false\n[automount]\nroot=/windir\n");
+    assert.equal(conf.boot?.systemd, "true");
+    assert.equal(conf.interop?.enabled, "false", "keys lowercase for lookup");
+    assert.equal(conf.interop?.appendwindowspath, "false", "keys are fully lowercased");
+    assert.equal(conf.automount?.root, "/windir");
+    assert.deepEqual(parseIni("no sections here\n"), {}, "a line without = is skipped");
+  });
+
+  await check("/etc/wsl.conf defaults read as informative rows", () => {
+    const report = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
+    assert.equal(report.checks.find((entry) => entry.id === "distro.wsl-conf-boot")?.status, "info");
+    assert.equal(report.checks.find((entry) => entry.id === "distro.wsl-conf-interop")?.status, "ok");
+    assert.equal(report.checks.find((entry) => entry.id === "distro.wsl-conf-automount")?.status, "ok");
+  });
+
+  await check("a conf value not in effect is named, and the runtime requirement still blocks", () => {
+    const run = doctor(["--json"], { FAKE_SYSTEMD: "no", FAKE_WSLCONF: "[boot]\nsystemd=true\n" });
+    assert.equal(run.status, 1);
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    const boot = report.checks.find((entry) => entry.id === "distro.wsl-conf-boot");
+    assert.equal(boot?.status, "warn");
+    assert.match(String(boot?.detail), /set but not in effect/);
+    assert.match(String(boot?.remedy), /--terminate ubuntu/);
+    assert.ok(report.blockers?.includes("session.systemd"), "the scope requirement still blocks under sessionSandbox: true");
+  });
+
+  await check("interop disabled in wsl.conf warns with the affected surfaces", () => {
+    const run = doctor(["--json"], { FAKE_WSLCONF: "[interop]\nenabled=false\n" });
+    assert.equal(run.status, 0);
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    const interop = report.checks.find((entry) => entry.id === "distro.wsl-conf-interop");
+    assert.equal(interop?.status, "warn");
+    assert.match(String(interop?.detail), /Windows git, open-in-app/);
+    assert.match(String(interop?.remedy), /--terminate ubuntu/);
+  });
+
+  await check("an automount root off /mnt defeats the masking stance and says so", () => {
+    const profile = join(home, "profiles", "masked");
+    mkdirSync(profile, { recursive: true });
+    writeFileSync(join(profile, "cordis.patch.yml"), "- id: fs-routing\n  config:\n    maskWindowsDrive: true\n");
+    const run = doctor(["--json"], { FAKE_WSLCONF: "[automount]\nroot=/windir\n" });
+    assert.equal(run.status, 0);
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    const automount = report.checks.find((entry) => entry.id === "distro.wsl-conf-automount");
+    assert.equal(automount?.status, "warn");
+    assert.match(String(automount?.detail), /\/windir/);
+    assert.match(String(automount?.detail), /not covered/);
+    rmSync(profile, { recursive: true, force: true });
+    const plain = /** @type {Report} */ (JSON.parse(doctor(["--json"], { FAKE_WSLCONF: "[automount]\nroot=/windir\n" }).stdout));
+    assert.equal(plain.checks.find((entry) => entry.id === "distro.wsl-conf-automount")?.status, "ok", "without the stance, a moved root is factual, not defeating");
   });
 
   await check("missing bubblewrap fails with a copy-paste install remedy", () => {

@@ -79,9 +79,14 @@ the experiment names:
 3. the systemd session scopes and the distro-side resident agent do not
    survive to reopen.
 
-**Probe (S, real machine, manual window close):** start a background job
-writing a marker file after `sleep 120` — one on the host side, one through
-the plugin's distro agent — close the window for ~3 minutes, reopen the same
-session, then check: turn continuity, job completion notices, marker files,
-scope/agent liveness. Whichever leg fails names the fix and its owner
-(upstream session teardown vs plugin child-chain hardening).
+**Probe result (2026-11-06, executed):** two-probe experiment with a
+setsid-detached distro process as control. Window close kills nothing — the
+app's tray-residency promise is kept, Host and distro children all survive.
+The SIGTERM lands at **reopen**, when the session is re-adopted: the session's
+managed background jobs die at reattach while the detached control keeps
+running. Verdict: upstream session-adoption bug (jobs are designed to outlive
+turns yet die at reattach, contradicting the "running tasks will not be
+interrupted" promise). Plugin transport chain exonerated by the control. The
+wanted experience needs one upstream fix: preserve in-flight jobs across
+session re-adoption. Recorded in pains.md; an upstream report is the next
+action, owned by the maintainer.

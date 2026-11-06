@@ -15,10 +15,17 @@ feature candidate; a pain seen once is noise. No solution proposals in the log
 
 - 2026-11-06 | session | long agent tasks are hostage to the desktop window:
   the maintainer wants "close the UI, the agent keeps working; reopen and
-  reattach". The app already keeps its process resident in the tray, so the
-  remaining unknown is whether an in-flight turn survives window close/reopen
-  (competitive-features.md, background-continuity probe). | risk: a killed
-  long task | recurs: every long task
+  reattach". **Measured the same day (two-probe experiment):** window close
+  keeps everything alive (tray-resident process, Host, distro children — a
+  setsid-detached distro process survived the whole cycle); the kill lands at
+  **reopen**, when the session is re-adopted: the session's managed background
+  jobs take SIGTERM at reattach (17:40:58 kill vs ~17:41:00 reopen; the
+  detached control kept running). Verdict: upstream session-adoption bug —
+  jobs are designed to outlive turns but die at reattach, contradicting the
+  app's own "running tasks will not be interrupted" promise. Owner: upstream.
+  Plugin innocent (transport chain survived). | each killed task: lost work |
+  recurs: every task in flight at reopen
+- 2026-11-06 | @ | triage observation, not an incident: `@` completion latency
 - 2026-11-06 | @ | triage observation, not an incident: `@` completion latency
   is acceptable in real use — the human scanning the candidate list dominates
   the 9p walk (84.7 ms vs 1.5 ms). Recorded as the counter-example that killed

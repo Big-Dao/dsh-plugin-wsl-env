@@ -50,7 +50,9 @@
   [原生实验](../agent/native/spike/README.md) 描述独立 spike，而非发布二进制。
 - 上游接口记录：[文件引用](UPSTREAM-FILE-REFERENCE-SEAM.md)、
   [fsio 导出](UPSTREAM-FSIO-EXPORT.md)、[LSP](UPSTREAM-LSP-SEAM.md)、
-  [Open in app](UPSTREAM-OPEN-IN-APP.md)、[会话通知](UPSTREAM-SESSION-NOTICE.md)、
+  [Open in app](UPSTREAM-OPEN-IN-APP.md)、
+  [会话后台任务被杀](UPSTREAM-SESSION-BACKGROUND-KILL.md)、
+  [会话通知](UPSTREAM-SESSION-NOTICE.md)、
   [同名服务热替换](UPSTREAM-SERVICE-SWAP.md)、
   [spawnSpec](UPSTREAM-SPAWN-SEAM.md)、[终端字体](UPSTREAM-TERMINAL-FONT.md)、
   [终端标题](UPSTREAM-TERMINAL-TITLE.md)。每篇的检查版本和状态应单独核对。

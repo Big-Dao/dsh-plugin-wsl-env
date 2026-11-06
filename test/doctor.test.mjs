@@ -15,7 +15,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { peerSatisfied, latestFromPackument } from "../scripts/doctor.mjs";
+import { peerSatisfied, latestFromPackument, parseWslConfig, parseWslSize } from "../scripts/doctor.mjs";
 import { mergeLiveResidentStatus } from "../lib/doctor-live.js";
 import { doctorReport } from "../lib/index.js";
 
@@ -46,7 +46,7 @@ mkdirSync(home);
 const FAKE_WSL = `#!/bin/sh
 case "$*" in
   "-l -q"|"--list -q") printf '%s\\n' \${FAKE_DISTROS:-ubuntu} | tr ' ' '\\n'; exit 0 ;;
-  "-l -v") printf '  NAME            STATE           VERSION\\n  ubuntu*         Running         2\\n'; case "\${FAKE_DISTROS:-ubuntu}" in *debian*) printf '  debian          Stopped         2\\n' ;; esac; exit 0 ;;
+  "-l -v") printf '  NAME            STATE           VERSION\\n  ubuntu*         Running         %s\\n' "$([ "\${FAKE_WSL1:-no}" = yes ] && printf 1 || printf 2)"; case "\${FAKE_DISTROS:-ubuntu}" in *debian*) printf '  debian          Stopped         2\\n' ;; esac; exit 0 ;;
   "--list --running") printf 'hdr\\nubuntu\\n'; exit 0 ;;
   "--version") printf 'WSL version: 2.0.0\\nKernel version: 6.6.87.2\\n'; exit 0 ;;
 esac
@@ -92,7 +92,11 @@ esac
 exit 0
 `;
 const FAKE_CMD = `#!/bin/sh
-printf 'Microsoft Windows [Version 10.0.26300.9711]\\n'
+case "$*" in
+  *"echo %USERPROFILE%"*) printf 'C:\\\\Users\\\\andy\\n'; exit 0 ;;
+  *"type"*) printf '%s' "\${FAKE_WSLCONFIG:-}"; exit 0 ;;
+  *) printf 'Microsoft Windows [Version 10.0.26300.9711]\\n'; exit 0 ;;
+esac
 `;
 const FAKE_GIT_EXE = `#!/bin/sh
 case "$*" in
@@ -260,6 +264,48 @@ try {
     assert.deepEqual(report.distroVerdicts?.map((entry) => entry.name), ["debian"]);
     assert.equal(report.config?.distro, "debian");
     rmSync(profile, { recursive: true, force: true });
+  });
+
+  await check("a WSL1 distro is named as the root cause and blocks", () => {
+    const run = doctor(["--json"], { FAKE_WSL1: "yes" });
+    assert.equal(run.status, 1);
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    const mode = report.checks.find((entry) => entry.id === "distro.wsl-mode");
+    assert.equal(mode?.status, "fail");
+    assert.match(String(mode?.detail), /WSL 1 — a declared non-goal/);
+    assert.match(String(mode?.remedy), /--set-version ubuntu 2/);
+    assert.ok(report.blockers?.includes("distro.wsl-mode"));
+    const healthy = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
+    assert.equal(healthy.checks.find((entry) => entry.id === "distro.wsl-mode")?.status, "ok", "a WSL2 distro reads ok");
+  });
+
+  await check("parseWslConfig names the silent-ignore trap and the range problems", () => {
+    assert.deepEqual(parseWslConfig("[wsl2]\nmemory=4GB\nprocessors=8\n"), { problems: [], keyCount: 2 }, "a clean file has no findings");
+    assert.equal(parseWslSize("4GB"), 4 * 1024 ** 3);
+    assert.equal(parseWslSize("512MB"), 512 * 1024 ** 2);
+    assert.equal(parseWslSize("8368805888"), 8368805888);
+    assert.equal(parseWslSize("soon"), undefined);
+    const bad = parseWslConfig("[wsl2]\nmemory=0\nbadline\nfoo=bar\nmemory=abc\nlocalhostForwarding=false\n[experimental]\nsparseVhd=true\n[mystery]\nx=1\n");
+    assert.equal(bad.keyCount, 6);
+    assert.ok(bad.problems.some((problem) => /memory=0 — the VM gets no memory/.test(problem)), String(bad.problems));
+    assert.ok(bad.problems.some((problem) => /line 3 is not "key = value"/.test(problem)));
+    assert.ok(bad.problems.some((problem) => /unknown key "foo"/.test(problem)));
+    assert.ok(bad.problems.some((problem) => /memory="abc" is not a size/.test(problem)));
+    assert.ok(bad.problems.some((problem) => /localhostForwarding=false/.test(problem)));
+    assert.ok(bad.problems.some((problem) => /unknown section \[mystery\]/.test(problem)));
+  });
+
+  await check("config.wslconfig reads through the cmd.exe route and warns, never blocks", () => {
+    const run = doctor(["--json"], { FAKE_WSLCONFIG: "[wsl2]\nmemory=0\n" });
+    assert.equal(run.status, 0, "a hazardous .wslconfig degrades advice; it never blocks the first command");
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    const wslconfig = report.checks.find((entry) => entry.id === "config.wslconfig");
+    assert.equal(wslconfig?.status, "warn");
+    assert.match(String(wslconfig?.detail), /memory=0/);
+    assert.match(String(wslconfig?.remedy), /wsl\.exe --shutdown/);
+    const healthy = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
+    assert.equal(healthy.checks.find((entry) => entry.id === "config.wslconfig")?.status, "ok", "no content means the defaults apply");
+    assert.equal(healthy.checks.find((entry) => entry.id === "config.wslconfig")?.distro, undefined, "the global VM config is host-level");
   });
 
   await check("missing bubblewrap fails with a copy-paste install remedy", () => {

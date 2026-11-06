@@ -167,6 +167,82 @@ export function parseWslVerbose(stdout) {
   return entries;
 }
 
+/** The `[wsl2]` keys the `.wslconfig` validator knows; anything else is reported as ignored by WSL. */
+const WSLCONFIG_KEYS = new Set([
+  "kernel", "kernelCommandLine", "memory", "processors", "swap", "swapFile", "pageReporting",
+  "localhostForwarding", "nestedVirtualization", "guiApplications", "debugConsole",
+  "earlyBootLogging", "vmIdleTimeout", "safeMode", "defaultVhdSize", "networkingMode",
+  "dnsTunneling", "firewall", "autoProxy",
+]);
+/** The `[experimental]` keys the validator knows. */
+const WSLCONFIG_EXPERIMENTAL_KEYS = new Set(["sparseVhd", "autoMemoryReclaim", "hostAddressLoopback", "guiApplications"]);
+
+/**
+ * Byte-parse one WSL size scalar ("4GB", "512MB", "8368805888", "0").
+ * @param {string} value - the raw scalar.
+ * @returns {number | undefined} the size in bytes, or undefined when the shape is not a size.
+ */
+export function parseWslSize(value) {
+  const match = /^(\d+(?:\.\d+)?)\s*(b|kb|mb|gb|tb)?$/i.exec(value.trim());
+  if (match === null) return undefined;
+  const columns = /** @type {RegExpExecArray} */ (match);
+  const scale = { b: 1, kb: 1024, mb: 1024 ** 2, gb: 1024 ** 3, tb: 1024 ** 4 }[(columns[2] ?? "b").toLowerCase()] ?? 1;
+  return Math.round(Number(columns[1] ?? 0) * scale);
+}
+
+/**
+ * Parse and validate `%USERPROFILE%\.wslconfig`. WSL **silently ignores** a
+ * malformed file and unknown keys, so this parser is the only place the trap
+ * gets named; known keys with semantic hazards (no memory, tiny memory, the
+ * localhost forwarding the port survey depends on) are called out with their
+ * consequence. Findings are warnings, never blockers — the file degrades
+ * advice, not the first command.
+ * @param {string} text - the file's text.
+ * @returns {{ problems: string[], keyCount: number }} the findings, each naming its line.
+ */
+export function parseWslConfig(text) {
+  /** @type {string[]} */
+  const problems = [];
+  let keyCount = 0;
+  let section = "";
+  for (const [index, rawLine] of text.split(/\r?\n/).entries()) {
+    const line = rawLine.trim();
+    if (line.length === 0 || line.startsWith("#") || line.startsWith(";")) continue;
+    const heading = /^\[(.+)\]$/.exec(line);
+    if (heading !== null) {
+      section = (/** @type {RegExpExecArray} */ (heading)[1] ?? "").trim().toLowerCase();
+      continue;
+    }
+    const eq = line.indexOf("=");
+    if (eq <= 0) {
+      problems.push(`line ${index + 1} is not "key = value" — WSL silently ignores a malformed file`);
+      continue;
+    }
+    const key = line.slice(0, eq).trim();
+    const value = line.slice(eq + 1).trim();
+    keyCount += 1;
+    const known = section === "wsl2" ? WSLCONFIG_KEYS : section === "experimental" ? WSLCONFIG_EXPERIMENTAL_KEYS : null;
+    if (known === null) {
+      problems.push(`line ${index + 1}: unknown section [${section}] — WSL ignores it`);
+      continue;
+    }
+    if (!known.has(key)) {
+      problems.push(`line ${index + 1}: unknown key "${key}" in [${section}] — WSL ignores it`);
+      continue;
+    }
+    if ((key === "memory" || key === "swap") && section === "wsl2") {
+      const bytes = parseWslSize(value);
+      if (bytes === undefined) problems.push(`line ${index + 1}: ${key}="${value}" is not a size (expect 4GB, 512MB, …)`);
+      else if (key === "memory" && bytes === 0) problems.push(`line ${index + 1}: memory=0 — the VM gets no memory and every distro misbehaves`);
+      else if (key === "memory" && bytes < 512 * 1024 * 1024) problems.push(`line ${index + 1}: memory="${value}" is below 512MB — the VM will thrash or OOM`);
+    }
+    if (key === "localhostForwarding" && section === "wsl2" && value === "false") {
+      problems.push(`line ${index + 1}: localhostForwarding=false — the port survey's http://localhost:<port> URLs will not resolve on the Windows side`);
+    }
+  }
+  return { problems, keyCount };
+}
+
 /**
  * The text of one patch row (`- id: <rowId>` down to the next row at the same
  * or shallower indent). This is the same line discipline the preset helper
@@ -538,6 +614,30 @@ async function main(options) {
   if (version.ok && wslVersion.length > 0) check("host.wsl", "ok", "WSL version", wslVersion);
   else check("host.wsl", "warn", "WSL version", "wsl.exe --version failed; WSL 1 or a very old build", "wsl.exe --update, then confirm the distro runs as WSL 2 (wsl.exe -l -v shows VERSION 2)");
 
+  // ---- .wslconfig (the global VM config; host-level) ------------------------
+  // WSL silently ignores a malformed file, so interop/masking advice can fail
+  // to apply without a trace; this parser is where the trap gets named. The
+  // read rides cmd.exe (the same interop path `host.windows` uses), which
+  // works from Windows and from a WSL with interop regardless of where the
+  // automount root sits — the route's own failure is reported, not guessed.
+  const userProfile = (await run([CMD, "/c", "echo %USERPROFILE%"])).stdout.replace(/\0/g, "").trim();
+  if (!/^[A-Za-z]:\\/.test(userProfile)) {
+    check("config.wslconfig", "info", ".wslconfig", "USERPROFILE unreadable through cmd.exe — run the doctor from Windows or a WSL with interop to inspect the global VM config");
+  } else {
+    const answer = await run([CMD, "/c", `type "${userProfile}\\.wslconfig"`]);
+    const text = answer.ok ? answer.stdout.replace(/\0/g, "") : "";
+    if (text.trim().length === 0) {
+      check("config.wslconfig", "ok", ".wslconfig", `no content in ${userProfile}\\.wslconfig (WSL defaults apply)`);
+    } else {
+      const { problems, keyCount } = parseWslConfig(text);
+      if (problems.length > 0) {
+        check("config.wslconfig", "warn", ".wslconfig", `${keyCount} key(s) read; ${problems.length} finding(s): ${problems.join("; ")}`, `fix ${userProfile}\\.wslconfig, then run "wsl.exe --shutdown" — the VM returns ~8 s later and reads the file fresh`);
+      } else {
+        check("config.wslconfig", "ok", ".wslconfig", `${keyCount} key(s) parsed from ${userProfile}\\.wslconfig, no findings`);
+      }
+    }
+  }
+
   const listed = await run([wslExe, "-l", "-q"]);
   const distros = listed.ok ? parseDistroList(listed.stdout.replace(/\0/g, "")) : [];
   if (distros.length === 0) {
@@ -574,13 +674,15 @@ async function main(options) {
   // itself marks as default; a pinned name checks exactly that one.
   const runInfo = /** @type {{ distros: string[], config?: EffectiveConfig }} */ ({ distros: [] });
   runInfo.config = { ...effective };
+  /** The `wsl.exe -l -v` table, parsed once: the default marker feeds target selection, the VERSION column feeds `distro.wsl-mode`. */
+  const wslTable = parseWslVerbose((await run([wslExe, "-l", "-v"])).stdout.replace(/\0/g, ""));
   /** @type {string[]} */
   const targets = [];
   if (options.distro.length > 0) targets.push(options.distro);
   else if (options.all) targets.push(...distros);
   else if (effective.distro === "auto") targets.push(...distros);
   else if (effective.distro === "default") {
-    const defaultDistro = parseWslVerbose((await run([wslExe, "-l", "-v"])).stdout.replace(/\0/g, "")).find((entry) => entry.isDefault)?.name;
+    const defaultDistro = wslTable.find((entry) => entry.isDefault)?.name;
     targets.push(...(defaultDistro !== undefined ? [defaultDistro] : distros));
   } else targets.push(effective.distro);
 
@@ -631,6 +733,19 @@ async function main(options) {
     const familyAnswer = await inDistro(target, `for f in ${FAMILIES.join(" ")}; do command -v "$f" >/dev/null 2>&1 && { echo "$f"; exit 0; }; done; echo unknown`);
     const family = familyAnswer.stdout.trim();
     check("distro.family", "info", "Package family", family.length > 0 ? family : "unknown");
+
+    // ---- WSL mode ------------------------------------------------------------
+    // WSL1 is a declared non-goal, but until now it failed unexplained: the
+    // session prerequisites named remedies, never the root cause. The -l -v
+    // table carries the VERSION per distro, so name the cause.
+    const wslMode = wslTable.find((entry) => entry.name === target)?.version ?? "";
+    if (wslMode === "1") {
+      check("distro.wsl-mode", "fail", "WSL mode", `WSL 1 — a declared non-goal: no systemd (no session scope, no Linger) and no unprivileged user namespaces (no bubblewrap)`, `wsl.exe --set-version ${target} 2 (the distro's files stay), then "wsl.exe --shutdown" and reopen the session`);
+    } else if (wslMode === "") {
+      check("distro.wsl-mode", "info", "WSL mode", `unreadable — the -l -v table named no version for "${target}"`);
+    } else {
+      check("distro.wsl-mode", "ok", "WSL mode", `WSL ${wslMode}`);
+    }
 
     // ---- sandbox prerequisites ----------------------------------------------
     const bwrapPath = (await inDistro(target, "command -v bwrap")).stdout.trim();

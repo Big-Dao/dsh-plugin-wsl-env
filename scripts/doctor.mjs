@@ -783,6 +783,27 @@ async function main(options) {
       check("distro.wsl-mode", "ok", "WSL mode", `WSL ${wslMode}`);
     }
 
+    // ---- disk -----------------------------------------------------------------
+    // A full root is the classic WSL "everything mysteriously fails" class:
+    // the ext4 VHDX stops growing (or the Windows drive holding it is full)
+    // and every write failure surfaces as something unrelated. One df call;
+    // the fail line at 97% is where the first cache write starts to break.
+    const dfAnswer = await inDistro(target, "df -Pm /");
+    const dfLine = dfAnswer.stdout.trim().split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0)[1] ?? "";
+    const dfFields = dfLine.split(/\s+/);
+    const dfCapacity = Number((dfFields[4] ?? "").replace(/%$/, ""));
+    const dfTotal = dfFields[1] ?? "?";
+    const dfAvail = dfFields[3] ?? "?";
+    if (!Number.isFinite(dfCapacity)) {
+      check("distro.disk", "info", "Disk", "unreadable — df did not answer in the expected shape");
+    } else if (dfCapacity >= 97) {
+      check("distro.disk", "fail", "Disk", `/${dfCapacity}% used (${dfAvail} MiB free of ${dfTotal} MiB) — writes into the distro will start failing`, `free space inside "${target}" or on the Windows drive holding the ext4 VHDX; sparse VHD (the .wslconfig sparseVhd key) lets "wsl.exe --shutdown" shrink it back`);
+    } else if (dfCapacity >= 90) {
+      check("distro.disk", "warn", "Disk", `/${dfCapacity}% used (${dfAvail} MiB free of ${dfTotal} MiB)`, "plan a cleanup before the 97% line, where writes start to fail");
+    } else {
+      check("distro.disk", "ok", "Disk", `/${dfCapacity}% used (${dfAvail} MiB free of ${dfTotal} MiB)`);
+    }
+
     // ---- sandbox prerequisites ----------------------------------------------
     const bwrapPath = (await inDistro(target, "command -v bwrap")).stdout.trim();
     const install = installRemedy(target, family);
@@ -859,6 +880,40 @@ async function main(options) {
       check("distro.wsl-conf-automount", "ok", "/etc/wsl.conf [automount]", noConf
         ? "no /etc/wsl.conf — /mnt mounts (the default)"
         : `enabled=${automountEnabled || "true (the default)"}, root=${automountRoot || "/mnt"}`);
+    }
+
+    // ---- clock ----------------------------------------------------------------
+    // A sleeping host desyncs the WSL clock (the VM's clock stops with it);
+    // the classic symptom is TLS and git failing with certificate or
+    // timestamp errors minutes after resume. One comparison, one remedy.
+    const distroEpoch = Number((await inDistro(target, "date +%s")).stdout.trim());
+    if (!Number.isFinite(distroEpoch) || distroEpoch <= 0) {
+      check("distro.clock", "info", "Clock", "unreadable — date did not answer an epoch");
+    } else {
+      const skew = Math.abs(distroEpoch - Math.floor(Date.now() / 1000));
+      if (skew > 60) {
+        check("distro.clock", "warn", "Clock", `the distro clock is ${skew}s off the host — TLS and git fail with certificate/timestamp errors after a host sleep`, `"wsl.exe --shutdown", then reopen — the VM resyncs on boot`);
+      } else {
+        check("distro.clock", "ok", "Clock", `within ${skew}s of the host`);
+      }
+    }
+
+    // ---- dns ------------------------------------------------------------------
+    // Name resolution breaks in two WSL-specific ways: the auto-generated
+    // /etc/resolv.conf lost its nameserver (or generation was disabled), and
+    // the VPN-tunnel class where the file looks fine but queries die. The
+    // probe is warn-grade and honest about offline — a machine without a
+    // network answers the same as a broken resolver.
+    const resolvBytes = Number((await inDistro(target, "wc -c < /etc/resolv.conf 2>/dev/null || printf 0")).stdout.trim());
+    if (!Number.isFinite(resolvBytes) || resolvBytes === 0) {
+      check("distro.dns", "warn", "DNS", "/etc/resolv.conf is missing or empty — name resolution fails (npm, git fetch, bootstrap installs)", `wsl.conf [network] generateResolvConf controls the file; "wsl.exe --shutdown" regenerates it unless disabled`);
+    } else {
+      const resolved = (await inDistro(target, "getent hosts deb.debian.org 2>/dev/null | head -1")).stdout.trim();
+      if (resolved.length > 0) {
+        check("distro.dns", "ok", "DNS", `resolv.conf present (${resolvBytes} bytes); ${(resolved.split(/\s+/)[0] ?? "?")} resolved the probe name`);
+      } else {
+        check("distro.dns", "warn", "DNS", `resolv.conf present (${resolvBytes} bytes) but the probe name did not resolve — offline, or the resolver is broken (the VPN-tunnel class)`, "check the network; with a VPN up, see the WSL DNS tunneling notes in docs/CONFIGURATION.md");
+      }
     }
 
     // ---- optional tools ------------------------------------------------------

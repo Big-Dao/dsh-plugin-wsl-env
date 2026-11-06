@@ -82,6 +82,10 @@ case "$all" in
       *'command -v git'*) printf '/usr/bin/git' ;;
       *'command -v inotifywait'*) printf '/usr/bin/inotifywait' ;;
       *'cat /etc/wsl.conf'*) printf '%s' "\${FAKE_WSLCONF:-}" ;;
+      *'df -Pm /'*) printf 'Filesystem 1M-blocks Used Available Capacity Mounted\n/dev/sdc 262030 151898 110132 %s%% /\n' "\${FAKE_DISK:-42}" ;;
+      *'date +%s'*) printf '%s' "\${FAKE_CLOCK:-$(date +%s)}" ;;
+      *'wc -c < /etc/resolv.conf'*) printf '%s' "\${FAKE_RESOLV:-365}" ;;
+      *'getent hosts'*) [ "\${FAKE_DNS:-yes}" = no ] || printf '1.2.3.4 deb.debian.org\n' ;;
       *'binfmt_misc/WSLInterop'*) [ "\${FAKE_BINFMT:-yes}" = no ] || printf 'yes' ;;
       *'cat /proc/net/tcp'*) printf '  sl  local_address rem_address   st tx_queue rx_queue\n   0: 00000000:0BB8 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 0 1\n' ;;
       *'hostname -I'*) printf '172.20.0.5 ' ;;
@@ -361,6 +365,41 @@ try {
     rmSync(profile, { recursive: true, force: true });
     const plain = /** @type {Report} */ (JSON.parse(doctor(["--json"], { FAKE_WSLCONF: "[automount]\nroot=/windir\n" }).stdout));
     assert.equal(plain.checks.find((entry) => entry.id === "distro.wsl-conf-automount")?.status, "ok", "without the stance, a moved root is factual, not defeating");
+  });
+
+  await check("a near-full root disk warns at 90 and fails at 97", () => {
+    const warn = /** @type {Report} */ (JSON.parse(doctor(["--json"], { FAKE_DISK: "93" }).stdout));
+    const warnDisk = warn.checks.find((entry) => entry.id === "distro.disk");
+    assert.equal(warnDisk?.status, "warn");
+    assert.match(String(warnDisk?.detail), /93% used/);
+    const fail = doctor(["--json"], { FAKE_DISK: "97" });
+    assert.equal(fail.status, 1, "at 97% the first cache write is where it breaks");
+    const report = /** @type {Report} */ (JSON.parse(fail.stdout));
+    assert.ok(report.blockers?.includes("distro.disk"));
+    assert.equal(/** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout)).checks.find((entry) => entry.id === "distro.disk")?.status, "ok");
+  });
+
+  await check("a desynced clock warns with the shutdown resync", () => {
+    const run = doctor(["--json"], { FAKE_CLOCK: "1000000000" });
+    assert.equal(run.status, 0, "a clock skew degrades TLS; it does not block the first command");
+    const clock = /** @type {Report} */ (JSON.parse(run.stdout)).checks.find((entry) => entry.id === "distro.clock");
+    assert.equal(clock?.status, "warn");
+    assert.match(String(clock?.detail), /off the host/);
+    assert.match(String(clock?.remedy), /wsl\.exe --shutdown/);
+    assert.equal(/** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout)).checks.find((entry) => entry.id === "distro.clock")?.status, "ok");
+  });
+
+  await check("dns degrades honestly: a missing resolv.conf and a failed probe are different lines", () => {
+    const missing = /** @type {Report} */ (JSON.parse(doctor(["--json"], { FAKE_RESOLV: "0" }).stdout));
+    const missingDns = missing.checks.find((entry) => entry.id === "distro.dns");
+    assert.equal(missingDns?.status, "warn");
+    assert.match(String(missingDns?.detail), /missing or empty/);
+    assert.match(String(missingDns?.remedy), /generateResolvConf/);
+    const dead = /** @type {Report} */ (JSON.parse(doctor(["--json"], { FAKE_DNS: "no" }).stdout));
+    const deadDns = dead.checks.find((entry) => entry.id === "distro.dns");
+    assert.equal(deadDns?.status, "warn");
+    assert.match(String(deadDns?.detail), /did not resolve/);
+    assert.equal(/** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout)).checks.find((entry) => entry.id === "distro.dns")?.status, "ok");
   });
 
   await check("missing bubblewrap fails with a copy-paste install remedy", () => {

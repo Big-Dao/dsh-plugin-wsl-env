@@ -29,20 +29,36 @@ ASAR="$APP/resources/app.asar"
 [ -f "$ASAR" ] || { echo "open-in-app-patch: no app archive at $ASAR (set DSH_WSL_ENV_APP)" >&2; exit 2; }
 
 # The asar stores file contents verbatim, so a byte string search over the
-# archive finds the module code without extracting it. The marker is the
-# local patch's own helper name; upstream's rc.5 fix used the same shape
-# (delete before spawn) but is detected by the generic flag-clearing form.
-if grep -aq "clearedElectronFlag" "$ASAR" 2>/dev/null; then
-  echo "PASS  open-in-app-patch — locally patched (clearedElectronFlag present)"
+# archive finds the module code without extracting it. Two local patches ride
+# on the archive (see docs/UPSTREAM-OPEN-IN-APP.md):
+#   patch 1 — `clearedElectronFlag`: drop ELECTRON_RUN_AS_NODE before the
+#             spawn, so Electron editors do not start as Node;
+#   patch 2 — `editorRemoteUri` + `folder-uri`: a WSL UNC workspace opens
+#             through `--folder-uri=vscode-remote://wsl%2B<distro>/...`,
+#             landing in Remote-WSL instead of a plain-folder window.
+upstream_fixed=0; patched1=0; patched2=0
+if grep -aq 'delete env.ELECTRON_RUN_AS_NODE' "$ASAR" 2>/dev/null && ! grep -aq "clearedElectronFlag" "$ASAR" 2>/dev/null; then
+  upstream_fixed=1
+fi
+grep -aq "clearedElectronFlag" "$ASAR" 2>/dev/null && patched1=1
+grep -aq "editorRemoteUri" "$ASAR" 2>/dev/null && patched2=1
+
+if [ "$upstream_fixed" = 1 ]; then
+  echo "PASS  open-in-app-patch — upstream clears the flag itself"
+  [ "$patched2" = 1 ] && echo "PASS  open-in-app-patch — remote-WSL folder-uri patch present"
   exit 0
 fi
-if grep -aq 'delete env.ELECTRON_RUN_AS_NODE' "$ASAR" 2>/dev/null; then
-  echo "PASS  open-in-app-patch — upstream clears the flag itself"
+if [ "$patched1" = 1 ] && [ "$patched2" = 1 ]; then
+  echo "PASS  open-in-app-patch — both local patches present (flag clear + remote-WSL folder-uri)"
   exit 0
+fi
+if [ "$patched1" = 1 ] || [ "$patched2" = 1 ]; then
+  echo "FAIL  open-in-app-patch — partial local patch: flag-clear=$patched1 remote-uri=$patched2 (re-apply from docs/UPSTREAM-OPEN-IN-APP.md)"
+  exit 1
 fi
 if grep -aq 'launchDetachedApp' "$ASAR" 2>/dev/null; then
   echo "FAIL  open-in-app-patch — launchDetachedApp spawns without clearing ELECTRON_RUN_AS_NODE; Electron apps will fail to open"
-  echo "      remedy: re-apply the local patch (docs/UPSTREAM-OPEN-IN-APP.md)"
+  echo "      remedy: re-apply the local patches (docs/UPSTREAM-OPEN-IN-APP.md)"
   exit 1
 fi
 echo "SKIP  open-in-app-patch — launchDetachedApp not found in the archive; layout changed, re-check the patch design"

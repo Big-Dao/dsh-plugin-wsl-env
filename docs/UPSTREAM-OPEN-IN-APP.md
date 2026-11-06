@@ -19,6 +19,27 @@ installed `app.asar` (same helper, both `lib/index.js` and
 upgrade, because an upgrade replaces the archive and silently drops the
 local patch.
 
+### Local patch 2 — WSL workspaces open through `--folder-uri` (verified 2026-11-06)
+
+Riding on the same re-patch: a WSL UNC workspace
+(`\\wsl.localhost\<distro>\...`) passed as a plain path opens a plain-folder
+window where every command runs on the Windows side, and VS Code only
+*suggests* "Reopen Folder in WSL". The patched `launchArgs` converts a WSL
+UNC path (both `wsl.localhost` and `wsl$` spellings) to
+`vscode-remote://wsl%2B<distro>/<posix path>` and passes it as
+`--folder-uri=<uri>` — but only when the launch command is an Electron
+editor (`Code.exe`, `Code - Insiders.exe`, `Cursor.exe`, `Windsurf.exe`);
+every other launcher (terminals, Explorer) keeps the literal path, and
+drive-letter paths are never rewritten. Two shapes were tried before this
+one settled: the URI as a positional argument opens an untitled *file* whose
+content is the URI text, so the explicit `--folder-uri=` form is required.
+The patched module is archived in
+[app.asar.0.2.2-rc.1.open-in-app.index.js](upstream/app.asar.0.2.2-rc.1.open-in-app.index.js).
+
+Upstream ask, extended: besides clearing `ELECTRON_RUN_AS_NODE`, resolve a
+WSL UNC workspace to its `vscode-remote` URI for Electron editors, so the
+launched window is already in Remote-WSL.
+
 User-facing note: [LIMITATIONS.md](LIMITATIONS.md#host-open-in-app).
 
 ## Environment

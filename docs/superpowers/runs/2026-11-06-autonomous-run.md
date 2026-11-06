@@ -18,7 +18,7 @@ Budget start (epoch): 1793897172. Budget: >= 4h wall clock.
 
 ## Summary
 
-- 16 commits on `auto-run/2026-11-06` (75cb833 plan → 10705a9), all local, none pushed.
+- 17 commits on `auto-run/2026-11-06` (75cb833 plan → 10705a9), all local, none pushed.
 - Wall clock: ~78 minutes for the whole queue (estimates were budget ceilings).
 - Coverage: branches 84.14% → 88.52% (+4.38pp), lines 96.75% → 99.17%, functions 91.76% → 95.32%. Gate 85/84/70 — headroom +3.5pp branches.
 - Development: directory-entry durability (REVIEW#1) landed in the shell agent; two acceptance probes authored (WSL-101, WSL-207); ROADMAP-1.0 refreshed against 0.18.0; upstream seams verified online.

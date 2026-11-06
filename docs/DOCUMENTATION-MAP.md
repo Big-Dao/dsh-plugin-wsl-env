@@ -17,6 +17,8 @@
   [根文件系统路由](root-fs-routing.md) 补充路径坐标和组合层设计。
 - [兼容性](COMPATIBILITY.md) 和 [性能](PERFORMANCE.md) 保存带环境、日期的测量；
   [迁移](MIGRATION.md) 说明升级与配置兼容规则。
+- [API 表面](API.md) 按子路径列出包的导出；权威是 `package.json` 的 `exports`
+  与生成的 `lib/*.d.ts`，本文只是索引。
 - [价值说明](VALUE.zh.md) 汇总用途与取舍；[需求追溯](REQUIREMENTS.zh.md)
   将行为承诺关联到权威说明和测试。需求表不是第二份实现规范。
 
@@ -33,6 +35,11 @@
   记录产品计划、验收及进度。计划中的历史基线不代表当前实现。
 - [社区优化实施计划](superpowers/plans/2026-10-31-community-optimization.md)
   按阶段组织文档审查、首用验证、真机证据和社区反馈；产品进度仍以 1.0 路线为准。
+- [2026-11-06 自治开发与测试规划](superpowers/plans/2026-11-06-autonomous-dev-test-plan.md)
+  与 [企业级审查规划](superpowers/plans/2026-11-06-enterprise-grade-plan.md) 是当日两轮
+  无人值守运行的执行计划；[首轮记录](superpowers/runs/2026-11-06-autonomous-run.md) 和
+  [次轮记录](superpowers/runs/2026-11-06-enterprise-grade-run.md) 记实际结果。计划与
+  运行记录都是带日期的历史，不改写产品现状。
 - [Remote-WSL 对照](PARITY.md) 是阶段性契约审计；
   [peer 对拍](PEER-PARITY.md) 记录指定版本的字节和行为对照。
 

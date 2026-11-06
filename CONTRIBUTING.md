@@ -227,7 +227,7 @@ still need Windows and WSL2, but no harness boot and no profile: run them from a
 distro terminal with Node available, and they reach `wsl.exe` through interop.
 
 Two conveniences for the real-machine set. `test/probe/run-all-when-closed.sh
---include-fs` runs all fifteen probes once the app has exited. The interop shell
+--include-fs` runs all seventeen probes once the app has exited. The interop shell
 matrix uses the `wslfs` profile, systemd and a lingering user manager; it fails
 when Windows interop or its temporary marker cannot be verified. And `ci.yml` has a
 scheduled and manually dispatched `probes` job: `sandbox` runs whenever a default distro

@@ -24,6 +24,14 @@ were part of the record.
   probe and `doctorReport` forwards it, and the reject path carries the full
   diagnostics.
 
+- **`./index` is a public subpath.** The composition root's named surface
+  (`WslShellExecutor`, `WslFileSystem`, `doctorReport`,
+  `effectiveMaskWindowsDrive`, the row factories) is importable as
+  `dsh-plugin-wsl-env/index`, so tooling that wants the doctor's report or the
+  composition root's symbols no longer reaches into `lib/index.js` by file
+  path. The exports map and the generated `lib/index.d.ts` are the contract;
+  `docs/API.md` is the tour.
+
 - **Agent protocol v7 (WSL-312): concurrent-ready FS frames, structured
   errors, batched reads, and the peer's patch/delete/move operations.** HELLO
   now advertises capabilities (`conc`, `batch`); failed FS ops answer with the
@@ -60,10 +68,27 @@ were part of the record.
   both probes fail — a cold distro, a flaky first `wsl.exe` call, a musl distro
   without `getent` — the executor used to answer the literal `bash` for that
   one call, running the command under an interpreter the user never configured
-  and telling no one. The resolvers now throw the refusal `runInDistro` already
-  used (the distro, both probes, and the `shell:` escape hatch); the failure is
+  and telling no one. The resolvers now throw the refusal `runInDistro` used
+  before its removal (the distro, both probes, and the `shell:` escape hatch); the failure is
   still not cached, so a retry re-probes; and the tool's self-presentation
   reads `shell` rather than a bash that nothing resolved.
+
+- **`toLinuxPath` no longer accepts a `distro` option.** The mapping is
+  coordinate-only and read no pin: the option was forwarded into the function's
+  own recursion and never consulted. The signature narrows to
+  `{ cwd?: string }`, the seven call sites that passed the pin drop it, and
+  every mapping result is unchanged — `test/paths.test.mjs` pins the UNC, drive
+  and relative forms without the option.
+
+### Removed
+
+- **`runInDistro`.** The `./wsl` helper had no callers left: the shell
+  resolvers and the `shell-env` row probe through their own paths, so what
+  remained was dead public surface on a package whose exported names and error
+  codes are API. Its refusal wording is not lost — the executor's resolvers
+  throw `dsh-plugin-wsl: distro "…" named no usable shell (passwd probe and
+  $SHELL both failed)`, which the Changed entry above describes. The ignored
+  `toLinuxPath` option went in the same pass.
 
 ### Fixed
 

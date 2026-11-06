@@ -197,6 +197,12 @@ editor/LSP rewrite without an upstream seam, and default telemetry.
 
 **Decision rules:**
 
+- A new feature candidate originates from a logged pain
+  ([pains.md](superpowers/pains.md)), not from a document-inferred gap; it
+  passes the three triage questions (who hurts, magnitude on the human time
+  scale, cost of not doing it) before entering this roadmap. The 2026-11-06
+  batch is the calibration: per-file watch events, the `@` seam push and the
+  clean-machine timing all died on these questions.
 - A P1 item moves only with a measured need or a concrete consumer.
 - A compatibility claim enters the matrix only with a test or a probe.
 - A security statement never exceeds what the sandbox actually enforces.

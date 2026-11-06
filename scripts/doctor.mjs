@@ -149,8 +149,9 @@ function run(argv) {
 
 /**
  * Parse `wsl.exe -l -v`'s table. The state column is localized, so only the
- * shape is trusted: `NAME[*] <state> <version>`; the star marks WSL's own
- * default and the version digit is what `distro.wsl-mode` will classify.
+ * shape is trusted: `NAME[*] <state> <version>` — with the default marker
+ * BEFORE the name on WSL 3.x (`* ubuntu`) and after it on 2.x (`ubuntu*`).
+ * The version digit is what `distro.wsl-mode` classifies.
  * @param {string} stdout - the command's output, nulls stripped.
  * @returns {Array<{ name: string, isDefault: boolean, version: string }>} one entry per table row; the header drops out by shape.
  */
@@ -158,12 +159,18 @@ export function parseWslVerbose(stdout) {
   /** @type {Array<{ name: string, isDefault: boolean, version: string }>} */
   const entries = [];
   for (const line of stdout.split(/\r?\n/)) {
-    const match = /^\s*(\S+?)(\*)?\s+\S+\s+(\d+)\s*$/.exec(line);
+    let rest = line.trim();
+    let isDefault = false;
+    if (rest.startsWith("* ")) {
+      isDefault = true;
+      rest = rest.slice(2).trim();
+    }
+    const match = /^(\S+?)(\*)?\s+\S+\s+(\d+)\s*$/.exec(rest);
     if (match === null) continue;
     const columns = /** @type {RegExpExecArray} */ (match);
     entries.push({
       name: (columns[1] ?? "").replace(/\*$/, ""),
-      isDefault: columns[2] === "*",
+      isDefault: isDefault || columns[2] === "*",
       version: columns[3] ?? "",
     });
   }
@@ -616,6 +623,39 @@ function rejectReadOnly() {
 }
 
 /**
+ * Map over items with at most `limit` workers running at once, preserving the
+ * input order in the results. The distro collection uses this: the distros
+ * are independent (the two-distro probe proves the wsl.exe command path is
+ * concurrent), and the A5 measurement says the wall clock is real — nine
+ * distros cost 151 s sequentially on the Tier 1 machine.
+ * @template T, R
+ * @param {T[]} items - the items.
+ * @param {number} limit - the worker count.
+ * @param {(item: T, index: number) => Promise<R>} worker - one item's work.
+ * @returns {Promise<R[]>} the results, in input order.
+ */
+async function mapWithConcurrency(items, limit, worker) {
+  /** @type {R[]} */
+  const results = new Array(items.length);
+  let next = 0;
+  const runners = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    for (;;) {
+      const index = next;
+      next += 1;
+      if (index >= items.length) return;
+      results[index] = await worker(/** @type {T} */ (items[index]), index);
+    }
+  });
+  await Promise.all(runners);
+  return results;
+}
+
+/** The distro-collection worker count: three concurrent distros keep the
+ * wsl.exe fan-out polite while cutting the nine-distro wall clock to about
+ * a third. */
+const DISTRO_CONCURRENCY = 3;
+
+/**
  * Run the doctor.
   * @param {{ distro: string, wsl: string, json: boolean, fix: boolean, install: boolean, yes: boolean, readOnly: boolean, all: boolean, bundle: string, redact: boolean, help: boolean }} options - the parsed options.
  * @returns {Promise<number>} the exit status.
@@ -763,16 +803,18 @@ async function main(options) {
    * fails its own reachability check and contributes nothing further — one
    * wedged distro must not mask the others.
    * @param {string} target - the distro name.
-   * @returns {Promise<{ reachable: boolean, bwrapPath: string, stale: number, family: string }>} the state the fix section needs.
+   * @returns {Promise<{ checks: Check[], reachable: boolean, bwrapPath: string, stale: number, family: string }>} the distro's own checks and the state the fix section needs.
    */
   const collectDistroChecks = async (target) => {
+    /** @type {Check[]} */
+    const collected = [];
     const check = (/** @type {string} */ id, /** @type {Check["status"]} */ status, /** @type {string} */ title, /** @type {string | undefined} */ detail = undefined, /** @type {string | undefined} */ remedy = undefined) => {
-      checks.push({ id, status, title, ...(detail === undefined ? {} : { detail }), ...(remedy === undefined ? {} : { remedy }), distro: target });
+      collected.push({ id, status, title, ...(detail === undefined ? {} : { detail }), ...(remedy === undefined ? {} : { remedy }), distro: target });
     };
     const alive = await inDistro(target, "printf %s ok");
     if (!alive.ok || alive.stdout.trim() !== "ok") {
       check("distro.reachable", "fail", `Distro "${target}"`, "wsl.exe could not run a command in it (stopped, wedged, or missing)", `wsl.exe -d ${target} -- true; if that hangs, wsl.exe --shutdown, then retry`);
-      return { reachable: false, bwrapPath: "", stale: 0, family: "unknown" };
+      return { checks: collected, reachable: false, bwrapPath: "", stale: 0, family: "unknown" };
     }
     check("distro.reachable", "ok", `Distro "${target}"`, "answers commands");
 
@@ -980,23 +1022,33 @@ async function main(options) {
 
     // ---- resident handshake --------------------------------------------------
     const agentScript = join(ROOT, "agent", "wsl-agent.sh");
-    let handshakeOk = false;
+    /** ok | fail | info — the legs skip with a story that matches. */
+    let handshakeState = "info";
     if (!agentScript.startsWith("/")) {
       check("agent.handshake", "info", "Agent handshake", "skipped: run the doctor from inside the distro (the script path is a Windows path)");
     } else if (!existsSync(agentScript)) {
       check("agent.handshake", "fail", "Agent handshake", "agent/wsl-agent.sh is missing from this install", "reinstall the plugin; the shell agent ships with the package");
+      handshakeState = "fail";
     } else {
-      const handshake = await probeResident(target, agentScript, wslExe);
-      handshakeOk = handshake.ok && handshake.digestMatches;
-      if (handshake.ok) {
-        const live = livePids.length > 0
-          ? `; a live resident (pid${livePids.length > 1 ? "s" : ""} ${livePids.join(", ")}) is already running in this distro — this check starts a fresh one, which cannot read its last error; the app-side doctorReport() merge surfaces it`
-          : "";
-        check("agent.handshake", handshake.digestMatches ? "ok" : "fail", "Agent handshake",
-          `probed: a fresh resident, pid ${handshake.pid}, protocol ${PROTOCOL_VERSION}, digest ${handshake.digestMatches ? "matches" : "MISMATCH — the distro reads a different script than this package"}${live}`,
-          handshake.digestMatches ? undefined : "resync the runtime copy (pnpm run sync:windows), then restart the app");
+      // The script is a Linux path in the checkout's OWN distro; another
+      // distro cannot read it, and "exited before its HELLO" would be a
+      // lie about a broken install. Probe readability first, honestly.
+      const readable = (await inDistro(target, `[ -f "${agentScript}" ] && printf yes || printf no`)).stdout.trim() === "yes";
+      if (!readable) {
+        check("agent.handshake", "info", "Agent handshake", `skipped: agent/wsl-agent.sh is not readable inside "${target}" — this doctor runs from the ${(process.env.WSL_DISTRO_NAME ?? "host")} filesystem; run it from Windows (the deployed layout reads the \\mnt\\c mirror) or inside "${target}"`);
       } else {
-        check("agent.handshake", "fail", "Agent handshake", handshake.detail, "restart the DSH app; if it persists, delete ~/.cache/dsh-wsl/agent inside the distro and rerun the doctor");
+        const handshake = await probeResident(target, agentScript, wslExe);
+        handshakeState = handshake.ok && handshake.digestMatches ? "ok" : "fail";
+        if (handshake.ok) {
+          const live = livePids.length > 0
+            ? `; a live resident (pid${livePids.length > 1 ? "s" : ""} ${livePids.join(", ")}) is already running in this distro — this check starts a fresh one, which cannot read its last error; the app-side doctorReport() merge surfaces it`
+            : "";
+          check("agent.handshake", handshake.digestMatches ? "ok" : "fail", "Agent handshake",
+            `probed: a fresh resident, pid ${handshake.pid}, protocol ${PROTOCOL_VERSION}, digest ${handshake.digestMatches ? "matches" : "MISMATCH — the distro reads a different script than this package"}${live}`,
+            handshake.digestMatches ? undefined : "resync the runtime copy (pnpm run sync:windows), then restart the app");
+        } else {
+          check("agent.handshake", "fail", "Agent handshake", handshake.detail, "restart the DSH app; if it persists, delete ~/.cache/dsh-wsl/agent inside the distro and rerun the doctor");
+        }
       }
     }
 
@@ -1011,11 +1063,12 @@ async function main(options) {
     // FSB stat+list batch over a temp dir (cleaned after). A leg whose
     // prerequisite failed is `skipped` with the blocker named — absence is
     // never silent, and a skipped leg never blocks (its blocker already does).
-    const residentBlocked = !agentScript.startsWith("/") || !existsSync(agentScript) || !handshakeOk;
+    const residentBlocked = handshakeState !== "ok";
     const sandboxBlocked = bwrapPath.length === 0 || !bwrapUsable;
+    const residentBlocker = handshakeState === "fail" ? "blocked by agent.handshake" : "the handshake could not run in this distro";
     if (residentBlocked) {
-      check("functional.exec", "skipped", "Smoke: EXEC", "skipped: blocked by agent.handshake");
-      check("functional.fs", "skipped", "Smoke: FSB batch", "skipped: blocked by agent.handshake");
+      check("functional.exec", "skipped", "Smoke: EXEC", `skipped: ${residentBlocker}`);
+      check("functional.fs", "skipped", "Smoke: FSB batch", `skipped: ${residentBlocker}`);
     } else {
       const smoke = await runSmokeLegs(target, agentScript, wslExe);
       check("functional.exec", smoke.execOk ? "ok" : "fail", "Smoke: EXEC", smoke.execDetail, smoke.execOk ? undefined : "restart the DSH app; if it persists, delete ~/.cache/dsh-wsl/agent inside the distro and rerun the doctor");
@@ -1028,16 +1081,21 @@ async function main(options) {
       check("functional.sandbox", sandbox.ok ? "ok" : "fail", "Smoke: confined profile", sandbox.detail, sandbox.ok ? undefined : "the shipped profile refused a write it must allow, or allowed one it must refuse — see docs/LIMITATIONS.md and pnpm run probe:sandbox");
     }
 
-    return { reachable: true, bwrapPath, stale, family };
+    return { checks: collected, reachable: true, bwrapPath, stale, family };
   };
 
   phase("target");
-  /** @type {Map<string, { reachable: boolean, bwrapPath: string, stale: number, family: string }>} */
+  /** @type {Map<string, { checks: Check[], reachable: boolean, bwrapPath: string, stale: number, family: string }>} */
   const states = new Map();
-  for (const target of targets) {
+  const outcomes = await mapWithConcurrency(targets, DISTRO_CONCURRENCY, async (target) => {
     const distroStart = Date.now();
-    states.set(target, await collectDistroChecks(target));
-    timingsMs[`distro:${target}`] = Date.now() - distroStart;
+    const outcome = await collectDistroChecks(target);
+    return { target, outcome, ms: Date.now() - distroStart };
+  });
+  for (const { target, outcome, ms } of outcomes) {
+    checks.push(...outcome.checks);
+    states.set(target, outcome);
+    timingsMs[`distro:${target}`] = ms;
     phaseStart = Date.now();
   }
 
@@ -1460,7 +1518,7 @@ function runSmokeLegs(distro, scriptPath, wslExe = WSL) {
       const fsbLine = await request(fsbId, encodeFsbFrame({ id: fsbId, timeoutMs: 15_000, ops: [{ op: "stat", args: [dir] }, { op: "list", args: [dir] }] }));
       const fsbParsed = parseAgentLine(fsbLine);
       const payload = fsbParsed.type === "result" ? fsbParsed.stdout.toString("utf8") : "";
-      const fsOk = fsbParsed.type === "result" && fsbParsed.exitCode === 0 && payload.includes("OK 0") && payload.includes("OK 1");
+      const fsOk = fsbParsed.type === "result" && fsbParsed.exitCode === 0 && payload.includes("OK 1") && payload.includes("OK 2");
       const rmId = "smoke-cleanup";
       const rmLine = await request(rmId, encodeExecFrame({ id: rmId, cwd: "/tmp", argv: ["rm", "-rf", dir], timeoutMs: 15_000, maxOutputBytes: 4096 }));
       const rmParsed = parseAgentLine(rmLine);

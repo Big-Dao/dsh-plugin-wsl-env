@@ -15,7 +15,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { peerSatisfied, latestFromPackument, parseWslConfig, parseWslSize, parseIni } from "../scripts/doctor.mjs";
+import { peerSatisfied, latestFromPackument, parseWslConfig, parseWslSize, parseIni, parseWslVerbose } from "../scripts/doctor.mjs";
 import { mergeLiveResidentStatus } from "../lib/doctor-live.js";
 import { doctorReport } from "../lib/index.js";
 
@@ -82,7 +82,7 @@ case "$all" in
           id="$(printf '%s' "$line" | cut -d'|' -f2)"
           printf 'ACK|%s\\n' "$id"
           case "$line" in
-            FSB\\|*) payload="$(printf 'OK 0|eA==\\nOK 1|eA==\\n' | base64 | tr -d '\\n')"; printf 'RES|%s|0|%s||0|0\\n' "$id" "$payload" ;;
+            FSB\\|*) payload="$(printf 'OK 1|eA==\\nOK 2|eA==\\n' | base64 | tr -d '\\n')"; printf 'RES|%s|0|%s||0|0\\n' "$id" "$payload" ;;
             *) printf 'RES|%s|0|%s||0|0\\n' "$id" "$(printf 'x86_64' | base64 | tr -d '\\n')" ;;
           esac ;;
       esac
@@ -115,6 +115,7 @@ case "$all" in
       *'command -v rg'*) printf '/usr/bin/rg' ;;
       *'command -v git'*) printf '/usr/bin/git' ;;
       *'command -v inotifywait'*) printf '/usr/bin/inotifywait' ;;
+      *'[ -f'*) case "\${FAKE_SCRIPT_READABLE:-yes}" in debian) case "$all" in *"-d debian"*) printf no ;; *) printf yes ;; esac ;; no) printf no ;; *) printf yes ;; esac ;;
       *'cat /etc/wsl.conf'*) printf '%s' "\${FAKE_WSLCONF:-}" ;;
       *'df -Pm /'*) printf 'Filesystem 1M-blocks Used Available Capacity Mounted\n/dev/sdc 262030 151898 110132 %s%% /\n' "\${FAKE_DISK:-42}" ;;
       *'date +%s'*) printf '%s' "\${FAKE_CLOCK:-$(date +%s)}" ;;
@@ -791,6 +792,28 @@ try {
     assert.equal(note?.status, "info", "the empty-distro meaning change boots, so it informs instead of warning");
     assert.match(String(note?.detail), /has meant auto.*since 0\.12\.0|since 0\.12\.0/);
     rmSync(emptyDir, { recursive: true, force: true });
+  });
+
+  await check("parseWslVerbose reads the default marker on both sides of the name", () => {
+    const modern = parseWslVerbose("  NAME            STATE           VERSION\n* ubuntu         Running         2\n  Debian          Stopped         2\n");
+    assert.deepEqual(modern, [{ name: "ubuntu", isDefault: true, version: "2" }, { name: "Debian", isDefault: false, version: "2" }], "WSL 3.x puts the star before the name");
+    const legacy = parseWslVerbose("  NAME            STATE           VERSION\n  ubuntu*         Running         2\n");
+    assert.deepEqual(legacy, [{ name: "ubuntu", isDefault: true, version: "2" }], "WSL 2.x puts the star after the name");
+  });
+
+  await check("a script the target distro cannot read skips the handshake honestly", () => {
+    const run = doctor(["--json"], { FAKE_SCRIPT_READABLE: "debian", FAKE_DISTROS: "ubuntu debian" });
+    assert.equal(run.status, 0, "an unprobeable handshake is an environment limit, not a broken install");
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    const hand = report.checks.find((entry) => entry.id === "agent.handshake" && entry.distro === "debian");
+    assert.equal(hand?.status, "info");
+    assert.match(String(hand?.detail), /not readable inside "debian"/);
+    const exec = report.checks.find((entry) => entry.id === "functional.exec" && entry.distro === "debian");
+    assert.equal(exec?.status, "skipped");
+    assert.match(String(exec?.detail), /the handshake could not run in this distro/);
+    assert.equal(exec?.blocksFirstCommand, false);
+    const ubuntuHand = report.checks.find((entry) => entry.id === "agent.handshake" && entry.distro === "ubuntu");
+    assert.equal(ubuntuHand?.status, "ok", "the host distro still probes for real");
   });
 
   await check("--bundle writes the local diagnostic file, and --redact removes the paths", () => {

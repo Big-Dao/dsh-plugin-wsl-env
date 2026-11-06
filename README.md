@@ -90,14 +90,15 @@ The Windows desktop app ships **no `dsh` executable**: the installer writes
 (the probe scripts launch it through `ELECTRON_RUN_AS_NODE`). Use the
 distribution you have.
 
-**Desktop app.** Open **Settings → Plugins → Add plugin**, enter the exact
-package name `dsh-plugin-wsl-env`, then enable it. The plugin manager writes the
-active profile's `package.json` — the dependency and the `dsh.profile.bundles`
-entry — which is the same state the CLI command below produces. To run from a
-checkout, add it as a linked package instead of a name. Start it the way the
-installer's shortcut does: `DeepSeek Harness.exe`, no arguments. The app opens
-the profile it is configured with — the one the Plugins page writes into — so a
-different profile is a CLI-distribution thing (`dsh --profile <name>`).
+**Desktop app.** Open **Plugins** in the sidebar, choose **Add plugin**, enter
+the exact package name `dsh-plugin-wsl-env`, then enable it. The plugin manager
+writes the active profile's `package.json` — the dependency and the
+`dsh.profile.bundles` entry — which is the same state the CLI command below
+produces. To run from a checkout, add it as a linked package instead of a
+name. Start it the way the installer's shortcut does: `DeepSeek Harness.exe`,
+no arguments. The app opens the profile it is configured with — the one the
+Plugins page writes into — so a different profile is a CLI-distribution thing
+(`dsh --profile <name>`).
 
 **CLI distribution** (`dsh` on `PATH`), in a Windows terminal:
 

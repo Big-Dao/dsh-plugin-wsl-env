@@ -86,7 +86,7 @@ Windows 桌面应用**没有 `dsh` 可执行程序**：安装器只写 `DeepSeek
 CLI 入口在 `resources/app.asar` 内部（探针脚本通过 `ELECTRON_RUN_AS_NODE` 启动它）。
 按你手上的发行版二选一。
 
-**桌面应用**：打开 **设置 → Plugins → Add plugin**，填精确包名
+**桌面应用**：在侧边栏打开 **插件**，点 **Add plugin**，填精确包名
 `dsh-plugin-wsl-env` 并启用。插件管理器写入当前 profile 的 `package.json`
 （依赖项与 `dsh.profile.bundles`），与下面的 CLI 命令得到的状态一致。从检出
 目录运行时，改为以链接形式添加该目录。启动方式与安装器创建的快捷方式一致：

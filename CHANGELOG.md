@@ -145,8 +145,9 @@ were part of the record.
   `resources/app.asar`, and the probe scripts start it through
   `ELECTRON_RUN_AS_NODE`. The README, QUICKSTART (both languages),
   CONFIGURATION, MIGRATION, ARCHITECTURE, SUPPORT and the first-use template
-  now lead with the desktop path (**Settings → Plugins → Add plugin**, which
-  writes the profile's `package.json` and `dsh.profile.bundles`) and label the
+  now lead with the desktop path (**Plugins** in the sidebar, then **Add
+  plugin** — which writes the profile's `package.json` and
+  `dsh.profile.bundles`) and label the
   `dsh ...` forms as the CLI distribution's.
 
 - **The README asks whether the plugin is needed before it says how to install

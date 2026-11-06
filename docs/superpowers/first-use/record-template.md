@@ -12,8 +12,8 @@
 | Windows 版本 | `winver` 或 `cmd /c ver` | |
 | WSL 版本 | `wsl.exe --version` 第一行 | |
 | 已装 distro 与版本 | `wsl.exe -l -v` | |
-| Harness 版本 | 设置页（CLI 发行版可用 `dsh --version`） | |
-| 插件版本与安装方式 | 设置页 Plugins 列表；CLI 发行版看 `dsh --profile <p> --dump-config` 的 `# == dsh-plugin-wsl-env` 行 | npm vX.Y.Z / 本地 checkout |
+| Harness 版本 | 应用内版本信息或安装包属性；CLI 发行版可用 `dsh --version` | |
+| 插件版本与安装方式 | 插件页面（Plugins）的已安装列表；CLI 发行版看 `dsh --profile <p> --dump-config` 的 `# == dsh-plugin-wsl-env` 行 | npm vX.Y.Z / 本地 checkout |
 | 机器是否"干净" | 见模板下方口径说明 | 干净安装 / 新建 distro / 临时 `DSH_HOME` |
 | 起止时间 | — | 开始 __:__ 结束 __:__ |
 

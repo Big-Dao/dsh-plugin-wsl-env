@@ -30,9 +30,9 @@ WSL version separately with `wsl.exe -l -v`. Doctor is read-only unless you pass
 
 ## 2. Install
 
-The desktop app has no `dsh` command; install from its **Settings → Plugins →
-Add plugin** page by the exact package name `dsh-plugin-wsl-env`. That writes
-the profile's `package.json` and its `dsh.profile.bundles` entry.
+The desktop app has no `dsh` command; open **Plugins** in the sidebar, choose
+**Add plugin**, and enter the exact package name `dsh-plugin-wsl-env`. That
+writes the profile's `package.json` and its `dsh.profile.bundles` entry.
 
 With the CLI distribution (`dsh` on `PATH`), from Windows PowerShell:
 

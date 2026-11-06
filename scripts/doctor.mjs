@@ -145,6 +145,29 @@ function run(argv) {
 }
 
 /**
+ * Parse `wsl.exe -l -v`'s table. The state column is localized, so only the
+ * shape is trusted: `NAME[*] <state> <version>`; the star marks WSL's own
+ * default and the version digit is what `distro.wsl-mode` will classify.
+ * @param {string} stdout - the command's output, nulls stripped.
+ * @returns {Array<{ name: string, isDefault: boolean, version: string }>} one entry per table row; the header drops out by shape.
+ */
+export function parseWslVerbose(stdout) {
+  /** @type {Array<{ name: string, isDefault: boolean, version: string }>} */
+  const entries = [];
+  for (const line of stdout.split(/\r?\n/)) {
+    const match = /^\s*(\S+?)(\*)?\s+\S+\s+(\d+)\s*$/.exec(line);
+    if (match === null) continue;
+    const columns = /** @type {RegExpExecArray} */ (match);
+    entries.push({
+      name: (columns[1] ?? "").replace(/\*$/, ""),
+      isDefault: columns[2] === "*",
+      version: columns[3] ?? "",
+    });
+  }
+  return entries;
+}
+
+/**
  * The text of one patch row (`- id: <rowId>` down to the next row at the same
  * or shallower indent). This is the same line discipline the preset helper
  * applies to the shipped patch, so both tools read rows identically by
@@ -266,7 +289,7 @@ function inDistro(distro, script) {
 /**
  * Parse the doctor's own arguments.
  * @param {string[]} argv - `process.argv.slice(2)`.
- * @returns {{ distro: string, wsl: string, json: boolean, fix: boolean, install: boolean, yes: boolean, readOnly: boolean, help: boolean }} the options.
+ * @returns {{ distro: string, wsl: string, json: boolean, fix: boolean, install: boolean, yes: boolean, readOnly: boolean, all: boolean, help: boolean }} the options.
  */
 function parseArgs(argv) {
   const options = {
@@ -277,6 +300,7 @@ function parseArgs(argv) {
     install: false,
     yes: false,
     readOnly: false,
+    all: false,
     help: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -286,6 +310,7 @@ function parseArgs(argv) {
     else if (arg === "--install") options.install = true;
     else if (arg === "--yes" || arg === "-y") options.yes = true;
     else if (arg === "--read-only") options.readOnly = true;
+    else if (arg === "--all") options.all = true;
     else if (arg === "--help" || arg === "-h") options.help = true;
     else if (arg === "--distro") options.distro = argv[++i] ?? "";
     else if (arg.startsWith("--distro=")) options.distro = arg.slice("--distro=".length);
@@ -479,7 +504,7 @@ function rejectReadOnly() {
 
 /**
  * Run the doctor.
-  * @param {{ distro: string, wsl: string, json: boolean, fix: boolean, install: boolean, yes: boolean, readOnly: boolean, help: boolean }} options - the parsed options.
+  * @param {{ distro: string, wsl: string, json: boolean, fix: boolean, install: boolean, yes: boolean, readOnly: boolean, all: boolean, help: boolean }} options - the parsed options.
  * @returns {Promise<number>} the exit status.
  */
 async function main(options) {
@@ -520,133 +545,195 @@ async function main(options) {
   } else {
     check("host.distros", "ok", "Installed distros", distros.join(", "));
   }
-  const distro = options.distro.length > 0 ? options.distro : distros[0] ?? "";
-  /** The run facts the report carries: the target distro and the effective config. */
-  const runInfo = /** @type {{ distro?: string, config?: EffectiveConfig }} */ ({});
-  runInfo.distro = distro.length > 0 ? distro : undefined;
-  if (distro.length === 0) return report(checks, { json: options.json }, runInfo);
-
-  if (options.distro.length > 0 && !distros.includes(options.distro)) {
-    check("distro.present", "fail", `Distro "${distro}"`, `not in [${distros.join(", ")}]`, `wsl.exe --install -d ${distro}; this doctor never installs a distro for you`);
-    return report(checks, { json: options.json }, runInfo);
-  }
-
-  const alive = await inDistro(distro, "printf %s ok");
-  if (!alive.ok || alive.stdout.trim() !== "ok") {
-    check("distro.reachable", "fail", `Distro "${distro}"`, "wsl.exe could not run a command in it (stopped, wedged, or missing)", `wsl.exe -d ${distro} -- true; if that hangs, wsl.exe --shutdown, then retry`);
-    return report(checks, { json: options.json }, runInfo);
-  }
-  check("distro.reachable", "ok", `Distro "${distro}"`, "answers commands");
-
   // ---- effective configuration (read once, before anything config-gated) ---
   // The blocking verdict answers under the values the user actually runs, so
-  // the shipped preset is overlaid by the profile layers before the session
+  // the shipped preset is overlaid by the profile layers before the target
+  // set is derived (an effective `distro` pin narrows it) and the session
   // checks below assign their statuses. The `config.effective` row is emitted
-  // later, in the config section, so the human output keeps its grouping; the
-  // read happens here because `session.systemd` and friends depend on it.
+  // later, in the config section, so the human output keeps its grouping.
   const dshHomeEarly = process.env.DSH_HOME !== undefined && process.env.DSH_HOME.length > 0 ? process.env.DSH_HOME : join(homedir(), ".dsh");
   const { config: effective, recognized: configRecognized } = effectiveConfig(dshHomeEarly, ROOT);
-  runInfo.config = { ...effective };
   const scopeMode = effective.sessionSandbox;
   /** The status a session-scope prerequisite gets when it is missing. */
   const sessionStatus = () => (scopeMode === "true" ? "fail" : "warn");
-  /** Append the config-aware note to a prerequisite's evidence when the scope is not required.
-   * @param {string} detail - the prerequisite's own evidence.
-   * @returns {string} the evidence, with the fallback named when the scope is optional. */
-  const withScopeNote = (detail) => (scopeMode === "true" ? detail : `${detail}${scopeNote}`);
   const scopeNote = scopeMode === "auto"
     ? " — sessionSandbox: auto falls back to the per-command bwrap profile"
     : scopeMode === "false"
       ? " — sessionSandbox: false does not use the session scope"
       : "";
+  /** Append the config-aware note to a prerequisite's evidence when the scope is not required.
+   * @param {string} detail - the prerequisite's own evidence.
+   * @returns {string} the evidence, with the fallback named when the scope is optional. */
+  const withScopeNote = (detail) => (scopeMode === "true" ? detail : `${detail}${scopeNote}`);
 
-  // ---- distro facts --------------------------------------------------------
-  const shellAnswer = await inDistro(distro, 's=$(getent passwd "$(id -u)" | cut -d: -f7); [ -n "$s" ] || s=$SHELL; printf %s "$s"');
-  const shell = shellAnswer.stdout.trim();
-  if (shell.startsWith("/")) check("distro.shell", "ok", "Login shell", shell);
-  else check("distro.shell", "fail", "Login shell", shell.length === 0 ? "no shell reported" : shell, `check the user's /etc/passwd entry in "${distro}": getent passwd "$(id -u)"`);
+  // ---- target selection ----------------------------------------------------
+  // An explicit `--distro` wins; `--all` checks every installed distro;
+  // otherwise the effective configuration decides: `auto` (the shipped
+  // default) means the workspace decides, so every installed distro is a
+  // candidate and all are checked; `default` resolves to the distro WSL
+  // itself marks as default; a pinned name checks exactly that one.
+  const runInfo = /** @type {{ distros: string[], config?: EffectiveConfig }} */ ({ distros: [] });
+  runInfo.config = { ...effective };
+  /** @type {string[]} */
+  const targets = [];
+  if (options.distro.length > 0) targets.push(options.distro);
+  else if (options.all) targets.push(...distros);
+  else if (effective.distro === "auto") targets.push(...distros);
+  else if (effective.distro === "default") {
+    const defaultDistro = parseWslVerbose((await run([wslExe, "-l", "-v"])).stdout.replace(/\0/g, "")).find((entry) => entry.isDefault)?.name;
+    targets.push(...(defaultDistro !== undefined ? [defaultDistro] : distros));
+  } else targets.push(effective.distro);
 
-  const homeAnswer = await inDistro(distro, 'printf %s "$HOME"');
-  const home = homeAnswer.stdout.trim();
-  if (home.startsWith("/")) check("distro.home", "ok", "Home", home);
-  else check("distro.home", "fail", "Home", home.length === 0 ? "no home reported" : home, `check the default user's home in "${distro}": getent passwd "$(id -u)"`);
-
-  const kernel = (await inDistro(distro, "uname -r")).stdout.trim();
-  check("distro.kernel", "info", "Kernel", kernel.length > 0 ? kernel : "unreadable");
-
-  const familyAnswer = await inDistro(distro, `for f in ${FAMILIES.join(" ")}; do command -v "$f" >/dev/null 2>&1 && { echo "$f"; exit 0; }; done; echo unknown`);
-  const family = familyAnswer.stdout.trim();
-  check("distro.family", "info", "Package family", family.length > 0 ? family : "unknown");
-
-  // ---- sandbox prerequisites ----------------------------------------------
-  const bwrapPath = (await inDistro(distro, "command -v bwrap")).stdout.trim();
-  const install = installRemedy(distro, family);
-  if (bwrapPath.length === 0) {
-    check("sandbox.bwrap", "fail", "bubblewrap", "missing; every confined command fails closed without it", `${install}, or run "pnpm run bootstrap ${distro} --install"`);
-  } else {
-    check("sandbox.bwrap", "ok", "bubblewrap", bwrapPath);
-    const userns = await inDistro(distro, "bwrap --ro-bind / / -- true");
-    if (userns.ok) check("sandbox.bwrap-usable", "ok", "bubblewrap usability", "a read-only profile runs");
-    else check("sandbox.bwrap-usable", "fail", "bubblewrap usability", "installed but the read-only profile failed", "the kernel likely disables unprivileged user namespaces; reinstalling will not help — see docs/LIMITATIONS.md");
+  const missing = targets.filter((target) => !distros.includes(target));
+  if (missing.length > 0) {
+    for (const name of missing) {
+      checks.push({ id: "distro.present", status: "fail", title: `Distro "${name}"`, detail: `not in [${distros.join(", ")}]`, remedy: `wsl.exe --install -d ${name}; this doctor never installs a distro for you`, distro: name });
+    }
+    runInfo.distros = missing;
+    return report(checks, { json: options.json }, runInfo);
   }
+  if (targets.length === 0) return report(checks, { json: options.json }, runInfo);
+  runInfo.distros = targets;
 
-  // ---- session sandbox prerequisites --------------------------------------
-  // The statuses are config-aware: the scope is only *required* under
-  // `sessionSandbox: true` (the shipped default); `auto` falls back to the
-  // per-command bwrap profile and `false` does not use the scope at all, so
-  // in both cases a missing prerequisite downgrades to a warning — a `fail`
-  // always blocks, which is the invariant the verdict leans on.
-  const systemd = await inDistro(distro, 'if [ -d /run/systemd/system ]; then printf "systemd %s" "$(cat /proc/1/comm)"; else printf "none %s" "$(cat /proc/1/comm)"; fi');
-  if (!systemd.stdout.startsWith("systemd")) {
-    check("session.systemd", sessionStatus(), "systemd as PID 1", withScopeNote(systemd.stdout.trim().length > 0 ? systemd.stdout.trim() : "not systemd"), `set [boot] systemd=true in /etc/wsl.conf inside "${distro}", run "wsl.exe --shutdown", then reopen the session. Without it, sessionSandbox cannot run`);
-  } else check("session.systemd", "ok", "systemd as PID 1", "running");
+  /**
+   * The distro-scoped checks for one target, pushed with the distro stamped
+   * so the report can aggregate per-distro verdicts. An unreachable distro
+   * fails its own reachability check and contributes nothing further — one
+   * wedged distro must not mask the others.
+   * @param {string} target - the distro name.
+   * @returns {Promise<{ reachable: boolean, bwrapPath: string, stale: number, family: string }>} the state the fix section needs.
+   */
+  const collectDistroChecks = async (target) => {
+    const check = (/** @type {string} */ id, /** @type {Check["status"]} */ status, /** @type {string} */ title, /** @type {string | undefined} */ detail = undefined, /** @type {string | undefined} */ remedy = undefined) => {
+      checks.push({ id, status, title, ...(detail === undefined ? {} : { detail }), ...(remedy === undefined ? {} : { remedy }), distro: target });
+    };
+    const alive = await inDistro(target, "printf %s ok");
+    if (!alive.ok || alive.stdout.trim() !== "ok") {
+      check("distro.reachable", "fail", `Distro "${target}"`, "wsl.exe could not run a command in it (stopped, wedged, or missing)", `wsl.exe -d ${target} -- true; if that hangs, wsl.exe --shutdown, then retry`);
+      return { reachable: false, bwrapPath: "", stale: 0, family: "unknown" };
+    }
+    check("distro.reachable", "ok", `Distro "${target}"`, "answers commands");
 
-  const systemdRun = (await inDistro(distro, "command -v systemd-run")).stdout.trim();
-  if (systemdRun.length > 0) check("session.systemd-run", "ok", "systemd-run", systemdRun);
-  else check("session.systemd-run", sessionStatus(), "systemd-run", withScopeNote("missing; the distro's systemd package is incomplete"), `reinstall systemd inside "${distro}" (apt-get install --reinstall systemd, or the family's equivalent)`);
+    // ---- distro facts --------------------------------------------------------
+    const shellAnswer = await inDistro(target, 's=$(getent passwd "$(id -u)" | cut -d: -f7); [ -n "$s" ] || s=$SHELL; printf %s "$s"');
+    const shell = shellAnswer.stdout.trim();
+    if (shell.startsWith("/")) check("distro.shell", "ok", "Login shell", shell);
+    else check("distro.shell", "fail", "Login shell", shell.length === 0 ? "no shell reported" : shell, `check the user's /etc/passwd entry in "${target}": getent passwd "$(id -u)"`);
 
-  const userManager = (await inDistro(distro, "systemctl --user is-system-running 2>/dev/null || true")).stdout.trim();
-  if (userManager === "running" || userManager === "degraded") check("session.user-manager", "ok", "systemd user manager", userManager);
-  else check("session.user-manager", sessionStatus(), "systemd user manager", withScopeNote(userManager.length > 0 ? userManager : "unreachable"), `log in to "${distro}" once, or enable lingering (next remedy), then retry`);
+    const homeAnswer = await inDistro(target, 'printf %s "$HOME"');
+    const home = homeAnswer.stdout.trim();
+    if (home.startsWith("/")) check("distro.home", "ok", "Home", home);
+    else check("distro.home", "fail", "Home", home.length === 0 ? "no home reported" : home, `check the default user's home in "${target}": getent passwd "$(id -u)"`);
 
-  const linger = (await inDistro(distro, 'loginctl show-user "$(id -un)" -p Linger 2>/dev/null')).stdout.trim();
-  if (linger === "Linger=yes") check("session.linger", "ok", "Linger", linger);
-  else check("session.linger", sessionStatus(), "Linger", withScopeNote(linger.length > 0 ? linger : "unset"), `wsl.exe -d ${distro} -- loginctl enable-linger "$(id -un)" (this needs the user's own session; run it inside the distro)`);
+    const kernel = (await inDistro(target, "uname -r")).stdout.trim();
+    check("distro.kernel", "info", "Kernel", kernel.length > 0 ? kernel : "unreadable");
 
-  // ---- optional tools ------------------------------------------------------
-  /** The optional tools, in the order users notice them losing. */
-  /** @type {Array<[string, string]>} */
-  const optionalTools = [["rg", "in-distro search"], ["git", "workspace-change baselines"], ["inotifywait", "the watcher's primary backend"]];
-  for (const [tool, purpose] of optionalTools) {
-    const found = (await inDistro(distro, `command -v ${tool}`)).stdout.trim();
-    if (found.length > 0) check(`tools.${tool}`, "ok", tool, found);
-    else check(`tools.${tool}`, "warn", tool, `missing; ${purpose} degrades to a slower fallback`, install);
-  }
+    const familyAnswer = await inDistro(target, `for f in ${FAMILIES.join(" ")}; do command -v "$f" >/dev/null 2>&1 && { echo "$f"; exit 0; }; done; echo unknown`);
+    const family = familyAnswer.stdout.trim();
+    check("distro.family", "info", "Package family", family.length > 0 ? family : "unknown");
 
-  // ---- agents and caches ---------------------------------------------------
-  const arch = (await inDistro(distro, "uname -m")).stdout.trim();
-  const packaged = ["x86_64", "aarch64"].includes(arch) ? join(ROOT, "agent", "native", `linux-${arch}`, "dsh-wsl-agent") : "";
-  if (arch.length === 0) check("agent.arch", "info", "Distro architecture", "unreadable");
-  else if (packaged.length === 0) check("agent.arch", "info", "Distro architecture", `${arch} has no packaged native agent; the shell agent is the only backend`);
-  else if (existsSync(packaged)) check("agent.native", "ok", "Packaged native agent", packaged.slice(ROOT.length + 1));
-  else check("agent.native", "warn", "Packaged native agent", `missing for ${arch}`, "reinstall the plugin (the binaries ship with the package), or use agentBackend: shell");
+    // ---- sandbox prerequisites ----------------------------------------------
+    const bwrapPath = (await inDistro(target, "command -v bwrap")).stdout.trim();
+    const install = installRemedy(target, family);
+    if (bwrapPath.length === 0) {
+      check("sandbox.bwrap", "fail", "bubblewrap", "missing; every confined command fails closed without it", `${install}, or run "pnpm run bootstrap ${target} --install"`);
+    } else {
+      check("sandbox.bwrap", "ok", "bubblewrap", bwrapPath);
+      const userns = await inDistro(target, "bwrap --ro-bind / / -- true");
+      if (userns.ok) check("sandbox.bwrap-usable", "ok", "bubblewrap usability", "a read-only profile runs");
+      else check("sandbox.bwrap-usable", "fail", "bubblewrap usability", "installed but the read-only profile failed", "the kernel likely disables unprivileged user namespaces; reinstalling will not help — see docs/LIMITATIONS.md");
+    }
 
-  const cache = (await inDistro(distro, CACHE_REPORT)).stdout.trim();
-  if (cache === "none" || cache.length === 0) check("agent.cache", "info", "Agent cache", "empty (a first command populates it)");
-  else {
-    const entries = cache.split(/\r?\n/).filter((line) => line.trim().length > 0);
-    const bad = entries.filter((line) => line.startsWith("noexec ")).length;
-    check("agent.cache", bad > 0 ? "warn" : "ok", "Agent cache", `${entries.length} cached binary(ies)${bad > 0 ? `, ${bad} not executable` : ""}`, bad > 0 ? `rm -rf ~/.cache/dsh-wsl/agent inside "${distro}"; the next command repopulates it` : undefined);
-  }
+    // ---- session sandbox prerequisites --------------------------------------
+    // The statuses are config-aware: the scope is only *required* under
+    // `sessionSandbox: true` (the shipped default); `auto` falls back to the
+    // per-command bwrap profile and `false` does not use the scope at all, so
+    // in both cases a missing prerequisite downgrades to a warning — a `fail`
+    // always blocks, which is the invariant the verdict leans on.
+    const systemd = await inDistro(target, 'if [ -d /run/systemd/system ]; then printf "systemd %s" "$(cat /proc/1/comm)"; else printf "none %s" "$(cat /proc/1/comm)"; fi');
+    if (!systemd.stdout.startsWith("systemd")) {
+      check("session.systemd", sessionStatus(), "systemd as PID 1", withScopeNote(systemd.stdout.trim().length > 0 ? systemd.stdout.trim() : "not systemd"), `set [boot] systemd=true in /etc/wsl.conf inside "${target}", run "wsl.exe --shutdown", then reopen the session. Without it, sessionSandbox cannot run`);
+    } else check("session.systemd", "ok", "systemd as PID 1", "running");
 
-  const scopes = (await inDistro(distro, STALE_SCOPE_REPORT)).stdout.trim();
-  const scopeLines = scopes === "none" || scopes.length === 0 ? [] : scopes.split(/\r?\n/);
-  const stale = scopeLines.filter((line) => /\sstale(\s|$)/.test(line)).length;
-  const livePids = scopeLines.flatMap((line) => {
-    const m = /\spids:([0-9 ]+)$/.exec(line);
-    if (m === null) return [];
-    return (m[1] ?? "").trim().split(/\s+/).filter((p) => p.length > 0);
-  });
+    const systemdRun = (await inDistro(target, "command -v systemd-run")).stdout.trim();
+    if (systemdRun.length > 0) check("session.systemd-run", "ok", "systemd-run", systemdRun);
+    else check("session.systemd-run", sessionStatus(), "systemd-run", withScopeNote("missing; the distro's systemd package is incomplete"), `reinstall systemd inside "${target}" (apt-get install --reinstall systemd, or the family's equivalent)`);
+
+    const userManager = (await inDistro(target, "systemctl --user is-system-running 2>/dev/null || true")).stdout.trim();
+    if (userManager === "running" || userManager === "degraded") check("session.user-manager", "ok", "systemd user manager", userManager);
+    else check("session.user-manager", sessionStatus(), "systemd user manager", withScopeNote(userManager.length > 0 ? userManager : "unreachable"), `log in to "${target}" once, or enable lingering (next remedy), then retry`);
+
+    const linger = (await inDistro(target, 'loginctl show-user "$(id -un)" -p Linger 2>/dev/null')).stdout.trim();
+    if (linger === "Linger=yes") check("session.linger", "ok", "Linger", linger);
+    else check("session.linger", sessionStatus(), "Linger", withScopeNote(linger.length > 0 ? linger : "unset"), `wsl.exe -d ${target} -- loginctl enable-linger "$(id -un)" (this needs the user's own session; run it inside the distro)`);
+
+    // ---- optional tools ------------------------------------------------------
+    /** The optional tools, in the order users notice them losing. */
+    /** @type {Array<[string, string]>} */
+    const optionalTools = [["rg", "in-distro search"], ["git", "workspace-change baselines"], ["inotifywait", "the watcher's primary backend"]];
+    for (const [tool, purpose] of optionalTools) {
+      const found = (await inDistro(target, `command -v ${tool}`)).stdout.trim();
+      if (found.length > 0) check(`tools.${tool}`, "ok", tool, found);
+      else check(`tools.${tool}`, "warn", tool, `missing; ${purpose} degrades to a slower fallback`, install);
+    }
+
+    // ---- agents and caches ---------------------------------------------------
+    const arch = (await inDistro(target, "uname -m")).stdout.trim();
+    const packaged = ["x86_64", "aarch64"].includes(arch) ? join(ROOT, "agent", "native", `linux-${arch}`, "dsh-wsl-agent") : "";
+    if (arch.length === 0) check("agent.arch", "info", "Distro architecture", "unreadable");
+    else if (packaged.length === 0) check("agent.arch", "info", "Distro architecture", `${arch} has no packaged native agent; the shell agent is the only backend`);
+    else if (existsSync(packaged)) check("agent.native", "ok", "Packaged native agent", packaged.slice(ROOT.length + 1));
+    else check("agent.native", "warn", "Packaged native agent", `missing for ${arch}`, "reinstall the plugin (the binaries ship with the package), or use agentBackend: shell");
+
+    const cache = (await inDistro(target, CACHE_REPORT)).stdout.trim();
+    if (cache === "none" || cache.length === 0) check("agent.cache", "info", "Agent cache", "empty (a first command populates it)");
+    else {
+      const entries = cache.split(/\r?\n/).filter((line) => line.trim().length > 0);
+      const bad = entries.filter((line) => line.startsWith("noexec ")).length;
+      check("agent.cache", bad > 0 ? "warn" : "ok", "Agent cache", `${entries.length} cached binary(ies)${bad > 0 ? `, ${bad} not executable` : ""}`, bad > 0 ? `rm -rf ~/.cache/dsh-wsl/agent inside "${target}"; the next command repopulates it` : undefined);
+    }
+
+    const scopes = (await inDistro(target, STALE_SCOPE_REPORT)).stdout.trim();
+    const scopeLines = scopes === "none" || scopes.length === 0 ? [] : scopes.split(/\r?\n/);
+    const stale = scopeLines.filter((line) => /\sstale(\s|$)/.test(line)).length;
+    const livePids = scopeLines.flatMap((line) => {
+      const m = /\spids:([0-9 ]+)$/.exec(line);
+      if (m === null) return [];
+      return (m[1] ?? "").trim().split(/\s+/).filter((p) => p.length > 0);
+    });
+
+    // ---- resident handshake --------------------------------------------------
+    const agentScript = join(ROOT, "agent", "wsl-agent.sh");
+    if (!agentScript.startsWith("/")) {
+      check("agent.handshake", "info", "Agent handshake", "skipped: run the doctor from inside the distro (the script path is a Windows path)");
+    } else if (!existsSync(agentScript)) {
+      check("agent.handshake", "fail", "Agent handshake", "agent/wsl-agent.sh is missing from this install", "reinstall the plugin; the shell agent ships with the package");
+    } else {
+      const handshake = await probeResident(target, agentScript, wslExe);
+      if (handshake.ok) {
+        const live = livePids.length > 0
+          ? `; a live resident (pid${livePids.length > 1 ? "s" : ""} ${livePids.join(", ")}) is already running in this distro — this check starts a fresh one, which cannot read its last error; the app-side doctorReport() merge surfaces it`
+          : "";
+        check("agent.handshake", handshake.digestMatches ? "ok" : "fail", "Agent handshake",
+          `probed: a fresh resident, pid ${handshake.pid}, protocol ${PROTOCOL_VERSION}, digest ${handshake.digestMatches ? "matches" : "MISMATCH — the distro reads a different script than this package"}${live}`,
+          handshake.digestMatches ? undefined : "resync the runtime copy (pnpm run sync:windows), then restart the app");
+      } else {
+        check("agent.handshake", "fail", "Agent handshake", handshake.detail, "restart the DSH app; if it persists, delete ~/.cache/dsh-wsl/agent inside the distro and rerun the doctor");
+      }
+    }
+
+    // ---- stale session scopes ------------------------------------------------
+    if (scopeLines.length === 0) check("runtime.scopes", "info", "Session scopes", "none (no user manager, or none left behind)");
+    else if (stale === 0) check("runtime.scopes", "ok", "Session scopes", `${scopeLines.length} live, none stale`);
+    else check("runtime.scopes", "warn", "Session scopes", `${stale} stale of ${scopeLines.length}`, "--fix stops them (the same sweep the session preflight runs); they are safe to stop when no agent process is inside");
+
+    return { reachable: true, bwrapPath, stale, family };
+  };
+
+  /** @type {Map<string, { reachable: boolean, bwrapPath: string, stale: number, family: string }>} */
+  const states = new Map();
+  for (const target of targets) states.set(target, await collectDistroChecks(target));
+
   // ---- Windows git trust (WSL change review) ------------------------------
   // The change-review pipeline's discovery call runs the WINDOWS git against
   // a \\wsl.localhost UNC when Windows git is installed; git's
@@ -666,31 +753,6 @@ async function main(options) {
         : "Windows git does not trust the \\\\wsl.localhost share; WSL workspaces' change review silently degrades to file-tool edits",
       whitelisted ? undefined : 'on Windows: git config --global --add safe.directory "//wsl.localhost/*", then restart the app');
   }
-
-  // ---- resident handshake --------------------------------------------------
-  const agentScript = join(ROOT, "agent", "wsl-agent.sh");
-  if (!agentScript.startsWith("/")) {
-    check("agent.handshake", "info", "Agent handshake", "skipped: run the doctor from inside the distro (the script path is a Windows path)");
-  } else if (!existsSync(agentScript)) {
-    check("agent.handshake", "fail", "Agent handshake", "agent/wsl-agent.sh is missing from this install", "reinstall the plugin; the shell agent ships with the package");
-  } else {
-    const handshake = await probeResident(distro, agentScript, wslExe);
-    if (handshake.ok) {
-      const live = livePids.length > 0
-        ? `; a live resident (pid${livePids.length > 1 ? "s" : ""} ${livePids.join(", ")}) is already running in this distro — this check starts a fresh one, which cannot read its last error; the app-side doctorReport() merge surfaces it`
-        : "";
-      check("agent.handshake", handshake.digestMatches ? "ok" : "fail", "Agent handshake",
-        `probed: a fresh resident, pid ${handshake.pid}, protocol ${PROTOCOL_VERSION}, digest ${handshake.digestMatches ? "matches" : "MISMATCH — the distro reads a different script than this package"}${live}`,
-        handshake.digestMatches ? undefined : "resync the runtime copy (pnpm run sync:windows), then restart the app");
-    } else {
-      check("agent.handshake", "fail", "Agent handshake", handshake.detail, "restart the DSH app; if it persists, delete ~/.cache/dsh-wsl/agent inside the distro and rerun the doctor");
-    }
-  }
-
-  // ---- stale session scopes ------------------------------------------------
-  if (scopeLines.length === 0) check("runtime.scopes", "info", "Session scopes", "none (no user manager, or none left behind)");
-  else if (stale === 0) check("runtime.scopes", "ok", "Session scopes", `${scopeLines.length} live, none stale`);
-  else check("runtime.scopes", "warn", "Session scopes", `${stale} stale of ${scopeLines.length}`, "--fix stops them (the same sweep the session preflight runs); they are safe to stop when no agent process is inside");
 
   // ---- sessions across running distros (WSL-309) ----------------------------
   // The single-distro checks above answer "is this distro healthy?"; this
@@ -819,20 +881,30 @@ async function main(options) {
   }
 
   // ---- fixes ---------------------------------------------------------------
+  // Safe actions only, per target: the sweep the session preflight runs, and
+  // package installation behind --install plus an explicit confirmation. A
+  // distro that never became reachable has no state to fix.
   if (options.fix) {
-    if (stale > 0) {
-      const swept = await inDistro(distro, sessionScopeSweepScript());
-      check("fix.scopes", swept.ok ? "ok" : "warn", "Swept stale scopes", swept.ok ? `${stale} stale scope(s) stopped` : "the sweep failed", swept.ok ? undefined : `systemctl --user list-units 'dsh-wsl-*.scope' inside "${distro}"`);
-    }
-    if (bwrapPath.length === 0) {
-      if (!options.install) {
-        check("fix.install", "info", "Package installation", "not attempted", "re-run with --fix --install (and --yes for a non-interactive run)");
-      } else if (!(await confirm(`Install ${PACKAGES} in "${distro}" as root?`, options.yes))) {
-        check("fix.install", "info", "Package installation", "declined", install);
-      } else {
-        const command = INSTALL[family] ?? INSTALL["apt-get"] ?? `apt-get install -y ${PACKAGES}`;
-        const installed = await run([WSL, "-d", distro, "-u", "root", "--", "sh", "-c", command]);
-        check("fix.install", installed.ok ? "ok" : "warn", "Package installation", installed.ok ? "completed" : "failed; see the output above", installed.ok ? undefined : install);
+    for (const [target, state] of states) {
+      if (!state.reachable) continue;
+      const fixCheck = (/** @type {string} */ id, /** @type {Check["status"]} */ status, /** @type {string} */ title, /** @type {string | undefined} */ detail = undefined, /** @type {string | undefined} */ remedy = undefined) => {
+        checks.push({ id, status, title, ...(detail === undefined ? {} : { detail }), ...(remedy === undefined ? {} : { remedy }), distro: target });
+      };
+      if (state.stale > 0) {
+        const swept = await inDistro(target, sessionScopeSweepScript());
+        fixCheck("fix.scopes", swept.ok ? "ok" : "warn", "Swept stale scopes", swept.ok ? `${state.stale} stale scope(s) stopped` : "the sweep failed", swept.ok ? undefined : `systemctl --user list-units 'dsh-wsl-*.scope' inside "${target}"`);
+      }
+      if (state.bwrapPath.length === 0) {
+        const install = installRemedy(target, state.family);
+        if (!options.install) {
+          fixCheck("fix.install", "info", "Package installation", "not attempted", "re-run with --fix --install (and --yes for a non-interactive run)");
+        } else if (!(await confirm(`Install ${PACKAGES} in "${target}" as root?`, options.yes))) {
+          fixCheck("fix.install", "info", "Package installation", "declined", install);
+        } else {
+          const command = INSTALL[state.family] ?? INSTALL["apt-get"] ?? `apt-get install -y ${PACKAGES}`;
+          const installed = await run([WSL, "-d", target, "-u", "root", "--", "sh", "-c", command]);
+          fixCheck("fix.install", installed.ok ? "ok" : "warn", "Package installation", installed.ok ? "completed" : "failed; see the output above", installed.ok ? undefined : install);
+        }
       }
     }
   }
@@ -911,28 +983,22 @@ async function confirm(question, yes) {
 }
 
 /**
- * Assemble the report: stamp distro scope and the blocking flag onto every
- * check, compute the per-distro and overall verdicts, print, and return the
- * exit status.
+ * Assemble the report: stamp the blocking flag onto every check, compute the
+ * per-distro and overall verdicts, print, and return the exit status.
  *
  * The blocking invariant is structural: a `fail` blocks, everything else does
  * not — config-awareness lives in the statuses (see the session checks), never
  * in a per-id exception here. A `skipped` check is a consequence of a blocker,
  * not a blocker itself.
  *
- * @param {Check[]} checks - the collected checks.
+ * @param {Check[]} checks - the collected checks (distro-scoped ones carry their `distro`).
  * @param {{ json: boolean }} options - the output mode.
- * @param {{ distro?: string, config?: EffectiveConfig }} [runInfo] - the target distro and the effective configuration the run answered under.
+ * @param {{ distros?: string[], config?: EffectiveConfig }} [runInfo] - the target distros and the effective configuration the run answered under.
  * @returns {number} 0 when the verdict is `ready`, 1 when `blocked`.
  */
 function report(checks, options, runInfo = {}) {
-  // The distro-scoped id prefixes: everything that ran against the target
-  // distro rather than the host. `git.win-safe` probes Windows git through
-  // interop, so it stays host-level even though its subject is WSL change review.
-  const DISTRO_PREFIXES = ["distro.", "sandbox.", "session.", "tools.", "agent.", "runtime.", "functional."];
   const stamped = checks.map((entry) => ({
     ...entry,
-    ...(runInfo.distro !== undefined && DISTRO_PREFIXES.some((prefix) => entry.id.startsWith(prefix)) ? { distro: runInfo.distro } : {}),
     blocksFirstCommand: entry.status === "fail",
   }));
   /** @param {string} status - the status to count. @returns {number} how many checks carry it. */
@@ -946,11 +1012,12 @@ function report(checks, options, runInfo = {}) {
   const distroBlockers = (name) => stamped
     .filter((entry) => entry.blocksFirstCommand && (entry.distro === name || entry.distro === undefined))
     .map((entry) => entry.id);
-  const distroVerdicts = runInfo.distro === undefined ? [] : [{
-    name: runInfo.distro,
-    verdict: distroBlockers(runInfo.distro).length === 0 ? "ready" : "blocked",
-    blockers: distroBlockers(runInfo.distro),
-  }];
+  const targets = runInfo.distros ?? [];
+  const distroVerdicts = targets.map((name) => ({
+    name,
+    verdict: distroBlockers(name).length === 0 ? "ready" : "blocked",
+    blockers: distroBlockers(name),
+  }));
   if (options.json) {
     console.log(JSON.stringify({
       schemaVersion: 2,
@@ -965,7 +1032,13 @@ function report(checks, options, runInfo = {}) {
   } else {
     console.log("dsh-plugin-wsl-env doctor");
     let section = "";
+    let lastDistro = /** @type {string | undefined} */ (undefined);
     for (const entry of stamped) {
+      if (entry.distro !== undefined && entry.distro !== lastDistro && targets.length > 1) {
+        console.log(`\n[${entry.distro}]`);
+        section = "";
+        lastDistro = entry.distro;
+      }
       const current = entry.id.split(".")[0] ?? "";
       if (current !== section) {
         section = current;
@@ -976,7 +1049,7 @@ function report(checks, options, runInfo = {}) {
       if (entry.remedy !== undefined) console.log(`        fix: ${entry.remedy}`);
     }
     console.log(`\n${summary.ok} ok, ${summary.warn} warn, ${summary.fail} fail, ${summary.info} info${summary.skipped > 0 ? `, ${summary.skipped} skipped` : ""}`);
-    if (verdict === "ready") console.log(`verdict: READY — the first command should succeed${runInfo.distro === undefined ? "" : ` in ${runInfo.distro}`}`);
+    if (verdict === "ready") console.log(`verdict: READY — the first command should succeed${targets.length === 1 ? ` in ${targets[0]}` : targets.length > 1 ? ` in each of: ${targets.join(", ")}` : ""}`);
     else console.log(`verdict: BLOCKED by: ${blockers.join(", ")} — apply the fixes above, then rerun`);
     if (summary.fail > 0 || summary.skipped > 0) console.log("run with --fix to sweep stale scopes; --fix --install asks before installing packages");
   }
@@ -986,7 +1059,7 @@ function report(checks, options, runInfo = {}) {
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
-    console.log("node scripts/doctor.mjs [distro] [--json] [--fix] [--install] [--yes] [--read-only]");
+    console.log("node scripts/doctor.mjs [distro] [--all] [--json] [--fix] [--install] [--yes] [--read-only]");
   } else {
     process.exitCode = await main(options);
   }

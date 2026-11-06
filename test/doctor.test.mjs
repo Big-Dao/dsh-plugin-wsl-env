@@ -45,14 +45,17 @@ mkdirSync(home);
 
 const FAKE_WSL = `#!/bin/sh
 case "$*" in
-  "-l -q") printf 'ubuntu\\n'; exit 0 ;;
-  "--list -q") printf 'ubuntu\n'; exit 0 ;;
-  "--list --running") printf 'hdr\nubuntu\n'; exit 0 ;;
+  "-l -q"|"--list -q") printf '%s\\n' \${FAKE_DISTROS:-ubuntu} | tr ' ' '\\n'; exit 0 ;;
+  "-l -v") printf '  NAME            STATE           VERSION\\n  ubuntu*         Running         2\\n'; case "\${FAKE_DISTROS:-ubuntu}" in *debian*) printf '  debian          Stopped         2\\n' ;; esac; exit 0 ;;
+  "--list --running") printf 'hdr\\nubuntu\\n'; exit 0 ;;
   "--version") printf 'WSL version: 2.0.0\\nKernel version: 6.6.87.2\\n'; exit 0 ;;
 esac
 all="$*"
 case "$all" in
-  *"-d ubuntu"*) [ "\${FAKE_STOPPED:-no}" = yes ] && { printf 'WSL_E_DISTRO_NOT_FOUND\n' >&2; exit 1; } ;;
+  *"-d ubuntu"*) [ "\${FAKE_STOPPED:-no}" = yes ] && { printf 'WSL_E_DISTRO_NOT_FOUND\\n' >&2; exit 1; } ;;
+esac
+case "$all" in
+  *"-d debian"*) [ "\${FAKE_STOP_DEBIAN:-no}" = yes ] && { printf 'WSL_E_DISTRO_NOT_FOUND\\n' >&2; exit 1; } ;;
 esac
 case "$all" in
   *"--exec sh /"*)
@@ -222,6 +225,40 @@ try {
     assert.equal(systemd?.status, "warn");
     assert.match(String(systemd?.detail), /falls back to the per-command bwrap profile/);
     assert.equal(report.verdict, "ready");
+    rmSync(profile, { recursive: true, force: true });
+  });
+
+  await check("--all checks every installed distro and aggregates per-distro verdicts", () => {
+    const run = doctor(["--json", "--all"], { FAKE_DISTROS: "ubuntu debian" });
+    assert.equal(run.status, 0, run.stderr);
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    assert.equal(report.verdict, "ready");
+    assert.deepEqual(report.distroVerdicts?.map((entry) => entry.name), ["ubuntu", "debian"]);
+    const bwrap = report.checks.filter((entry) => entry.id === "sandbox.bwrap");
+    assert.deepEqual(bwrap.map((entry) => entry.distro), ["ubuntu", "debian"], "every distro-scoped check ran once per target, stamped");
+  });
+
+  await check("one unreachable distro does not mask the others", () => {
+    const run = doctor(["--json", "--all"], { FAKE_DISTROS: "ubuntu debian", FAKE_STOP_DEBIAN: "yes" });
+    assert.equal(run.status, 1);
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    const debian = report.distroVerdicts?.find((entry) => entry.name === "debian");
+    assert.equal(debian?.verdict, "blocked");
+    assert.ok(debian?.blockers.includes("distro.reachable"));
+    assert.equal(report.distroVerdicts?.find((entry) => entry.name === "ubuntu")?.verdict, "ready");
+    assert.equal(report.checks.filter((entry) => entry.id === "session.systemd").length, 1, "an unreachable distro contributes only its refusal");
+  });
+
+  await check("the effective distro pin narrows the target set", () => {
+    const profile = join(home, "profiles", "pinned");
+    mkdirSync(profile, { recursive: true });
+    const out = spawnSync(process.execPath, ["scripts/profile-preset.mjs", "--out", join(profile, "cordis.patch.yml"), "--distro", "debian"], { cwd: ROOT, encoding: "utf8" });
+    assert.equal(out.status, 0, out.stderr);
+    const run = doctor(["--json"], { FAKE_DISTROS: "ubuntu debian" });
+    assert.equal(run.status, 0, run.stderr);
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    assert.deepEqual(report.distroVerdicts?.map((entry) => entry.name), ["debian"]);
+    assert.equal(report.config?.distro, "debian");
     rmSync(profile, { recursive: true, force: true });
   });
 

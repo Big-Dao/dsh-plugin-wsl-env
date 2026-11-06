@@ -156,6 +156,12 @@ were part of the record.
   the Electron app's reserved profile, and the npm CLI refuses to manage that
   profile's plugins.
 
+- **The desktop start line is the executable, not a command.** The installer's
+  shortcut launches `DeepSeek Harness.exe` with no arguments, and the GUI boots
+  the reserved `desktop` profile — the one the Plugins page writes into. There
+  is no `--profile` switch to document; `dsh --profile <name>` stays a
+  CLI-distribution line.
+
 ## [0.18.0] - 2026-11-05
 
 Track the desktop `0.2.2-rc.1` release: the bundle layer is regenerated from

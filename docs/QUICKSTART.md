@@ -49,6 +49,10 @@ targets `wsl-shell`/`wsl-fs` by id.
 
 ## 3. Open a WSL workspace
 
+Start the desktop app the way its Start-menu shortcut does: `DeepSeek Harness.exe`,
+no arguments — it boots the `desktop` profile, the one the Plugins page writes
+into. (CLI distribution: `dsh --profile <profile>` boots that profile.)
+
 In the GUI, open a folder through the picker (`\\wsl.localhost\<distro>\home\<you>\proj`)
 or an UNC path directly. The session's commands, file tools, terminal and previews
 all run in that distro; a Windows folder keeps the normal Windows environment.

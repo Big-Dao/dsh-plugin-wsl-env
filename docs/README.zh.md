@@ -89,7 +89,10 @@ CLI 入口在 `resources/app.asar` 内部（探针脚本通过 `ELECTRON_RUN_AS_
 **桌面应用**：打开 **设置 → Plugins → Add plugin**，填精确包名
 `dsh-plugin-wsl-env` 并启用。插件管理器写入当前 profile 的 `package.json`
 （依赖项与 `dsh.profile.bundles`），与下面的 CLI 命令得到的状态一致。从检出
-目录运行时，改为以链接形式添加该目录。
+目录运行时，改为以链接形式添加该目录。启动方式与安装器创建的快捷方式一致：
+`DeepSeek Harness.exe`，不带参数。桌面 GUI 没有 `--profile` 开关——它启动的是
+`desktop` profile，也就是 Plugins 页面写入的那个；要用别的 profile 属于 CLI
+发行版的事（`dsh --profile <名字>`）。
 
 **CLI 发行版**（`dsh` 在 `PATH` 上），在 Windows 终端执行：
 

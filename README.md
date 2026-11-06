@@ -94,7 +94,11 @@ distribution you have.
 package name `dsh-plugin-wsl-env`, then enable it. The plugin manager writes the
 active profile's `package.json` — the dependency and the `dsh.profile.bundles`
 entry — which is the same state the CLI command below produces. To run from a
-checkout, add it as a linked package instead of a name.
+checkout, add it as a linked package instead of a name. Start it the way the
+installer's shortcut does: `DeepSeek Harness.exe`, no arguments. The GUI has no
+`--profile` switch — it boots the `desktop` profile, the one the Plugins page
+writes into — so a second profile is a CLI-distribution thing
+(`dsh --profile <name>`).
 
 **CLI distribution** (`dsh` on `PATH`), in a Windows terminal:
 

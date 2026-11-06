@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { peerSatisfied, latestFromPackument, parseWslConfig, parseWslSize, parseIni, parseWslVerbose } from "../scripts/doctor.mjs";
@@ -94,7 +94,7 @@ case "$all" in
     case "$all" in
       *'printf %s ok'*) printf 'ok' ;;
       *'getent passwd'*) printf '/bin/bash' ;;
-      *'printf %s "$HOME"'*) printf '/home/andy' ;;
+      *'printf %s "$HOME"'*) printf '%s' "$HOME" ;;
       *'uname -r'*) printf '6.6.87.2' ;;
       *'for f in apt-get'*) printf 'apt-get' ;;
       *'apt-get install'*) : > "\${FAKE_STATE_DIR:-/nonexistent}/installed-bwrap"; exit 0 ;;
@@ -832,7 +832,7 @@ try {
     const redacted = doctor(["--bundle", redactedPath, "--redact"]);
     assert.equal(redacted.status, 0, redacted.stderr);
     const payload = readFileSync(redactedPath, "utf8");
-    assert.equal(payload.includes("/home/andy"), false, "the home path (the distro.home detail) is gone");
+    assert.equal(payload.includes(homedir()), false, "the home path (the distro.home detail) is gone");
     assert.match(payload, /<redacted-home>/);
     assert.equal(JSON.parse(payload).report.verdict, "ready", "the redacted file is still valid JSON with the full report");
     rmSync(redactedPath, { force: true });

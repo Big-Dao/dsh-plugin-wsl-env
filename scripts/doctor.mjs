@@ -52,7 +52,8 @@ import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { parseDistroList } from "../lib/wsl.js";
 import { effectiveMaskWindowsDrive } from "../lib/index.js";
-import { AGENT_NAME, PROTOCOL_VERSION } from "../lib/agent-protocol.js";
+import { AGENT_NAME, PROTOCOL_VERSION, encodeExecFrame, encodeFsbFrame, parseAgentLine } from "../lib/agent-protocol.js";
+import { bwrapArgvPrefix } from "../lib/bwrap.js";
 import { sessionScopeSweepScript } from "../lib/session-scope.js";
 import { parseListeningPorts, procNetScript } from "../lib/ports.js";
 import { updateFactMessage } from "../lib/update-check.js";
@@ -623,6 +624,19 @@ async function main(options) {
   WSL = wslExe;
   /** @type {Check[]} */
   const checks = [];
+  // A5: per-phase wall clock. The doctor must be fast enough to run twice;
+  // the timings make a slow machine visible instead of felt, and give support
+  // triage the per-section duration without a separate durations column.
+  const runStart = Date.now();
+  let phaseStart = Date.now();
+  /** @type {Record<string, number>} */
+  const timingsMs = {};
+  /** Close the open phase under `name` and open the next one.
+   * @param {string} name - the phase that just ended. */
+  const phase = (name) => {
+    timingsMs[name] = Date.now() - phaseStart;
+    phaseStart = Date.now();
+  };
   /**
    * @param {string} id - the check id.
    * @param {Check["status"]} status - the verdict.
@@ -645,6 +659,7 @@ async function main(options) {
   if (version.ok && wslVersion.length > 0) check("host.wsl", "ok", "WSL version", wslVersion);
   else check("host.wsl", "warn", "WSL version", "wsl.exe --version failed; WSL 1 or a very old build", "wsl.exe --update, then confirm the distro runs as WSL 2 (wsl.exe -l -v shows VERSION 2)");
 
+  phase("host");
   // ---- .wslconfig (the global VM config; host-level) ------------------------
   // WSL silently ignores a malformed file, so interop/masking advice can fail
   // to apply without a trace; this parser is where the trap gets named. The
@@ -702,13 +717,14 @@ async function main(options) {
     maskWindowsDrive: effective.maskWindowsDrive === "true",
   });
 
+  phase("wslconfig");
   // ---- target selection ----------------------------------------------------
   // An explicit `--distro` wins; `--all` checks every installed distro;
   // otherwise the effective configuration decides: `auto` (the shipped
   // default) means the workspace decides, so every installed distro is a
   // candidate and all are checked; `default` resolves to the distro WSL
   // itself marks as default; a pinned name checks exactly that one.
-  const runInfo = /** @type {{ distros: string[], config?: EffectiveConfig }} */ ({ distros: [] });
+  const runInfo = /** @type {{ distros: string[], config?: EffectiveConfig, timingsMs?: Record<string, number> }} */ ({ distros: [], timingsMs });
   runInfo.config = { ...effective };
   /** The `wsl.exe -l -v` table, parsed once: the default marker feeds target selection, the VERSION column feeds `distro.wsl-mode`. */
   const wslTable = parseWslVerbose((await run([wslExe, "-l", "-v"])).stdout.replace(/\0/g, ""));
@@ -805,6 +821,7 @@ async function main(options) {
     }
 
     // ---- sandbox prerequisites ----------------------------------------------
+    let bwrapUsable = false;
     const bwrapPath = (await inDistro(target, "command -v bwrap")).stdout.trim();
     const install = installRemedy(target, family);
     if (bwrapPath.length === 0) {
@@ -812,8 +829,10 @@ async function main(options) {
     } else {
       check("sandbox.bwrap", "ok", "bubblewrap", bwrapPath);
       const userns = await inDistro(target, "bwrap --ro-bind / / -- true");
-      if (userns.ok) check("sandbox.bwrap-usable", "ok", "bubblewrap usability", "a read-only profile runs");
-      else check("sandbox.bwrap-usable", "fail", "bubblewrap usability", "installed but the read-only profile failed", "the kernel likely disables unprivileged user namespaces; reinstalling will not help — see docs/LIMITATIONS.md");
+      if (userns.ok) {
+        check("sandbox.bwrap-usable", "ok", "bubblewrap usability", "a read-only profile runs");
+        bwrapUsable = true;
+      } else check("sandbox.bwrap-usable", "fail", "bubblewrap usability", "installed but the read-only profile failed", "the kernel likely disables unprivileged user namespaces; reinstalling will not help — see docs/LIMITATIONS.md");
     }
 
     // ---- session sandbox prerequisites --------------------------------------
@@ -953,12 +972,14 @@ async function main(options) {
 
     // ---- resident handshake --------------------------------------------------
     const agentScript = join(ROOT, "agent", "wsl-agent.sh");
+    let handshakeOk = false;
     if (!agentScript.startsWith("/")) {
       check("agent.handshake", "info", "Agent handshake", "skipped: run the doctor from inside the distro (the script path is a Windows path)");
     } else if (!existsSync(agentScript)) {
       check("agent.handshake", "fail", "Agent handshake", "agent/wsl-agent.sh is missing from this install", "reinstall the plugin; the shell agent ships with the package");
     } else {
       const handshake = await probeResident(target, agentScript, wslExe);
+      handshakeOk = handshake.ok && handshake.digestMatches;
       if (handshake.ok) {
         const live = livePids.length > 0
           ? `; a live resident (pid${livePids.length > 1 ? "s" : ""} ${livePids.join(", ")}) is already running in this distro — this check starts a fresh one, which cannot read its last error; the app-side doctorReport() merge surfaces it`
@@ -976,12 +997,41 @@ async function main(options) {
     else if (stale === 0) check("runtime.scopes", "ok", "Session scopes", `${scopeLines.length} live, none stale`);
     else check("runtime.scopes", "warn", "Session scopes", `${stale} stale of ${scopeLines.length}`, "--fix stops them (the same sweep the session preflight runs); they are safe to stop when no agent process is inside");
 
+    // ---- smoke legs ----------------------------------------------------------
+    // The handshake proves HELLO; the legs prove the chain the session rides:
+    // one EXEC round trip, the confined profile's allow/refuse shape, and one
+    // FSB stat+list batch over a temp dir (cleaned after). A leg whose
+    // prerequisite failed is `skipped` with the blocker named — absence is
+    // never silent, and a skipped leg never blocks (its blocker already does).
+    const residentBlocked = !agentScript.startsWith("/") || !existsSync(agentScript) || !handshakeOk;
+    const sandboxBlocked = bwrapPath.length === 0 || !bwrapUsable;
+    if (residentBlocked) {
+      check("functional.exec", "skipped", "Smoke: EXEC", "skipped: blocked by agent.handshake");
+      check("functional.fs", "skipped", "Smoke: FSB batch", "skipped: blocked by agent.handshake");
+    } else {
+      const smoke = await runSmokeLegs(target, agentScript, wslExe);
+      check("functional.exec", smoke.execOk ? "ok" : "fail", "Smoke: EXEC", smoke.execDetail, smoke.execOk ? undefined : "restart the DSH app; if it persists, delete ~/.cache/dsh-wsl/agent inside the distro and rerun the doctor");
+      check("functional.fs", smoke.fsOk ? "ok" : "fail", "Smoke: FSB batch", smoke.fsDetail, smoke.fsOk ? undefined : "restart the DSH app; if it persists, delete ~/.cache/dsh-wsl/agent inside the distro and rerun the doctor");
+    }
+    if (sandboxBlocked) {
+      check("functional.sandbox", "skipped", "Smoke: confined profile", `skipped: blocked by ${bwrapPath.length === 0 ? "sandbox.bwrap" : "sandbox.bwrap-usable"}`);
+    } else {
+      const sandbox = await runSandboxSmoke(target);
+      check("functional.sandbox", sandbox.ok ? "ok" : "fail", "Smoke: confined profile", sandbox.detail, sandbox.ok ? undefined : "the shipped profile refused a write it must allow, or allowed one it must refuse — see docs/LIMITATIONS.md and pnpm run probe:sandbox");
+    }
+
     return { reachable: true, bwrapPath, stale, family };
   };
 
+  phase("target");
   /** @type {Map<string, { reachable: boolean, bwrapPath: string, stale: number, family: string }>} */
   const states = new Map();
-  for (const target of targets) states.set(target, await collectDistroChecks(target));
+  for (const target of targets) {
+    const distroStart = Date.now();
+    states.set(target, await collectDistroChecks(target));
+    timingsMs[`distro:${target}`] = Date.now() - distroStart;
+    phaseStart = Date.now();
+  }
 
   // ---- Windows git trust (WSL change review) ------------------------------
   // The change-review pipeline's discovery call runs the WINDOWS git against
@@ -1003,6 +1053,7 @@ async function main(options) {
       whitelisted ? undefined : 'on Windows: git config --global --add safe.directory "//wsl.localhost/*", then restart the app');
   }
 
+  phase("git");
   // ---- sessions across running distros (WSL-309) ----------------------------
   // The single-distro checks above answer "is this distro healthy?"; this
   // survey answers "what is running right now, everywhere?" — the concurrent
@@ -1082,6 +1133,7 @@ async function main(options) {
   if (badPeers.length === 0) check("peers.versions", "ok", "Peer versions", `${peers.length} pinned peer(s) match${unknownPeers.length > 0 ? `; ${unknownPeers.length} unchecked` : ""}`);
   else check("peers.versions", "fail", "Peer versions", badPeers.join("; "), "install the peer set this plugin pins (pnpm install in the plugin, or reinstall/upgrade it against this harness); see docs/PEER-PARITY.md");
 
+  phase("surveys");
   // ---- update check ----------------------------------------------------------
   // The same question the app's Versions page asks, answered on demand: the
   // stable channel's newest release against this checkout's version. A
@@ -1105,6 +1157,7 @@ async function main(options) {
       ? `distro=${effective.distro}, sessionSandbox=${effective.sessionSandbox}, agentBackend=${effective.agentBackend}, sandbox=${effective.sandbox}, maskWindowsDrive=${effective.maskWindowsDrive}, interopVisibility=${effective.interopVisibility || "unset"} — from ${effective.source}${effective.overrides.length > 0 ? ` (overrides: ${effective.overrides.join("; ")})` : ""}`
       : "the shipped preset rows were not recognized; the conservative defaults apply (sessionSandbox: true, so a missing systemd blocks) — see docs/CONFIGURATION.md");
 
+  phase("update-peers");
   // ---- profile-patch trap --------------------------------------------------
   const dshHome = process.env.DSH_HOME !== undefined && process.env.DSH_HOME.length > 0 ? process.env.DSH_HOME : join(homedir(), ".dsh");
   const profilesDir = join(dshHome, "profiles");
@@ -1129,6 +1182,7 @@ async function main(options) {
     }
   }
 
+  phase("config");
   // ---- fixes ---------------------------------------------------------------
   // Safe actions only, per target: the sweep the session preflight runs, and
   // package installation behind --install plus an explicit confirmation. A
@@ -1158,6 +1212,8 @@ async function main(options) {
     }
   }
 
+  phase("fix");
+  timingsMs.total = Date.now() - runStart;
   return report(checks, { json: options.json }, runInfo);
 }
 
@@ -1214,6 +1270,159 @@ function probeResident(distro, scriptPath, wslExe = WSL) {
 }
 
 /**
+ * One smoke session against a fresh resident: spawn it, read the HELLO, run
+ * one EXEC round trip (`uname -m`), create a temp dir over the same transport,
+ * send one FSB batch (stat + list) against it, remove the dir, shut the
+ * resident down. This is the chain the session actually rides — frame I/O and
+ * the protocol v7 substrate — not a parallel probe path. Every failure names
+ * its leg; a resident that dies mid-smoke fails fast instead of hanging.
+ *
+ * @param {string} distro - the distro.
+ * @param {string} scriptPath - the agent script as a Linux path inside the distro.
+ * @param {string} wslExe - the wsl.exe to spawn.
+ * @returns {Promise<{ execOk: boolean, execDetail: string, fsOk: boolean, fsDetail: string }>} the two resident-leg verdicts.
+ */
+function runSmokeLegs(distro, scriptPath, wslExe = WSL) {
+  return new Promise((settle) => {
+    const child = spawn(wslExe, ["-d", distro, "--exec", "sh", scriptPath], {
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+      env: { ...process.env, WSL_UTF8: "1" },
+    });
+    let settled = false;
+    let buffer = "";
+    let helloSeen = false;
+    /** @type {Map<string, (line: string) => void>} */
+    const waiters = new Map();
+    let helloResolve = /** @type {((value: boolean) => void) | undefined} */ (undefined);
+    const helloPromise = new Promise((resolve) => { helloResolve = resolve; });
+    const timer = setTimeout(() => finish({ execOk: false, execDetail: "the smoke session timed out", fsOk: false, fsDetail: "the smoke session timed out" }), 30_000);
+    /** @param {{ execOk: boolean, execDetail: string, fsOk: boolean, fsDetail: string }} value - the leg verdicts. */
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { child.stdin.write("SHUTDOWN\n"); } catch { /* the resident may already be gone */ }
+      setTimeout(() => {
+        try { child.kill(); } catch { /* already gone */ }
+        settle(value);
+      }, 150);
+    };
+    child.stdout.on("data", (chunk) => {
+      buffer += String(chunk);
+      for (;;) {
+        const newline = buffer.indexOf("\n");
+        if (newline < 0) break;
+        const line = buffer.slice(0, newline).trim();
+        buffer = buffer.slice(newline + 1);
+        if (line.length === 0) continue;
+        const parsed = parseAgentLine(line);
+        if (parsed.type === "hello") {
+          helloSeen = true;
+          helloResolve?.(true);
+          continue;
+        }
+        if (parsed.type === "ack" || parsed.type === "pong" || parsed.type === "unknown") continue;
+        const id = parsed.type === "result" || parsed.type === "agentError" || parsed.type === "fsError" ? parsed.id : "";
+        const waiter = waiters.get(id);
+        if (waiter !== undefined) {
+          waiters.delete(id);
+          waiter(line);
+        }
+      }
+    });
+    let childGone = false;
+    child.on("error", (error) => finish({ execOk: false, execDetail: error.message, fsOk: false, fsDetail: error.message }));
+    // A dead resident's pipe surfaces as EPIPE on the write side; the exit
+    // handler names the cause, so the write-side error is swallowed.
+    child.stdin.on("error", () => { /* named by the exit handler */ });
+    child.on("exit", () => {
+      childGone = true;
+      if (!settled && waiters.size > 0) finish({ execOk: false, execDetail: "the resident exited mid-smoke", fsOk: false, fsDetail: "the resident exited mid-smoke" });
+    });
+    /** Send one request and resolve with the reply line that answers it.
+     * @param {string} id - the request id.
+     * @param {string[]} lines - the frame's lines. */
+    const request = (id, lines) => new Promise((resolve) => {
+      waiters.set(id, resolve);
+      child.stdin.write(`${lines.join("\n")}\n`);
+    });
+    (async () => {
+      // The race's losing timer must be cleared: a live timer keeps the
+      // process lingering ~5 s past the report — per invocation.
+      await new Promise((resolve) => {
+        const wait = setTimeout(resolve, 5000);
+        helloPromise.then(() => { clearTimeout(wait); resolve(true); });
+      });
+      if (!helloSeen) return finish({ execOk: false, execDetail: "no HELLO", fsOk: false, fsDetail: "no HELLO" });
+      if (childGone) return finish({ execOk: false, execDetail: "the resident exited mid-smoke", fsOk: false, fsDetail: "the resident exited mid-smoke" });
+      const execId = "smoke-exec";
+      const execLine = await request(execId, encodeExecFrame({ id: execId, cwd: "/tmp", argv: ["uname", "-m"], timeoutMs: 15_000, maxOutputBytes: 4096 }));
+      const execParsed = parseAgentLine(execLine);
+      const execAnswer = execParsed.type === "result" ? execParsed.stdout.toString("utf8").trim() : "";
+      const execOk = execParsed.type === "result" && execParsed.exitCode === 0 && execAnswer.length > 0;
+      const execDetail = execOk
+        ? `uname -m answered "${execAnswer}" over the frame round trip`
+        : execParsed.type === "result"
+          ? `exit ${execParsed.exitCode}: ${execParsed.stderr.toString("utf8").slice(0, 120)}`
+          : execParsed.type === "agentError"
+            ? `${execParsed.reason}: ${execParsed.message}`
+            : `unexpected reply: ${execLine.slice(0, 80)}`;
+      const mkId = "smoke-mktemp";
+      const mkLine = await request(mkId, encodeExecFrame({ id: mkId, cwd: "/tmp", argv: ["mktemp", "-d", "/tmp/dsh-doctor-smoke-XXXXXXXX"], timeoutMs: 15_000, maxOutputBytes: 4096 }));
+      const mkParsed = parseAgentLine(mkLine);
+      const dir = mkParsed.type === "result" && mkParsed.exitCode === 0 ? mkParsed.stdout.toString("utf8").trim() : "";
+      if (dir.length === 0) {
+        return finish({ execOk, execDetail, fsOk: false, fsDetail: "the temp dir for the batch leg could not be created" });
+      }
+      const fsbId = "smoke-fsb";
+      const fsbLine = await request(fsbId, encodeFsbFrame({ id: fsbId, timeoutMs: 15_000, ops: [{ op: "stat", args: [dir] }, { op: "list", args: [dir] }] }));
+      const fsbParsed = parseAgentLine(fsbLine);
+      const payload = fsbParsed.type === "result" ? fsbParsed.stdout.toString("utf8") : "";
+      const fsOk = fsbParsed.type === "result" && fsbParsed.exitCode === 0 && payload.includes("OK 0") && payload.includes("OK 1");
+      const rmId = "smoke-cleanup";
+      const rmLine = await request(rmId, encodeExecFrame({ id: rmId, cwd: "/tmp", argv: ["rm", "-rf", dir], timeoutMs: 15_000, maxOutputBytes: 4096 }));
+      const rmParsed = parseAgentLine(rmLine);
+      const cleanupOk = rmParsed.type === "result" && rmParsed.exitCode === 0;
+      const fsDetail = fsOk
+        ? `stat + list over ${dir} answered one batch round trip${cleanupOk ? "; the dir is removed" : `; CLEANUP FAILED — ${dir} is left behind`}`
+        : fsbParsed.type === "result"
+          ? `exit ${fsbParsed.exitCode}: ${payload.slice(0, 120)}${cleanupOk ? "" : `; cleanup failed, ${dir} is left behind`}`
+          : fsbParsed.type === "fsError"
+            ? `${fsbParsed.reason}: ${fsbParsed.message}`
+            : `unexpected reply: ${fsbLine.slice(0, 80)}`;
+      return finish({ execOk, execDetail, fsOk, fsDetail });
+    })().catch((error) => finish({ execOk: false, execDetail: /** @type {Error} */ (error).message, fsOk: false, fsDetail: /** @type {Error} */ (error).message }));
+  });
+}
+
+/**
+ * The confined-profile smoke: the shipped bwrap builder's per-command shape,
+ * run against a distro temp dir — a write inside the granted root must run,
+ * a write outside it (into the read-only-bound /etc) must be refused. These
+ * are the two assertions `probe:sandbox` makes, in miniature, so the doctor's
+ * verdict covers the fence and not just the binary.
+ * @param {string} distro - the distro.
+ * @returns {Promise<{ ok: boolean, detail: string }>} the fence verdict.
+ */
+async function runSandboxSmoke(distro) {
+  const dirAnswer = await inDistro(distro, 'd=$(mktemp -d /tmp/dsh-doctor-smoke-XXXXXXXX) && printf %s "$d"');
+  const dir = dirAnswer.stdout.trim();
+  if (dir.length === 0) return { ok: false, detail: "the temp dir for the fence leg could not be created" };
+  const prefix = bwrapArgvPrefix({ mode: "workspace-write", workspaceRoot: dir }, {});
+  const inside = await run([WSL, "-d", distro, "--exec", ...prefix, "sh", "-c", 'printf ok > "$0" && cat "$0"', `${dir}/inside`]);
+  const outside = await run([WSL, "-d", distro, "--exec", ...prefix, "sh", "-c", 'printf no > "$0" 2>/dev/null', "/etc/dsh-doctor-smoke-refuse"]);
+  const cleanup = await inDistro(distro, `rm -rf "${dir}"`);
+  const insideOk = inside.ok && inside.stdout.trim() === "ok";
+  const outsideRefused = !outside.ok;
+  const ok = insideOk && outsideRefused;
+  return {
+    ok,
+    detail: `a write inside ${dir} ${insideOk ? "ran" : "was REFUSED (the profile broke)"} and a write to /etc ${outsideRefused ? "was refused" : "RAN (the fence is open)"} — the shipped workspace-write shape${cleanup.ok ? "" : `; CLEANUP FAILED — ${dir} is left behind`}`,
+  };
+}
+
+/**
  * Ask one yes/no question on the terminal.
  * @param {string} question - the prompt.
  * @param {boolean} yes - skip the prompt when true.
@@ -1242,7 +1451,7 @@ async function confirm(question, yes) {
  *
  * @param {Check[]} checks - the collected checks (distro-scoped ones carry their `distro`).
  * @param {{ json: boolean }} options - the output mode.
- * @param {{ distros?: string[], config?: EffectiveConfig }} [runInfo] - the target distros and the effective configuration the run answered under.
+ * @param {{ distros?: string[], config?: EffectiveConfig, timingsMs?: Record<string, number> }} [runInfo] - the target distros, the effective configuration, and the per-phase wall clock.
  * @returns {number} 0 when the verdict is `ready`, 1 when `blocked`.
  */
 function report(checks, options, runInfo = {}) {
@@ -1277,6 +1486,7 @@ function report(checks, options, runInfo = {}) {
       distroVerdicts,
       verdict,
       blockers,
+      ...(runInfo.timingsMs === undefined ? {} : { timingsMs: runInfo.timingsMs }),
     }, null, 2));
   } else {
     console.log("dsh-plugin-wsl-env doctor");
@@ -1298,6 +1508,8 @@ function report(checks, options, runInfo = {}) {
       if (entry.remedy !== undefined) console.log(`        fix: ${entry.remedy}`);
     }
     console.log(`\n${summary.ok} ok, ${summary.warn} warn, ${summary.fail} fail, ${summary.info} info${summary.skipped > 0 ? `, ${summary.skipped} skipped` : ""}`);
+    const timingLine = Object.entries(runInfo.timingsMs ?? {}).filter(([key]) => key !== "total").map(([key, ms]) => `${key} ${ms}ms`).join(", ");
+    if (timingLine.length > 0) console.log(`timings: ${timingLine}; total ${runInfo.timingsMs?.total ?? "?"}ms`);
     if (verdict === "ready") console.log(`verdict: READY — the first command should succeed${targets.length === 1 ? ` in ${targets[0]}` : targets.length > 1 ? ` in each of: ${targets.join(", ")}` : ""}`);
     else console.log(`verdict: BLOCKED by: ${blockers.join(", ")} — apply the fixes above, then rerun`);
     if (summary.fail > 0 || summary.skipped > 0) console.log("run with --fix to sweep stale scopes; --fix --install asks before installing packages");

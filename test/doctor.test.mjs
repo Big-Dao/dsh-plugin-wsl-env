@@ -58,8 +58,30 @@ case "$all" in
   *"-d debian"*) [ "\${FAKE_STOP_DEBIAN:-no}" = yes ] && { printf 'WSL_E_DISTRO_NOT_FOUND\\n' >&2; exit 1; } ;;
 esac
 case "$all" in
+  *"--exec bwrap"*)
+    case "$all" in
+      *dsh-doctor-smoke-refuse*) exit 1 ;;
+      *'inside'*) printf 'ok' ;;
+      *) exit 0 ;;
+    esac ;;
+esac
+case "$all" in
   *"--exec sh /"*)
     if [ "\${FAKE_AGENT_DIGEST:-}" = bad ]; then printf 'HELLO|wsl-agent|7|deadbeef|4242|batch\\n'; else printf 'HELLO|wsl-agent|7|${AGENT_DIGEST}|4242|batch\\n'; fi
+    [ "\${FAKE_RESIDENT_DIES:-no}" = yes ] && exit 0
+    while IFS= read -r line; do
+      case "$line" in
+        SHUTDOWN) exit 0 ;;
+        PING) printf 'PONG\\n' ;;
+        EXEC\\|*|FS\\|*|FSB\\|*)
+          id="$(printf '%s' "$line" | cut -d'|' -f2)"
+          printf 'ACK|%s\\n' "$id"
+          case "$line" in
+            FSB\\|*) payload="$(printf 'OK 0|eA==\\nOK 1|eA==\\n' | base64 | tr -d '\\n')"; printf 'RES|%s|0|%s||0|0\\n' "$id" "$payload" ;;
+            *) printf 'RES|%s|0|%s||0|0\\n' "$id" "$(printf 'x86_64' | base64 | tr -d '\\n')" ;;
+          esac ;;
+      esac
+    done
     exit 0 ;;
 esac
 case "$all" in
@@ -71,7 +93,12 @@ case "$all" in
       *'uname -r'*) printf '6.6.87.2' ;;
       *'for f in apt-get'*) printf 'apt-get' ;;
       *'command -v bwrap'*) [ "\${FAKE_BWRAP:-yes}" = no ] || printf '/usr/bin/bwrap' ;;
-      *'bwrap --ro-bind'*) exit 0 ;;
+      *'bwrap --ro-bind'*)
+        case "$all" in
+          *dsh-doctor-smoke-refuse*) exit 1 ;;
+          *'inside'*) printf 'ok' ;;
+          *) exit 0 ;;
+        esac ;;
       *'/run/systemd/system'*) [ "\${FAKE_SYSTEMD:-yes}" = no ] && printf 'none init' || printf 'systemd systemd' ;;
       *'command -v systemd-run'*) printf '/usr/bin/systemd-run' ;;
       *'echo "$unit'*) [ "\${FAKE_STALE:-no}" = yes ] && printf 'dsh-wsl-ubuntu-x.scope stale' || true ;;
@@ -91,6 +118,8 @@ case "$all" in
       *'hostname -I'*) printf '172.20.0.5 ' ;;
       *'uname -m'*) printf 'x86_64' ;;
       *'.cache/dsh-wsl/agent'*) printf 'exec abc123' ;;
+      *'mktemp -d'*) printf '/tmp/dsh-doctor-smoke-fixed' ;;
+      *'rm -rf'*) exit 0 ;;
       *) : ;;
     esac
     ;;
@@ -400,6 +429,48 @@ try {
     assert.equal(deadDns?.status, "warn");
     assert.match(String(deadDns?.detail), /did not resolve/);
     assert.equal(/** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout)).checks.find((entry) => entry.id === "distro.dns")?.status, "ok");
+  });
+
+  await check("the smoke legs ride the real protocol shapes", () => {
+    const report = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
+    assert.equal(report.checks.find((entry) => entry.id === "functional.exec")?.status, "ok");
+    assert.equal(report.checks.find((entry) => entry.id === "functional.sandbox")?.status, "ok");
+    const fs = report.checks.find((entry) => entry.id === "functional.fs");
+    assert.equal(fs?.status, "ok");
+    assert.match(String(fs?.detail), /the dir is removed/, "the batch leg cleans its temp dir");
+  });
+
+  await check("skipped legs name their blocker and never block", () => {
+    const run = doctor(["--json"], { FAKE_AGENT_DIGEST: "bad" });
+    assert.equal(run.status, 1, "the handshake digest failure still blocks");
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    const exec = report.checks.find((entry) => entry.id === "functional.exec");
+    assert.equal(exec?.status, "skipped");
+    assert.match(String(exec?.detail), /blocked by agent\.handshake/);
+    assert.equal(exec?.blocksFirstCommand, false, "skipped never blocks — its blocker already does");
+    assert.equal(report.checks.find((entry) => entry.id === "functional.fs")?.status, "skipped");
+    assert.equal(report.checks.find((entry) => entry.id === "functional.sandbox")?.status, "ok", "the fence leg does not need the resident");
+    assert.equal(report.summary.skipped, 2);
+  });
+
+  await check("a resident dying mid-smoke fails the leg with the named cause", () => {
+    const run = doctor(["--json"], { FAKE_RESIDENT_DIES: "yes" });
+    assert.equal(run.status, 1);
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    const exec = report.checks.find((entry) => entry.id === "functional.exec");
+    assert.equal(exec?.status, "fail");
+    assert.match(String(exec?.detail), /exited mid-smoke/);
+    assert.ok(report.blockers?.includes("functional.exec"));
+  });
+
+  await check("the fence leg is skipped when bubblewrap is missing, and the resident legs still run", () => {
+    const run = doctor(["--json"], { FAKE_BWRAP: "no" });
+    assert.equal(run.status, 1, "bwrap missing still blocks");
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    const sandbox = report.checks.find((entry) => entry.id === "functional.sandbox");
+    assert.equal(sandbox?.status, "skipped");
+    assert.match(String(sandbox?.detail), /blocked by sandbox\.bwrap/);
+    assert.equal(report.checks.find((entry) => entry.id === "functional.exec")?.status, "ok", "the resident legs do not need bwrap");
   });
 
   await check("missing bubblewrap fails with a copy-paste install remedy", () => {

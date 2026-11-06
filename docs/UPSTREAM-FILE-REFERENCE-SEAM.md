@@ -73,6 +73,11 @@ or re-implementing the ranking engine — the regression path the RFC rules out.
 **Fallback: keep the 9p walk.** `@` completion works today; it pays the
 per-directory share cost above. There is no plugin-side optimization that is
 safe without the seam, and the plugin does not replace the upstream module.
+Maintainer observation (2026-11-06, real use): completion latency is
+acceptable in practice — the human scanning the candidate list dominates the
+walk, so the measured 56× is not the pain point. The seam stays a passive
+wire-up when it lands (the canary watches the peer line); no active upstream
+push is planned.
 
 Wire `file-reference-wsl` when either happens:
 

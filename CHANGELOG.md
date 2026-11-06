@@ -18,6 +18,34 @@ were part of the record.
 
 ### Added
 
+- **The doctor's verdict closes the loop: green means the first command
+  works.** The report moves to schemaVersion 2 — `verdict: ready | blocked`,
+  `blockers`, per-distro verdicts and per-check `distro` /
+  `blocksFirstCommand` — computed under the **effective configuration** (the
+  profile layers the app loads, not the shipped defaults): a missing systemd
+  only blocks under `sessionSandbox: true`, while `auto` names its fallback
+  and `false` names the opt-out. New checks: the per-distro WSL mode (WSL1
+  named as the root cause, with the `--set-version` remedy), `.wslconfig`
+  validation with its semantics (the silent-ignore trap, unknown keys,
+  memory hazards, `localhostForwarding`), `/etc/wsl.conf` cross-checks
+  (boot/interop/automount against the runtime, terminate remedies), the
+  disk, the clock and DNS. Three smoke legs prove the chain — one EXEC
+  frame, the confined fence (write inside runs, write outside is refused),
+  one FSB batch over a temp dir that is cleaned up. `--all` (and the
+  effective `auto`/`default` target set) check every installed distro; one
+  wedged distro cannot mask the others. `--fix` ends in a re-verified
+  report: every fix is followed by a fresh probe, the affected checks carry
+  the after state, and the Windows git trust whitelist joins the fixable set
+  behind the confirmation gate. `--bundle <path>` writes the attachable
+  diagnostic file (`--redact` strips home and DSH paths), deprecated profile
+  keys (`substrate: share`, `distro: ''`) are named with their migration, and
+  per-phase timings ride the report. The doctor targets every installed
+  distro the effective configuration can reach; remedies that would rewrite
+  user- or distro-owned files stay manual, and the verdict never upgrades the
+  `enforcement: partial` statement. [DIAGNOSTICS.md](docs/DIAGNOSTICS.md)
+  maps every error code to its check or its transient class.
+
+
 - **The plugin's refusal messages follow the harness language.** A new
   `lib/messages.js` catalog renders the `sessionSandbox` preflight verdicts,
   the `bwrap` install and repair hints, and the distro/workdir command errors

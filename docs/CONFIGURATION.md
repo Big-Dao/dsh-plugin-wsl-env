@@ -318,10 +318,16 @@ layer matches on those strings byte-for-byte), and the standalone
 ## Diagnose configuration and refusals
 
 `pnpm run doctor` is the one-command environment check: Windows/WSL versions,
-the distro and its shell, bubblewrap, systemd/Linger, the peer floor, a fresh
-agent handshake, stale session scopes and the known profile-patch traps — each
-failure with a copyable remedy (`--json` for scripts, `--fix` for the stale
-scopes). With the CLI distribution, `dsh --profile <name> --dump-config` inspects
+the per-distro WSL mode, `.wslconfig` and `/etc/wsl.conf` cross-checks, the
+disk, the clock, DNS, the distro and its shell, bubblewrap, systemd/Linger,
+the peer floor, a fresh agent handshake, stale session scopes, the known
+profile-patch and deprecated-key traps — each failure with a copyable remedy.
+The run ends in a verdict (`ready` or `blocked`) computed under the effective
+configuration: `--json` is the machine contract (schemaVersion 2), `--fix`
+re-verifies what it fixed, `--all` checks every installed distro, `--bundle
+<path>` writes the attachable diagnostic file (`--redact` strips the paths).
+See [DIAGNOSTICS.md](DIAGNOSTICS.md) for the verdict contract and the
+error-code map. With the CLI distribution, `dsh --profile <name> --dump-config` inspects
 the composed profile without booting it and shows whether a row override
 applied; the desktop app has no `dsh` command, so read `cordis.patch.yml` and
 the Plugins page there.

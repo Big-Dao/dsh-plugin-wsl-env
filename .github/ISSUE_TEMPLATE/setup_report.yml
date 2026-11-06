@@ -17,6 +17,9 @@ body:
       description: |
         From a checkout: `pnpm run doctor -- --json`.
         From an installed plugin: `node <plugin>/scripts/doctor.mjs --json`.
+        Or attach a bundle instead of pasting: `pnpm run doctor -- --bundle
+        doctor-bundle.json --redact` (the file carries the same report plus
+        versions; `--redact` strips the home and DSH paths).
       render: shell
     validations:
       required: true

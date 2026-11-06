@@ -24,9 +24,13 @@ supplies the WSL environment.
 | Node `^22.19.0` or `>=24.0.0` | only needed for source/development work | not needed inside the distro to use the published plugin |
 
 The doctor (`scripts/doctor.mjs`, or `pnpm run doctor` from a checkout) checks
-the environment and prints remedies for detected failures. Confirm the distro's
-WSL version separately with `wsl.exe -l -v`. Doctor is read-only unless you pass `--fix` (stale scopes) or
-`--fix --install` (packages, after a confirmation).
+the environment and ends in a verdict: `ready` means the first command should
+succeed; `blocked` names the exact checks to fix, each with a copy-paste
+remedy. It reads the distro's WSL mode from `wsl.exe -l -v` itself, so no
+separate version check is needed. Doctor is read-only unless you pass `--fix`
+(stale scopes, and the Windows git trust after a confirmation) or
+`--fix --install` (packages, after a confirmation); `--bundle <path>` writes
+the diagnostic file a setup report attaches.
 
 ## 2. Install
 

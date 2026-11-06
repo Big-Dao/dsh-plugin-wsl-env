@@ -138,6 +138,23 @@ absolute path to pin one.
   `git.exe`** — the `safe.directory` whitelist that WSL change review needs when
   Windows git is installed (see Terminals below).
 
+## The doctor's verdict and remedy boundary
+
+The doctor's `verdict` answers under the effective configuration (the profile
+layers the app loads, overlaid on the shipped preset) — but it is a verdict
+about the machine and the configuration, not about a session: the
+**policy**- and **data**-class error codes (see
+[DIAGNOSTICS.md](DIAGNOSTICS.md#the-map)) are per-call decisions the doctor
+cannot predict, and `ready` does not promise them away.
+
+The doctor reads and reports; it never rewrites user- or distro-owned files.
+`.wslconfig`, `/etc/wsl.conf`, a WSL1 conversion and distro installation are
+remedy-only — the remedy text carries the exact command — and the fixable set
+is limited to what is safe and reversible (stale scopes, the optional
+packages behind `--install` plus a confirmation, and the Windows git
+safe.directory whitelist behind the same gate). The verdict never upgrades
+the sandbox's security statement: `enforcement: partial` is untouched.
+
 ## Session-start advisories
 
 - **There is no session-UI notice seam in DSH 0.2.1.** `wsl-preflight` failures go

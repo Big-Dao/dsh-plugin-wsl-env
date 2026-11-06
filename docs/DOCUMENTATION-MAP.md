@@ -19,6 +19,8 @@
   [迁移](MIGRATION.md) 说明升级与配置兼容规则。
 - [API 表面](API.md) 按子路径列出包的导出；权威是 `package.json` 的 `exports`
   与生成的 `lib/*.d.ts`，本文只是索引。
+- [诊断](DIAGNOSTICS.md)（[中文版](DIAGNOSTICS.zh.md)）给出 doctor 的
+  verdict 契约与错误码→检查项地图；各码的权威含义在 ARCHITECTURE。
 - [价值说明](VALUE.zh.md) 汇总用途与取舍；[需求追溯](REQUIREMENTS.zh.md)
   将行为承诺关联到权威说明和测试。需求表不是第二份实现规范。
 

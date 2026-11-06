@@ -12,6 +12,31 @@ Harness 进程仍在 Windows 上。命令执行、shell 脚本和文件访问都
 
 仅支持 Windows + WSL 2。
 
+## 需要这个插件吗？
+
+如果 harness 本身可以跑在发行版里，更简单的做法是**不用**这个插件：把 CLI 装在
+发行版里，直接在发行版终端运行。没有 UNC 路径、没有 9p 往返，也没有
+Windows→发行版的 agent。
+
+```bash
+# 在发行版内执行；CLI 要求 Node >= 24.9
+npm install -g @deepseek-ai/dsh
+dsh web                       # 浏览器界面，经 WSL 的 localhost 转发访问
+dsh headless "run the tests"  # 单任务、输出答案后退出
+```
+
+需要 harness 留在 Windows 时，才用本插件：
+
+| 你的场景 | 用什么 |
+|---|---|
+| 工作区在 WSL 内，终端或浏览器界面够用 | 装在发行版里的 CLI |
+| 想要 Windows 桌面应用，命令与文件落在发行版 | 本插件 |
+| 同一会话要同时访问 Windows 与 WSL 工作区 | 本插件（按路径路由正是它的价值） |
+
+两者混用有一个坑：`desktop` 这个 profile 名由 Electron 应用独占，npm CLI 拒绝
+管理它的插件——桌面场景请用应用内的 Plugins 页面。[VALUE.zh.md](VALUE.zh.md)
+有完整对照和"不适用"清单。
+
 ## 为什么用这个插件
 
 Windows 上的编程工具要在 WSL 项目中工作，有三条路：把整个工具装进发行版、连接发行版内的辅助服务，或由插件直接提供发行版环境。本插件是第三条。两类会话共用一套流程，同时保留发行版的真实工具和命令沙箱。

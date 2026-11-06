@@ -149,6 +149,13 @@ were part of the record.
   writes the profile's `package.json` and `dsh.profile.bundles`) and label the
   `dsh ...` forms as the CLI distribution's.
 
+- **The README asks whether the plugin is needed before it says how to install
+  it.** A harness that can live in the distro — the CLI in a terminal, or
+  `dsh web` in a browser — needs no bridge at all, and the new decision table
+  says so. It also records the one trap when the two are mixed: `desktop` is
+  the Electron app's reserved profile, and the npm CLI refuses to manage that
+  profile's plugins.
+
 ## [0.18.0] - 2026-11-05
 
 Track the desktop `0.2.2-rc.1` release: the bundle layer is regenerated from

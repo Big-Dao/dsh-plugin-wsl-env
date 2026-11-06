@@ -5,6 +5,14 @@
 Steps from a Windows + WSL 2 machine to a working WSL session.
 This page is the entry point; every claim links to the document that owns it.
 
+## 0. Do you need this plugin?
+
+If the harness can run inside the distro, installing the CLI there
+(`npm install -g @deepseek-ai/dsh`) and skipping this plugin is simpler — the
+[README's decision table](../README.md#do-i-need-this-plugin) has the cases.
+The rest of this page assumes the desktop app stays on Windows and this plugin
+supplies the WSL environment.
+
 ## 1. Prerequisites
 
 | Need | How to check | If missing |

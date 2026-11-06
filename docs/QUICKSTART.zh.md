@@ -5,6 +5,13 @@ _本文是 [QUICKSTART](QUICKSTART.md) 的中文译本，以英文版为准。_
 从一台 Windows + WSL 2 机器到可用的 WSL 会话，只需以下步骤。
 本页是入口；每条说明都链接到负责该主题的文档。
 
+## 0. 需要这个插件吗？
+
+如果 harness 可以整个跑在发行版里，把 CLI 装进去（`npm install -g
+@deepseek-ai/dsh`）并跳过本插件会更简单——判断表见
+[README](README.zh.md#需要这个插件吗)。本页其余部分假定桌面应用留在 Windows，
+由本插件提供 WSL 环境。
+
 ## 1. 前置条件
 
 | 需求 | 如何检查 | 缺失时 |

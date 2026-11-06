@@ -14,6 +14,32 @@ Windows + WSL 2 only.
 
 **New here?** Start with [docs/QUICKSTART.md](docs/QUICKSTART.md) — prerequisites, recipes and the compatibility table.
 
+## Do I need this plugin?
+
+If the harness itself can run in the distro, it is simpler **not** to use this
+plugin: install the CLI there and run it from the distro's shell. No UNC paths,
+no 9p round trips, no Windows-to-distro agent.
+
+```bash
+# inside the distro; the CLI needs Node >= 24.9
+npm install -g @deepseek-ai/dsh
+dsh web                       # browser UI, reached through WSL's localhost forwarding
+dsh headless "run the tests"  # one task, one answer, exit
+```
+
+Use this plugin when the harness has to stay on Windows:
+
+| Your setup | What to use |
+|---|---|
+| Work happens inside WSL; a terminal or browser UI is enough | the CLI installed in the distro |
+| You want the Windows desktop app, with commands and files in the distro | this plugin |
+| One session must reach Windows and WSL folders at once | this plugin — per-path routing is the point |
+
+Mixing the two has one trap: the `desktop` profile name is owned by the Electron
+app, and the npm CLI refuses to manage that profile's plugins — use the app's
+Plugins page for it. [docs/VALUE.zh.md](docs/VALUE.zh.md) has the full
+comparison and the cases this plugin is not for.
+
 ## Why this plugin
 
 A Windows coding tool that works on WSL projects has three options: run the whole tool inside the distro, connect to a helper server inside the distro, or let the plugin provide the distro environment. This plugin is the third option. One workflow covers both kinds of session, with the distro's real tools and the command sandbox intact.

@@ -39,7 +39,14 @@ command -v npm >/dev/null 2>&1 || { echo "e2e: npm not found (fnm env not loaded
 command -v node >/dev/null 2>&1 || { echo "e2e: node not found" >&2; exit 1; }
 
 SKIP_UPGRADE=no
-PREVIOUS="0.11.0"
+# The upgrade origin must be installable on the CURRENT harness runtime: dsh
+# 0.2.2-rc.1 enforces the plugin's peer declarations exactly, and versions
+# before 0.13.2 pin exact peers (0.2.1-rc.2) that the runtime now rejects —
+# by design. 0.13.2 moved to floors (>=0.2.1-rc.3) and 0.18.0 raised them to
+# >=0.2.2-rc.1, so the default origin is the last release before that raise:
+# upgrading 0.17.1 → current crosses the peer raise, the path a real user on
+# the previous version takes.
+PREVIOUS="0.17.1"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --skip-upgrade) SKIP_UPGRADE=yes ;;

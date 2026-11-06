@@ -88,6 +88,13 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
   [ARCHITECTURE.md](ARCHITECTURE.md#reported-enforcement)。
 - **必须安装 `bubblewrap`**，否则两个提供者都会带着安装命令失败；
   会话启动预检会以建议性警告的形式给出同样的文本。
+- **消息本地化按设计只覆盖一部分** —— 预检判定、`bwrap` 修复提示与
+  发行版/工作目录错误跟随应用的语言设置
+  （[CONFIGURATION.zh.md](CONFIGURATION.zh.md#消息语言)）；`fs-decisions`
+  中的 `FS_*` 拒绝文本与 fsio 复刻保持逐字节英文，因为工具层按这些字符串
+  匹配；独立的 `scripts/doctor.mjs` 永远输出英文，因为它在应用之外运行，
+  读不到宿主的语言偏好。探测时合成的修复文本保持探测发生时的语言，
+  直到该探测再次运行。
 - 会话中途被删除的工作区目录会以 runner 错误失败；插件不会重建它。
   配置的 `cwd` 不存在时，报错会指明该目录。
 

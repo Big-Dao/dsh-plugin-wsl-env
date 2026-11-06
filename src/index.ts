@@ -64,6 +64,7 @@ import { FsCodedError } from "./fsio-text.js";
 import { confinedAgent } from "./agent-confined.js";
 import { SessionRuntimes, probeSessionRuntime, sessionRuntimes, setSessionNativeAgent } from "./session-runtime.js";
 import { configureAgentBackend, ensureNativeSessionAgent } from "./native-agent.js";
+import { installMessagesLocale, t } from "./messages.js";
 import { mergeLiveResidentStatus, type DoctorReport } from "./doctor-live.js";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -626,6 +627,7 @@ export class WslShellExecutor
   constructor(ctx: Context, config: WslShellExecutorConfig) {
     super(ctx, config);
     configureAgentBackend(config.agentBackend ?? "auto");
+    installMessagesLocale(ctx);
     this.resolvedDistro = pinnedDistro(config.distro) ?? "";
     this.resolvedShell = config.shell;
     this.resolvedShells = new Map();
@@ -1071,11 +1073,7 @@ export class WslShellExecutor
     if (result?.exitCode === 0) return;
     const code = wslErrorCode(result?.stdout?.text, result?.stderr?.text);
     if (code === undefined) return;
-    throw new Error(
-      `wsl.exe reported ${code} for distro "${distro}": it is not installed, or not running. ` +
-        `Start it with \`wsl.exe -d ${distro}\`, check \`wsl.exe -l -v\`, or point \`distro\` at another one. ` +
-        `This is not a sandbox denial, so running with wider permissions will not help.`,
-    );
+    throw new Error(t("distroUnavailable", { code, distro }));
   }
 
   /**
@@ -1093,10 +1091,7 @@ export class WslShellExecutor
   throwIfWorkdirMissing(result: { exitCode?: number | null, stdout?: { text?: string }, stderr?: { text?: string } } | undefined, workdir: string): void {
     const missing = workdirFailure(result?.stdout?.text, result?.stderr?.text);
     if (missing === undefined) return;
-    throw new Error(
-      `wsl.exe could not enter the working directory "${missing}" inside the distro, so the command ran from "/" instead. ` +
-        `Create it, or point \`cwd\` (or the request's \`workdir\`) at a directory that exists.`,
-    );
+    throw new Error(t("workdirMissing", { missing }));
   }
 
   /**
@@ -1144,11 +1139,7 @@ export class WslShellExecutor
    */
   throwIfWorkdirInAnotherDistro(workdir: string, distro: string): void {
     if (!isAnotherDistrosUnc(workdir, distro)) return;
-    throw new Error(
-      `"${workdir}" names a workspace in another WSL distro, and this profile pins its commands to "${distro}" — ` +
-        `running them here would act on a different machine's tree. Open a session in that distro, ` +
-        `or point cwd/workdir at this distro.`,
-    );
+    throw new Error(t("workdirAnotherDistro", { workdir, distro }));
   }
 
   /**
@@ -1591,6 +1582,7 @@ export class WslFileSystem extends LocalFileSystem {
     const refusal = shareSubstrateRefusal(config.substrate);
     if (refusal !== null) throw new Error(refusal.message);
     super(ctx, config);
+    installMessagesLocale(ctx);
     this.resolvedDistro = pinnedDistro(config.distro) ?? "";
     this.resolvedHome = undefined;
     this.resolvedHomes = new Map();

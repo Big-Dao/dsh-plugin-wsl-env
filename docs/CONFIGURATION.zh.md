@@ -287,6 +287,17 @@ profile 不使用会话 runtime 时，设置 `sessionSandbox: false`。
 会报告没有沙箱生效。在 `fs-routing` 上，该设置会禁用变更围栏；
 无论开关如何，该行都报告 `sandboxMode: undefined`。
 
+### 消息语言
+
+插件的拒绝与修复消息（`sessionSandbox` 预检判定、`bwrap` 的安装与修复提示、
+发行版/工作目录命令错误）跟随 harness 应用的语言设置：偏好经宿主 settings
+服务从 `locale` 条目的 `preference` 字段读取，切换语言无需重启应用。
+内置中文（`zh`，含 `zh-CN`、`zh-Hans` 标签）与英文；其他语言——以及
+没有 settings 服务的 profile 或未设置偏好的情况——渲染英文。消息内的
+命令、配置键与文件路径一律不翻译。三组消息按设计保持英文：
+`fs-decisions` 中的 `FS_*` 拒绝文本与 fsio 复刻（工具层按字节匹配这些
+字符串），以及独立运行的 `scripts/doctor.mjs`（它在应用之外执行）。
+
 ## 诊断配置问题与拒绝
 
 CLI 发行版可用 `dsh --profile <name> --dump-config` 检查合成后的 profile，

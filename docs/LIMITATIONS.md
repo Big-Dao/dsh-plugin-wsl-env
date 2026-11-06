@@ -94,6 +94,14 @@ operations never use the 9p share.
   [ARCHITECTURE.md](ARCHITECTURE.md#reported-enforcement).
 - **`bubblewrap` must be installed**, or both providers fail with the install
   command; a session-start preflight surfaces the same text as an advisory warning.
+- **Message localization is partial by design** — the preflight verdicts, `bwrap`
+  remedies and distro/workdir errors follow the app's Language setting
+  ([CONFIGURATION.md](CONFIGURATION.md#message-language)); the `FS_*` refusal texts
+  in `fs-decisions` and the fsio replica stay byte-identical English because the
+  tool layer matches on those strings, and the standalone `scripts/doctor.mjs`
+  always prints English because it runs outside the app and cannot read the
+  host's locale preference. A remedy composed at probe time keeps the language
+  the probe ran in until that probe runs again.
 - A workspace directory deleted mid-session fails with a runner error; the plugin
   does not recreate it. A configured `cwd` that does not exist is reported as an
   error naming the directory.

@@ -20,6 +20,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bwrapFailure, bwrapUsable, createSandboxCore, withBwrapHint } from "../lib/sandbox-core.js";
+import { configureMessagesLocale, resetMessagesLocaleForTests } from "../lib/messages.js";
 
 if (process.platform === "win32") {
   console.log("SKIP  sandbox checks: the fake wsl.exe is a POSIX script");
@@ -188,6 +189,22 @@ await check("the other package families get their own direct commands", async ()
   const zypperWsl = await shapedFake("wsl-missing-zypper.exe", "wsl.exe failed: execv bwrap failed: No such file or directory", "zypper");
   await bwrapUsable({ wslPath: zypperWsl, distro: "sles" });
   assert.match(bwrapFailure(zypperWsl, "sles") ?? "", /zypper --non-interactive install bubblewrap/, "zypper's spelling");
+});
+
+await check("the family remedy keeps the direct command verbatim in the configured language", async () => {
+  // The probe composes its remedy at probe time, so the language must be
+  // switched BEFORE the probe — matching a session that opens in the
+  // configured language.
+  configureMessagesLocale("zh");
+  try {
+    const wslPath = await shapedFake("wsl-missing-dnf-zh.exe", "wsl.exe failed: execv bwrap failed: No such file or directory", "dnf");
+    await bwrapUsable({ wslPath, distro: "fedora" });
+    const remedy = bwrapFailure(wslPath, "fedora") ?? "";
+    assert.match(remedy, /不可用/, "the wrapper sentence is the zh one");
+    assert.match(remedy, /wsl\.exe -d fedora -u root -- dnf install -y bubblewrap/, "the direct command is untouched by translation");
+  } finally {
+    resetMessagesLocaleForTests();
+  }
 });
 
 await check("a remembered failure clears on the key's next success", async () => {

@@ -21,6 +21,7 @@ import { createProbeCache } from "./probe-cache.js";
 import { toLinuxPath } from "./paths.js";
 import { runCapture } from "./wsl.js";
 import { bwrapArgvPrefix } from "./bwrap.js";
+import { t } from "./messages.js";
 
 /**
  * bwrap's denial dialect: a write outside the granted mounts fails with EROFS,
@@ -150,14 +151,10 @@ async function composeBwrapFailure(wslPath: string, distro: string, cause: unkno
   const kind = classifyProbeOutput(output);
   if (kind === "broken") {
     // A broken verdict requires the bwrap banner, so the output is never empty here.
-    return (
-      `bwrap is installed inside distro "${distro}" but failed the usability probe: ${output}. ` +
-      `This is usually the kernel (unprivileged user namespaces disabled) or an unusable bwrap build rather than a missing package, so reinstalling will not help. ` +
-      `Check \`wsl.exe -d ${distro} --exec bwrap --version\` inside the distro, or set \`sandbox: false\` on the wsl-shell and wsl-fs rows to run unconfined.`
-    );
+    return t("bwrapBroken", { distro, output });
   }
   const remedy = missingBwrapRemedy(distro, await detectPackageFamily(wslPath, distro, signal));
-  return kind === "unknown" && output.length > 0 ? `${remedy} The probe failed with: ${output}` : remedy;
+  return kind === "unknown" && output.length > 0 ? `${remedy}${t("bwrapProbeFailedSuffix", { output })}` : remedy;
 }
 
 /**
@@ -173,18 +170,8 @@ async function composeBwrapFailure(wslPath: string, distro: string, cause: unkno
  */
 export function missingBwrapRemedy(distro: string, family?: string): string {
   const direct = family === undefined ? undefined : FAMILY_INSTALL[family];
-  if (direct === undefined) {
-    return (
-      `bwrap is not usable inside distro "${distro}". Install it with ` +
-      `"scripts/bootstrap.sh ${distro} --install" (from the package), or install the ` +
-      `"bubblewrap" package with the distro's package manager.`
-    );
-  }
-  return (
-    `bwrap is not usable inside distro "${distro}". Install it with ` +
-    `"scripts/bootstrap.sh ${distro} --install" (from the package), or directly: ` +
-    `wsl.exe -d ${distro} -u root -- ${direct}`
-  );
+  if (direct === undefined) return t("bwrapMissingGeneric", { distro });
+  return t("bwrapMissingFamily", { distro, direct });
 }
 
 /**
@@ -197,10 +184,7 @@ export function missingBwrapRemedy(distro: string, family?: string): string {
  * @returns the operator-facing hint text.
  */
 export function bwrapInstallHint(distro: string): string {
-  return (
-    `bwrap failed at run time inside distro "${distro}". Check \`bwrap --version\` there, ` +
-    `or reinstall it: "scripts/bootstrap.sh ${distro} --install".`
-  );
+  return t("bwrapRuntimeFailure", { distro });
 }
 
 /**

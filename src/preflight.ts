@@ -31,6 +31,7 @@ import { defaultDistro, runCapture } from "./wsl.js";
 import { distroOfUnc, isDefaultDistro, pinnedDistro } from "./distro-route.js";
 import { bwrapFailure, bwrapUsable, missingBwrapRemedy } from "./sandbox-core.js";
 import { sessionScopeProblem, sessionScopeProbeScript, sessionScopeSweepScript } from "./session-scope.js";
+import { installMessagesLocale } from "./messages.js";
 
 export const name = "wsl-preflight";
 
@@ -135,6 +136,10 @@ export type PreflightContext = Context & {
  * @param config - the schema-validated plugin config.
  */
 export async function apply(ctx: PreflightContext, config: PreflightConfig = {}): Promise<void> {
+  // Before the sandbox early return: the advisories' language follows the
+  // harness locale even when this profile runs without the preflight's own
+  // probes (the shell and fs rows install the same wiring themselves).
+  installMessagesLocale(ctx);
   if (!(config.sandbox ?? true)) return;
   const wslPath = config.wslPath ?? "wsl.exe";
   const warn = (message: string) => ctx.logger?.warn?.(message);

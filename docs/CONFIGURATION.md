@@ -137,6 +137,8 @@ The root router is app-level, not session-owned, so it does not use
 | | `sessionSandbox` | `true` | Also check systemd, the user manager, `systemd-run`, and Linger. Set false when the profile does not use a session runtime. |
 | `wsl-shell-env` | `distro` | `''` | Distro used to populate the `DSH_WSL_*` environment facts. |
 | | `portsRefreshMs` | `10000` | Listening-port snapshot interval, in milliseconds. |
+| `wsl-update-check` | `enabled` | `true` | Whether the plugin checks the app's plugin manager for a newer stable release. The result is served as `DSH_WSL_PLUGIN_UPDATE`; the check never installs. |
+| | `intervalMs` | `86400000` | Check interval, in milliseconds (first check 2–10 minutes after startup); floored at one minute. |
 
 The GUI file tree and previews use the bundled `workspace-files` row through
 `fs-routing`; they do not use a separate WSL provider row. To change its
@@ -297,6 +299,21 @@ Setting `sandbox: false` on `wsl-shell` or `wsl-fs` runs commands or writes
 without confinement; their `sandboxMode` becomes `undefined`. The tool layer
 reports that no sandbox is active. On `fs-routing`, the setting disables the
 mutation fence; that row reports `sandboxMode: undefined` either way.
+
+### Message language
+
+The plugin's refusal and remedy messages (the `sessionSandbox` preflight
+verdicts, the `bwrap` install and repair hints, and the distro/workdir
+command errors) follow the harness app's Language setting: the preference is
+read from the host `locale` entry's `preference` field through the host
+settings service, and a language switch takes effect without a restart.
+Chinese (`zh`, including `zh-CN` and `zh-Hans` tags) and English ship; every
+other language — and any profile without the settings service, or an unset
+preference — renders English. Commands, config keys and file paths inside a
+message are never translated. Three message groups stay English by design:
+the `FS_*` refusal texts in `fs-decisions` and the fsio replica (the tool
+layer matches on those strings byte-for-byte), and the standalone
+`scripts/doctor.mjs`, which runs outside the app.
 
 ## Diagnose configuration and refusals
 

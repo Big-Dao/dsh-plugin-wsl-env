@@ -16,6 +16,7 @@ import {
   sessionScopeStopArgv,
   sessionScopeUnit,
 } from "../lib/session-scope.js";
+import { configureMessagesLocale, resetMessagesLocaleForTests } from "../lib/messages.js";
 
 let passed = 0;
 /** @type {Array<[string, () => void | Promise<void>]>} */
@@ -99,6 +100,18 @@ check("the preflight verdict maps to a remedy", () => {
   const failed = sessionScopeProblem({ output: { stdout: "", error: "wsl.exe failed: boom" }, distro: "ubuntu" }) ?? "";
   assert.match(failed, /preflight/);
   assert.match(failed, /boom/);
+});
+
+check("the no-linger remedy keeps its command verbatim in the configured language", () => {
+  configureMessagesLocale("zh");
+  try {
+    const remedy = sessionScopeProblem({ output: { stdout: "no-linger" }, distro: "ubuntu" }) ?? "";
+    assert.match(remedy, /loginctl enable-linger \$USER/, "the remedy command survives translation");
+    assert.match(remedy, /ubuntu/, "the distro name is interpolated");
+    assert.doesNotMatch(remedy, /outlive a login session/, "the sentence is not the english one");
+  } finally {
+    resetMessagesLocaleForTests();
+  }
 });
 
 

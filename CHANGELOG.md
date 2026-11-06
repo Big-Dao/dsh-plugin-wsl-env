@@ -16,6 +16,23 @@ were part of the record.
 
 ## [Unreleased]
 
+### Added
+
+- **The plugin's refusal messages follow the harness language.** A new
+  `lib/messages.js` catalog renders the `sessionSandbox` preflight verdicts,
+  the `bwrap` install and repair hints, and the distro/workdir command errors
+  in English or Chinese, selected from the host `locale` entry's `preference`
+  field through an optional `settings` injection (the base bundle's service; a
+  profile without it, an unset preference, or any other language keeps
+  English). The read refreshes on `settings/document-updated`, so switching
+  the app's language takes effect without a restart. Commands, config keys
+  and file paths stay verbatim in both catalogs. The English templates are the
+  shipped texts byte-for-byte, and three groups stay English by design — the
+  `FS_*` refusals in `fs-decisions` and the fsio replica (the tool layer
+  matches on those strings) and the standalone `scripts/doctor.mjs` — see
+  [CONFIGURATION.md — Message language](docs/CONFIGURATION.md#message-language)
+  and [LIMITATIONS.md](docs/LIMITATIONS.md).
+
 ## [0.19.0] - 2026-11-06
 
 One theme: the wire and the doctor catch up with the substrate — protocol v7

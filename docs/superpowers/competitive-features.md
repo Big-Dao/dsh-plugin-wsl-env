@@ -58,3 +58,30 @@ which planes route. If the shell plane stays host-side, the fix is a headless
 profile patch or root-scoping — either way it is the plugin's autonomy story:
 scripted, scheduled, UI-closed runs in the right distro under bwrap. This is
 the one candidate that changes what the product *is* rather than how it feels.
+(2026-11-06 demoted from top candidate: the maintainer's actual autonomy need
+is background continuity of desktop-app sessions, not scripted one-shots —
+see the continuity probe below. The spike remains valid for CI/scripting use
+and needs no urgency.)
+
+## Background continuity of desktop-app sessions (2026-11-06)
+
+The desktop app is "close window, keep process": tray icon, host process
+resident (maintainer fact). Architecture-wise the wanted experience — close
+the window, the agent keeps working, reopen and reattach to history and live
+state — should already work: gateway reconnection and session-controller
+reattach exist for exactly this. What has never been tested is an **in-flight
+turn across window close/reopen**. Three candidate break points, any of which
+the experiment names:
+
+1. the app tears down active sessions on window close (a "polite" interrupt);
+2. the plugin's `wsl.exe` child chain gets cleaned up on close (Windows does
+   not kill children automatically, but the app may);
+3. the systemd session scopes and the distro-side resident agent do not
+   survive to reopen.
+
+**Probe (S, real machine, manual window close):** start a background job
+writing a marker file after `sleep 120` — one on the host side, one through
+the plugin's distro agent — close the window for ~3 minutes, reopen the same
+session, then check: turn continuity, job completion notices, marker files,
+scope/agent liveness. Whichever leg fails names the fix and its owner
+(upstream session teardown vs plugin child-chain hardening).

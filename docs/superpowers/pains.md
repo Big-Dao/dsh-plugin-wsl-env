@@ -13,6 +13,12 @@ feature candidate; a pain seen once is noise. No solution proposals in the log
 
 ## Log
 
+- 2026-11-06 | session | long agent tasks are hostage to the desktop window:
+  the maintainer wants "close the UI, the agent keeps working; reopen and
+  reattach". The app already keeps its process resident in the tray, so the
+  remaining unknown is whether an in-flight turn survives window close/reopen
+  (competitive-features.md, background-continuity probe). | risk: a killed
+  long task | recurs: every long task
 - 2026-11-06 | @ | triage observation, not an incident: `@` completion latency
   is acceptable in real use — the human scanning the candidate list dominates
   the 9p walk (84.7 ms vs 1.5 ms). Recorded as the counter-example that killed

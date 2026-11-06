@@ -95,10 +95,9 @@ package name `dsh-plugin-wsl-env`, then enable it. The plugin manager writes the
 active profile's `package.json` — the dependency and the `dsh.profile.bundles`
 entry — which is the same state the CLI command below produces. To run from a
 checkout, add it as a linked package instead of a name. Start it the way the
-installer's shortcut does: `DeepSeek Harness.exe`, no arguments. The GUI has no
-`--profile` switch — it boots the `desktop` profile, the one the Plugins page
-writes into — so a second profile is a CLI-distribution thing
-(`dsh --profile <name>`).
+installer's shortcut does: `DeepSeek Harness.exe`, no arguments. The app opens
+the profile it is configured with — the one the Plugins page writes into — so a
+different profile is a CLI-distribution thing (`dsh --profile <name>`).
 
 **CLI distribution** (`dsh` on `PATH`), in a Windows terminal:
 
@@ -153,7 +152,13 @@ Settings live on named rows in `$DSH_HOME/profiles/<name>/cordis.patch.yml`. The
 | `directory-picker-wsl` | `includeHostHome` | `true` | also list the Windows home directory |
 | `subprocess-wsl` | `distro` | `''` | distro mode; empty/`auto` follows the launch directory |
 
-`wsl-shell` and `wsl-fs` are inside the shipped `wsl` preset, so overriding them by id does not work. Override the whole `preset-wsl` row instead; [docs/CONFIGURATION.md](docs/CONFIGURATION.md) has the recipe and the remaining keys. [`cordis.patch.yml`](cordis.patch.yml) is the commented reference for every shipped value.
+`fs-routing` is the top-level router for root-level `ctx.fs` calls: its distro
+settings are independent of `wsl-fs`, and it is a top-level row patched by id
+like the others. `wsl-shell` and `wsl-fs` are inside the shipped `wsl` preset,
+so overriding them by id does not work. Override the whole `preset-wsl` row
+instead; [docs/CONFIGURATION.md](docs/CONFIGURATION.md) has the recipe and the
+remaining keys. [`cordis.patch.yml`](cordis.patch.yml) is the commented
+reference for every shipped value.
 
 ## Architecture
 

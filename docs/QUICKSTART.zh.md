@@ -49,8 +49,8 @@ dsh --profile <profile> --dump-config      # 输出中必须包含插件的行
 ## 3. 打开 WSL 工作区
 
 启动桌面应用的方式与它安装的快捷方式一致：`DeepSeek Harness.exe`，不带参数——
-它启动的是 `desktop` profile，也就是 Plugins 页面写入的那个。（CLI 发行版：
-`dsh --profile <profile>` 启动同一个 profile。）
+它打开的是应用自己配置的 profile（也就是 Plugins 页面写入的那个）。（CLI
+发行版：`dsh --profile <名字>` 启动指定名字的 profile。）
 
 在 GUI 中，通过选择器打开文件夹（`\\wsl.localhost\<distro>\home\<you>\proj`），
 或直接打开 UNC 路径。会话的命令、文件工具、终端和预览

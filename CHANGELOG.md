@@ -157,10 +157,9 @@ were part of the record.
   profile's plugins.
 
 - **The desktop start line is the executable, not a command.** The installer's
-  shortcut launches `DeepSeek Harness.exe` with no arguments, and the GUI boots
-  the reserved `desktop` profile — the one the Plugins page writes into. There
-  is no `--profile` switch to document; `dsh --profile <name>` stays a
-  CLI-distribution line.
+  shortcut launches `DeepSeek Harness.exe` with no arguments, and the GUI opens
+  the profile it is configured with — the one the Plugins page writes into.
+  `dsh --profile <name>` stays a CLI-distribution line.
 
 ## [0.18.0] - 2026-11-05
 

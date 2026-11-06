@@ -210,6 +210,7 @@ const docsExceptions = new Set([
   "docs/REQUIREMENTS.zh.md", // governance register (shipped: ARCHITECTURE links it)
   "docs/upstream-open-in-app-bug.md", // the dated incident record
   "docs/UPSTREAM-SPAWN-SEAM.md", // upstream negotiation, not user-facing
+  "docs/UPSTREAM-SESSION-BACKGROUND-KILL.md", // upstream negotiation, not user-facing
   "docs/UPSTREAM-TERMINAL-FONT.md", // upstream negotiation, not user-facing
 ]);
 const docsUnshipped = tracked

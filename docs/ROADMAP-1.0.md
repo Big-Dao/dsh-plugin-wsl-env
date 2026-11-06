@@ -197,8 +197,9 @@ editor/LSP rewrite without an upstream seam, and default telemetry.
 
 **Decision rules:**
 
-- A new feature candidate originates from a logged pain
-  ([pains.md](superpowers/pains.md)), not from a document-inferred gap; it
+- A new feature candidate originates from a logged pain in the
+  repository-local pain journal (`docs/superpowers/pains.md`), not from a
+  document-inferred gap; it
   passes the three triage questions (who hurts, magnitude on the human time
   scale, cost of not doing it) before entering this roadmap. The 2026-11-06
   batch is the calibration: per-file watch events, the `@` seam push and the

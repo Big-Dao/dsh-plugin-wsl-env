@@ -1,4 +1,4 @@
-# Upstream report: background jobs are killed at session re-adoption
+# Bug: background jobs are killed at session re-adoption
 
 Status: **filed upstream as
 [#12433](https://github.com/deepseek-ai/deepseek-harness/discussions/12433)
@@ -91,6 +91,8 @@ running tasks will not be interrupted.
 
 ## 中文版（双语报告后半）
 
+标题（上游已按此修改）：Bug: background jobs are SIGTERM-killed when the desktop window is reopened after tray-hide, breaking the "running tasks will not be interrupted" promise。
+
 ### 摘要
 
 桌面应用（Windows）窗口收进托盘时若有后台任务在飞，**重新打开窗口的瞬间任务会被 SIGTERM 杀死**——而会话历史完好保留。这与首隐藏提示的承诺「正在运行的任务不会中断，可在系统托盘中重新打开窗口」直接矛盾。
@@ -140,3 +142,9 @@ running tasks will not be interrupted.
 
 - 现场有 WSL 工作区插件（dsh-plugin-wsl-env）；对照进程走同一条 wsl.exe 路径却逃过一劫、Host 级单例全部存活，插件已排除嫌疑。
 - 愿意配合测试修复或在本地做更多插桩。
+
+---
+
+### 给维护者的元信息
+
+本仓库停用了 issues，故此 bug 以 General discussion 提交（分类列表无 Bug 类）；已请求维护者补 `bug` 标签（Big-Dao 无标签权限，2026-11-06）。

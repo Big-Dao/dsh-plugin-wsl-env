@@ -403,6 +403,29 @@ export declare class WslAgent {
      */
     private beginStart;
     /**
+     * The transport's failure and exit wiring, in the order the spawn attaches
+     * it: a spawn error, the stdin EPIPE guard, the handshake stderr tail, the
+     * exit handler, the stdout reader, then the diagnostic stderr reader.
+     *
+     * @param child - the freshly spawned transport.
+     * @param current - whether this child is still the current generation.
+     * @param settleStart - the handshake settler.
+     * @param handshakeTimer - the handshake watchdog.
+     */
+    private wireAgentProcess;
+    /**
+     * The stdout line splitter: a bounded buffer instead of readline, which
+     * accumulates an over-long line whole before anyone can object — exactly the
+     * unbounded-capture hole. Protocol lines are ASCII by construction (ids,
+     * numbers, base64), so chunk-boundary decoding is not a concern.
+     *
+     * @param child - the transport to read.
+     * @param current - whether this child is still the current generation.
+     * @param settleStart - the handshake settler.
+     * @param handshakeTimer - the handshake watchdog.
+     */
+    private readAgentOutput;
+    /**
      * One stdout line from the agent. The first must be a matching HELLO.
      *
      * @param line - one protocol line, terminator stripped.
@@ -484,6 +507,33 @@ export declare class WslAgent {
      * @param signalName - the killing signal, null on a normal exit.
      */
     private handleProcessExit;
+    /**
+     * Sort the requests a dead transport left behind into the three fates the
+     * one rebuild allows. Only provably read-only FS requests ride it: whatever
+     * their first execution did, it changed nothing. A command or a write that
+     * was in flight has UNKNOWN state — replaying it would run non-idempotent
+     * work a second time, or report a guarded create that actually succeeded as a
+     * refusal — so it fails with that fact instead. An aborted or unsent entry
+     * was already answered, or never ran, and settles locally.
+     *
+     * @param carrying - the entries taken off the map before the rebuild.
+     * @returns the entries that ride the rebuild.
+     */
+    private partitionForRebuild;
+    /**
+     * Start the rebuild and hand it the replayable requests under fresh ids.
+     * A stale watchdog must not survive the rebuild: its closure kills
+     * `this.process`, which is by then the NEW transport.
+     *
+     * @param relayable - the requests `partitionForRebuild` cleared to replay.
+     */
+    private relayOverRebuild;
+    /**
+     * Fail every entry still on the map: the second death is permanent.
+     *
+     * @param message - the reason, already stored as `lastError`.
+     */
+    private rejectAllPending;
     /**
      * Register one request's pending entry and write its frame: the shared
      * request machinery (abort, submission, the ACK-armed watchdog). The

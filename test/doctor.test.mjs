@@ -793,6 +793,38 @@ try {
     rmSync(emptyDir, { recursive: true, force: true });
   });
 
+  await check("--bundle writes the local diagnostic file, and --redact removes the paths", () => {
+    const bundlePath = join(scratch, "bundle.json");
+    const run = doctor(["--json", "--bundle", bundlePath], { FAKE_STOPPED: "no" });
+    assert.equal(run.status, 0, run.stderr);
+    assert.match(run.stdout, /bundle: written to/);
+    const bundle = JSON.parse(readFileSync(bundlePath, "utf8"));
+    assert.equal(bundle.kind, "dsh-plugin-wsl-env doctor bundle");
+    assert.equal(bundle.report.verdict, "ready");
+    assert.equal(bundle.report.schemaVersion, 2);
+    assert.match(String(bundle.plugin.version), /^\d+\./, "the plugin version rides along for the setup report");
+    assert.equal(bundle.redacted, false);
+    rmSync(bundlePath, { force: true });
+    const redactedPath = join(scratch, "bundle-redacted.json");
+    const redacted = doctor(["--bundle", redactedPath, "--redact"]);
+    assert.equal(redacted.status, 0, redacted.stderr);
+    const payload = readFileSync(redactedPath, "utf8");
+    assert.equal(payload.includes("/home/andy"), false, "the home path (the distro.home detail) is gone");
+    assert.match(payload, /<redacted-home>/);
+    assert.equal(JSON.parse(payload).report.verdict, "ready", "the redacted file is still valid JSON with the full report");
+    rmSync(redactedPath, { force: true });
+  });
+
+  await check("a bundle is written even when the run ends early on a blocked machine", () => {
+    const bundlePath = join(scratch, "bundle-blocked.json");
+    const run = doctor(["--json", "--distro", "missing", "--bundle", bundlePath]);
+    assert.equal(run.status, 1);
+    const bundle = JSON.parse(readFileSync(bundlePath, "utf8"));
+    assert.equal(bundle.report.verdict, "blocked");
+    assert.ok(bundle.report.blockers.includes("distro.present"));
+    rmSync(bundlePath, { force: true });
+  });
+
   await check("the git whitelist joins the fixable set behind the confirmation gate", () => {
     rmSync(join(stateDir, "git-whitelisted"), { force: true });
     const unfixed = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));

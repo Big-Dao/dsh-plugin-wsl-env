@@ -45,7 +45,7 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -397,7 +397,7 @@ function inDistro(distro, script) {
 /**
  * Parse the doctor's own arguments.
  * @param {string[]} argv - `process.argv.slice(2)`.
- * @returns {{ distro: string, wsl: string, json: boolean, fix: boolean, install: boolean, yes: boolean, readOnly: boolean, all: boolean, help: boolean }} the options.
+ * @returns {{ distro: string, wsl: string, json: boolean, fix: boolean, install: boolean, yes: boolean, readOnly: boolean, all: boolean, bundle: string, redact: boolean, help: boolean }} the options.
  */
 function parseArgs(argv) {
   const options = {
@@ -409,6 +409,8 @@ function parseArgs(argv) {
     yes: false,
     readOnly: false,
     all: false,
+    bundle: "",
+    redact: false,
     help: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -419,6 +421,9 @@ function parseArgs(argv) {
     else if (arg === "--yes" || arg === "-y") options.yes = true;
     else if (arg === "--read-only") options.readOnly = true;
     else if (arg === "--all") options.all = true;
+    else if (arg === "--bundle") options.bundle = argv[++i] ?? "";
+    else if (arg.startsWith("--bundle=")) options.bundle = arg.slice("--bundle=".length);
+    else if (arg === "--redact") options.redact = true;
     else if (arg === "--help" || arg === "-h") options.help = true;
     else if (arg === "--distro") options.distro = argv[++i] ?? "";
     else if (arg.startsWith("--distro=")) options.distro = arg.slice("--distro=".length);
@@ -612,7 +617,7 @@ function rejectReadOnly() {
 
 /**
  * Run the doctor.
-  * @param {{ distro: string, wsl: string, json: boolean, fix: boolean, install: boolean, yes: boolean, readOnly: boolean, all: boolean, help: boolean }} options - the parsed options.
+  * @param {{ distro: string, wsl: string, json: boolean, fix: boolean, install: boolean, yes: boolean, readOnly: boolean, all: boolean, bundle: string, redact: boolean, help: boolean }} options - the parsed options.
  * @returns {Promise<number>} the exit status.
  */
 async function main(options) {
@@ -629,6 +634,8 @@ async function main(options) {
   // triage the per-section duration without a separate durations column.
   const runStart = Date.now();
   let phaseStart = Date.now();
+  // The package manifest, read once: the peers check and the bundle both need it.
+  const manifest = /** @type {{ name?: string, version?: string, peerDependencies?: Record<string, string> }} */ (JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")));
   /** @type {Record<string, number>} */
   const timingsMs = {};
   /** Close the open phase under `name` and open the next one.
@@ -724,7 +731,8 @@ async function main(options) {
   // default) means the workspace decides, so every installed distro is a
   // candidate and all are checked; `default` resolves to the distro WSL
   // itself marks as default; a pinned name checks exactly that one.
-  const runInfo = /** @type {{ distros: string[], config?: EffectiveConfig, timingsMs?: Record<string, number> }} */ ({ distros: [], timingsMs });
+  const runInfo = /** @type {{ distros: string[], config?: EffectiveConfig, timingsMs?: Record<string, number>, bundle?: { path: string, redact: boolean, manifest: { name?: string, version?: string, peerDependencies?: Record<string, string> } } }} */ ({ distros: [], timingsMs });
+  if (options.bundle.length > 0) runInfo.bundle = { path: options.bundle, redact: options.redact, manifest };
   runInfo.config = { ...effective };
   /** The `wsl.exe -l -v` table, parsed once: the default marker feeds target selection, the VERSION column feeds `distro.wsl-mode`. */
   const wslTable = parseWslVerbose((await run([wslExe, "-l", "-v"])).stdout.replace(/\0/g, ""));
@@ -1122,7 +1130,6 @@ async function main(options) {
   }
 
   // ---- peers ---------------------------------------------------------------
-  const manifest = /** @type {{ version?: string, peerDependencies?: Record<string, string> }} */ (JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")));
   const peers = Object.entries(manifest.peerDependencies ?? {});
   const badPeers = [];
   const unknownPeers = [];
@@ -1525,7 +1532,7 @@ async function confirm(question, yes) {
  *
  * @param {Check[]} checks - the collected checks (distro-scoped ones carry their `distro`).
  * @param {{ json: boolean }} options - the output mode.
- * @param {{ distros?: string[], config?: EffectiveConfig, timingsMs?: Record<string, number> }} [runInfo] - the target distros, the effective configuration, and the per-phase wall clock.
+ * @param {{ distros?: string[], config?: EffectiveConfig, timingsMs?: Record<string, number>, bundle?: { path: string, redact: boolean, manifest: { name?: string, version?: string, peerDependencies?: Record<string, string> } } }} [runInfo] - the target distros, the effective configuration, the per-phase wall clock, and the bundle request.
  * @returns {number} 0 when the verdict is `ready`, 1 when `blocked`.
  */
 function report(checks, options, runInfo = {}) {
@@ -1588,13 +1595,31 @@ function report(checks, options, runInfo = {}) {
     else console.log(`verdict: BLOCKED by: ${blockers.join(", ")} — apply the fixes above, then rerun`);
     if (summary.fail > 0 || summary.skipped > 0) console.log("run with --fix to sweep stale scopes; --fix --install asks before installing packages");
   }
+  if (runInfo.bundle !== undefined) {
+    const bundle = {
+      kind: "dsh-plugin-wsl-env doctor bundle",
+      contentNote: "the doctor report, the plugin and peer versions, and the effective configuration. No file contents, no environment variables, no telemetry — attach this file to a setup report.",
+      plugin: { name: runInfo.bundle.manifest.name ?? "dsh-plugin-wsl-env", version: runInfo.bundle.manifest.version ?? "", peers: runInfo.bundle.manifest.peerDependencies ?? {} },
+      ...(runInfo.config === undefined ? {} : { config: runInfo.config }),
+      report: { schemaVersion: 2, generatedAt: new Date().toISOString(), checks: stamped, summary, distroVerdicts, verdict, blockers, ...(runInfo.timingsMs === undefined ? {} : { timingsMs: runInfo.timingsMs }) },
+      redacted: runInfo.bundle.redact ? "home and DSH paths replaced with <redacted-*>" : false,
+    };
+    let payload = `${JSON.stringify(bundle, null, 2)}\n`;
+    if (runInfo.bundle.redact) {
+      const homeReal = homedir();
+      const dshReal = process.env.DSH_HOME !== undefined && process.env.DSH_HOME.length > 0 ? process.env.DSH_HOME : join(homeReal, ".dsh");
+      payload = payload.split(homeReal).join("<redacted-home>").split(dshReal).join("<redacted-dsh-home>");
+    }
+    writeFileSync(runInfo.bundle.path, payload);
+    console.log(`bundle: written to ${runInfo.bundle.path} (${payload.length} bytes${runInfo.bundle.redact ? ", redacted" : ""})`);
+  }
   return verdict === "blocked" ? 1 : 0;
 }
 
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
-    console.log("node scripts/doctor.mjs [distro] [--all] [--json] [--fix] [--install] [--yes] [--read-only]");
+    console.log("node scripts/doctor.mjs [distro] [--all] [--json] [--fix] [--install] [--yes] [--read-only] [--bundle <path>] [--redact]");
   } else {
     process.exitCode = await main(options);
   }

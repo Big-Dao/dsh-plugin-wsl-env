@@ -7,6 +7,18 @@ start as Node, exit 1, and the UI reports launch-failed. File Explorer and
 other non-Electron launchers work. The failure is the same on a Windows
 folder and on a WSL UNC workspace.
 
+Update 2026-11-06: the `0.2.1-rc.5` line cleared the flag in
+`launchDetachedApp` (`clearedElectronFlag`, extracted in
+[app.asar.0.2.1-rc.5.open-in-app.index.js](upstream/app.asar.0.2.1-rc.5.open-in-app.index.js)),
+and **`0.2.2-rc.1` lost that clearing** — the regression is back on the
+current runtime. The local machine carries a re-applied patch to the
+installed `app.asar` (same helper, both `lib/index.js` and
+`lib/types/resolver.js` of `@deepseek-ai/dsh-host-open-in-app`);
+`test/probe/open-in-app-patch.sh` detects which state an install is in
+(upstream-fixed / locally-patched / broken) and must be run after every app
+upgrade, because an upgrade replaces the archive and silently drops the
+local patch.
+
 User-facing note: [LIMITATIONS.md](LIMITATIONS.md#host-open-in-app).
 
 ## Environment

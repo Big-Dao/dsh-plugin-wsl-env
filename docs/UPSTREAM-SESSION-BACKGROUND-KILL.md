@@ -148,3 +148,86 @@ running tasks will not be interrupted.
 ### 给维护者的元信息
 
 本仓库停用了 issues，故此 bug 以 General discussion 提交（分类列表无 Bug 类）；已请求维护者补 `bug` 标签（Big-Dao 无标签权限，2026-11-06）。
+
+---
+
+## Source-code confirmation (with excerpts) / 源码确认（附代码）
+
+**This is not a hypothesis chain — every link below was read and quoted from the checked-out `v0.2.2-rc.1`-line source, and the observed SIGTERM matches the code path exactly.**
+**这不是推测链——下列每一环都来自 `v0.2.2-rc.1` 线源码的原文摘录，实测到的 SIGTERM 与代码路径完全吻合。**
+
+### 1. Window close is hide-only / 关窗只隐藏
+
+`apps/desktop/src/main.ts` (close handler, ~line 1301):
+
+```ts
+// Closing hides: the page and the Host keep running, and the next show resumes the same document.
+window.on('close', (event) => {
+  if (quitting || shellInstallerOwnsQuit || sessionEnding) return
+  event.preventDefault()
+  ...
+  if (backgroundNotice === undefined) hide()
+  else backgroundNotice.close(hide)
+```
+
+Confirms the tray observation: the Host is untouched by the close itself. / 证实托盘观察：close 本身不触碰 Host。
+
+### 2. Session disposal cancels the machine, then disposes its scope / 会话销毁先取消机器再拆作用域
+
+`packages/core/agent-loop/src/index.ts` (teardown, lines ~496-524):
+
+```ts
+// Disposal IS a disposed-cause cancel followed by quiescence. New work
+// sent after this point is the sender's bug — the registries are about
+// to drop the agent, so nothing should still hold it.
+if (machine !== undefined) {
+  machine.cancel({ kind: 'disposed' }, { keepInbox: !ready })
+  await machine.whenIdle()
+}
+...
+try {
+  await machine?.scope.dispose()
+} catch (error: unknown) {
+  failures.push(error)
+```
+
+`session/disposed` reaches this teardown; `scope.dispose()` runs the cordis scope teardown of everything the session scope carries — including the bash provider. / `session/disposed` 到达此 teardown；`scope.dispose()` 拆卸会话作用域携带的一切——包括 bash provider。
+
+### 3. The bash provider kills its managed range at composition teardown / bash provider 在组合拆卸时杀托管段
+
+`packages/shell/bash-local/src/index.ts` (header contract, lines 91-95):
+
+```ts
+ * ... managed-range SIGTERM→SIGKILL escalation, and quiescence are the subprocess
+ * ... still-running background process stays managed (killed and joined at
+ * composition teardown) even across an executor reload.
+```
+
+The SIGTERM our jobs died with is this documented escalation. The kill emitter is the subprocess service's scope disposal — the `signal: SIGTERM` detail carries no kill reason because the producer died before the jobs registry could record one, exactly the "producer facts first" settlement in `packages/jobs/jobs-local/src/index.ts` (~line 607). / 任务死时的 SIGTERM 就是这段文档化的升级路径。发出者是 subprocess 服务的 `scope disposal`——`signal: SIGTERM` 详情里没有 kill reason，因为生产者先于 jobs registry 记录而死，正对应 `packages/jobs/jobs-local/src/index.ts`（约 607 行）的 "producer facts first" 结算。
+
+### 4. Reuse is the intended resume semantics / 复用才是 resume 的设计语义
+
+`packages/core/session/src/index.ts` (`enter()`, lines ~1219-1227):
+
+```ts
+ * Re-checks the id for a duplicate: `prepare` and `enter` are public
+ * cross-package primitives and a caller may interleave arbitrary work (or
+ * another create) between them, so a stale prepared session must NOT overwrite
+ * a live store entry of the same id — its detach disposer would later delete
+ * the REAL session.
+```
+
+`packages/api/session-controller/src/agent.ts` (line 175):
+
+```ts
+let resume = this.resumes.get(sessionId)
+if (resume === undefined) {
+  resume = this.resume(sessionId, observation).finally(() => { this.resumes.delete(sessionId) })
+```
+
+The collision boundary and resume dedup both show the design wants a live session REUSED. Observed at reopen: the page boots fresh (browser-timezone metadata lost from the session's runtime context) and the live scope is disposed instead — the only step in the chain that turns "resume" into "teardown", and the one that kills the jobs. / 冲突边界与 resume 去重都表明设计要复用活会话。重开时实测：页面全新启动（会话运行时上下文中的浏览器时区元数据丢失），活作用域被拆卸而非复用——链条里唯一把"resume"变成"teardown"的环节，也正是杀任务的那一环。
+
+### 中文小结 / Summary in Chinese
+
+代码证据表明：杀任务的不是关窗、不是 Host 退出、不是插件——是**会话作用域被拆卸**这条在源码里明文存在的清理路径，被一次本应复用活会话的"重开"触发。`agent-loop` 的注释甚至写明 "Disposal IS a disposed-cause cancel followed by quiescence"——机制按设计运转，但触发条件错了。
+The code trail shows the killer is neither the close, nor a Host exit, nor the plugin — it is the session-scope disposal path, plainly present in the source, triggered by a reopen that should have reused the live session. The agent-loop comment even says "Disposal IS a disposed-cause cancel followed by quiescence" — the mechanism ran as designed; the trigger was wrong.

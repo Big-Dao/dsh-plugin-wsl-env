@@ -41,6 +41,22 @@ const checks = [];
  */
 const check = (name, fn) => checks.push([name, fn]);
 /**
+ * `check` for the checks whose fixture is a `#!/bin/sh` stand-in for `wsl.exe`.
+ * Only a POSIX host can spawn such a file; on Windows the executor's probe gets
+ * `spawn UNKNOWN` and the check would report a fixture failure, not a product
+ * one. The Windows leg prints a skip instead — the covered arms are POSIX-side
+ * probe plumbing that the Linux legs and the coverage job already measure.
+ * @param {string} name - the check's name.
+ * @param {() => void | Promise<void>} fn - the check's assertions.
+ */
+const checkPosix = (name, fn) => {
+  if (process.platform === "win32") {
+    console.log(`SKIP  ${name} (the fake wsl.exe is a POSIX script)`);
+    return;
+  }
+  check(name, fn);
+};
+/**
  * Runs one check now, printing its verdict; a throw fails the process exit code.
  * @param {string} name - the check's name.
  * @param {() => void | Promise<void>} fn - the check's assertions.
@@ -1249,14 +1265,14 @@ const runOneShot = (executor) => {
   /** @type {{ agent?: boolean }} */ (/** @type {unknown} */ (executor.config)).agent = false;
 };
 
-check("a non-default distro's shell resolves through the probe and caches", async () => {
+checkPosix("a non-default distro's shell resolves through the probe and caches", async () => {
   const { executor } = makeProbingExecutor();
   assert.equal(await executor.shellFor("ze-debian"), "/bin/zsh", "the probe's answer is the shell");
   assert.equal(executor.resolvedShells.get("ze-debian"), "/bin/zsh", "the probe result is cached per distro");
   assert.equal(await executor.shellFor("ze-debian"), "/bin/zsh", "the second call rides the cache");
 });
 
-check("an empty workdir resolves against the probed distro home, on both caches", async () => {
+checkPosix("an empty workdir resolves against the probed distro home, on both caches", async () => {
   const { executor, agentCalls } = makeProbingExecutor();
   const execution = await executor.execute(spec({ command: "pwd", workdir: "", timeoutMs: 5000 }));
   await execution.result();
@@ -1267,7 +1283,7 @@ check("an empty workdir resolves against the probed distro home, on both caches"
   assert.equal(executor.resolvedHomes.get("ubuntu"), "/home/ze-user", "the per-distro map warms too");
 });
 
-check("a workdir outside any distro rides the default or pinned distro", async () => {
+checkPosix("a workdir outside any distro rides the default or pinned distro", async () => {
   const pinned = makeExecutor();
   assert.equal(await pinned.executor.distroFor("C:\\proj", ""), DISTRO, "no UNC candidate: the pin answers");
   // Auto mode falls through the candidate loop to WSL's default, probed once.
@@ -1450,7 +1466,7 @@ check("a second distro's substrate is minted per distro and cached", async () =>
   assert.ok(agent, "the per-distro publication agent resolves through the same cache shape");
 });
 
-check("resolve answers through the substrate; a relative path bases on the probed home", async () => {
+checkPosix("resolve answers through the substrate; a relative path bases on the probed home", async () => {
   const { fs, substrate } = makeFs({ wslPath: join(factBin, "wsl.exe") });
   const absolute = await fs.resolve("/home/andy/proj/a.ts");
   assert.equal(absolute.displayPath, "/home/andy/proj/a.ts", "a linux path resolves to itself");
@@ -1468,7 +1484,7 @@ check("resolve answers through the substrate; a relative path bases on the probe
   );
 });
 
-check("lstat answers through the substrate with the same base resolution", async () => {
+checkPosix("lstat answers through the substrate with the same base resolution", async () => {
   const { fs, substrate } = makeFs({ wslPath: join(factBin, "wsl.exe") });
   const methods = methodTable(substrate);
   methods.lstat = async () => ({ type: "file" });
@@ -1493,7 +1509,7 @@ check("a Windows drive path is served through its linux mount and the distro fal
   assert.equal(/** @type {{ type?: string }} */ (info).type, "file", "lstat takes the same mount road");
 });
 
-check("distroForPolicy falls through the policy root to the probed default", async () => {
+checkPosix("distroForPolicy falls through the policy root to the probed default", async () => {
   const auto = makeFs({ distro: "", wslPath: join(factBin, "wsl.exe") });
   assert.equal(
     await auto.fs.distroForPolicy({ mode: "workspace-write", workspaceRoot: "C:\\host\\proj" }),
@@ -1502,7 +1518,7 @@ check("distroForPolicy falls through the policy root to the probed default", asy
   );
 });
 
-check("distroForPath falls through candidates to the probed default", async () => {
+checkPosix("distroForPath falls through candidates to the probed default", async () => {
   const auto = makeFs({ distro: "", wslPath: join(factBin, "wsl.exe") });
   assert.equal(await auto.fs.distroForPath("C:\\proj"), "ze-ubuntu", "no candidate names a distro: the probe answers");
   assert.equal(auto.fs.resolvedDistro, "ze-ubuntu", "the probed default is cached for the provider's life");

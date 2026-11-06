@@ -59,6 +59,14 @@ esac
 `;
 writeFileSync(join(fakeBin, "wsl.exe"), FAKE_WSL);
 chmodSync(join(fakeBin, "wsl.exe"), 0o755);
+/**
+ * The staged `wsl.exe` is a `#!/bin/sh` script: only a POSIX host spawns it,
+ * and on Windows the probe answers `spawn UNKNOWN` instead of the facts. The
+ * checks that read those facts say so and run only here; the fake's path is
+ * still staged, so the mounting checks that do not read facts keep running.
+ */
+const POSIX = process.platform !== "win32";
+if (!POSIX) console.log("SKIP  the fact-probe checks: the staged wsl.exe is a POSIX script");
 
 /** The one probe the row makes before it registers: facts for the pinned distro. */
 const CONFIG = { distro: "ubuntu", portsRefreshMs: 60_000 };
@@ -158,7 +166,7 @@ console.log("PASS  a composition without agents still activates");
 // default one's facts at mount, and resolve() publishes all four keys — the
 // accept path the earlier checks deliberately avoided (it spawns the shared
 // resident, which here fails closed against the fake's `*) exit 1` arm).
-{
+if (POSIX) {
   const mounted = await mount({ withAgents: true, fakeWsl: true, config: { distro: "", portsRefreshMs: 3_600_000 } });
   const resolve = /** @type {NonNullable<Contributor["resolve"]>} */ (mounted.registered[0]?.resolve);
   const accepted = resolve({ agent: { session: { header: { cwd: "\\\\wsl.localhost\\ze-ubuntu\\home\\u" } } } });
@@ -183,7 +191,7 @@ console.log("PASS  a composition without agents still activates");
 // An empty distro list falls back to `defaultDistro`, which reads the same
 // source and throws on nothing — the mount survives with no default name and
 // every resolve names the session's own distro with no facts.
-{
+if (POSIX) {
   process.env.DSH_FAKE_EMPTY_LIST = "1";
   try {
     const mounted = await mount({ fakeWsl: true, config: { distro: "", portsRefreshMs: 3_600_000 } });
@@ -200,7 +208,7 @@ console.log("PASS  a composition without agents still activates");
 
 // `default` mode refuses sessions outside the default distro on both the
 // consider and resolve paths, and accepts sessions inside it.
-{
+if (POSIX) {
   const mounted = await mount({ fakeWsl: true, config: { distro: "default", portsRefreshMs: 3_600_000 } });
   const resolve = /** @type {NonNullable<Contributor["resolve"]>} */ (mounted.registered[0]?.resolve);
   assert.deepEqual(
@@ -225,7 +233,7 @@ console.log("PASS  a composition without agents still activates");
   console.log("PASS  a live agent inside the pin warms at mount");
 }
 
-{
+if (POSIX) {
   const mounted = await mount({ fakeWsl: true, config: { distro: "ze-ubuntu", portsRefreshMs: 3_600_000 } });
   const resolve = /** @type {NonNullable<Contributor["resolve"]>} */ (mounted.registered[0]?.resolve);
   // The listener is wired through the real cordis event bus: emitting

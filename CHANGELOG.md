@@ -16,6 +16,12 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-06
+
+One theme: the wire and the doctor catch up with the substrate — protocol v7
+(WSL-312), the live-resident report (WSL-313), and the probe/e2e evidence a
+behaviour change owes the release notes.
+
 ### Added
 
 - **`doctor --wsl <path>` pins the `wsl.exe` every probe uses.** The doctor's

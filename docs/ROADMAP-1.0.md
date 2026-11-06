@@ -834,7 +834,7 @@ class, `.wslconfig` semantics, the error-code matrix document, per-section
 timing) and accepted B-level items (`--bundle`, DNS/clock legs, the
 `git.win-safe` fix, `skipped` hygiene, deprecated-key detection) — the design
 addendum and the acceptance list in the issue are the contract. Execution plan:
-[2026-11-07 doctor closed-loop plan](superpowers/plans/2026-11-07-doctor-closed-loop.md).
+[2026-11-07 doctor closed-loop plan](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/superpowers/plans/2026-11-07-doctor-closed-loop.md).
 
 **Why:** the doctor is the onboarding promise's enforcement point; the bar is
 the closed loop — after `doctor` and its named remedies, the first command

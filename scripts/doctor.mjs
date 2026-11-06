@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * One-command environment doctor for this plugin (P0.2 / WSL-102).
+ * One-command environment doctor for this plugin (P0.2 / WSL-102; the verdict
+ * and per-distro shape: WSL-316).
  *
  * Answers "will this plugin work here, and if not, what do I paste?" in one
  * read-only pass: Windows and WSL versions, the distro and its shell, bubblewrap
@@ -12,18 +13,26 @@
  *   node scripts/doctor.mjs [distro] [--json] [--fix] [--install] [--yes] [--read-only]
  *                            [--wsl <path to wsl.exe>]
  *
- * Exit status is 0 when nothing failed and 1 when a `fail` check did; warnings
- * (optional tools, a missing cache) do not fail the run. `--fix` performs only
- * safe actions: it sweeps stale `dsh-wsl-*.scope` units (the same sweep the
- * session preflight runs). Installing packages needs `--install` *and* an
- * explicit confirmation (`--yes` skips the prompt, not the flag), so a fix run
- * can never install silently.
+ * Exit status is 0 when the verdict is `ready` and 1 when it is `blocked`;
+ * `ready` means every check that can fail the first command passed **under the
+ * effective configuration** (the profile layers the app actually loads, not the
+ * shipped defaults). The blocking rule has one invariant: a `fail` blocks —
+ * config-awareness downgrades a check's *status* (a missing systemd only fails
+ * under `sessionSandbox: true`; `auto` and `false` downgrade it to a warning),
+ * so there is no per-id exception table to drift. `skipped` marks a check that
+ * could not run because another check failed. `--fix` performs only safe
+ * actions: it sweeps stale `dsh-wsl-*.scope` units (the same sweep the session
+ * preflight runs). Installing packages needs `--install` *and* an explicit
+ * confirmation (`--yes` skips the prompt, not the flag), so a fix run can never
+ * install silently.
  *
  * `--read-only` refuses `--fix`/`--install`; `scripts/diagnose.sh` uses it to stay an
  * alias that can never change the machine.
  *
  * `--json` prints one machine-readable report instead of the human sections.
- * The report shape is versioned (`schemaVersion`).
+ * The report shape is versioned (`schemaVersion: 2`): `verdict`, `blockers`,
+ * `distroVerdicts`, the effective `config`, and per-check `distro` /
+ * `blocksFirstCommand` fields.
  *
  * This CLI always probes a **fresh** resident — the app process's live
  * resident's `deaths`/`lastError` are host-private (no IPC), and the report
@@ -93,10 +102,24 @@ const CACHE_REPORT = [
  * One check result.
  * @typedef {object} Check
  * @property {string} id - stable dotted id.
- * @property {"ok"|"warn"|"fail"|"info"} status - the verdict.
+ * @property {"ok"|"warn"|"fail"|"info"|"skipped"} status - the verdict.
  * @property {string} title - what was checked.
  * @property {string} [detail] - the evidence.
  * @property {string} [remedy] - a copy-paste next step when not ok.
+ * @property {string} [distro] - the distro the check ran against (distro-scoped checks only).
+ * @property {boolean} [blocksFirstCommand] - whether a `fail` here blocks the first command (stamped by `report()`: true for every `fail`; config-awareness downgrades statuses rather than keeping a per-id exception table).
+ */
+
+/**
+ * The effective configuration the blocking verdict answers under.
+ * @typedef {object} EffectiveConfig
+ * @property {string} distro - `auto`, `default` or a pinned distro name.
+ * @property {string} sessionSandbox - `true`, `false` or `auto`.
+ * @property {string} agentBackend - `auto`, `native` or `shell`.
+ * @property {string} sandbox - the fs-routing confinement stance.
+ * @property {string} maskWindowsDrive - the drive-masking stance (when `interopVisibility` is unset).
+ * @property {string} source - where the values came from.
+ * @property {string[]} overrides - the profile layers that changed keys, "`<name>`: `<keys>`".
  */
 
 /**
@@ -119,6 +142,115 @@ function run(argv) {
     };
     execFile(file, args, { encoding: "utf8", timeout: TIMEOUT_MS, windowsHide: true, env: { ...process.env, WSL_UTF8: "1" } }, done);
   });
+}
+
+/**
+ * The text of one patch row (`- id: <rowId>` down to the next row at the same
+ * or shallower indent). This is the same line discipline the preset helper
+ * applies to the shipped patch, so both tools read rows identically by
+ * construction.
+ * @param {string} text - the patch file's text.
+ * @param {string} rowId - the row id to extract.
+ * @returns {string} the row's text, or "" when the file names no such row.
+ */
+export function rowBlock(text, rowId) {
+  const lines = text.split(/\r?\n/);
+  const start = lines.findIndex((line) => new RegExp(`^\\s*- id: ${rowId}\\s*$`).test(line));
+  if (start < 0) return "";
+  const header = /** @type {string} */ (lines[start]);
+  const indent = header.length - header.trimStart().length;
+  let end = start + 1;
+  while (end < lines.length) {
+    const line = /** @type {string} */ (lines[end]);
+    if (line.trim().length > 0 && line.length - line.trimStart().length <= indent) break;
+    end += 1;
+  }
+  return lines.slice(start, end).join("\n");
+}
+
+/**
+ * The value one key sets inside a row block: the FIRST occurrence wins, which
+ * inside `preset-wsl` means the `wsl-shell` row's value (the command plane is
+ * the first-command gate this verdict answers for). Comment lines never match
+ * — the anchor requires the key at line start after indent.
+ * @param {string} block - the row block's text.
+ * @param {string} key - the YAML key.
+ * @returns {string | undefined} the scalar with quotes stripped, or undefined when unset.
+ */
+export function rowKey(block, key) {
+  const match = new RegExp(`^\\s*${key}: (.*)$`, "m").exec(block);
+  if (match === null) return undefined;
+  return (/** @type {RegExpExecArray} */ (match)[1] ?? "").trim().replace(/^['"]|['"]$/g, "");
+}
+
+/**
+ * Read the configuration the blocking verdict must answer under: the shipped
+ * preset's values, overlaid by every profile layer under `$DSH_HOME/profiles/*`
+ * that carries a `preset-wsl` row (the preset helper's output shape) or an
+ * `fs-routing` patch (a root-plane row, patchable by id). A profile file whose
+ * rows name none of the five keys changes nothing and is not an error — the
+ * recognizer only claims the shapes it knows, and the `config.effective` check
+ * reports exactly what was read and from where.
+ * @param {string} dshHome - the harness home (`DSH_HOME` or `~/.dsh`).
+ * @param {string} root - the package root holding the shipped `cordis.patch.yml`.
+ * @returns {{ config: EffectiveConfig, recognized: boolean }} the effective values and whether the shipped rows were recognized at all.
+ */
+export function effectiveConfig(dshHome, root) {
+  /** @type {EffectiveConfig} */
+  let config = { distro: "auto", sessionSandbox: "true", agentBackend: "auto", sandbox: "true", maskWindowsDrive: "false", source: "the shipped preset", overrides: [] };
+  let recognized = false;
+  const shipped = readFileSync(join(root, "cordis.patch.yml"), "utf8");
+  const preset = rowBlock(shipped, "preset-wsl");
+  const routing = rowBlock(shipped, "fs-routing");
+  const distro = rowKey(preset, "distro");
+  const sessionSandbox = rowKey(preset, "sessionSandbox");
+  const agentBackend = rowKey(preset, "agentBackend");
+  const sandbox = rowKey(routing, "sandbox");
+  const maskWindowsDrive = rowKey(routing, "maskWindowsDrive");
+  if (sessionSandbox !== undefined) {
+    recognized = true;
+    config = {
+      distro: distro === "" || distro === undefined ? "auto" : distro,
+      sessionSandbox: sessionSandbox === "false" ? "false" : sessionSandbox === "auto" ? "auto" : "true",
+      agentBackend: agentBackend ?? "auto",
+      sandbox: sandbox ?? "true",
+      maskWindowsDrive: maskWindowsDrive ?? "false",
+      source: "the shipped preset",
+      overrides: [],
+    };
+  }
+  const profilesDir = join(dshHome, "profiles");
+  if (!existsSync(profilesDir)) return { config, recognized };
+  for (const entry of readdirSync(profilesDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const patch = join(profilesDir, entry.name, "cordis.patch.yml");
+    if (!existsSync(patch)) continue;
+    const text = readFileSync(patch, "utf8");
+    /** @type {string[]} */
+    const changed = [];
+    const next = { ...config };
+    const layerPreset = rowBlock(text, "preset-wsl");
+    const layerRouting = rowBlock(text, "fs-routing");
+    for (const [block, keys] of [[layerPreset, ["distro", "sessionSandbox", "agentBackend"]], [layerRouting, ["sandbox", "maskWindowsDrive"]]]) {
+      const source = /** @type {string} */ (block);
+      /** The scalar keys the overlay may change; `source`/`overrides` are bookkeeping, not overlay inputs. */
+      const scalar = /** @type {const} */ (["distro", "sessionSandbox", "agentBackend", "sandbox", "maskWindowsDrive"]);
+      for (const key of /** @type {string[]} */ (keys)) {
+        const value = rowKey(source, key);
+        if (value === undefined || value === next[/** @type {keyof EffectiveConfig} */ (key)]) continue;
+        const normalized = key === "distro" && value === "" ? "auto" : key === "sessionSandbox" ? (value === "false" ? "false" : value === "auto" ? "auto" : "true") : value;
+        if (normalized === next[/** @type {keyof EffectiveConfig} */ (key)]) continue;
+        next[/** @type {(typeof scalar)[number]} */ (key)] = normalized;
+        changed.push(key);
+      }
+    }
+    if (changed.length > 0) {
+      next.source = `profile "${entry.name}"`;
+      next.overrides = [...config.overrides, `${entry.name}: ${changed.join(", ")}`];
+      config = next;
+    }
+  }
+  return { config, recognized };
 }
 
 /**
@@ -389,19 +521,44 @@ async function main(options) {
     check("host.distros", "ok", "Installed distros", distros.join(", "));
   }
   const distro = options.distro.length > 0 ? options.distro : distros[0] ?? "";
-  if (distro.length === 0) return report(checks, { json: options.json });
+  /** The run facts the report carries: the target distro and the effective config. */
+  const runInfo = /** @type {{ distro?: string, config?: EffectiveConfig }} */ ({});
+  runInfo.distro = distro.length > 0 ? distro : undefined;
+  if (distro.length === 0) return report(checks, { json: options.json }, runInfo);
 
   if (options.distro.length > 0 && !distros.includes(options.distro)) {
     check("distro.present", "fail", `Distro "${distro}"`, `not in [${distros.join(", ")}]`, `wsl.exe --install -d ${distro}; this doctor never installs a distro for you`);
-    return report(checks, { json: options.json });
+    return report(checks, { json: options.json }, runInfo);
   }
 
   const alive = await inDistro(distro, "printf %s ok");
   if (!alive.ok || alive.stdout.trim() !== "ok") {
     check("distro.reachable", "fail", `Distro "${distro}"`, "wsl.exe could not run a command in it (stopped, wedged, or missing)", `wsl.exe -d ${distro} -- true; if that hangs, wsl.exe --shutdown, then retry`);
-    return report(checks, { json: options.json });
+    return report(checks, { json: options.json }, runInfo);
   }
   check("distro.reachable", "ok", `Distro "${distro}"`, "answers commands");
+
+  // ---- effective configuration (read once, before anything config-gated) ---
+  // The blocking verdict answers under the values the user actually runs, so
+  // the shipped preset is overlaid by the profile layers before the session
+  // checks below assign their statuses. The `config.effective` row is emitted
+  // later, in the config section, so the human output keeps its grouping; the
+  // read happens here because `session.systemd` and friends depend on it.
+  const dshHomeEarly = process.env.DSH_HOME !== undefined && process.env.DSH_HOME.length > 0 ? process.env.DSH_HOME : join(homedir(), ".dsh");
+  const { config: effective, recognized: configRecognized } = effectiveConfig(dshHomeEarly, ROOT);
+  runInfo.config = { ...effective };
+  const scopeMode = effective.sessionSandbox;
+  /** The status a session-scope prerequisite gets when it is missing. */
+  const sessionStatus = () => (scopeMode === "true" ? "fail" : "warn");
+  /** Append the config-aware note to a prerequisite's evidence when the scope is not required.
+   * @param {string} detail - the prerequisite's own evidence.
+   * @returns {string} the evidence, with the fallback named when the scope is optional. */
+  const withScopeNote = (detail) => (scopeMode === "true" ? detail : `${detail}${scopeNote}`);
+  const scopeNote = scopeMode === "auto"
+    ? " — sessionSandbox: auto falls back to the per-command bwrap profile"
+    : scopeMode === "false"
+      ? " — sessionSandbox: false does not use the session scope"
+      : "";
 
   // ---- distro facts --------------------------------------------------------
   const shellAnswer = await inDistro(distro, 's=$(getent passwd "$(id -u)" | cut -d: -f7); [ -n "$s" ] || s=$SHELL; printf %s "$s"');
@@ -434,22 +591,27 @@ async function main(options) {
   }
 
   // ---- session sandbox prerequisites --------------------------------------
+  // The statuses are config-aware: the scope is only *required* under
+  // `sessionSandbox: true` (the shipped default); `auto` falls back to the
+  // per-command bwrap profile and `false` does not use the scope at all, so
+  // in both cases a missing prerequisite downgrades to a warning — a `fail`
+  // always blocks, which is the invariant the verdict leans on.
   const systemd = await inDistro(distro, 'if [ -d /run/systemd/system ]; then printf "systemd %s" "$(cat /proc/1/comm)"; else printf "none %s" "$(cat /proc/1/comm)"; fi');
   if (!systemd.stdout.startsWith("systemd")) {
-    check("session.systemd", "fail", "systemd as PID 1", systemd.stdout.trim().length > 0 ? systemd.stdout.trim() : "not systemd", `set [boot] systemd=true in /etc/wsl.conf inside "${distro}", run "wsl.exe --shutdown", then reopen the session. Without it, sessionSandbox cannot run`);
+    check("session.systemd", sessionStatus(), "systemd as PID 1", withScopeNote(systemd.stdout.trim().length > 0 ? systemd.stdout.trim() : "not systemd"), `set [boot] systemd=true in /etc/wsl.conf inside "${distro}", run "wsl.exe --shutdown", then reopen the session. Without it, sessionSandbox cannot run`);
   } else check("session.systemd", "ok", "systemd as PID 1", "running");
 
   const systemdRun = (await inDistro(distro, "command -v systemd-run")).stdout.trim();
   if (systemdRun.length > 0) check("session.systemd-run", "ok", "systemd-run", systemdRun);
-  else check("session.systemd-run", "fail", "systemd-run", "missing; the distro's systemd package is incomplete", `reinstall systemd inside "${distro}" (apt-get install --reinstall systemd, or the family's equivalent)`);
+  else check("session.systemd-run", sessionStatus(), "systemd-run", withScopeNote("missing; the distro's systemd package is incomplete"), `reinstall systemd inside "${distro}" (apt-get install --reinstall systemd, or the family's equivalent)`);
 
   const userManager = (await inDistro(distro, "systemctl --user is-system-running 2>/dev/null || true")).stdout.trim();
   if (userManager === "running" || userManager === "degraded") check("session.user-manager", "ok", "systemd user manager", userManager);
-  else check("session.user-manager", "fail", "systemd user manager", userManager.length > 0 ? userManager : "unreachable", `log in to "${distro}" once, or enable lingering (next remedy), then retry`);
+  else check("session.user-manager", sessionStatus(), "systemd user manager", withScopeNote(userManager.length > 0 ? userManager : "unreachable"), `log in to "${distro}" once, or enable lingering (next remedy), then retry`);
 
   const linger = (await inDistro(distro, 'loginctl show-user "$(id -un)" -p Linger 2>/dev/null')).stdout.trim();
   if (linger === "Linger=yes") check("session.linger", "ok", "Linger", linger);
-  else check("session.linger", "fail", "Linger", linger.length > 0 ? linger : "unset", `wsl.exe -d ${distro} -- loginctl enable-linger "$(id -un)" (this needs the user's own session; run it inside the distro)`);
+  else check("session.linger", sessionStatus(), "Linger", withScopeNote(linger.length > 0 ? linger : "unset"), `wsl.exe -d ${distro} -- loginctl enable-linger "$(id -un)" (this needs the user's own session; run it inside the distro)`);
 
   // ---- optional tools ------------------------------------------------------
   /** The optional tools, in the order users notice them losing. */
@@ -626,6 +788,12 @@ async function main(options) {
     check("update.latest", "ok", "Update check", `${installedVersion} is the newest stable release`);
   }
 
+  // ---- effective configuration (verdict inputs, reported) ------------------
+  check("config.effective", configRecognized ? "ok" : "info", "Effective configuration",
+    configRecognized
+      ? `distro=${effective.distro}, sessionSandbox=${effective.sessionSandbox}, agentBackend=${effective.agentBackend}, sandbox=${effective.sandbox}, maskWindowsDrive=${effective.maskWindowsDrive} — from ${effective.source}${effective.overrides.length > 0 ? ` (overrides: ${effective.overrides.join("; ")})` : ""}`
+      : "the shipped preset rows were not recognized; the conservative defaults apply (sessionSandbox: true, so a missing systemd blocks) — see docs/CONFIGURATION.md");
+
   // ---- profile-patch trap --------------------------------------------------
   const dshHome = process.env.DSH_HOME !== undefined && process.env.DSH_HOME.length > 0 ? process.env.DSH_HOME : join(homedir(), ".dsh");
   const profilesDir = join(dshHome, "profiles");
@@ -669,7 +837,7 @@ async function main(options) {
     }
   }
 
-  return report(checks, { json: options.json });
+  return report(checks, { json: options.json }, runInfo);
 }
 
 /**
@@ -743,34 +911,76 @@ async function confirm(question, yes) {
 }
 
 /**
- * Print the report and return the exit status.
+ * Assemble the report: stamp distro scope and the blocking flag onto every
+ * check, compute the per-distro and overall verdicts, print, and return the
+ * exit status.
+ *
+ * The blocking invariant is structural: a `fail` blocks, everything else does
+ * not — config-awareness lives in the statuses (see the session checks), never
+ * in a per-id exception here. A `skipped` check is a consequence of a blocker,
+ * not a blocker itself.
+ *
  * @param {Check[]} checks - the collected checks.
  * @param {{ json: boolean }} options - the output mode.
- * @returns {number} 0 when nothing failed, 1 otherwise.
+ * @param {{ distro?: string, config?: EffectiveConfig }} [runInfo] - the target distro and the effective configuration the run answered under.
+ * @returns {number} 0 when the verdict is `ready`, 1 when `blocked`.
  */
-function report(checks, options) {
+function report(checks, options, runInfo = {}) {
+  // The distro-scoped id prefixes: everything that ran against the target
+  // distro rather than the host. `git.win-safe` probes Windows git through
+  // interop, so it stays host-level even though its subject is WSL change review.
+  const DISTRO_PREFIXES = ["distro.", "sandbox.", "session.", "tools.", "agent.", "runtime.", "functional."];
+  const stamped = checks.map((entry) => ({
+    ...entry,
+    ...(runInfo.distro !== undefined && DISTRO_PREFIXES.some((prefix) => entry.id.startsWith(prefix)) ? { distro: runInfo.distro } : {}),
+    blocksFirstCommand: entry.status === "fail",
+  }));
   /** @param {string} status - the status to count. @returns {number} how many checks carry it. */
-  const count = (status) => checks.filter((entry) => entry.status === status).length;
-  const summary = { ok: count("ok"), warn: count("warn"), fail: count("fail"), info: count("info") };
+  const count = (status) => stamped.filter((entry) => entry.status === status).length;
+  const summary = { ok: count("ok"), warn: count("warn"), fail: count("fail"), info: count("info"), skipped: count("skipped") };
+  const blockers = stamped.filter((entry) => entry.blocksFirstCommand).map((entry) => entry.id);
+  const verdict = blockers.length === 0 ? "ready" : "blocked";
+  /** The blockers a distro verdict owns: its own fails plus the host-level ones.
+   * @param {string} name - the distro name.
+   * @returns {string[]} the blocking ids. */
+  const distroBlockers = (name) => stamped
+    .filter((entry) => entry.blocksFirstCommand && (entry.distro === name || entry.distro === undefined))
+    .map((entry) => entry.id);
+  const distroVerdicts = runInfo.distro === undefined ? [] : [{
+    name: runInfo.distro,
+    verdict: distroBlockers(runInfo.distro).length === 0 ? "ready" : "blocked",
+    blockers: distroBlockers(runInfo.distro),
+  }];
   if (options.json) {
-    console.log(JSON.stringify({ schemaVersion: 1, generatedAt: new Date().toISOString(), checks, summary }, null, 2));
+    console.log(JSON.stringify({
+      schemaVersion: 2,
+      generatedAt: new Date().toISOString(),
+      ...(runInfo.config === undefined ? {} : { config: runInfo.config }),
+      checks: stamped,
+      summary,
+      distroVerdicts,
+      verdict,
+      blockers,
+    }, null, 2));
   } else {
     console.log("dsh-plugin-wsl-env doctor");
     let section = "";
-    for (const entry of checks) {
+    for (const entry of stamped) {
       const current = entry.id.split(".")[0] ?? "";
       if (current !== section) {
         section = current;
         console.log(`\n${section}`);
       }
-      const mark = entry.status === "ok" ? "ok  " : entry.status === "warn" ? "warn" : entry.status === "fail" ? "fail" : "info";
+      const mark = entry.status === "ok" ? "ok  " : entry.status === "warn" ? "warn" : entry.status === "fail" ? "fail" : entry.status === "skipped" ? "skip" : "info";
       console.log(`  ${mark}  ${entry.title}${entry.detail === undefined ? "" : ` — ${entry.detail}`}`);
       if (entry.remedy !== undefined) console.log(`        fix: ${entry.remedy}`);
     }
-    console.log(`\n${summary.ok} ok, ${summary.warn} warn, ${summary.fail} fail, ${summary.info} info`);
-    if (summary.fail > 0) console.log("run with --fix to sweep stale scopes; --fix --install asks before installing packages");
+    console.log(`\n${summary.ok} ok, ${summary.warn} warn, ${summary.fail} fail, ${summary.info} info${summary.skipped > 0 ? `, ${summary.skipped} skipped` : ""}`);
+    if (verdict === "ready") console.log(`verdict: READY — the first command should succeed${runInfo.distro === undefined ? "" : ` in ${runInfo.distro}`}`);
+    else console.log(`verdict: BLOCKED by: ${blockers.join(", ")} — apply the fixes above, then rerun`);
+    if (summary.fail > 0 || summary.skipped > 0) console.log("run with --fix to sweep stale scopes; --fix --install asks before installing packages");
   }
-  return summary.fail > 0 ? 1 : 0;
+  return verdict === "blocked" ? 1 : 0;
 }
 
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

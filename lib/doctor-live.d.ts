@@ -18,12 +18,16 @@ import type { AgentStatus } from "./agent.js";
 export interface DoctorCheck {
     /** The stable check id, e.g. `agent.handshake`. */
     id: string;
-    /** `ok` | `warn` | `fail` | `info`. */
+    /** `ok` | `warn` | `fail` | `info` | `skipped`. */
     status: string;
     /** The human detail line. */
     detail?: string;
     /** The copy-paste remedy, when the status is not `ok`. */
     remedy?: string;
+    /** The distro the check ran against (schema 2, distro-scoped checks). */
+    distro?: string;
+    /** Whether a `fail` here blocks the first command (schema 2). */
+    blocksFirstCommand?: boolean;
 }
 /** The doctor's versioned JSON report shape (`schemaVersion`). */
 export interface DoctorReport {

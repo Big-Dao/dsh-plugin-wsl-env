@@ -23,8 +23,8 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /** The digest the agent script self-reports; the fake HELLO carries it. */
 const AGENT_DIGEST = createHash("sha256").update(readFileSync(join(ROOT, "agent", "wsl-agent.sh"))).digest("hex");
 
-/** @typedef {{ id: string, status: string, detail?: string, remedy?: string }} Check */
-/** @typedef {{ schemaVersion: number, checks: Check[], summary: Record<string, number> }} Report */
+/** @typedef {{ id: string, status: string, detail?: string, remedy?: string, distro?: string, blocksFirstCommand?: boolean }} Check */
+/** @typedef {{ schemaVersion: number, checks: Check[], summary: Record<string, number>, verdict?: string, blockers?: string[], distroVerdicts?: Array<{ name: string, verdict: string, blockers: string[] }>, config?: Record<string, string | string[]> }} Report */
 
 if (process.platform === "win32") {
   console.log("SKIP  doctor tests: the fake wsl.exe is a POSIX script");
@@ -153,10 +153,76 @@ try {
     const run = doctor(["--json"]);
     assert.equal(run.status, 0, run.stderr);
     const report = /** @type {Report} */ (JSON.parse(run.stdout));
-    assert.equal(report.schemaVersion, 1);
+    assert.equal(report.schemaVersion, 2);
     assert.equal(report.summary.fail, 0);
     assert.equal(report.checks.find((entry) => entry.id === "sandbox.bwrap")?.status, "ok");
     assert.equal(report.checks.find((entry) => entry.id === "peers.versions")?.status, "ok");
+  });
+
+  await check("the verdict is ready under the effective config and stamps the distro scope", () => {
+    const report = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
+    assert.equal(report.verdict, "ready");
+    assert.deepEqual(report.blockers, []);
+    assert.deepEqual(report.distroVerdicts, [{ name: "ubuntu", verdict: "ready", blockers: [] }]);
+    assert.equal(report.config?.sessionSandbox, "true", "the shipped preset's value is the effective one absent profile layers");
+    assert.match(String(report.config?.source), /shipped preset/);
+    const bwrap = report.checks.find((entry) => entry.id === "sandbox.bwrap");
+    assert.equal(bwrap?.distro, "ubuntu", "distro-scoped checks carry their distro");
+    assert.equal(bwrap?.blocksFirstCommand, false, "ok never blocks");
+    const peers = report.checks.find((entry) => entry.id === "peers.versions");
+    assert.equal(peers?.distro, undefined, "host-level checks stay unstamped");
+    assert.equal(peers?.blocksFirstCommand, false);
+    const effective = report.checks.find((entry) => entry.id === "config.effective");
+    assert.equal(effective?.status, "ok");
+    assert.match(String(effective?.detail), /from the shipped preset/);
+  });
+
+  await check("a missing systemd blocks under the shipped sessionSandbox: true", () => {
+    const run = doctor(["--json"], { FAKE_SYSTEMD: "no" });
+    assert.equal(run.status, 1);
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    assert.equal(report.verdict, "blocked");
+    assert.ok(report.blockers?.includes("session.systemd"));
+    const systemd = report.checks.find((entry) => entry.id === "session.systemd");
+    assert.equal(systemd?.status, "fail");
+    assert.equal(systemd?.blocksFirstCommand, true);
+    assert.equal(report.distroVerdicts?.[0]?.verdict, "blocked");
+    assert.ok(report.distroVerdicts?.[0]?.blockers.includes("session.systemd"));
+  });
+
+  await check("a missing systemd downgrades when the profile sets sessionSandbox: false", () => {
+    const profile = join(home, "profiles", "noscope");
+    mkdirSync(profile, { recursive: true });
+    const out = spawnSync(process.execPath, ["scripts/profile-preset.mjs", "--out", join(profile, "cordis.patch.yml"), "--session-sandbox", "false"], { cwd: ROOT, encoding: "utf8" });
+    assert.equal(out.status, 0, out.stderr);
+    const run = doctor(["--json"], { FAKE_SYSTEMD: "no" });
+    assert.equal(run.status, 0, "the verdict follows the effective config, not the shipped default");
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    assert.equal(report.verdict, "ready");
+    const systemd = report.checks.find((entry) => entry.id === "session.systemd");
+    assert.equal(systemd?.status, "warn");
+    assert.match(String(systemd?.detail), /sessionSandbox: false does not use the session scope/);
+    assert.equal(systemd?.blocksFirstCommand, false, "warn never blocks");
+    assert.equal(report.config?.sessionSandbox, "false");
+    assert.match(String(report.config?.source), /profile "noscope"/);
+    const effective = report.checks.find((entry) => entry.id === "config.effective");
+    assert.match(String(effective?.detail), /noscope: sessionSandbox/);
+    rmSync(profile, { recursive: true, force: true });
+  });
+
+  await check("sessionSandbox: auto downgrades a missing scope to the named fallback", () => {
+    const profile = join(home, "profiles", "autoscope");
+    mkdirSync(profile, { recursive: true });
+    const out = spawnSync(process.execPath, ["scripts/profile-preset.mjs", "--out", join(profile, "cordis.patch.yml"), "--session-sandbox", "auto"], { cwd: ROOT, encoding: "utf8" });
+    assert.equal(out.status, 0, out.stderr);
+    const run = doctor(["--json"], { FAKE_SYSTEMD: "no" });
+    assert.equal(run.status, 0);
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    const systemd = report.checks.find((entry) => entry.id === "session.systemd");
+    assert.equal(systemd?.status, "warn");
+    assert.match(String(systemd?.detail), /falls back to the per-command bwrap profile/);
+    assert.equal(report.verdict, "ready");
+    rmSync(profile, { recursive: true, force: true });
   });
 
   await check("missing bubblewrap fails with a copy-paste install remedy", () => {
@@ -167,6 +233,8 @@ try {
     assert.equal(bwrap?.status, "fail");
     assert.match(String(bwrap?.remedy), /apt-get install -y bubblewrap/);
     assert.match(String(bwrap?.remedy), /pnpm run bootstrap ubuntu --install/);
+    assert.equal(report.verdict, "blocked", "every confined command fails closed without bwrap");
+    assert.ok(report.blockers?.includes("sandbox.bwrap"));
   });
 
   await check("no systemd fails and names the wsl.conf remedy", () => {
@@ -217,13 +285,13 @@ try {
   await check("the live-resident merge names the probe source and keeps the fresh facts (WSL-313)", () => {
     /** The minimal healthy report shape the merge expects. @type {Report} */
     const report = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       checks: [
         { id: "wsl.version", status: "ok", detail: "WSL version: 2.0.0" },
-        { id: "agent.handshake", status: "ok", detail: "probed: a fresh resident, pid 4242, protocol 6, digest matches" },
+        { id: "agent.handshake", status: "ok", detail: "probed: a fresh resident, pid 4242, protocol 6, digest matches", distro: "ubuntu", blocksFirstCommand: true },
         { id: "runtime.scopes", status: "info", detail: "none" },
       ],
-      summary: { ok: 1, info: 1, warn: 0, fail: 0 },
+      summary: { ok: 1, info: 1, warn: 0, fail: 0, skipped: 0 },
     };
     /** A snapshot answering for a resident this process holds. @type {import("../lib/agent.js").AgentStatus} */
     const LIVE = { distro: "ubuntu", state: "ready", pid: 7000, lastError: "", deaths: 0, pending: 0 };
@@ -237,6 +305,8 @@ try {
     assert.match(String(hand?.detail), /probed: the live resident \(pid 7000, state ready, deaths 0, pending 0\)/);
     assert.match(String(hand?.detail), /fresh-probe facts: probed: a fresh resident, pid 4242/, "the fresh probe's digest facts are kept");
     assert.equal(hand?.status, "ok", "no error, no verdict change");
+    assert.equal(hand?.distro, "ubuntu", "the schema-2 shape fields ride through the merge");
+    assert.equal(hand?.blocksFirstCommand, true);
     assert.equal(healthy.checks.find((entry) => entry.id === "wsl.version"), report.checks[0], "the other checks pass through");
 
     const wounded = mergeLiveResidentStatus(report, { ...LIVE, lastError: "agent handshake timed out after 30000ms", deaths: 2 });

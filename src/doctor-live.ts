@@ -19,12 +19,16 @@ import type { AgentStatus } from "./agent.js";
 export interface DoctorCheck {
   /** The stable check id, e.g. `agent.handshake`. */
   id: string;
-  /** `ok` | `warn` | `fail` | `info`. */
+  /** `ok` | `warn` | `fail` | `info` | `skipped`. */
   status: string;
   /** The human detail line. */
   detail?: string;
   /** The copy-paste remedy, when the status is not `ok`. */
   remedy?: string;
+  /** The distro the check ran against (schema 2, distro-scoped checks). */
+  distro?: string;
+  /** Whether a `fail` here blocks the first command (schema 2). */
+  blocksFirstCommand?: boolean;
 }
 
 /** The doctor's versioned JSON report shape (`schemaVersion`). */
@@ -58,11 +62,12 @@ export function mergeLiveResidentStatus(report: DoctorReport, status: AgentStatu
   const fresh = report.checks.find((check) => check.id === "agent.handshake");
   if (!fresh) return report;
   const errorLine = status.lastError.length > 0 ? `; lastError: ${status.lastError}` : "";
+  // The fresh check's shape fields (distro, blocksFirstCommand) ride through:
+  // the merge rewrites the verdict and the evidence, never the schema.
   const merged: DoctorCheck = {
-    id: fresh.id,
+    ...fresh,
     status: status.state === "dead" ? "fail" : status.lastError.length > 0 ? "warn" : fresh.status,
     detail: `probed: the live resident (pid ${status.pid}, state ${status.state}, deaths ${status.deaths}, pending ${status.pending})${errorLine}; fresh-probe facts: ${fresh.detail ?? ""}`,
-    ...(fresh.remedy !== undefined ? { remedy: fresh.remedy } : {}),
   };
   const checks = report.checks.map((check) => (check === fresh ? merged : check));
   const summary: Record<string, number> = { ...report.summary };

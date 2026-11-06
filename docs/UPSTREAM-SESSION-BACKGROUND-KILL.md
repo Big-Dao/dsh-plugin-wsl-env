@@ -1,8 +1,10 @@
 # Upstream report: background jobs are killed at session re-adoption
 
-Status: drafted 2026-11-06, evidence complete, ready to file. Target: the
-DeepSeek Harness repository (issue or discussion, per the maintainer's usual
-channel; #10263 is the precedent for session-surface asks).
+Status: **filed upstream as
+[#12433](https://github.com/deepseek-ai/deepseek-harness/discussions/12433)
+(2026-11-06; General category — the repository disables issues).** Evidence
+complete. Target: the DeepSeek Harness repository; #10263 is the precedent for
+session-surface asks.
 
 ## Symptom
 

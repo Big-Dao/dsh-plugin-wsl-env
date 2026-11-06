@@ -28,6 +28,8 @@ test/probe/missing-wsl-report.txt
 test/probe/picker-report.txt
 test/probe/fs-routing-report.txt
 test/probe/sandbox-off-report.txt
+test/probe/two-distro-report.txt
+test/probe/agent-restart-report.txt
 test/probe/.scratch/
 
 # ZCode session scratch (plan-mode drafts live under plans/).

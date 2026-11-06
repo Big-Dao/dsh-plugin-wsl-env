@@ -70,9 +70,9 @@
 - [归档索引](archive/README.md) 和 [英文索引](archive/README.en.md) 指向
   [设计历史](archive/design-history.zh.md) 与
   [工程记录](archive/engineering-record.zh.md)；保留原始时间背景。
-- [技能目录](../.agent/skills-catalog.md) 是自动生成的外部技能快照，
-  [writing-beats](../.agents/skills/writing-beats/SKILL.md) 是本仓库中的辅助技能；
-  它们不定义插件的运行行为。
+- `.agent/` 下的技能目录与技能目录快照是 agent 工具生成的本地状态，已在
+  `.gitignore` 中忽略、不入库；[writing-beats](../.agents/skills/writing-beats/SKILL.md)
+  是本仓库中的辅助技能。它们不定义插件的运行行为。
 
 ## 维护关系
 

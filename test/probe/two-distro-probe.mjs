@@ -5,17 +5,15 @@
  * The unit suite exercises multi-distro routing with fakes; this probe answers
  * the question the unit suite cannot (WSL-101's last unchecked leg): when two
  * distros' commands run through one composition — sequentially and then
- * concurrently — does each command land in its OWN distro (its
- * `DSH_WSL_DISTRO`, its cwd), or do the per-distro residents and route caches
- * cross wires under interleave?
+ * concurrently — does each command land in its OWN distro (its own
+ * filesystem — each leg plant a marker only its distro's `/tmp` holds — and
+ * its cwd), or do the per-distro residents and route caches cross wires under
+ * interleave?
  *
  * It boots under the throwaway `wslfs` profile (see `test/probe/run.sh`) with
  * an overlay that swaps the shell executor for the WSL one in auto mode
  * (`two-distro-probe.yml`). The suite skips the probe when fewer than two
  * distros exist (`two-distro.sh`'s `# prereq:` header).
- *
- * The report is written beside this module; `test/probe/two-distro.sh` prints
- * it and exits with this probe's status.
  *
  *   node --check test/probe/two-distro-probe.mjs
  */
@@ -92,7 +90,22 @@ async function run(ctx, config) {
     if (!ok) failures.push(name);
   };
 
-  const who = 'printf "%s" "$DSH_WSL_DISTRO"';
+  // The per-distro identity marker. The session env's `DSH_WSL_DISTRO` is NOT
+  // a usable vehicle here: the `dsh-plugin-wsl-env/shell-env` row resolves it
+  // from `execution.agent.session.header.cwd`, and this probe drives
+  // `ctx.shell` directly with no agent session, so the managed `DSH_*`
+  // namespace is legitimately absent on this seam. Each distro's `/tmp` is a
+  // separate filesystem, which is exactly the isolation under test: each leg
+  // plant a marker in its own distro and report which one it sees.
+  const markerA = "/tmp/.two-distro-probe.marker-A";
+  const markerB = "/tmp/.two-distro-probe.marker-B";
+  const who = `printf "%s" "$(ls ${markerA} ${markerB} 2>/dev/null | tail -1)"`;
+  const plantA = `touch ${markerA}`;
+  const plantB = `touch ${markerB}`;
+  await drive(ctx, config.distroA, config.rootA, plantA);
+  await drive(ctx, config.distroB, config.rootB, plantB);
+  const tokenA = markerA;
+  const tokenB = markerB;
   const where = "pwd";
 
   // 1. Sequentially: each distro's command reports its own distro and cwd.
@@ -100,7 +113,7 @@ async function run(ctx, config) {
   const legs = [["A", config.distroA, config.rootA], ["B", config.distroB, config.rootB]];
   for (const [name, distro, root] of legs) {
     const result = await drive(ctx, distro, root, who);
-    check(`distro ${name}'s command reports its own DSH_WSL_DISTRO`, result.stdout.text.trim() === distro, `got=${JSON.stringify(result.stdout.text.trim())} stderr=${JSON.stringify(result.stderr.text.slice(0, 200))}`);
+    check(`distro ${name}'s command sees only its own marker`, result.stdout.text.trim() === (name === "A" ? tokenA : tokenB), `got=${JSON.stringify(result.stdout.text.trim())} stderr=${JSON.stringify(result.stderr.text.slice(0, 200))}`);
     const cwd = await drive(ctx, distro, root, where);
     check(`distro ${name}'s command runs in the requested workdir`, cwd.stdout.text.trim() === root, `got=${JSON.stringify(cwd.stdout.text.trim())}`);
   }
@@ -111,8 +124,8 @@ async function run(ctx, config) {
     drive(ctx, config.distroA, config.rootA, who),
     drive(ctx, config.distroB, config.rootB, who),
   ]);
-  check("the concurrent A leg stays in distro A", concurrentA.stdout.text.trim() === config.distroA, `got=${JSON.stringify(concurrentA.stdout.text.trim())}`);
-  check("the concurrent B leg stays in distro B", concurrentB.stdout.text.trim() === config.distroB, `got=${JSON.stringify(concurrentB.stdout.text.trim())}`);
+  check("the concurrent A leg stays in distro A", concurrentA.stdout.text.trim() === tokenA, `got=${JSON.stringify(concurrentA.stdout.text.trim())}`);
+  check("the concurrent B leg stays in distro B", concurrentB.stdout.text.trim() === tokenB, `got=${JSON.stringify(concurrentB.stdout.text.trim())}`);
 
   // 3. A burst: several interleaved rounds through both distros at once, the
   // shape a two-distro user's sessions actually produce.
@@ -122,8 +135,12 @@ async function run(ctx, config) {
     drive(ctx, config.distroA, config.rootA, where),
     drive(ctx, config.distroB, config.rootB, where),
   ]);
-  check("the burst's A distro answers stay in A", burst[0]?.stdout.text.trim() === config.distroA && burst[2]?.stdout.text.trim() === trimTrailingSlash(config.rootA), `got=${JSON.stringify([burst[0]?.stdout.text.trim(), burst[2]?.stdout.text.trim()])}`);
-  check("the burst's B distro answers stay in B", burst[1]?.stdout.text.trim() === config.distroB && burst[3]?.stdout.text.trim() === config.rootB, `got=${JSON.stringify([burst[1]?.stdout.text.trim(), burst[3]?.stdout.text.trim()])}`);
+  check("the burst's A distro answers stay in A", burst[0]?.stdout.text.trim() === tokenA && burst[2]?.stdout.text.trim() === trimTrailingSlash(config.rootA), `got=${JSON.stringify([burst[0]?.stdout.text.trim(), burst[2]?.stdout.text.trim()])}`);
+  check("the burst's B distro answers stay in B", burst[1]?.stdout.text.trim() === tokenB && burst[3]?.stdout.text.trim() === config.rootB, `got=${JSON.stringify([burst[1]?.stdout.text.trim(), burst[3]?.stdout.text.trim()])}`);
+
+  // The markers live in the distros' /tmp; remove them so a rerun starts clean.
+  await drive(ctx, config.distroA, config.rootA, `rm -f ${markerA} ${markerB}`);
+  await drive(ctx, config.distroB, config.rootB, `rm -f ${markerA} ${markerB}`);
 
   lines.push(failures.length === 0 ? "TWODISTROPROBE RESULT: all checks passed" : `TWODISTROPROBE RESULT: ${failures.length} check(s) failed`);
   console.log(lines[lines.length - 1]);

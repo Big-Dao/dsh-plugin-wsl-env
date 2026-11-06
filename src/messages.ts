@@ -159,6 +159,13 @@ export function configureMessagesLocale(locale: MessagesLocale): void {
  * template when the active catalog somehow lacks the key (the catalogs are
  * type-checked against each other, so this guards runtime drift only).
  *
+ * The `params` type correlates the parameters with the key: the conditional
+ * resolves per call site, so `t("sessionScopeNoLinger", { distro })`
+ * typechecks while `t("sessionScopeNoLinger", { missing })` does not. It
+ * lives in the JSDoc because a comment between the parameters would have the
+ * type-stripping build emit a line with trailing whitespace, which the style
+ * gate refuses.
+ *
  * @typeParam K - the message key.
  * @param key - the message to render.
  * @param params - the key's parameters, as the template declares them.
@@ -166,9 +173,6 @@ export function configureMessagesLocale(locale: MessagesLocale): void {
  */
 export function t<K extends MessageKey>(
   key: K,
-  // Correlate the parameters with the key: the conditional resolves per call
-  // site, so `t("sessionScopeNoLinger", { distro })` typechecks while
-  // `t("sessionScopeNoLinger", { missing })` does not.
   params: Catalog[K] extends (first: infer P) => string ? P : never,
 ): string {
   // Key and parameter parity between the catalogs is the type system's job

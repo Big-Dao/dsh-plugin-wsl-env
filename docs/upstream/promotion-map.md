@@ -102,9 +102,15 @@ C:\ 工作区与 `\\wsl.localhost` 工作区（`WorkspaceRegistry` 多条目并�
 - **保留 UNC 身份**：缓存/会话头/GUI 的 key 全部是 `\\wsl.localhost\...`；改用
   Linux 路径身份会破坏既有会话与 Windows 桥（用 Windows 应用打开文件）。
 - **模块级 agent 单例优先于 ctx 服务**：见 §2.3。
-- **watch 用轮询而非 inotify**：`ctx.fs.watch` 契约只要求粗粒度失效回调；
-  `find -newer` 轮询在长驻 wsl.exe 内，无需 inotifywait 依赖（已知盲点：
-  mtime 早于 stamp 的文件）。
+- **watch 回调保持粗粒度（0.10.0 起实现为 inotify 优先 + 轮询回退；2026-11-06
+  逐文件事件提案按测量裁决为不做）**：`ctx.fs.watch` 契约只要求一条无载荷的
+  `changed(error?)` 失效回调，而唯一消费方 `workspace-files` 的
+  `ChangeFeed.follow`（`changes.ts:79-110`）对每次失效只做一次目标 `stat` 并
+  下发 version 帧——不做整树重列，单次代价即 WSL-206 实测的 stat p95 2.7 ms。
+  逐文件事件对它零收益；要承载事件还得先改上游 fs.watch 契约本身（第二条
+  upstream seam）。故实现维持现状：inotify 路径事件即合并（首个立即、其后
+  每 0.5 s 一条 C），无 `inotifywait`、有界深度或文件目标走 `find -newer` 轮询
+  （盲点：mtime 早于 stamp 的写入，见 LIMITATIONS）；裁决记录见附录 B 表后注。
 - **删除而非兼容**：share 基座退役后，`agent`/`resolveSymlinks`/`publish`/
   `withCanonicalRetry`/`guardRefusal` 全部删除——上游若收编，删除即历史。
 
@@ -163,6 +169,15 @@ git 自己的 "command not found"（exit 127）——与搜索同样是**拒绝�
 **战略注记**：②的"根平面路由 fs facade"与 ssh 家族的"成对远程 provider"在效果上汇合——
 区别只在挂载位置（替换根 fs 行 vs 三个 seam 成对）。若上游未来做 desktop+WSL 的正式支持，
 这就是合并点。
+
+**逐文件 watch 事件的裁决（2026-11-06）**：本表 watch 行的"接管"指 0.10.0 已
+落地的 inotify/polling 失效流，不是逐文件事件。提案（把 inotify 的
+`(路径, 事件)` 逐条传回）经消费方源码核对后否决：`fs.watch` 契约的回调无
+载荷，唯一消费方 `ChangeFeed.follow` 每次失效只 stat 目标一次（2.7 ms p95），
+事件细节无处安放；受益前提是上游先改 fs.watch 契约——记录为潜在 seam 议题，
+不进插件路线图。若上游将来给回调加事件载荷，`lib/watcher.js` 的 inotify 路径
+把 `--format "%e"` 改为 `"%w\t%e"`（外加逐条转发）即可供给路径+事件，改动是小
+的——但按决策规则，没有承载契约前不做。
 
 ## 附录 C：workspace-files 接管设计评审
 

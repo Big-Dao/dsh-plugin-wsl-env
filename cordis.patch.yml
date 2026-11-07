@@ -148,6 +148,21 @@
   disabled: true
 
 - insert:
+    # ═════════════════════════════════════════════════════════════════════════════
+    # The web client host half.
+    #
+    # The web app's client-modules roster only scans Loader rows whose name is
+    # an exact package name, and this package's service rows are all subpath
+    # mounts — so without this row the browser half declared under `dsh.client`
+    # (the doctor composer button) would never load. `.` is the no-op client
+    # host half (lib/client-host.js), safe at the composition root; the shell
+    # executor that used to own `.` lives at `dsh-plugin-wsl-env/shell` since
+    # 0.20.0 and is mounted inside the preset below. The bare specifier is
+    # load-bearing: do not "simplify" it to a subpath.
+    # ═════════════════════════════════════════════════════════════════════════════
+    - id: wsl-env-client-host
+      name: 'dsh-plugin-wsl-env'
+
     - id: fs-routing
       name: 'dsh-plugin-wsl-env/fs-routing'
       config:
@@ -281,7 +296,7 @@
               # per-command shape. Bubblewrap is still required for the mount
               # profile; without it the providers fail closed.
               - id: wsl-shell
-                name: 'dsh-plugin-wsl-env'
+                name: 'dsh-plugin-wsl-env/shell'
                 config:
                   # auto: follow the request workdir's UNC distro; "default"
                   # forces WSL's default, and a name pins. Empty is auto.

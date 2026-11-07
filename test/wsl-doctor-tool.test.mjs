@@ -10,7 +10,7 @@
  * collection and merge are the doctor suite's business.
  */
 import assert from "node:assert/strict";
-import { digestReport, renderDigest, apply } from "../lib/wsl-doctor-tool.js";
+import { digestReport, renderDigest, apply, inject } from "../lib/wsl-doctor-tool.js";
 
 const DISTRO_UNC = "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj";
 
@@ -146,6 +146,29 @@ await check("digestReport derives everything when the report lacks the optional 
   assert.equal(digest.failing[0]?.remedy, "no remedy — see docs/DIAGNOSTICS.md", "an empty remedy names the map");
   const rendered = renderDigest(digest);
   assert.match(rendered, /  fix: no remedy — see docs\/DIAGNOSTICS\.md/, "an empty remedy renders the map pointer instead");
+});
+
+await check("the row injects only its eager reads", () => {
+  assert.deepEqual(inject, ["tools", "workingDirectory"], "cordis 4 refuses an undeclared ctx property read; doctor resolves per call");
+});
+
+await check("a provided doctor service wins through ctx.get without an inject", async () => {
+  /** @type {unknown[]} */
+  const registered = [];
+  /** @type {string[]} */
+  const calls = [];
+  const ctx = {
+    get: (/** @type {string} */ name) => name === "doctor"
+      ? async (/** @type {string} */ distro) => { calls.push(distro); return READY; }
+      : undefined,
+    tools: { register: (/** @type {unknown} */ tool) => registered.push(tool) },
+    workingDirectory: { ensure: async () => DISTRO_UNC },
+  };
+  await apply(ctx);
+  const tool = /** @type {{ name: string, execute: (args: { distro?: string }, exec: { agent?: unknown }) => Promise<{ verdict: string }> }} */ (registered[0]);
+  const result = await tool.execute({}, { agent: { id: "a1" } });
+  assert.deepEqual(calls, ["ubuntu"], "the provided service collects, the digest is its report's");
+  assert.equal(result.verdict, "ready");
 });
 
 console.log(`${passed} wsl-doctor-tool checks pass`);

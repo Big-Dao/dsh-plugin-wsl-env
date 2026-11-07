@@ -13,7 +13,7 @@
  *   node test/cwd-prompt-tool.test.mjs
  */
 import assert from "node:assert/strict";
-import { apply, rewriteUncPath } from "../lib/cwd-prompt-tool.js";
+import { apply, inject, rewriteUncPath } from "../lib/cwd-prompt-tool.js";
 
 const UNC = "\\\\wsl.localhost\\ubuntu\\home\\you\\proj";
 const POSIX = "/home/you/proj";
@@ -104,6 +104,10 @@ check("the agent guard matches the shipped tool", async () => {
   const { tool } = mounted();
   const execute = /** @type {(args: Record<string, unknown>, exec: {agent: unknown}) => Promise<{cwd: string}>} */ (tool.execute);
   await assert.rejects(execute({}, /** @type {any} */ ({})), /requires an agent Session/);
+});
+
+check("the row declares its context reads as an inject", () => {
+  assert.deepEqual(inject, ["tools", "workingDirectory"], "cordis 4 refuses an undeclared ctx property read");
 });
 
 check("rewriteUncPath covers UNC, share root, and pass-through", () => {

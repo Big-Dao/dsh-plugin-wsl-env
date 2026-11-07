@@ -16,6 +16,22 @@ were part of the record.
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING: `.` is now the no-op web client host half; the shell executor
+  moved to `dsh-plugin-wsl-env/shell`.** The web app's client-modules roster
+  only scans Loader rows whose name is an exact package name, so the doctor's
+  composer button (declared under `dsh.client`) loads only when the package
+  is mounted at its bare name — and the shell executor that used to own `.`
+  cannot run at the composition root without shadowing the shipped host
+  shell. The bundle's patch layer therefore mounts the bare name as a no-op
+  row (`wsl-env-client-host`) that puts the package on the web bundle list,
+  while the preset mounts the executor through the explicit `./shell` subpath.
+  The doctor button is the plugin's own feature again — the interim
+  `dsh-wsl-env-doctor-button` companion bundle is removed. A profile that
+  mounted `dsh-plugin-wsl-env` directly for the executor must switch to
+  `dsh-plugin-wsl-env/shell`.
+
 ### Added
 
 - **The preflight runs at plugin load, not only at session open.** A new

@@ -11,6 +11,12 @@
  * command after it pays nothing. Nothing else changes: the failure semantics
  * stay exactly as fail-closed as before, this service only MOVES THE NEWS.
  *
+ * The same probes also run once at plugin load (`startup`, on by default) so an
+ * install-plus-restart already carries the verdict in the log — the pinned or
+ * WSL-default distro — before the first session opens. A session on that distro
+ * repeats only the runtime-context entry; other distros keep the session-open
+ * check unchanged.
+ *
  * Advisory by construction. A preflight that cannot run (no WSL, a wedged
  * `wsl.exe`) degrades to a log line; it must never fail a session that has not
  * even asked for confinement yet. It also never installs anything: the remedy
@@ -44,6 +50,14 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
      * that profile does not use.
      */
     sessionSandbox: z<boolean, boolean, "defined">;
+    /**
+     * Whether the same checks also run once at plugin load — install + restart —
+     * against the pinned or WSL-default distro, so the verdict is in the log
+     * before any session opens. Sessions on other distros are still checked at
+     * open, and a session announcement for a message the load pass already
+     * logged skips the duplicate log line but keeps its runtime-context entry.
+     */
+    startup: z<boolean, boolean, "defined">;
 }>>, Schemastery.ObjectT<NoInfer<{
     /**
      * Distro to preflight. Empty/`"auto"` follows the session workspace; an
@@ -62,6 +76,14 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
      * that profile does not use.
      */
     sessionSandbox: z<boolean, boolean, "defined">;
+    /**
+     * Whether the same checks also run once at plugin load — install + restart —
+     * against the pinned or WSL-default distro, so the verdict is in the log
+     * before any session opens. Sessions on other distros are still checked at
+     * open, and a session announcement for a message the load pass already
+     * logged skips the duplicate log line but keeps its runtime-context entry.
+     */
+    startup: z<boolean, boolean, "defined">;
 }>>, "plain">;
 /** The config schema's validated output. */
 export interface PreflightConfig {
@@ -73,6 +95,8 @@ export interface PreflightConfig {
     sandbox?: boolean;
     /** Whether the session-runtime prerequisites are preflighted too. */
     sessionSandbox?: boolean;
+    /** Whether the checks also run once at plugin load, before any session. */
+    startup?: boolean;
 }
 /**
  * The slice of a created agent this service inspects; the harness's agent

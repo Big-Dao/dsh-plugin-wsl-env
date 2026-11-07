@@ -24,6 +24,17 @@
  * @module dsh-plugin-wsl-env/wsl-doctor-tool
  */
 export declare const name = "wsl-doctor-tool";
+/**
+ * The context properties `apply` reads eagerly: the tool registry and the
+ * harness's `workingDirectory` service (the session's distro resolution).
+ * Cordis 4 refuses an undeclared read, so both must be named here. The doctor
+ * collector is deliberately NOT injected: no host row provides a `doctor`
+ * service, and a required inject would fail the whole preset mount; it is
+ * resolved per call through the optional `ctx.get` (which needs no inject)
+ * with the package's own `doctorReport` as the fallback — `doctorCollector`
+ * below.
+ */
+export declare const inject: string[];
 /** The tool registry slice this service consumes. */
 export interface ToolRegistrySlice {
     register: (tool: unknown) => unknown;
@@ -55,8 +66,10 @@ export interface DoctorReportLike {
 export type WslDoctorToolContext = {
     tools: ToolRegistrySlice;
     workingDirectory: WorkingDirectoryToolSlice;
-    /** The in-process collector; `lib/index.js`'s `doctorReport` in production, a fake in tests. */
-    doctor: (distro: string) => Promise<DoctorReportLike>;
+    /** Optional cordis-style lookup: how production resolves `doctor` without an inject. */
+    get?: (name: string) => unknown;
+    /** The in-process collector: a provided `doctor` service, or the test seam's fake. */
+    doctor?: (distro: string) => Promise<DoctorReportLike>;
 };
 /** The tool's config: the row takes no options. */
 export interface WslDoctorToolConfig {

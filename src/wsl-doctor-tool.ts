@@ -26,8 +26,21 @@
 
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { distroOfUnc } from "./distro-route.js";
+import { doctorReport } from "./index.js";
 
 export const name = "wsl-doctor-tool";
+
+/**
+ * The context properties `apply` reads eagerly: the tool registry and the
+ * harness's `workingDirectory` service (the session's distro resolution).
+ * Cordis 4 refuses an undeclared read, so both must be named here. The doctor
+ * collector is deliberately NOT injected: no host row provides a `doctor`
+ * service, and a required inject would fail the whole preset mount; it is
+ * resolved per call through the optional `ctx.get` (which needs no inject)
+ * with the package's own `doctorReport` as the fallback — `doctorCollector`
+ * below.
+ */
+export const inject = ["tools", "workingDirectory"];
 
 /** The tool registry slice this service consumes. */
 export interface ToolRegistrySlice {
@@ -52,8 +65,10 @@ export interface DoctorReportLike {
 export type WslDoctorToolContext = {
   tools: ToolRegistrySlice;
   workingDirectory: WorkingDirectoryToolSlice;
-  /** The in-process collector; `lib/index.js`'s `doctorReport` in production, a fake in tests. */
-  doctor: (distro: string) => Promise<DoctorReportLike>;
+  /** Optional cordis-style lookup: how production resolves `doctor` without an inject. */
+  get?: (name: string) => unknown;
+  /** The in-process collector: a provided `doctor` service, or the test seam's fake. */
+  doctor?: (distro: string) => Promise<DoctorReportLike>;
 };
 
 /** The tool's config: the row takes no options. */
@@ -136,6 +151,30 @@ export function renderDigest(digest: DoctorDigest): string {
 }
 
 /**
+ * The doctor collector this run uses. No host row provides a `doctor`
+ * service, so a required inject would fail the whole preset mount; the
+ * collector resolves per call instead: a provided `doctor` service through
+ * the optional `ctx.get` (cordis answers undefined for an absent name, and a
+ * `get` needs no inject), else the plain `doctor` property (the test seam),
+ * else the package's own `doctorReport` — the sanctioned in-process
+ * collector, imported from the composition root.
+ *
+ * @param ctx - the cordis context the row mounted in.
+ * @returns the collector: distro in, versioned doctor report out.
+ */
+async function doctorCollector(
+  ctx: WslDoctorToolContext,
+): Promise<(distro: string) => Promise<DoctorReportLike>> {
+  if (typeof ctx.get === "function") {
+    const provided = ctx.get("doctor");
+    if (typeof provided === "function") return provided as (distro: string) => Promise<DoctorReportLike>; // the provided service's contract is this module's `doctor` slice
+  } else if (typeof ctx.doctor === "function") {
+    return ctx.doctor;
+  }
+  return doctorReport;
+}
+
+/**
  * Mount the tool.
  *
  * @param ctx - the cordis context (the preset realm, where the tools
@@ -171,7 +210,8 @@ export async function apply(ctx: WslDoctorToolContext): Promise<void> {
       if (distro.length === 0) {
         throw new Error("wsl_doctor could not resolve the session's distro from its working directory — pass one explicitly");
       }
-      const digest = digestReport(await ctx.doctor(distro));
+      const doctor = await doctorCollector(ctx);
+      const digest = digestReport(await doctor(distro));
       return { verdict: digest.verdict, blockers: digest.blockers.join(", "), failing: renderDigest(digest) };
     }
   }));

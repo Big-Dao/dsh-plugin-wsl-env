@@ -31,6 +31,14 @@
  * @module dsh-plugin-wsl-env/cwd-prompt-tool
  */
 export declare const name = "wsl-cwd-prompt-tool";
+/**
+ * The context properties `apply` reads. Cordis 4 refuses an undeclared read —
+ * `cannot get property "tools" without inject` — so both the tool registry and
+ * the harness's `workingDirectory` service must be named here. Both are
+ * required: a host without one fails this row's activation loudly, which is
+ * the design (a missing service is a composition error, not a degradation).
+ */
+export declare const inject: string[];
 /** The config schema's validated output: the row takes no options. */
 export interface CwdPromptToolConfig {
     /** Reserved; the wrapper has no options today. */

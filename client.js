@@ -3,15 +3,15 @@
  * `/wsl-doctor` into the current session's input and submits it.
  *
  * The composer dock's slot components receive the harness's standard props —
- * `inputActions` among them (insert/insertQuote and the submit verb over the
- * per-session input facade). Submission is feature-detected: when the runtime
- * exposes a submit verb it fires directly (one click); otherwise the command
- * text lands in the draft for the user to send with Enter — the button then
- * degrades to a prefill, never to a broken control.
+ * `inputActions` among them. Sending is `setDraft(text)` (replace the whole
+ * draft with plain text) followed by `submit()` (send the current draft — the
+ * published face has no submit-with-text verb). When those verbs are missing
+ * the button degrades to a draft prefill, never to a broken control.
  *
  * Loaded by the harness's web client loader through the `dsh.client`
- * declaration in package.json; the shape mirrors the working
- * `composer-badge` local bundle.
+ * declaration in package.json; the composition's bare-name row
+ * (`wsl-env-client-host`, mounting the no-op root export) is what puts this
+ * package on the web bundle list.
  */
 window.__ModuleLoader__.load({
   id: "dsh-plugin-wsl-env",
@@ -26,28 +26,26 @@ window.__ModuleLoader__.load({
     function DoctorButton(props) {
       const trigger = () => {
         const actions = props && props.inputActions;
-        if (actions && typeof actions.submit === "function") {
+        // The published InputActions face has no submit(text): submit() sends
+        // the CURRENT draft, and insertText needs a captureInsertion() span.
+        // setDraft replaces the whole draft with plain text, then submit()
+        // sends it — one click, no span bookkeeping.
+        if (actions && typeof actions.setDraft === "function" && typeof actions.submit === "function") {
           try {
-            actions.submit(COMMAND);
+            actions.setDraft(COMMAND);
+            actions.submit();
             return;
           } catch (error) {
             // Fall through to the draft prefill below; the command text is the
             // same either way.
           }
         }
-        if (actions && typeof actions.insertText === "function") {
+        if (actions && typeof actions.setDraft === "function") {
           try {
-            actions.insertText(COMMAND);
+            actions.setDraft(COMMAND);
             return;
           } catch (error) {
             // Ignored: the draft stays untouched rather than half-filled.
-          }
-        } else if (actions && typeof actions.insertQuote === "function") {
-          try {
-            actions.insertQuote(COMMAND);
-            return;
-          } catch (error) {
-            // Ignored, same shape as insertText.
           }
         }
       };
@@ -61,10 +59,15 @@ window.__ModuleLoader__.load({
             display: "flex",
             alignItems: "center",
             gap: 5,
+            // The dock is a centered flex row; an auto left margin overrides
+            // the group centering for this item alone and pins the pill to
+            // the dock's right edge.
+            marginLeft: "auto",
             padding: "2px 10px",
             borderRadius: 999,
             fontSize: 12,
-            border: "1px solid currentColor",
+            border: "none",
+            outline: "none",
             background: "transparent",
             color: "inherit",
             opacity: 0.75,

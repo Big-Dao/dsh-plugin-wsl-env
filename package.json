@@ -40,6 +40,10 @@
       "types": "./lib/wsl-doctor-tool.d.ts",
       "default": "./lib/wsl-doctor-tool.js"
     },
+    "./doctor-skill": {
+      "types": "./lib/doctor-skill.d.ts",
+      "default": "./lib/doctor-skill.js"
+    },
     "./file-reference-wsl": {
       "types": "./lib/file-reference-wsl.d.ts",
       "default": "./lib/file-reference-wsl.js"

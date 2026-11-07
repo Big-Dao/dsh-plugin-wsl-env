@@ -18,6 +18,19 @@ were part of the record.
 
 ### Added
 
+- **The doctor has a user-facing trigger.** A new `wsl-doctor-skill` row
+  installs a `wsl-doctor` skill into the harness's skill discovery path
+  (`$DSH_HOME/skills/wsl-doctor/SKILL.md`, falling back to `~/.dsh`) at
+  plugin load, so invoking the doctor is a user action instead of the
+  model's initiative — the traditional entry the withdrawn page-level
+  proposal (#12499) wanted, shipped inside the plugin's own space. The skill
+  is declared `disable-model-invocation: true` (user-only), walks the model
+  through the `wsl_doctor` tool or the `DSH_WSL_DOCTOR` fact, and holds the
+  remedy-only boundary (never rewrite user- or distro-owned files, never
+  install uninvited; apply a remedy command only after the user confirms).
+  Installation is idempotent and content-addressed: an unchanged shipped
+  text never churns the file; an unwritable home degrades to a debug line.
+
 - **The preflight runs at plugin load, not only at session open.** A new
   `startup` key (default `true`) on `wsl-preflight` runs the same `bwrap` and
   session-runtime probes once at mount — install plus restart — against the

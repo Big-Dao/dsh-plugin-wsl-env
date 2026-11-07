@@ -140,6 +140,7 @@ The root router is app-level, not session-owned, so it does not use
 | | `portsRefreshMs` | `10000` | Listening-port snapshot interval, in milliseconds. |
 | `wsl-update-check` | `enabled` | `true` | Whether the plugin checks the app's plugin manager for a newer stable release. The result is served as `DSH_WSL_PLUGIN_UPDATE`; the check never installs. |
 | | `intervalMs` | `86400000` | Check interval, in milliseconds (first check 2–10 minutes after startup); floored at one minute. |
+| `wsl-doctor-skill` | — | — | Installs a user-invocable `wsl-doctor` skill into the harness's skill discovery path (`$DSH_HOME/skills/wsl-doctor/SKILL.md`, falling back to `~/.dsh`) at load, so the user can trigger the doctor directly. Idempotent and content-addressed: rewritten only when the shipped text changes. Takes no options. |
 
 The GUI file tree and previews use the bundled `workspace-files` row through
 `fs-routing`; they do not use a separate WSL provider row. To change its

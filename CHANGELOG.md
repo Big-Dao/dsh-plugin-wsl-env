@@ -25,10 +25,13 @@ were part of the record.
   "$DSH_WSL_DOCTOR --json"`) without a terminal or a separate Node install.
   The session-start preflight now publishes its verdict on healthy sessions
   too (`WSL preflight: ready — …`), so the transcript reads as a verdict on
-  every session start, not only on failures. The per-plugin diagnostics
-  action on the Plugins page is proposed upstream
-  ([discussion #12499](https://github.com/deepseek-ai/deepseek-harness/discussions/12499));
-  the plugin stays fully functional if it never lands.
+  every session start, not only on failures. And a new `wsl_doctor` tool
+  (mounted inside `preset-wsl`) lets the model run the doctor itself —
+  in-process through `doctorReport()` with the live resident's state merged
+  in — returning the verdict, blockers and per-failure remedies to the
+  transcript. The whole entry is the plugin's own; the page-level action
+  proposed upstream (discussion #12499) was withdrawn the same day as
+  unnecessary coupling — the cohesive shape needs no upstream surface.
 
 
 - **The doctor's verdict closes the loop: green means the first command

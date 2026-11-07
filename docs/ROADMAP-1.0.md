@@ -390,8 +390,9 @@ command.
       verdict on healthy sessions too (the ready line). A dedicated GUI
       notice/banner remains the session-notice ask
       ([#10263](https://github.com/deepseek-ai/deepseek-harness/discussions/10263)),
-      now joined by the per-plugin diagnostics proposal
-      ([#12499](https://github.com/deepseek-ai/deepseek-harness/discussions/12499)).
+      now self-sufficient: the `wsl_doctor` tool runs the doctor in-session
+      (the per-plugin diagnostics proposal #12499 was filed and withdrawn the
+      same day — the cohesive shape needs no upstream surface).
 - [x] The warning never installs anything and never changes fail-closed
       behavior.
 - [x] A session with a usable environment produces no warning.

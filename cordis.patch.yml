@@ -342,6 +342,14 @@
                   sampleOverCapGlobResults: false
               - id: tool-jobs
                 name: '@deepseek-ai/dsh-tool-jobs'
+
+              # The model runs the environment doctor itself: the verdict
+              # lands in the transcript (ready, or blocked with per-failure
+              # copy-paste remedies). In-process via doctorReport(), so the
+              # live resident's state merges in; mounts inside this preset
+              # because a host-preset agent has no distro to examine.
+              - id: wsl-doctor-tool
+                name: 'dsh-plugin-wsl-env/wsl-doctor-tool'
               - id: tool-schedule
                 name: '@deepseek-ai/dsh-tool-schedule'
               - id: skill-filesystem

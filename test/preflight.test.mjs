@@ -286,6 +286,45 @@ await check("sessionSandbox: false leaves the session prerequisites alone", asyn
   assert.deepEqual(f.warns, [], "an opted-out session runtime is not preflighted");
 });
 
+await check("a healthy session publishes the ready line into the transcript", async () => {
+  const wslPath = await scriptedWsl("wsl-preready.exe", "ok");
+  const f = fakeCtx();
+  /** @type {Array<{name: string, order: number, text: () => string}>} */
+  const contexts = [];
+  /** @type {(names: string[], install: (scope: { systemPrompt: { context: (entry: { name: string, order: number, text: () => string }) => unknown } }) => void) => void} */
+  const injectPrompt = (_names, install) => install({ systemPrompt: { context: (entry) => contexts.push(entry) } });
+  const agent = {
+    id: "a15",
+    session: { header: { cwd: DISTRO_UNC } },
+    ctx: { inject: injectPrompt },
+  };
+  await apply(/** @type {never} */ (wireCtx(f)), { distro: "ubuntu", wslPath, sandbox: true });
+  await f.fire({ agent });
+  assert.deepEqual(f.warns, [], "ready is confirmation, never a complaint");
+  assert.equal(contexts.length, 1, "one runtime-context entry");
+  assert.equal(contexts[0]?.name, "wsl-preflight");
+  assert.match(contexts[0]?.text() ?? "", /ready — bwrap and the session scope are usable/);
+});
+
+await check("sessionSandbox: false publishes the scoped ready line", async () => {
+  const wslPath = await fakeWsl("wsl-preready2.exe", join(dir, "present-ready2"));
+  await writeFile(join(dir, "present-ready2"), "");
+  const f = fakeCtx();
+  /** @type {Array<{name: string, order: number, text: () => string}>} */
+  const contexts = [];
+  /** @type {(names: string[], install: (scope: { systemPrompt: { context: (entry: { name: string, order: number, text: () => string }) => unknown } }) => void) => void} */
+  const injectPrompt2 = (_names, install) => install({ systemPrompt: { context: (entry) => contexts.push(entry) } });
+  const agent = {
+    id: "a16",
+    session: { header: { cwd: DISTRO_UNC } },
+    ctx: { inject: injectPrompt2 },
+  };
+  await apply(/** @type {never} */ (wireCtx(f)), { distro: "ubuntu", wslPath, sandbox: true, sessionSandbox: false });
+  await f.fire({ agent });
+  assert.deepEqual(f.warns, []);
+  assert.match(contexts[0]?.text() ?? "", /ready — bwrap is usable inside "ubuntu" \(the session scope is not checked/);
+});
+
 await check("the advisory also lands in the session runtime context", async () => {
   const wslPath = await scriptedWsl("wsl-precontext.exe", "no-linger");
   const f = fakeCtx();

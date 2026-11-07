@@ -153,9 +153,14 @@ export async function apply(ctx: PreflightContext, config: PreflightConfig = {})
    *
    * @param agent - the session that just opened.
    * @param message - the advisory, remedy included.
+   * @param level - `warn` for a blocked environment (the historical shape); `info` for the ready line, which is confirmation, not a complaint.
    */
-  const announce = (agent: PreflightAgent, message: string): void => {
-    warn(message);
+  const announce = (agent: PreflightAgent, message: string, level: "warn" | "info" = "warn"): void => {
+    if (level === "info") {
+      ctx.logger?.debug?.(message);
+    } else {
+      warn(message);
+    }
     const agentCtx = agent.ctx;
     if (agentCtx === undefined || typeof agentCtx.inject !== "function") return;
     try {
@@ -226,10 +231,16 @@ export async function apply(ctx: PreflightContext, config: PreflightConfig = {})
       announce(agent, `wsl-preflight: ${bwrapFailure(wslPath, distro) ?? missingBwrapRemedy(distro)}`);
       return;
     }
-    ctx.logger?.debug?.(`wsl-preflight: bwrap is usable inside distro "${distro}"`);
-    if (!(config.sessionSandbox ?? true)) return;
+    if (!(config.sessionSandbox ?? true)) {
+      announce(agent, `wsl-preflight: ready — bwrap is usable inside "${distro}" (the session scope is not checked: sessionSandbox: false)`, "info");
+      return;
+    }
     const sessionProblem = await probeSession(distro);
-    if (sessionProblem !== undefined) announce(agent, `wsl-preflight: ${sessionProblem}`);
+    if (sessionProblem !== undefined) {
+      announce(agent, `wsl-preflight: ${sessionProblem}`);
+      return;
+    }
+    announce(agent, `wsl-preflight: ready — bwrap and the session scope are usable inside "${distro}"`, "info");
   };
 
   ctx.on("agent/created", (payload) => void check(payload?.agent));

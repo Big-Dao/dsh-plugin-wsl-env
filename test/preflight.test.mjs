@@ -213,6 +213,58 @@ await check("a load pass without WSL degrades to debug", async () => {
   assert.equal(f.debugs.length > 0, true, "it stays observable at debug level");
 });
 
+await check("distro: default resolves the load pass's distro through wsl.exe -l -q", async () => {
+  const path = join(dir, "wsl-preloaddefault.exe");
+  // `-l -q` prints WSL's default distro; every probe (bwrap included) succeeds.
+  await writeFile(path, "#!/bin/sh\ncase \"$*\" in\n  *-l*\" -q\"*|*\"-l -q\"*) printf 'wsl-fake-default\\n' ;;\n  *) exit 0 ;;\nesac\n", { mode: 0o755 });
+  const f = fakeCtx();
+  await apply(/** @type {never} */ (wireCtx(f)), { distro: "default", wslPath: path, sandbox: true });
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  assert.equal(f.debugs.length > 0, true, "the ready verdict is observable at debug level");
+  assert.match(f.debugs[f.debugs.length - 1] ?? "", /inside "wsl-fake-default"/, "the verdict names the distro the list probe answered");
+});
+
+await check("a load pass and a session opening during it log exactly one line, either order", async () => {
+  // A slow probe keeps the load pass in flight while the session fires, so both
+  // continuations read the same single-flight verdict.
+  const path = join(dir, "wsl-preslow.exe");
+  await writeFile(path, "#!/bin/sh\nsleep 0.6\nexit 1\n", { mode: 0o755 });
+  const f = fakeCtx();
+  /** @type {Array<{name: string, order: number, text: () => string}>} */
+  const contexts = [];
+  /** @type {(names: string[], install: (scope: { systemPrompt: { context: (entry: { name: string, order: number, text: () => string }) => unknown } }) => void) => void} */
+  const injectPrompt = (_names, install) => install({ systemPrompt: { context: (entry) => contexts.push(entry) } });
+  await apply(/** @type {never} */ (wireCtx(f)), { distro: "ubuntu", wslPath: path, sandbox: true });
+  // Fired while the load pass's probes are still sleeping.
+  f.handlers["agent/created"]?.({ agent: { id: "a19", session: { header: { cwd: DISTRO_UNC } }, ctx: { inject: injectPrompt } } });
+  // The slow fake makes the composed failure several probes long (each sleeps),
+  // so poll instead of a fixed sleep.
+  for (let waited = 0; f.warns.length === 0 && waited < 8000; waited += 100) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.equal(f.warns.length, 1, "the shared flight collapses the two announcements to one log line");
+  assert.equal(contexts.length, 1, "the session entry still lands");
+  assert.match(contexts[0]?.text() ?? "", /scripts\/bootstrap\.sh ubuntu --install/);
+});
+
+await check("successive sessions after the load pass stay at one log line, each with an entry", async () => {
+  const wslPath = await scriptedWsl("wsl-premultisession.exe", "no-linger");
+  const f = fakeCtx();
+  /** @type {Array<{name: string, order: number, text: () => string}>} */
+  const contexts = [];
+  /** @type {(names: string[], install: (scope: { systemPrompt: { context: (entry: { name: string, order: number, text: () => string }) => unknown } }) => void) => void} */
+  const injectPrompt = (_names, install) => install({ systemPrompt: { context: (entry) => contexts.push(entry) } });
+  await apply(/** @type {never} */ (wireCtx(f)), { distro: "ubuntu", wslPath, sandbox: true });
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  const second = { id: "a20", session: { header: { cwd: DISTRO_UNC } }, ctx: { inject: injectPrompt } };
+  const third = { id: "a21", session: { header: { cwd: DISTRO_UNC } }, ctx: { inject: injectPrompt } };
+  await f.fire({ agent: second }, 250);
+  assert.equal(f.warns.length, 1, "the second session adds no log line");
+  await f.fire({ agent: third }, 250);
+  assert.equal(f.warns.length, 1, "the third session adds no log line either");
+  assert.equal(contexts.length, 2, "each session still gets its own runtime-context entry");
+});
+
 await check("sandbox: false registers nothing at all", async () => {
   const wslPath = await fakeWsl("wsl-preoff.exe", join(dir, "absent-3"));
   const f = fakeCtx();

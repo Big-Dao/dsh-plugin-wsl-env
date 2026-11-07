@@ -1,0 +1,9 @@
+# Bundle patch layer: the row loads this package's main entry as the host half
+# (a no-op Cordis plugin, the composer-badge shape); the `dsh.client`
+# declaration in package.json makes the web app load ./client as the browser
+# half. The bare specifier is load-bearing: the client-modules roster only
+# scans Loader rows whose name is an exact package name, so mounting via a
+# subpath of dsh-plugin-wsl-env would never reach the web bundle list.
+- insert:
+    - id: dsh-wsl-env-doctor-button
+      name: dsh-wsl-env-doctor-button

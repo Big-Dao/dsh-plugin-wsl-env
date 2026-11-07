@@ -30,11 +30,50 @@
 import z from "@deepseek-ai/schemastery";
 import type { Context } from "@deepseek-ai/cordis";
 import { uncToPosix } from "./paths.js";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { defaultDistro, defaultShell, linuxHomePath, listDistros } from "./wsl.js";
 import { isDefaultDistro, pinnedDistro } from "./distro-route.js";
 import { sharedAgent } from "./agent-shared.js";
 import { scanListeningPorts } from "./ports.js";
 import { currentUpdateFact, updateFactMessage } from "./update-check.js";
+
+/**
+ * One Windows path as the POSIX side sees it through the default automount
+ * (`C:\a\b` → `/mnt/c/a/b`). The doctor command names the app's own runtime
+ * this way, because it is executed by the distro's shell through interop.
+ * A moved automount root is the `distro.wsl-conf-automount` check's finding,
+ * not this mapping's problem to guess.
+ * @param p - the Windows path.
+ * @returns the POSIX form for a `C:`-drive path; anything else passes through.
+ */
+export function windowsToPosix(p: string): string {
+  const match = /^([A-Za-z]):[\\/](.*)$/.exec(p);
+  if (match === null) return p;
+  return `/mnt/${(match[1] ?? "").toLowerCase()}/${(match[2] ?? "").replaceAll("\\", "/")}`;
+}
+
+/**
+ * The `DSH_WSL_DOCTOR` value: a ready-to-run POSIX-sh command that executes
+ * the plugin's doctor from inside a distro session. The interpreter is the
+ * app's own runtime in Node mode (`ELECTRON_RUN_AS_NODE=1` — the same
+ * mechanism the probe suite uses for headless CLI runs), reached through
+ * interop at its `/mnt/...` path; the script stays a Windows path because
+ * the runtime is a Windows binary and interop translates arguments for
+ * nothing. `WSLENV` is inlined so the flag actually crosses the boundary.
+ * Windows hosts only: the whole mechanism is the interop path.
+ * @param execPath - `process.execPath` in the app process (the runtime binary).
+ * @param pluginRoot - the plugin's installed root (holding `scripts/doctor.mjs`).
+ * @param isWindows - `process.platform === "win32"` at the call site.
+ * @returns the command string, or undefined off Windows.
+ */
+export function doctorFact(execPath: string, pluginRoot: string, isWindows: boolean = process.platform === "win32"): string | undefined {
+  if (!isWindows) return undefined;
+  const script = join(pluginRoot, "scripts", "doctor.mjs");
+  const existing = process.env.WSLENV;
+  const wslenv = existing !== undefined && existing.length > 0 ? `ELECTRON_RUN_AS_NODE:${existing}` : "ELECTRON_RUN_AS_NODE";
+  return `WSLENV="${wslenv}" ELECTRON_RUN_AS_NODE=1 '${windowsToPosix(execPath)}' '${script}'`;
+}
 
 export const name = "wsl-shell-env";
 
@@ -150,6 +189,7 @@ export async function apply(ctx: ShellEnvContext, config: ShellEnvConfig = {}): 
   const initial = pinned ?? defaultName;
   if (initial !== undefined) await ensureFacts(initial);
 
+  let doctorFactValue: string | undefined;
   const variables = {
     DSH_WSL_DISTRO: {
       description: "Name of the WSL distro this session's workspace lives in.",
@@ -165,6 +205,9 @@ export async function apply(ctx: ShellEnvContext, config: ShellEnvConfig = {}): 
     },
     DSH_WSL_PLUGIN_UPDATE: {
       description: "A newer release of this plugin (dsh-plugin-wsl-env), as of the last update check — checked against the registry about once a day. Empty means the installed version is current (or the check has not run yet). Applying it is manual: the Plugins page's Versions section, or `dsh plugin --profile <name> add dsh-plugin-wsl-env`, then restart DSH.",
+    },
+    DSH_WSL_DOCTOR: {
+      description: "Ready-to-run command that executes this plugin's environment doctor (scripts/doctor.mjs) from inside a session, using the app's own runtime as Node — no terminal or separate Node install needed. Run it as: sh -c \"$DSH_WSL_DOCTOR --json\" (drop --json for the human report). The output ends in a verdict (ready, or blocked with per-failure copy-paste remedies).",
     },
   };
 
@@ -229,6 +272,8 @@ export async function apply(ctx: ShellEnvContext, config: ShellEnvConfig = {}): 
       if (pinned !== undefined && named.toLowerCase() !== pinned.toLowerCase()) return {};
       if (isDefaultDistro(configured) && defaultName !== undefined && named.toLowerCase() !== defaultName.toLowerCase()) return {};
       const canonical = [...facts.keys()].find((distro) => distro.toLowerCase() === named.toLowerCase()) ?? named;
+      const doctorCommand = doctorFactValue ?? doctorFact(process.execPath, dirname(dirname(fileURLToPath(import.meta.url))));
+      doctorFactValue = doctorCommand;
       const known = facts.get(canonical);
       ensurePorts(canonical);
       const resolved: Record<string, string> = {
@@ -238,6 +283,9 @@ export async function apply(ctx: ShellEnvContext, config: ShellEnvConfig = {}): 
         // are exactly the distro ones, so it rides the same accepted-branch —
         // the timer-fed state is read synchronously, like the ports snapshot.
         DSH_WSL_PLUGIN_UPDATE: updateFactMessage(currentUpdateFact()),
+        // The doctor command is host-shaped (Windows paths), so it exists only
+        // where the interop mechanism exists; elsewhere the key stays absent.
+        ...(doctorCommand === undefined ? {} : { DSH_WSL_DOCTOR: doctorCommand }),
       };
       if (known?.home !== undefined) resolved.DSH_WSL_HOME = known.home;
       if (known?.shell !== undefined) resolved.DSH_WSL_SHELL = known.shell;

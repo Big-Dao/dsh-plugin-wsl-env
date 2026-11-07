@@ -28,6 +28,31 @@
  */
 import z from "@deepseek-ai/schemastery";
 import type { Context } from "@deepseek-ai/cordis";
+/**
+ * One Windows path as the POSIX side sees it through the default automount
+ * (`C:\a\b` → `/mnt/c/a/b`). The doctor command names the app's own runtime
+ * this way, because it is executed by the distro's shell through interop.
+ * A moved automount root is the `distro.wsl-conf-automount` check's finding,
+ * not this mapping's problem to guess.
+ * @param p - the Windows path.
+ * @returns the POSIX form for a `C:`-drive path; anything else passes through.
+ */
+export declare function windowsToPosix(p: string): string;
+/**
+ * The `DSH_WSL_DOCTOR` value: a ready-to-run POSIX-sh command that executes
+ * the plugin's doctor from inside a distro session. The interpreter is the
+ * app's own runtime in Node mode (`ELECTRON_RUN_AS_NODE=1` — the same
+ * mechanism the probe suite uses for headless CLI runs), reached through
+ * interop at its `/mnt/...` path; the script stays a Windows path because
+ * the runtime is a Windows binary and interop translates arguments for
+ * nothing. `WSLENV` is inlined so the flag actually crosses the boundary.
+ * Windows hosts only: the whole mechanism is the interop path.
+ * @param execPath - `process.execPath` in the app process (the runtime binary).
+ * @param pluginRoot - the plugin's installed root (holding `scripts/doctor.mjs`).
+ * @param isWindows - `process.platform === "win32"` at the call site.
+ * @returns the command string, or undefined off Windows.
+ */
+export declare function doctorFact(execPath: string, pluginRoot: string, isWindows?: boolean): string | undefined;
 export declare const name = "wsl-shell-env";
 export declare const inject: string[];
 export declare const Config: z<Schemastery.ObjectS<NoInfer<{

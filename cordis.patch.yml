@@ -172,6 +172,17 @@
     - id: wsl-preflight
       name: 'dsh-plugin-wsl-env/preflight'
 
+    # Distro-native working directory in the runtime context: rewrite the
+    # `working-directory:current` entry so a distro session reads its cwd as
+    # the POSIX path its own commands use (`/home/...`) instead of the host
+    # UNC spelling (`\\wsl.localhost\<distro>\...`). Display only: it touches
+    # one prompt entry, leaves drive paths and every other context alone, and
+    # degrades to a no-op on a harness without the assemble waterfall.
+    - id: wsl-cwd-prompt
+      name: 'dsh-plugin-wsl-env/cwd-prompt'
+      config:
+        enabled: true
+
     # Update check: on a slow timer (first check 2-10 minutes after boot, then
     # once a day) ask the host's plugin-manager whether a newer stable release
     # of this package exists, and publish one fact the shell-env row serves as

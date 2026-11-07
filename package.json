@@ -28,6 +28,10 @@
     },
     "./auto-preset/locale/en.json": "./locale/auto-preset/en.json",
     "./auto-preset/locale/zh.json": "./locale/auto-preset/zh.json",
+    "./cwd-prompt": {
+      "types": "./lib/cwd-prompt.d.ts",
+      "default": "./lib/cwd-prompt.js"
+    },
     "./file-reference-wsl": {
       "types": "./lib/file-reference-wsl.d.ts",
       "default": "./lib/file-reference-wsl.js"

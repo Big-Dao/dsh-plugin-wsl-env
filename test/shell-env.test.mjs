@@ -137,8 +137,8 @@ assert.ok(contributor, "the registry received a contributor");
 assert.equal(contributor.name, "dsh-plugin-wsl-env", "the contributor owns a stable name");
 assert.deepEqual(
   Object.keys(contributor.variables).sort(),
-  ["DSH_WSL_DISTRO", "DSH_WSL_HOME", "DSH_WSL_PLUGIN_UPDATE", "DSH_WSL_PORTS", "DSH_WSL_SHELL"],
-  "the five managed keys are declared together",
+  ["DSH_WSL_DISTRO", "DSH_WSL_DOCTOR", "DSH_WSL_HOME", "DSH_WSL_PLUGIN_UPDATE", "DSH_WSL_PORTS", "DSH_WSL_SHELL"],
+  "the managed keys are declared together (DSH_WSL_DOCTOR declares always; its value is Windows-host shaped)",
 );
 assert.equal(withAgents.swept, true, "the live-agent sweep reaches the optional agents service");
 console.log("PASS  a composition with agents mounts and sweeps");
@@ -287,4 +287,23 @@ if (POSIX) {
     setUpdateFact(undefined);
   }
   console.log("PASS  the update fact resolves into DSH_WSL_PLUGIN_UPDATE and clears back to empty");
+}
+
+// ---- the doctor fact (WSL-317) --------------------------------------------
+
+{
+  const { windowsToPosix, doctorFact } = shellEnvRow;
+  console.log("PASS  windowsToPosix maps the drive through the default automount");
+  assert.equal(windowsToPosix("C:\\Users\\x\\App\\DeepSeek Harness.exe"), "/mnt/c/Users/x/App/DeepSeek Harness.exe");
+  assert.equal(windowsToPosix("d:/x/y"), "/mnt/d/x/y");
+  assert.equal(windowsToPosix("/already/posix"), "/already/posix", "a non-drive path passes through");
+
+  console.log("PASS  doctorFact builds the interop command on Windows and nothing off it");
+  const command = doctorFact("C:\\App\\dsh.exe", "C:\\Users\\x\\plugin", true);
+  assert.match(String(command), /^WSLENV="ELECTRON_RUN_AS_NODE/);
+  assert.match(String(command), /ELECTRON_RUN_AS_NODE=1 '\/mnt\/c\/App\/dsh\.exe'/, "the exe rides /mnt through interop");
+  assert.match(String(command), /'C:\\+Users\\+x\\+plugin[\/\\]scripts[\/\\]doctor\.mjs'$/, "the script stays a Windows path (the separator follows the host)");
+  const withExisting = doctorFact("C:\\App\\dsh.exe", "C:\\p", true) ;
+  assert.ok(String(withExisting).startsWith('WSLENV="'), "WSLENV is set inline so the flag crosses interop");
+  assert.equal(doctorFact("/usr/bin/node", "/plugin", false), undefined, "the fact exists only on Windows hosts");
 }

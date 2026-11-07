@@ -136,7 +136,6 @@ Loader 在挂载该行之前会校验宿主和发行版设置；
 | | `startup` | `true` | 插件加载时（即安装 + 重启后）对 pin 的或 WSL 默认发行版预先运行同一组检查，让判定在任何会话打开之前就出现在日志里。 |
 | `wsl-shell-env` | `distro` | `''` | 用于填充 `DSH_WSL_*` 环境事实的发行版。 |
 | | `portsRefreshMs` | `10000` | 监听端口快照的刷新间隔，单位毫秒。 |
-| `wsl-doctor-skill` | — | — | 加载时向宿主的技能发现目录（`$DSH_HOME/skills/wsl-doctor/SKILL.md`，回退 `~/.dsh`）安装一个用户可直接触发的 `wsl-doctor` 技能，作为 doctor 的传统入口。幂等且按内容寻址：仅当随发文本变化时才重写。无配置项。 |
 
 GUI 文件树和预览通过 `fs-routing` 使用随包的 `workspace-files` 行；
 它们不使用单独的 WSL 提供者行。要修改其 peer 定义的限额，

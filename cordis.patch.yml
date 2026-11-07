@@ -180,16 +180,6 @@
     - id: wsl-preflight
       name: 'dsh-plugin-wsl-env/preflight'
 
-    # The doctor's user-facing trigger: install a `wsl-doctor` skill into the
-    # harness's skill discovery path (`$DSH_HOME/skills/wsl-doctor/SKILL.md`)
-    # at load, so the user can invoke the doctor directly instead of waiting
-    # for the model to reach for the `wsl_doctor` tool. Idempotent and
-    # content-addressed (rewritten only when the shipped text changes);
-    # `disable-model-invocation: true` makes it a user-only entry, and an
-    # unwritable home degrades to a debug line.
-    - id: wsl-doctor-skill
-      name: 'dsh-plugin-wsl-env/doctor-skill'
-
     # Distro-native working directory in the runtime context: rewrite the
     # `working-directory:current` entry so a distro session reads its cwd as
     # the POSIX path its own commands use (`/home/...`) instead of the host

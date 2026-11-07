@@ -159,10 +159,58 @@ await check("a healthy distro session logs quiet debug, never warn", async () =>
 await check("a host workspace is silent", async () => {
   const wslPath = await fakeWsl("wsl-prehost.exe", join(dir, "absent-2"));
   const f = fakeCtx();
-  await apply(/** @type {never} */ (wireCtx(f)), { distro: "ubuntu", wslPath, sandbox: true });
+  await apply(/** @type {never} */ (wireCtx(f)), { distro: "ubuntu", wslPath, sandbox: true, startup: false });
   await f.fire({ agent: { id: "a3", session: { header: { cwd: HOST_UNC } } } }, 250);
   assert.deepEqual(f.warns, [], "a host session never warns about a distro sandbox");
   assert.deepEqual(f.debugs, [], "and it is not even probed");
+});
+
+await check("the load pass warns before any session opens", async () => {
+  const wslPath = await fakeWsl("wsl-preload.exe", join(dir, "absent-load"));
+  const f = fakeCtx();
+  await apply(/** @type {never} */ (wireCtx(f)), { distro: "ubuntu", wslPath, sandbox: true });
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(f.warns.length, 1, "the load pass logs the verdict at mount, session or not");
+  assert.match(f.warns[0] ?? "", /scripts\/bootstrap\.sh ubuntu --install/, "the load pass carries the same remedy");
+});
+
+await check("a session on the load-checked distro repeats only the entry, not the log line", async () => {
+  const wslPath = await scriptedWsl("wsl-preloaddup.exe", "no-linger");
+  const f = fakeCtx();
+  /** @type {Array<{name: string, order: number, text: () => string}>} */
+  const contexts = [];
+  /** @type {(names: string[], install: (scope: { systemPrompt: { context: (entry: { name: string, order: number, text: () => string }) => unknown } }) => void) => void} */
+  const injectPrompt = (_names, install) => install({ systemPrompt: { context: (entry) => contexts.push(entry) } });
+  const agent = {
+    id: "a17",
+    session: { header: { cwd: DISTRO_UNC } },
+    ctx: { inject: injectPrompt },
+  };
+  await apply(/** @type {never} */ (wireCtx(f)), { distro: "ubuntu", wslPath, sandbox: true });
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(f.warns.length, 1, "the load pass warned once");
+  await f.fire({ agent }, 250);
+  assert.equal(f.warns.length, 1, "the session announcement skips the duplicate log line");
+  assert.equal(contexts.length, 1, "but the runtime-context entry still lands");
+  assert.match(contexts[0]?.text() ?? "", /loginctl enable-linger/);
+});
+
+await check("startup: false keeps the checks to session open", async () => {
+  const wslPath = await fakeWsl("wsl-preloadoff.exe", join(dir, "absent-loadoff"));
+  const f = fakeCtx();
+  await apply(/** @type {never} */ (wireCtx(f)), { distro: "ubuntu", wslPath, sandbox: true, startup: false });
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.deepEqual(f.warns, [], "an opted-out load pass stays silent at mount");
+  await f.fire({ agent: { id: "a18", session: { header: { cwd: DISTRO_UNC } } } });
+  assert.equal(f.warns.length, 1, "the session-open check still runs");
+});
+
+await check("a load pass without WSL degrades to debug", async () => {
+  const f = fakeCtx();
+  await apply(/** @type {never} */ (wireCtx(f)), { distro: "default", wslPath: join(dir, "no-such-wsl-load.exe"), sandbox: true });
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.deepEqual(f.warns, [], "a missing WSL install is not the load pass's warning to give");
+  assert.equal(f.debugs.length > 0, true, "it stays observable at debug level");
 });
 
 await check("sandbox: false registers nothing at all", async () => {

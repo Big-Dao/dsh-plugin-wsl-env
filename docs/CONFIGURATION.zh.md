@@ -133,6 +133,7 @@ Loader 在挂载该行之前会校验宿主和发行版设置；
 | | `wslPath` | `wsl.exe` | `wsl.exe` 的路径。 |
 | | `sandbox` | `true` | 运行会话启动时的 `bwrap` 检查。 |
 | | `sessionSandbox` | `true` | 同时检查 systemd、user manager、`systemd-run` 和 Linger。profile 不使用会话 runtime 时设为 false。 |
+| | `startup` | `true` | 插件加载时（即安装 + 重启后）对 pin 的或 WSL 默认发行版预先运行同一组检查，让判定在任何会话打开之前就出现在日志里。 |
 | `wsl-shell-env` | `distro` | `''` | 用于填充 `DSH_WSL_*` 环境事实的发行版。 |
 | | `portsRefreshMs` | `10000` | 监听端口快照的刷新间隔，单位毫秒。 |
 
@@ -276,7 +277,9 @@ scripts/bootstrap.sh <distro> --install
 wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap
 ```
 
-会话打开时，`wsl-preflight` 行会运行这些检查。
+会话打开时，`wsl-preflight` 行会运行这些检查；`startup: true`（默认）时，
+插件加载阶段还会对 pin 的或 WSL 默认发行版预先运行同一组检查，因此安装加
+重启之后判定就已经出现在日志里，该发行版上的会话只会重复注入运行时上下文条目。
 `sessionSandbox: true` 时，它还会检查会话 runtime 的前置条件。
 该警告仅供参考：它不会安装软件包，也不会改变提供者关闭（fail-closed）
 的行为。在该行设置 `sandbox: false` 或移除该行可让沙箱警告静音。

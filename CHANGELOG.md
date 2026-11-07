@@ -18,6 +18,15 @@ were part of the record.
 
 ### Added
 
+- **The preflight runs at plugin load, not only at session open.** A new
+  `startup` key (default `true`) on `wsl-preflight` runs the same `bwrap` and
+  session-runtime probes once at mount — install plus restart — against the
+  pinned or WSL-default distro, so the verdict is in the log before any
+  session opens. A session on that distro repeats only the runtime-context
+  entry (a shared single-flight verdict plus per-process dedupe keeps the log
+  to one line); other distros keep the session-open check unchanged, and
+  `startup: false` restores the old behavior exactly.
+
 - **The doctor entered the GUI.** A new `DSH_WSL_DOCTOR` fact rides every
   distro session: a ready-to-run command that executes the doctor from
   inside the session, using the app's own runtime as Node through interop —
@@ -90,6 +99,21 @@ were part of the record.
   reload. `node scripts/doctor.mjs` gained an `update.latest` section that
   asks the same question on demand, `DSH_UPDATE_REGISTRIES` pins or empties
   its registry list.
+
+
+### Fixed
+
+- **The tool rows mount again: the context reads are declared.** Both tool
+  rows (`wsl-cwd-prompt-tool`, `wsl-doctor-tool`) read `ctx.tools` (and the
+  `workingDirectory` service) without exporting `inject`, so cordis 4 threw
+  `cannot get property "tools" without inject` at activation — the shipped
+  `working_directory` tool stayed disabled with no replacement registered.
+  Both rows now declare `inject = ["tools", "workingDirectory"]`. The
+  `wsl_doctor` tool additionally resolves its collector per call instead of
+  reading a `ctx.doctor` service nothing provides: a provided `doctor`
+  service through the optional `ctx.get`, else the test seam's `doctor`
+  property, else the package's own `doctorReport` — a required inject of a
+  nonexistent service would have failed the whole `preset-wsl` mount.
 
 ## [0.19.0] - 2026-11-06
 

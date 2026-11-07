@@ -135,6 +135,7 @@ The root router is app-level, not session-owned, so it does not use
 | | `wslPath` | `wsl.exe` | Path to `wsl.exe`. |
 | | `sandbox` | `true` | Run the session-start `bwrap` check. |
 | | `sessionSandbox` | `true` | Also check systemd, the user manager, `systemd-run`, and Linger. Set false when the profile does not use a session runtime. |
+| | `startup` | `true` | Also run the same checks once at plugin load — install + restart — against the pinned or WSL-default distro, so the verdict is in the log before any session opens. |
 | `wsl-shell-env` | `distro` | `''` | Distro used to populate the `DSH_WSL_*` environment facts. |
 | | `portsRefreshMs` | `10000` | Listening-port snapshot interval, in milliseconds. |
 | `wsl-update-check` | `enabled` | `true` | Whether the plugin checks the app's plugin manager for a newer stable release. The result is served as `DSH_WSL_PLUGIN_UPDATE`; the check never installs. |
@@ -288,7 +289,11 @@ distros, the direct install command is:
 wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap
 ```
 
-The `wsl-preflight` row runs these checks when a session opens. It also checks
+The `wsl-preflight` row runs these checks when a session opens, and — with
+`startup: true`, the default — once at plugin load against the pinned or
+WSL-default distro, so an install plus restart already carries the verdict in
+the log; a session on that distro then repeats only the runtime-context entry.
+It also checks
 the session-runtime prerequisites when `sessionSandbox: true`. The warning is
 advisory: it does not install packages or change the providers' fail-closed
 behavior. Set `sandbox: false` on this row or remove it to silence the

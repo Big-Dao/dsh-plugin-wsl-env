@@ -11,6 +11,12 @@
  * command after it pays nothing. Nothing else changes: the failure semantics
  * stay exactly as fail-closed as before, this service only MOVES THE NEWS.
  *
+ * The same probes also run once at plugin load (`startup`, on by default) so an
+ * install-plus-restart already carries the verdict in the log — the pinned or
+ * WSL-default distro — before the first session opens. A session on that distro
+ * repeats only the runtime-context entry; other distros keep the session-open
+ * check unchanged.
+ *
  * Advisory by construction. A preflight that cannot run (no WSL, a wedged
  * `wsl.exe`) degrades to a log line; it must never fail a session that has not
  * even asked for confinement yet. It also never installs anything: the remedy
@@ -53,6 +59,14 @@ export const Config = z.object({
    * that profile does not use.
    */
   sessionSandbox: z.boolean().default(true),
+  /**
+   * Whether the same checks also run once at plugin load — install + restart —
+   * against the pinned or WSL-default distro, so the verdict is in the log
+   * before any session opens. Sessions on other distros are still checked at
+   * open, and a session announcement for a message the load pass already
+   * logged skips the duplicate log line but keeps its runtime-context entry.
+   */
+  startup: z.boolean().default(true),
 });
 
 /** The config schema's validated output. */
@@ -65,6 +79,8 @@ export interface PreflightConfig {
   sandbox?: boolean;
   /** Whether the session-runtime prerequisites are preflighted too. */
   sessionSandbox?: boolean;
+  /** Whether the checks also run once at plugin load, before any session. */
+  startup?: boolean;
 }
 
 /** Distros whose stale-scope sweep has already run in this process. */
@@ -156,11 +172,7 @@ export async function apply(ctx: PreflightContext, config: PreflightConfig = {})
    * @param level - `warn` for a blocked environment (the historical shape); `info` for the ready line, which is confirmation, not a complaint.
    */
   const announce = (agent: PreflightAgent, message: string, level: "warn" | "info" = "warn"): void => {
-    if (level === "info") {
-      ctx.logger?.debug?.(message);
-    } else {
-      warn(message);
-    }
+    announceLog(message, level);
     const agentCtx = agent.ctx;
     if (agentCtx === undefined || typeof agentCtx.inject !== "function") return;
     try {
@@ -169,6 +181,26 @@ export async function apply(ctx: PreflightContext, config: PreflightConfig = {})
       });
     } catch (error) {
       ctx.logger?.debug?.(`wsl-preflight: could not publish the notice to the session (${(error as Error)?.message ?? error})`);
+    }
+  };
+
+  /** Messages the load pass already logged; a session announcement repeats only the entry. */
+  const startupLogged = new Set<string>();
+
+  /**
+   * The log-only half of {@link announce}: a blocked environment warns, a ready
+   * verdict debugs. A message the startup pass already logged is skipped so the
+   * first session on that distro does not repeat the same line.
+   *
+   * @param message - the advisory or ready line.
+   * @param level - `warn` for a blocked environment; `info` for the ready line.
+   */
+  const announceLog = (message: string, level: "warn" | "info"): void => {
+    if (startupLogged.has(message)) return;
+    if (level === "info") {
+      ctx.logger?.debug?.(message);
+    } else {
+      warn(message);
     }
   };
 
@@ -191,6 +223,39 @@ export async function apply(ctx: PreflightContext, config: PreflightConfig = {})
       ctx.logger?.debug?.(`wsl-preflight: the session probe could not run (${(error as Error)?.message ?? error})`);
       return undefined;
     }
+  };
+
+  /**
+   * Probe one distro and compose its verdict: the same shape the session-open
+   * check announces and the load pass logs. Concurrent callers share one flight
+   * (the mount-time load pass and a session opening during startup), so both
+   * read one verdict and the dedupe below lands exactly one log line; the entry
+   * is dropped once settled so later sessions re-probe fresh.
+   *
+   * @param distro - the resolved distro.
+   * @returns the message and its level.
+   */
+  const inflight = new Map<string, Promise<{ message: string, level: "warn" | "info" }>>();
+  const verdictOf = (distro: string): Promise<{ message: string, level: "warn" | "info" }> => {
+    const shared = inflight.get(distro);
+    if (shared !== undefined) return shared;
+    const flight = (async (): Promise<{ message: string, level: "warn" | "info" }> => {
+    const usable = await bwrapUsable({ wslPath, distro });
+    if (!usable) {
+      return { message: `wsl-preflight: ${bwrapFailure(wslPath, distro) ?? missingBwrapRemedy(distro)}`, level: "warn" };
+    }
+    if (!(config.sessionSandbox ?? true)) {
+      return { message: `wsl-preflight: ready — bwrap is usable inside "${distro}" (the session scope is not checked: sessionSandbox: false)`, level: "info" };
+    }
+    const sessionProblem = await probeSession(distro);
+    if (sessionProblem !== undefined) {
+      return { message: `wsl-preflight: ${sessionProblem}`, level: "warn" };
+    }
+    return { message: `wsl-preflight: ready — bwrap and the session scope are usable inside "${distro}"`, level: "info" };
+    })();
+    inflight.set(distro, flight);
+    void flight.finally(() => { if (inflight.get(distro) === flight) inflight.delete(distro); });
+    return flight;
   };
 
   /**
@@ -226,24 +291,43 @@ export async function apply(ctx: PreflightContext, config: PreflightConfig = {})
     // Clean up what a hard crash left behind before this session creates its
     // runtime; a live agent in another session's cgroup makes its scope safe.
     sweepStaleScopes(wslPath, distro);
-    const usable = await bwrapUsable({ wslPath, distro });
-    if (!usable) {
-      announce(agent, `wsl-preflight: ${bwrapFailure(wslPath, distro) ?? missingBwrapRemedy(distro)}`);
+    const { message, level } = await verdictOf(distro);
+    announce(agent, message, level);
+  };
+
+  /**
+   * The load pass: run the same probes once at mount — install + restart,
+   * before any session — against the pinned or WSL-default distro, and log the
+   * verdict. A session announcement for the same message then skips the
+   * duplicate log line but keeps its runtime-context entry. Advisory like every
+   * other arm: an unreachable distro degrades to a debug line.
+   */
+  const startupCheck = async (): Promise<void> => {
+    let distro = "";
+    try {
+      distro = pinnedDistro(config.distro) ?? await defaultDistro({ wslPath });
+    } catch (error) {
+      ctx.logger?.debug?.(`wsl-preflight: no distro to preflight at load (${(error as Error)?.message ?? error})`);
       return;
     }
-    if (!(config.sessionSandbox ?? true)) {
-      announce(agent, `wsl-preflight: ready — bwrap is usable inside "${distro}" (the session scope is not checked: sessionSandbox: false)`, "info");
-      return;
+    try {
+      sweepStaleScopes(wslPath, distro);
+      const { message, level } = await verdictOf(distro);
+      // Mark first, log second: a session opening during the load pass reads
+      // the same flight and either order leaves exactly one log line.
+      startupLogged.add(message);
+      if (level === "info") {
+        ctx.logger?.debug?.(message);
+      } else {
+        warn(message);
+      }
+    } catch (error) {
+      ctx.logger?.debug?.(`wsl-preflight: the load pass could not run (${(error as Error)?.message ?? error})`);
     }
-    const sessionProblem = await probeSession(distro);
-    if (sessionProblem !== undefined) {
-      announce(agent, `wsl-preflight: ${sessionProblem}`);
-      return;
-    }
-    announce(agent, `wsl-preflight: ready — bwrap and the session scope are usable inside "${distro}"`, "info");
   };
 
   ctx.on("agent/created", (payload) => void check(payload?.agent));
+  if (config.startup ?? true) void startupCheck();
 
   // Mount order is not a guarantee: a session created during startup can finish
   // before this service mounts and miss the event entirely (dsh-headless does

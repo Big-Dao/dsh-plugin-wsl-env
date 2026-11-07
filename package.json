@@ -103,6 +103,14 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
     }
   },
   "files": [
@@ -112,6 +120,7 @@
     "agent/native/linux-*/dsh-wsl-agent",
     "locale/**/*.json",
     "cordis.patch.yml",
+    "client.js",
     "examples/**/*.yml",
     "README.md",
     "docs/README.zh.md",

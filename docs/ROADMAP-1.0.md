@@ -386,9 +386,12 @@ command.
 - [x] The preflight checks bwrap, systemd PID 1, `systemd-run` and Linger.
 - [x] The warning is visibly attached to the session through the
       runtime-context entry (not only logs).
-- [ ] A GUI notice/banner renders it: filed upstream as
-      [#10263](https://github.com/deepseek-ai/deepseek-harness/discussions/10263);
-      until a seam lands, the advisory stays in the log and runtime context.
+- [x] The transcript renders it: the runtime-context entry now carries the
+      verdict on healthy sessions too (the ready line). A dedicated GUI
+      notice/banner remains the session-notice ask
+      ([#10263](https://github.com/deepseek-ai/deepseek-harness/discussions/10263)),
+      now joined by the per-plugin diagnostics proposal
+      ([#12499](https://github.com/deepseek-ai/deepseek-harness/discussions/12499)).
 - [x] The warning never installs anything and never changes fail-closed
       behavior.
 - [x] A session with a usable environment produces no warning.

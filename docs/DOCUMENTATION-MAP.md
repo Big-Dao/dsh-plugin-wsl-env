@@ -46,6 +46,8 @@
   是 WSL-316（doctor 商业级达标）的执行计划；契约以
   [issue #35](https://github.com/Big-Dao/dsh-plugin-wsl-env/issues/35) 为准，
   [真机记录](superpowers/probe-runs/2026-11-07-doctor-real-machine.md) 记两轮实测。
+- [插件诊断入口提案](upstream/proposal-plugin-diagnostics.md) 是已提交的上游
+  提案（[discussion #12499](https://github.com/deepseek-ai/deepseek-harness/discussions/12499)）。
 - [Remote-WSL 对照](PARITY.md) 是阶段性契约审计；
   [peer 对拍](PEER-PARITY.md) 记录指定版本的字节和行为对照。
 

@@ -317,7 +317,11 @@ layer matches on those strings byte-for-byte), and the standalone
 
 ## Diagnose configuration and refusals
 
-`pnpm run doctor` is the one-command environment check: Windows/WSL versions,
+In a session, `DSH_WSL_DOCTOR` carries a ready-to-run command that executes
+the doctor from inside the distro (the app's own runtime as Node, through
+interop) — run it as `sh -c "$DSH_WSL_DOCTOR --json"`, so a GUI user can ask
+the model for a diagnosis without a terminal. And `pnpm run doctor` is the
+one-command environment check: Windows/WSL versions,
 the per-distro WSL mode, `.wslconfig` and `/etc/wsl.conf` cross-checks, the
 disk, the clock, DNS, the distro and its shell, bubblewrap, systemd/Linger,
 the peer floor, a fresh agent handshake, stale session scopes, the known

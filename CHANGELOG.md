@@ -18,6 +18,19 @@ were part of the record.
 
 ### Added
 
+- **The doctor entered the GUI.** A new `DSH_WSL_DOCTOR` fact rides every
+  distro session: a ready-to-run command that executes the doctor from
+  inside the session, using the app's own runtime as Node through interop —
+  a GUI user can ask the model for a diagnosis (`sh -c
+  "$DSH_WSL_DOCTOR --json"`) without a terminal or a separate Node install.
+  The session-start preflight now publishes its verdict on healthy sessions
+  too (`WSL preflight: ready — …`), so the transcript reads as a verdict on
+  every session start, not only on failures. The per-plugin diagnostics
+  action on the Plugins page is proposed upstream
+  ([discussion #12499](https://github.com/deepseek-ai/deepseek-harness/discussions/12499));
+  the plugin stays fully functional if it never lands.
+
+
 - **The doctor's verdict closes the loop: green means the first command
   works.** The report moves to schemaVersion 2 — `verdict: ready | blocked`,
   `blockers`, per-distro verdicts and per-check `distro` /

@@ -23,6 +23,12 @@ supplies the WSL environment.
 | systemd + Linger (for the session runtime) | `node <plugin>/scripts/doctor.mjs` (installed) or `pnpm run doctor` (checkout) | `[boot] systemd=true` in `/etc/wsl.conf`, `wsl --shutdown`, then `loginctl enable-linger "$USER"`; or set `sessionSandbox: auto`/`false` |
 | Node `^22.19.0` or `>=24.0.0` | only needed for source/development work | not needed inside the distro to use the published plugin |
 
+No terminal at hand? In a session, ask for a diagnosis — the model reads
+`DSH_WSL_DOCTOR`, a ready-to-run command the plugin publishes into every
+distro session, and runs it with `sh -c "$DSH_WSL_DOCTOR --json"`. The
+session-start preflight also announces its verdict in the transcript:
+`ready`, or the blocked checks with their remedies.
+
 The doctor (`scripts/doctor.mjs`, or `pnpm run doctor` from a checkout) checks
 the environment and ends in a verdict: `ready` means the first command should
 succeed; `blocked` names the exact checks to fix, each with a copy-paste

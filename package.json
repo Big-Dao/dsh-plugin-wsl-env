@@ -40,6 +40,7 @@
       "types": "./lib/wsl-doctor-tool.d.ts",
       "default": "./lib/wsl-doctor-tool.js"
     },
+    "./client": "./client.js",
     "./file-reference-wsl": {
       "types": "./lib/file-reference-wsl.d.ts",
       "default": "./lib/file-reference-wsl.js"

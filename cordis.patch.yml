@@ -139,6 +139,14 @@
 - id: fs-sandbox
   disabled: true
 
+# The shipped `working_directory` tool prints the host-canonical UNC spelling
+# (`fs.processPath()`), which the distro shell cannot resolve — the same
+# failure mode the cwd rewrite below removes. Disable the shipped row by id
+# (a top-level entry: a disable inside an insert list is duplicate-id data,
+# see the comment above), then mount the replacement in the insert list.
+- id: tool-working-directory
+  disabled: true
+
 - insert:
     - id: fs-routing
       name: 'dsh-plugin-wsl-env/fs-routing'
@@ -182,6 +190,15 @@
       name: 'dsh-plugin-wsl-env/cwd-prompt'
       config:
         enabled: true
+
+    # Distro-native `working_directory` tool: the third surface the cwd reaches
+    # the model through. Same tool name, parameters, and `cd` semantics (the
+    # harness's `workingDirectory` service still owns all directory state);
+    # the returned path is rewritten to the distro's POSIX form. Non-WSL paths
+    # pass through byte for byte. Pairs with the top-level disable of
+    # `tool-working-directory` above.
+    - id: wsl-cwd-prompt-tool
+      name: 'dsh-plugin-wsl-env/cwd-prompt-tool'
 
     # Update check: on a slow timer (first check 2-10 minutes after boot, then
     # once a day) ask the host's plugin-manager whether a newer stable release

@@ -93,6 +93,7 @@ const UPSTREAM = [
   { id: "directory-picker", name: "@deepseek-ai/dsh-host-directory-picker-auto", config: {} },
   { id: "workspace-files", name: "@deepseek-ai/dsh-api-workspace-files", config: { maxEntries: 100 } },
   { id: "fs-sandbox", name: "@deepseek-ai/dsh-fs-sandbox", config: { cwd: "" } },
+  { id: "tool-working-directory", name: "@deepseek-ai/dsh-tool-working-directory", config: {} },
 ];
 
 /** @type {string[]} */

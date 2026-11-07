@@ -104,6 +104,11 @@ distro kernel. If the first command fails, the error names the remedy; the
 [doctor](CONFIGURATION.md) and the [Troubleshooting table](../README.md#troubleshooting)
 cover the common cases.
 
+First-write note: the sandbox asks for permission before a write the session
+policy has not granted — the prompt names the command and the target, and
+allowing it once is safe. Enabling `loginctl enable-linger <user>` inside the
+distro prevents the repeat prompts a non-lingering user manager causes.
+
 The probe below runs the shipped kernel-enforced bwrap profiles live — writes
 inside the workspace land, tested writes outside are refused with `EROFS`, and
 the strict profile hides `/mnt` entirely

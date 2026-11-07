@@ -16,6 +16,13 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-11-08
+
+One theme: the doctor and the preflight reach the GUI — the readiness probes
+run at plugin load, the doctor lands as a composer button and a per-session
+`DSH_WSL_DOCTOR` fact, and the bare package name becomes the client host half
+that makes both loadable.
+
 ### Changed
 
 - **BREAKING: `.` is now the no-op web client host half; the shell executor

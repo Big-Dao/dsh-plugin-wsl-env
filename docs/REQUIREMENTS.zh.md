@@ -6,7 +6,9 @@ docs/ 各篇里的行为承诺登记成带编号的需求条目，并给每条�
 第二份「当前状态陈述」——每条需求的权威正文仍在所指向的文档里，本文只回答
 三个问题：**有哪些需求、在哪里规定、靠什么验证**。
 
-**基线**：本文核对于 `main` 2026-10-19（基线 0.12.0）。每次发版，或 CI 配置、
+**基线**：本文核对于 `main` 2026-10-19（基线 0.12.0）；0.22.0（2026-11-08）
+复核了 doctor 与更新检查线（新增 R26–R28，R20 的测试文件数随发版刷新），
+其余条目仍以上次全表核验为准。每次发版，或 CI 配置、
 覆盖率阈值等可核验项变更后，本表须重新核验；一切以仓库现状为准。
 
 维护规则与 [PARITY.md](PARITY.md) 的纪律一致：需求变更与登记表改动进同一笔
@@ -51,12 +53,15 @@ docs/ 各篇里的行为承诺登记成带编号的需求条目，并给每条�
 | R17 | 常驻 agent 协议：ACK 计时看门狗、只读帧才重放、逐流输出上限、sha256 部署校验、租约存活、进程组两段杀 | CHANGELOG 0.3.0/0.6.0/0.7.3；PARITY Phase 1/Phase 3 | ①②④：每条健壮性属性有规格出处与实证记录；「EXEC/变异 FS 帧禁止盲重发」是写明的不变量 | `agent-protocol.test.mjs`（HELLO 版本+摘要）、`agent.test.mjs`、`agent-exec.test.mjs`（truncated 旗标）、`agent-fs-script.test.mjs`；probe:agent、probe:exec | — |
 | R18 | 配置面：每键默认值成文；层组合语义（整行替换、不深合并、后层胜） | CONFIGURATION；`cordis.patch.yml` 头注 | ⑤：随发键成表、未列表键点名；覆盖方式的正确心智模型（整行替换）成文 | `composition.test.mjs`（层组合）；`style.mjs`（`files` 契约） | — |
 | R19 | 非目标集：不做什么与为什么 | LIMITATIONS 开篇原则；PARITY「Not applicable」 | ③：已知极限入册；不适用项「记下来免得像遗漏」 | —（文档性） | — |
-| R20 | 验证策略：三层（fake → 真脚本过真线 → 真机探针）+ CI 矩阵 + 覆盖率阈值 | ARCHITECTURE「Test layers」；README「Development」 | ④：CI 在 Node 22/24 × Linux/Windows 上跑 `pnpm test`，`pnpm run test:coverage` 只在 Node 24 上跑（门槛旗标需 Node 22.8）；Node 20 有意排除（`engines` 下限）；覆盖率阈值 85/84/70（行/分支/函数），测量集合覆盖 `test/` 下 41 个测试文件，且 `lib/*.js` 必须逐个实测或带理由豁免 | `pnpm test`、`pnpm run test:coverage`；CI（ci.yml） | 真机验证依赖 Windows 和可用的 WSL 发行版；非功能无量化目标（OI-1） |
+| R20 | 验证策略：三层（fake → 真脚本过真线 → 真机探针）+ CI 矩阵 + 覆盖率阈值 | ARCHITECTURE「Test layers」；README「Development」 | ④：CI 在 Node 22/24 × Linux/Windows 上跑 `pnpm test`，`pnpm run test:coverage` 只在 Node 24 上跑（门槛旗标需 Node 22.8）；Node 20 有意排除（`engines` 下限）；覆盖率阈值 85/84/70（行/分支/函数），测量集合覆盖 `test/` 下 48 个测试文件，且 `lib/*.js` 必须逐个实测或带理由豁免 | `pnpm test`、`pnpm run test:coverage`；CI（ci.yml） | 真机验证依赖 Windows 和可用的 WSL 发行版；非功能无量化目标（OI-1） |
 | R21 | 安全过程：范围内外、响应时限、partial 属设计边界、凭据政策 | SECURITY 全文 | ②③⑥：范围、3/10/30 个工作日时限（标注「目标非合同」）、partial 定性、凭据零容忍成文 | —（过程性） | — |
 | R22 | 支持矩阵：Windows 10/11 + WSL2 + Node `^22.19.0 \|\| >=24.0.0` + peer 版本范围 | SUPPORT 全文 | ⑥：支持与不受支持清单、peer 范围及精确开发依赖成文；Node 20 在范围外（理由见 SUPPORT，`engines` 为准） | `peerDependencies`、`devDependencies` 与 `engines`（`package.json`）；CI 矩阵（ci.yml） | 新 peer 版本仍需验证 |
 | R23 | 根平面 `ctx.fs` 按坐标路由：发行版 UNC 由发行版内 agent 服务（inotify 或轮询 watch），盘符路径留在宿主；接替随发的 `fs-sandbox` 行 | README「Architecture」；ARCHITECTURE「The root-plane filesystem takeover」；CONFIGURATION `fs-routing` 行；root-fs-routing.md（设计） | ①②③⑤：路由判定与接替理由（写围栏在根平面无消费者）成文；`distro` 的 `auto`/`default`/pin 三态、每个 UNC 目标由自身 distro 服务、pin 下拒外来路径，以及 `distroCwd`/`restrictToDistro`/`sandbox`/`maskWindowsDrive`/`watchMaxDepth` 逐键成表，且自成一行、不与会话级行联动；`sandbox` 失败关闭成文 | `fs-routing.test.mjs`（纯谓词与路径助手）、`provider.test.mjs`（per-distro substrate/worldPath） | 类本体无单测（需 DSH peers 与实机）；由组合测试与真机探针覆盖 |
 | R24 | GUI 文件树与预览在发行版内服务：沿用随包 `workspace-files` 行（server/client 成对），经根级 `fs-routing` 读写 distro UNC；盘符 scope 交宿主 | README「Architecture」；ARCHITECTURE「The root-plane filesystem takeover」；CONFIGURATION `workspace-files` 行 | ①②③⑤：沿用官方 server/client，浏览器 `file` provider 不丢，预览可用；路由与宿主/发行版 scope 成文；容量键由官方行承载、可覆盖；较直连多 4–6 次往返及其取舍在 LIMITATIONS 成文 | `fs-routing.test.mjs`、组合测试（`workspace-files` 保持启用、接管行不存在） | — |
 | R25 | 安装/卸载/升级流：四步安装、幂等陷阱及补救、ES 模块重启须知 | README「Install」「Troubleshooting」 | ①③：每步预期输出、`add` 幂等性陷阱的补救（先 remove 再 add）、pnpm UNC 链接极限成文 | 人工步骤，无自动化（依赖真实 dsh CLI + Windows） | 无自动化守护 |
+| R26 | 诊断三入口同一份逐项报告：独立 CLI、`/wsl-doctor` UI 命令（宿主侧、不进模型历史）、`wsl_doctor` 模型工具（进程内合并常驻状态）；报告按 distro 分组逐项带显式状态标记与失败修复；`--quick`/`--sections`（工具侧 `depth`/`section`）收窄范围且未运行项显式列为跳过 | DIAGNOSTICS「The surfaces」；README「Install」；CONFIGURATION「Diagnose configuration and refusals」 | ①②④：三入口的分工与边界成文；范围化报告携带 `scope`、`--fix` 要求完整运行成文；逐项化与跳过行的形态由 parity 测试钉住 | `wsl-doctor-tool.test.mjs`（digest/渲染/CHECK_CATALOG parity）、`wsl-doctor-command.test.mjs`（语法/handler/子进程面）、`doctor.test.mjs`（CLI 采集） | 真机多 distro 报告依赖实机；报告形态的宿主渲染（命令面 UI）无单测 |
+| R27 | doctor CLI 独立性：不加载 peer 依赖与宿主服务，插件运行时本身损坏时仍可诊断；固定骨架本地化（Windows 区域设置检测，`--locale`/`DSH_WSL_DOCTOR_LOCALE` 覆盖），逐项事实保持英文，`--json` 语言无关 | DIAGNOSTICS「The surfaces」；CONFIGURATION「Message language」；LIMITATIONS「消息本地化」条 | ①②④：peer-free 内联与防漂移对拍成文；catalog 键 parity 与占位符行为有测试 | `doctor.test.mjs`（inlining parity、locale catalog、检测与覆盖） | 语言检测需 Windows registry（非 Windows 上回退英文，`run` 不抛错） |
+| R28 | 每日更新检查经宿主插件管理器委托，不自取；事实进 `DSH_WSL_PLUGIN_UPDATE`；`wsl-update-check.enabled: false` 可关闭 | README「Install」；CONFIGURATION `wsl-update-check` 行 | ①②⑤：委托路径、TTL、关闭开关成文 | `update-check.test.mjs` | doctor 的按需 registry 查询独立于此行（`DSH_UPDATE_REGISTRIES` 控制，气隙可跳过） |
 
 登记覆盖面：上表登记 README 与 docs/ 中对外成文的行为承诺（含随发的服务面）。
 **有意未接线**的模块不设条目——`lib/file-reference-wsl.js`（`@` 补全的发行版侧

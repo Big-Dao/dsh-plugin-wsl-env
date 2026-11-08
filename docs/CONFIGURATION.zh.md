@@ -295,14 +295,42 @@ profile 不使用会话 runtime 时，设置 `sessionSandbox: false`。
 插件的拒绝与修复消息（`sessionSandbox` 预检判定、`bwrap` 的安装与修复提示、
 发行版/工作目录命令错误）跟随 harness 应用的语言设置：偏好经宿主 settings
 服务从 `locale` 条目的 `preference` 字段读取，切换语言无需重启应用。
-内置中文（`zh`，含 `zh-CN`、`zh-Hans` 标签）与英文；其他语言——以及
-没有 settings 服务的 profile 或未设置偏好的情况——渲染英文。消息内的
-命令、配置键与文件路径一律不翻译。三组消息按设计保持英文：
+内置中文（`zh`，含 `zh-CN`、`zh-Hans` 标签）与英文；其他语言渲染英文。
+没有 settings 服务的 profile、或用户从未在设置中选过语言的情况，回退到
+进程的 ICU 默认区域设置——桌面应用中即操作系统 UI 语言——因此临时渲染为
+中文界面的 zh-CN Windows 仍显示中文；显式的设置选择始终优先于该回退。
+消息内的命令、配置键与文件路径一律不翻译。两组消息按设计保持英文：
 `fs-decisions` 中的 `FS_*` 拒绝文本与 fsio 复刻（工具层按字节匹配这些
-字符串），以及独立运行的 `scripts/doctor.mjs`（它在应用之外执行）。
+字符串）。独立运行的 `scripts/doctor.mjs` 自带 catalog：固定骨架按宿主
+语言渲染——从 Windows 区域设置检测，可用 `--locale <标签>` 或
+`DSH_WSL_DOCTOR_LOCALE` 覆盖——而逐项检查的标题、详情与修复保持英文
+（修复文本携带可复制的命令），`--json` 保持语言无关。
 
 ## 诊断配置问题与拒绝
 
+在会话中模型可以自行运行诊断：`wsl_doctor` 工具（挂载在 `preset-wsl` 内）
+进程内调用 doctor，以逐项清单返回判定——每个检查带显式状态标记、按 distro
+分组、失败项下附可复制的修复——用户只要请求诊断即可。该工具按设计是交互式
+的：`depth: "quick"`（默认）只跑前置项（单 distro 约 10 秒：宿主事实、会话
+沙箱四件套、bubblewrap——无冒烟、无 registry 查询、无端口勘察），是正确的
+首次调用；`section` 把跟进收窄到一个区域（`host`、`sandbox`、`session`、
+`conf`、`net`、`agent`）；`depth: "full"` 是完整扫描，对所有检查负责。
+`/wsl-doctor` 命令（`wsl-doctor-command` 行，部署具有命令注册表时注册）在
+宿主侧运行同样的诊断——语法 `[quick|full|<分区>] [--distro <名称>]`——并把
+同样的清单渲染在 UI 上，不进模型历史。CLI 镜像同样的范围控制：`--quick` 与
+`--sections <csv>` 限定一次运行探测什么，范围化的 `--json` 报告携带其
+`scope`，裁决总是指明它回答的范围（`--fix` 仍要求完整运行）。
+`DSH_WSL_DOCTOR` 还携带一条现成命令，可在发行版内执行 doctor 脚本（以应用
+自身的运行时当 Node、经 interop）——运行方式为 `sh -c "$DSH_WSL_DOCTOR --json"`。
+`pnpm run doctor` 是一键环境体检：Windows/WSL 版本、每个发行版的 WSL 模式、
+`.wslconfig` 与 `/etc/wsl.conf` 交叉核对、磁盘、时钟、DNS、发行版及其 shell、
+bubblewrap、systemd/Linger、peer 下限、新 agent 握手、残留会话 scope、已知的
+profile 补丁与废弃键陷阱——每个失败附可复制的修复。运行以生效配置下计算的
+裁决（`ready` 或 `blocked`）收尾：`--json` 是机器契约（schemaVersion 2），
+`--fix` 复核它修过的项，`--all` 检查每个已装发行版，`--bundle <路径>` 写出
+可附加的诊断文件（`--redact` 脱敏路径），`--locale <标签>`（或
+`DSH_WSL_DOCTOR_LOCALE`）无需重新探测即可选择骨架语言。
+判定契约与错误码地图见 [DIAGNOSTICS.zh.md](DIAGNOSTICS.zh.md)。
 CLI 发行版可用 `dsh --profile <name> --dump-config` 检查合成后的 profile，
 无需真正启动；输出会显示某行的覆盖是否生效。桌面应用没有 `dsh` 命令，
 请直接查看 `cordis.patch.yml` 与 Plugins 页面。

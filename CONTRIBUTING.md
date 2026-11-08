@@ -147,7 +147,10 @@ Rules that keep this honest:
    `exports` (`./<name>/locale/en.json`, `./<name>/locale/zh.json`), which is
    what that page reads before falling back to the package `description`. The
    bundle's own pair is `locale/en.json` / `locale/zh.json`, and `subprocess`,
-   `picker`, `shell-env` and `auto-preset` carry theirs; `files` already ships
+   `picker`, `shell-env` and `auto-preset` carry theirs. One runtime catalog
+   set is not an `exports` entry: `locale/doctor/*.json` localizes the
+   standalone CLI's fixed skeleton and is read from the package root by the
+   script itself. `files` already ships
    `locale/**/*.json`, and `lint:style` fails an `exports` target that does not
    exist.
 

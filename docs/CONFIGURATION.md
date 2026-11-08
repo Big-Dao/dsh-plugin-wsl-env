@@ -313,24 +313,36 @@ command errors) follow the harness app's Language setting: the preference is
 read from the host `locale` entry's `preference` field through the host
 settings service, and a language switch takes effect without a restart.
 Chinese (`zh`, including `zh-CN` and `zh-Hans` tags) and English ship; every
-other language — and any profile without the settings service, or an unset
-preference — renders English. Commands, config keys and file paths inside a
-message are never translated. Three message groups stay English by design:
-the `FS_*` refusal texts in `fs-decisions` and the fsio replica (the tool
-layer matches on those strings byte-for-byte), and the standalone
-`scripts/doctor.mjs`, which runs outside the app.
+other language renders English. A profile without the settings service, or
+one whose user never picked a language, falls back to the process's ICU
+default locale — the OS UI language in the desktop app — so a zh-CN Windows
+with a provisional-Chinese UI still renders Chinese; an explicit Settings
+choice always wins over that fallback. Commands, config keys and file paths
+inside a message are never translated. Two message groups stay English by
+design: the `FS_*` refusal texts in `fs-decisions` and the fsio replica (the
+tool layer matches on those strings byte-for-byte). The standalone
+`scripts/doctor.mjs` carries its own catalogs: its fixed skeleton renders in
+the host language — detected from the Windows locale, overridable with
+`--locale <tag>` or `DSH_WSL_DOCTOR_LOCALE` — while per-check titles, details
+and remedies stay English (remedies carry copy-paste commands), and `--json`
+stays language-independent.
 
 ## Diagnose configuration and refusals
 
 In a session the model can run the diagnosis itself: the `wsl_doctor` tool
 (mounted inside `preset-wsl`) calls the doctor in-process and returns the
-verdict with per-section tallies and per-failure remedies — the user just
-asks for a diagnosis. The tool is interactive by design: `depth: "quick"`
-runs the prerequisites only (~10 s in one distro: host facts, the session
-sandbox quartet, bubblewrap — no smokes, no registry query, no port survey)
-and is the right first call; `section` narrows a follow-up to one area
+verdict as an itemized listing — every check with an explicit status marker,
+grouped by distro, the copy-paste remedy under every failure — the user just
+asks for a diagnosis. The tool is interactive by design: `depth: "quick"` (the
+default) runs the prerequisites only (~10 s in one distro: host facts, the
+session sandbox quartet, bubblewrap — no smokes, no registry query, no port
+survey) and is the right first call; `section` narrows a follow-up to one area
 (`host`, `sandbox`, `session`, `conf`, `net`, `agent`); `depth: "full"` is
-the complete scan and answers for everything. The CLI mirrors the same
+the complete scan and answers for everything. The `/wsl-doctor` command (the
+`wsl-doctor-command` row, registered when the deployment has a commands
+registry) runs the same diagnosis host-side — grammar
+`[quick|full|<section>] [--distro <name>]` — and renders the same digest in
+the UI, detached from model history. The CLI mirrors the same
 scoping: `--quick` and `--sections <csv>` bound what a run probes, and a
 scoped `--json` report carries its `scope` so a verdict always names the
 scope it answers for (`--fix` still requires a full run).
@@ -345,7 +357,9 @@ profile-patch and deprecated-key traps — each failure with a copyable remedy.
 The run ends in a verdict (`ready` or `blocked`) computed under the effective
 configuration: `--json` is the machine contract (schemaVersion 2), `--fix`
 re-verifies what it fixed, `--all` checks every installed distro, `--bundle
-<path>` writes the attachable diagnostic file (`--redact` strips the paths).
+<path>` writes the attachable diagnostic file (`--redact` strips the paths),
+and `--locale <tag>` (or `DSH_WSL_DOCTOR_LOCALE`) selects the skeleton
+language without re-probing.
 See [DIAGNOSTICS.md](DIAGNOSTICS.md) for the verdict contract and the
 error-code map. With the CLI distribution, `dsh --profile <name> --dump-config` inspects
 the composed profile without booting it and shows whether a row override

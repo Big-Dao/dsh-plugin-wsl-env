@@ -22,10 +22,22 @@ _本文是 [QUICKSTART](QUICKSTART.md) 的中文译本，以英文版为准。_
 | systemd + Linger（会话 runtime 需要） | `node <plugin>/scripts/doctor.mjs`（已安装）或 `pnpm run doctor`（检出目录） | 在 `/etc/wsl.conf` 设置 `[boot] systemd=true`，`wsl --shutdown`，然后 `loginctl enable-linger "$USER"`；或设置 `sessionSandbox: auto`/`false` |
 | Node `^22.19.0` 或 `>=24.0.0` | 仅源码/开发工作需要 | 使用已发布的插件时，发行版内不需要 Node |
 
+手边没有终端？有三条不依赖终端的路：composer 里的 **WSL 诊断** 按钮打开菜单
+（quick、full 或单个分区），投下一条 `/wsl-doctor` 命令——宿主侧执行、直接在
+UI 渲染，不进模型对话、零 token；在会话里请求诊断，模型会运行本插件挂载的
+`wsl_doctor` 工具，判定落在对话里；会话启动预检在每次会话打开时通报同样的
+判定。`DSH_WSL_DOCTOR` 还携带一条现成命令，可在发行版内执行 doctor 脚本本身
+（`sh -c "$DSH_WSL_DOCTOR --json"`）。
+
 doctor（`scripts/doctor.mjs`，或在检出目录中运行 `pnpm run doctor`）会检查
-环境并针对检测到的失败打印补救方法。发行版的 WSL 版本请单独用
-`wsl.exe -l -v` 确认。doctor 默认只读，除非传入 `--fix`（清理过期 scope）或
-`--fix --install`（安装软件包，需确认）。
+环境并以裁决收尾：`ready` 表示首条命令应能成功；`blocked` 会列明待修项，
+每项附可复制的处理办法。发行版的 WSL 模式由 doctor 自己从 `wsl.exe -l -v`
+读取，无需单独确认。doctor 默认只读，除非传入 `--fix`（清理过期 scope，以及
+确认后的 Windows git 信任）或 `--fix --install`（安装软件包，需确认）；
+`--bundle <路径>` 写出可附加到问题报告的诊断文件。运行可以收窄范围——
+`--quick` 只探首条命令的前置项（约 10 秒），`--sections <名称>` 只运行一个
+分区——报告按 distro 分组逐项列出每个检查，带显式状态标记。固定骨架按宿主
+语言渲染（`--locale <标签>` 或 `DSH_WSL_DOCTOR_LOCALE` 可覆盖检测）。
 
 ## 2. 安装
 

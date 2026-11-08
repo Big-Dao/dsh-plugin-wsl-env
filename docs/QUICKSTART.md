@@ -23,12 +23,14 @@ supplies the WSL environment.
 | systemd + Linger (for the session runtime) | `node <plugin>/scripts/doctor.mjs` (installed) or `pnpm run doctor` (checkout) | `[boot] systemd=true` in `/etc/wsl.conf`, `wsl --shutdown`, then `loginctl enable-linger "$USER"`; or set `sessionSandbox: auto`/`false` |
 | Node `^22.19.0` or `>=24.0.0` | only needed for source/development work | not needed inside the distro to use the published plugin |
 
-No terminal at hand? In a session, ask for a diagnosis: the model runs the
-`wsl_doctor` tool (mounted by this plugin) and the verdict — `ready`, or
-`blocked` with per-failure copy-paste remedies — lands in the transcript.
-The session-start preflight announces the same verdict on every session
-start. `DSH_WSL_DOCTOR` additionally carries a ready-to-run command for the
-doctor script itself (`sh -c "$DSH_WSL_DOCTOR --json"`).
+No terminal at hand? Three ways without one: the **WSL 诊断** button in the
+composer opens a menu (quick, full, or one section) and drops a `/wsl-doctor`
+command that runs host-side and renders in the UI — no model turn, no tokens;
+in a session, ask for a diagnosis and the model runs the `wsl_doctor` tool
+(mounted by this plugin), the verdict landing in the transcript; and the
+session-start preflight announces the same verdict on every session start.
+`DSH_WSL_DOCTOR` additionally carries a ready-to-run command for the doctor
+script itself (`sh -c "$DSH_WSL_DOCTOR --json"`).
 
 The doctor (`scripts/doctor.mjs`, or `pnpm run doctor` from a checkout) checks
 the environment and ends in a verdict: `ready` means the first command should
@@ -37,7 +39,11 @@ remedy. It reads the distro's WSL mode from `wsl.exe -l -v` itself, so no
 separate version check is needed. Doctor is read-only unless you pass `--fix`
 (stale scopes, and the Windows git trust after a confirmation) or
 `--fix --install` (packages, after a confirmation); `--bundle <path>` writes
-the diagnostic file a setup report attaches.
+the diagnostic file a setup report attaches. A run can be scoped — `--quick`
+probes the first-command prerequisites only (~10 s), `--sections <name>` runs
+one area — and the report itemizes every check with an explicit status marker,
+grouped by distro. The fixed skeleton renders in the host's language
+(`--locale <tag>` or `DSH_WSL_DOCTOR_LOCALE` overrides the detection).
 
 ## 2. Install
 

@@ -98,10 +98,12 @@ operations never use the 9p share.
   remedies and distro/workdir errors follow the app's Language setting
   ([CONFIGURATION.md](CONFIGURATION.md#message-language)); the `FS_*` refusal texts
   in `fs-decisions` and the fsio replica stay byte-identical English because the
-  tool layer matches on those strings, and the standalone `scripts/doctor.mjs`
-  always prints English because it runs outside the app and cannot read the
-  host's locale preference. A remedy composed at probe time keeps the language
-  the probe ran in until that probe runs again.
+  tool layer matches on those strings. The standalone `scripts/doctor.mjs`
+  localizes only its fixed skeleton — verdict, marks, summary, hints — through
+  its own catalogs, detected from the Windows locale (`--locale <tag>` /
+  `DSH_WSL_DOCTOR_LOCALE` override); per-check titles, details and remedies
+  stay English because remedies carry copy-paste commands, and `--json` stays
+  language-independent.
 - A workspace directory deleted mid-session fails with a runner error; the plugin
   does not recreate it. A configured `cwd` that does not exist is reported as an
   error naming the directory.

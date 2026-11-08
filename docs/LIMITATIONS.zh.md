@@ -92,9 +92,10 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
   发行版/工作目录错误跟随应用的语言设置
   （[CONFIGURATION.zh.md](CONFIGURATION.zh.md#消息语言)）；`fs-decisions`
   中的 `FS_*` 拒绝文本与 fsio 复刻保持逐字节英文，因为工具层按这些字符串
-  匹配；独立的 `scripts/doctor.mjs` 永远输出英文，因为它在应用之外运行，
-  读不到宿主的语言偏好。探测时合成的修复文本保持探测发生时的语言，
-  直到该探测再次运行。
+  匹配。独立的 `scripts/doctor.mjs` 只本地化其固定骨架——裁决、状态标记、
+  汇总、提示——经自带 catalog 按检测到的 Windows 区域设置渲染
+  （`--locale <标签>` / `DSH_WSL_DOCTOR_LOCALE` 可覆盖）；逐项检查的标题、
+  详情与修复保持英文，因为修复文本携带可复制的命令；`--json` 保持语言无关。
 - 会话中途被删除的工作区目录会以 runner 错误失败；插件不会重建它。
   配置的 `cwd` 不存在时，报错会指明该目录。
 

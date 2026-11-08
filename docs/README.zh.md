@@ -45,7 +45,7 @@ Windows 上的编程工具要在 WSL 项目中工作，有三条路：把整个�
 - **发行版内没有服务。** 没有辅助服务、没有守护进程、没有监听端口。唯一持久化的内容是 `~/.cache/dsh-wsl/agent/` 下按内容寻址的原生 agent 副本。
 - **默认有沙箱。** 受限命令在发行版内的 `bubblewrap` 中运行。缺少 `bubblewrap` 时命令直接失败，不会脱箱运行。
 - **按会话生效。** 打开发行版文件夹的会话获得发行版环境；打开 Windows 文件夹的会话保留 Windows 工具。两者可同时运行在一个 harness 进程中。
-- **与 GUI 集成。** 文件夹选择器列出已安装的发行版，终端在发行版内打开 shell，模型能看到监听端口。
+- **与 GUI 集成。** 文件夹选择器列出已安装的发行版，终端在发行版内打开 shell，模型能看到监听端口。composer 里的诊断按钮以 `/wsl-doctor` 命令运行环境诊断——宿主侧执行，不进模型对话；会话启动预检在每次会话打开时通报环境判定。
 
 ### 为什么是 Linux，而不是 PowerShell
 
@@ -109,9 +109,11 @@ dsh --profile wsl                                  # 启动
 wsl.exe -d <发行版> -u root -- apt-get install -y bubblewrap
 ```
 
-在插件检出目录中，`pnpm run doctor` 是一键环境体检：Windows/WSL 版本、发行版及其 shell、bubblewrap 可用性、systemd / user manager / Linger、可选工具、peer 版本、agent 缓存、新 agent 握手、残留会话 scope 和已知的 profile 补丁陷阱。每个失败都打印一条可复制的处理办法；`--json` 供脚本使用，`--fix` 清理残留 scope（安装包需要 `--fix --install` 并显式确认）。`pnpm run diagnose` 是其只读别名。`pnpm run bootstrap <发行版>` 仍是较窄的工具安装助手：检查四个发行版工具，并按包管理器打印安装命令；加 `--install` 仅在缺少 bubblewrap 时执行该命令。若只缺少其他工具，请自行执行打印的命令。
+在插件检出目录中，`pnpm run doctor` 是一键环境体检：Windows/WSL 版本、每个发行版的 WSL 模式、`.wslconfig` 与 `/etc/wsl.conf` 交叉核对、磁盘、时钟与 DNS、bubblewrap 可用性、systemd / user manager / Linger、可选工具、peer 版本、agent 缓存、新 agent 握手、三条证明链路完好的冒烟腿（帧 I/O、受限围栏、批量 substrate）、残留会话 scope、已知的 profile 补丁与废弃键陷阱，以及 registry 上是否存在更新的稳定版。报告逐项列出每个检查——按 distro 分组，每项带显式状态标记，失败项下附可复制的处理办法——并以裁决收尾：`ready`（首条命令应能成功）或 `blocked`（列明待修项），按生效配置计算。运行可以收窄范围：`--quick` 只探首条命令的前置项（约 10 秒），`--sections <名称>` 只运行一个分区，且范围化报告会把未运行的检查显式列为跳过项。`--json` 供脚本使用，`--fix` 会复核它修过的项（安装包需要 `--fix --install` 并显式确认），`--all` 检查每个已装发行版，`--bundle <路径>` 写出可附加到问题报告的诊断文件（`--redact` 将路径脱敏）。固定骨架按宿主语言渲染——从 Windows 区域设置检测，可用 `--locale <标签>` 或 `DSH_WSL_DOCTOR_LOCALE` 覆盖；`--json` 保持语言无关。同一份报告经三个入口给出：本 CLI、`/wsl-doctor` 命令（composer 按钮——宿主侧执行，不进模型对话）、以及 `wsl_doctor` 模型工具（进程内采集，合并常驻 agent 的实时状态）。`pnpm run diagnose` 是 CLI 的只读别名。`pnpm run bootstrap <发行版>` 仍是较窄的工具安装助手。
 
-升级：在 Plugins 页面重新安装，或再次执行 `add` 命令。卸载：在 Plugins 页面移除，或在 CLI 发行版执行 `dsh plugin --profile wsl remove dsh-plugin-wsl-env`；之后可删除 `~/.cache/dsh-wsl`。如果你为了恢复预览在 profile 里加过 `workspace-files-wsl` 的临时覆盖，升级后请删掉：插件不再挂载该行。
+插件大约每天自行检查一次更新（启动后几分钟内首查），方式是询问应用的插件管理器——它从不自行联网。当存在更新的稳定版时，每个发行版会话中受管的 `DSH_WSL_PLUGIN_UPDATE` 变量会携带该事实；补丁配置里的 `wsl-update-check.enabled: false` 可关闭该检查，`DSH_UPDATE_REGISTRIES` 覆盖 doctor 的按需检查询问哪些 registry（逗号分隔，留空可让气隙机器跳过）。升级保持手动，因为 harness 没有热重载：重新安装（Plugins 页面或 `add` 命令），然后重启。
+
+卸载：在 Plugins 页面移除，或在 CLI 发行版执行 `dsh plugin --profile wsl remove dsh-plugin-wsl-env`；之后可删除 `~/.cache/dsh-wsl`。如果你为了恢复预览在 profile 里加过 `workspace-files-wsl` 的临时覆盖，升级后请删掉：插件不再挂载该行。
 
 ## 使用
 
@@ -141,6 +143,8 @@ wsl.exe -d <发行版> -u root -- apt-get install -y bubblewrap
 | | `substrate` | `agent` | 发行版内 agent；`share` 在启动时被拒绝 |
 | `directory-picker-wsl` | `includeHostHome` | `true` | 同时列出 Windows 家目录 |
 | `subprocess-wsl` | `distro` | `''` | 发行版模式；空/`auto` 跟随启动目录 |
+| `wsl-preflight` | `distro` | `''` | 环境检查探测的发行版；空/`auto` 跟随会话工作区 |
+| | `startup` | `true` | 插件加载时预先运行同一组检查，让判定在任何会话打开之前就出现在日志里 |
 
 `wsl-shell` 和 `wsl-fs` 位于随包的 `wsl` preset 中，按 id 覆盖无效。要改就覆盖整个 `preset-wsl` 行；配方和其余键见 [docs/CONFIGURATION.md](CONFIGURATION.md)。[`cordis.patch.yml`](../cordis.patch.yml) 是随包值的注释参考。
 

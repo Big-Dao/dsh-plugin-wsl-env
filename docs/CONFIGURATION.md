@@ -324,7 +324,16 @@ layer matches on those strings byte-for-byte), and the standalone
 
 In a session the model can run the diagnosis itself: the `wsl_doctor` tool
 (mounted inside `preset-wsl`) calls the doctor in-process and returns the
-verdict with per-failure remedies — the user just asks for a diagnosis.
+verdict with per-section tallies and per-failure remedies — the user just
+asks for a diagnosis. The tool is interactive by design: `depth: "quick"`
+runs the prerequisites only (~10 s in one distro: host facts, the session
+sandbox quartet, bubblewrap — no smokes, no registry query, no port survey)
+and is the right first call; `section` narrows a follow-up to one area
+(`host`, `sandbox`, `session`, `conf`, `net`, `agent`); `depth: "full"` is
+the complete scan and answers for everything. The CLI mirrors the same
+scoping: `--quick` and `--sections <csv>` bound what a run probes, and a
+scoped `--json` report carries its `scope` so a verdict always names the
+scope it answers for (`--fix` still requires a full run).
 `DSH_WSL_DOCTOR` additionally carries a ready-to-run command that executes
 the doctor script from inside the distro (the app's own runtime as Node,
 through interop) — run it as `sh -c "$DSH_WSL_DOCTOR --json"`. And

@@ -10,7 +10,7 @@
  * collection and merge are the doctor suite's business.
  */
 import assert from "node:assert/strict";
-import { digestReport, renderDigest, apply, inject } from "../lib/wsl-doctor-tool.js";
+import { digestReport, renderDigest, apply, inject, sectionOf as digestSectionOf, SECTIONS } from "../lib/wsl-doctor-tool.js";
 
 const DISTRO_UNC = "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj";
 
@@ -82,22 +82,23 @@ await check("renderDigest speaks verdict, per-failure remedies, and the ready no
 });
 
 /** Mount the row against a fake context and capture the registered tool.
- * @param {{ cwd?: string, agentless?: boolean, report?: object, calls?: string[] }} options - the fixture.
- * @returns {Promise<{ tool: { name: string, execute: (args: { distro?: string }, exec: { agent?: unknown, signal?: unknown }) => Promise<{ verdict: string, blockers: string, failing: string }> }, calls: string[] }>} the tool and the doctor's call log. */
-const mount = async ({ cwd = DISTRO_UNC, agentless = false, report = READY, calls = [] } = {}) => {
+ * @param {{ cwd?: string, agentless?: boolean, report?: object, calls?: string[], options?: Array<{ quick?: boolean, sections?: string[] }> }} options - the fixture.
+ * @returns {Promise<{ tool: { name: string, execute: (args: { distro?: string, depth?: string, section?: string }, exec: { agent?: unknown, signal?: unknown }) => Promise<{ verdict: string, blockers: string, failing: string }> }, calls: string[], options: Array<{ quick?: boolean, sections?: string[] }> }>} the tool, the doctor's call log, and the scope options each call carried. */
+const mount = async ({ cwd = DISTRO_UNC, agentless = false, report = READY, calls = [], options = [] } = {}) => {
   /** @type {unknown[]} */
   const registered = [];
   const ctx = {
     tools: { register: (/** @type {unknown} */ tool) => registered.push(tool) },
     workingDirectory: { ensure: async () => cwd },
-    doctor: async (/** @type {string} */ distro) => {
+    doctor: async (/** @type {string} */ distro, /** @type {{ quick?: boolean, sections?: string[] } | undefined} */ scope) => {
       calls.push(distro);
+      options.push(scope ?? {});
       return report;
     },
   };
   // Synchronous apply, awaited for parity with the row's shape.
   await apply(/** @type {any} */ (ctx));
-  return { tool: /** @type {any} */ (registered[0]), calls };
+  return { tool: /** @type {any} */ (registered[0]), calls, options };
 };
 
 await check("execute resolves the session distro and returns the digest", async () => {
@@ -150,6 +151,55 @@ await check("digestReport derives everything when the report lacks the optional 
 
 await check("the row injects only its eager reads", () => {
   assert.deepEqual(inject, ["tools", "workingDirectory"], "cordis 4 refuses an undeclared ctx property read; doctor resolves per call");
+});
+
+await check("depth quick and section follow-ups reach the collector as scope options", async () => {
+  const { tool, options } = await mount();
+  await tool.execute({ depth: "quick" }, { agent: { id: "a1" } });
+  await tool.execute({ section: "session" }, { agent: { id: "a1" } });
+  await tool.execute({}, { agent: { id: "a1" } });
+  assert.deepEqual(options[0], { quick: true }, "depth quick forwards the quick profile");
+  assert.deepEqual(options[1], { sections: ["session"] }, "section forwards a one-section scope");
+  assert.deepEqual(options[2], {}, "the default call is a full run, no scope");
+});
+
+await check("digestReport tallies the sections a scoped report carried, in SECTIONS order", () => {
+  const digest = digestReport({
+    verdict: "ready",
+    blockers: [],
+    scope: { sections: ["host", "session", "sandbox"], quick: true },
+    checks: [
+      { id: "distro.reachable", status: "ok" },
+      { id: "distro.kernel", status: "info" },
+      { id: "session.linger", status: "fail", detail: "unset", remedy: "enable-linger" },
+      { id: "sandbox.bwrap", status: "ok" },
+      { id: "agent.handshake", status: "info", detail: "out of scope" },
+    ],
+  });
+  assert.deepEqual(digest.sections, [
+    { section: "host", ok: 1, warn: 0, fail: 0, unknown: 0 },
+    { section: "sandbox", ok: 1, warn: 0, fail: 0, unknown: 0 },
+    { section: "session", ok: 0, warn: 0, fail: 1, unknown: 0 },
+  ], "info-only and out-of-scope sections do not appear; order follows SECTIONS");
+  assert.deepEqual(digest.scope, { sections: ["host", "session", "sandbox"], quick: true });
+  const rendered = renderDigest(digest);
+  assert.match(rendered, /  host: 1 ok/);
+  assert.match(rendered, /  session: 0 ok, 1 fail/);
+  assert.doesNotMatch(rendered, /agent:/, "a section with no non-skipped checks is silent");
+});
+
+await check("sectionOf parity with the doctor CLI's own mapping", async () => {
+  const doctor = await import("../scripts/doctor.mjs");
+  const ids = [
+    "distro.reachable", "distro.kernel", "distro.dns", "distro.wsl-conf-boot",
+    "sandbox.bwrap", "functional.sandbox", "session.linger", "runtime.scopes",
+    "distro.wsl-conf-interop", "distro.wsl-conf-automount", "config.effective",
+    "agent.handshake", "functional.exec", "peers.versions", "git.win-safe", "update.latest",
+  ];
+  for (const id of ids) {
+    assert.equal(digestSectionOf(id), doctor.sectionOf(id), `sectionOf("${id}") agrees with the CLI`);
+  }
+  assert.deepEqual(doctor.SECTIONS, SECTIONS, "the section lists match");
 });
 
 await check("a provided doctor service wins through ctx.get without an inject", async () => {

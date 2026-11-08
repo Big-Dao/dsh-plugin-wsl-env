@@ -117,6 +117,30 @@ const CACHE_REPORT = [
  * @property {boolean} [blocksFirstCommand] - whether a `fail` here blocks the first command (stamped by `report()`: true for every `fail`; config-awareness downgrades statuses rather than keeping a per-id exception table).
  */
 
+/** The check sections a scoped run can select, in the order the tool names them. */
+export const SECTIONS = ["host", "sandbox", "session", "conf", "net", "agent"];
+
+/**
+ * The section one check id belongs to — the single mapping the CLI's
+ * `--sections` filter and the `wsl_doctor` tool's per-section summary both
+ * read, so a tool digest and the report can never disagree about where a
+ * check lives. `host` is the default: the cheap environment basics every
+ * scoped run still probes.
+ * @param {string} id - the check id.
+ * @returns {"host"|"sandbox"|"session"|"conf"|"net"|"agent"} the section.
+ */
+export function sectionOf(id) {
+  if (id.startsWith("sandbox.") || id === "functional.sandbox") return "sandbox";
+  if (id.startsWith("session.") || id === "runtime.scopes" || id === "distro.wsl-conf-boot") return "session";
+  if (id.startsWith("config.") || id === "distro.wsl-conf-interop" || id === "distro.wsl-conf-automount") return "conf";
+  if (id === "distro.dns") return "net";
+  if (id.startsWith("agent.") || id === "functional.exec" || id === "functional.fs") return "agent";
+  return "host";
+}
+
+/** The sections a `--quick` run selects: first-command prerequisites only. */
+const QUICK_SECTIONS = ["host", "session", "sandbox"];
+
 /**
  * The effective configuration the blocking verdict answers under.
  * @typedef {object} EffectiveConfig
@@ -446,7 +470,7 @@ async function askDistro(distro, script) {
 /**
  * Parse the doctor's own arguments.
  * @param {string[]} argv - `process.argv.slice(2)`.
- * @returns {{ distro: string, wsl: string, json: boolean, fix: boolean, install: boolean, yes: boolean, readOnly: boolean, all: boolean, bundle: string, redact: boolean, help: boolean }} the options.
+ * @returns {{ distro: string, wsl: string, json: boolean, fix: boolean, install: boolean, yes: boolean, readOnly: boolean, all: boolean, bundle: string, redact: boolean, sections: string, quick: boolean, help: boolean }} the options.
  */
 function parseArgs(argv) {
   const options = {
@@ -460,6 +484,8 @@ function parseArgs(argv) {
     all: false,
     bundle: "",
     redact: false,
+    sections: "",
+    quick: false,
     help: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -470,6 +496,9 @@ function parseArgs(argv) {
     else if (arg === "--yes" || arg === "-y") options.yes = true;
     else if (arg === "--read-only") options.readOnly = true;
     else if (arg === "--all") options.all = true;
+    else if (arg === "--quick") options.quick = true;
+    else if (arg === "--sections") options.sections = argv[++i] ?? "";
+    else if (arg.startsWith("--sections=")) options.sections = arg.slice("--sections=".length);
     else if (arg === "--bundle") options.bundle = argv[++i] ?? "";
     else if (arg.startsWith("--bundle=")) options.bundle = arg.slice("--bundle=".length);
     else if (arg === "--redact") options.redact = true;
@@ -702,6 +731,12 @@ const DISTRO_CONCURRENCY = 3;
   * @param {{ distro: string, wsl: string, json: boolean, fix: boolean, install: boolean, yes: boolean, readOnly: boolean, all: boolean, bundle: string, redact: boolean, help: boolean }} options - the parsed options.
  * @returns {Promise<number>} the exit status.
  */
+/**
+ * The doctor run: collect the checks under the effective configuration and
+ * the requested scope, then report.
+ * @param {ReturnType<typeof parseArgs>} options - the parsed arguments.
+ * @returns {Promise<number>} 0 when the verdict is `ready`, 1 when `blocked`.
+ */
 async function main(options) {
   if (options.readOnly && (options.fix || options.install)) return rejectReadOnly();
   // One rebinding covers every probe below (`-l -q`, `inDistro`, the
@@ -736,6 +771,31 @@ async function main(options) {
   const check = (id, status, title, detail, remedy) => {
     checks.push({ id, status, title, ...(detail === undefined ? {} : { detail }), ...(remedy === undefined ? {} : { remedy }) });
   };
+
+  // ---- scope ----------------------------------------------------------------
+  // `--quick` and `--sections` bound what this run probes and reports: a
+  // scoped run still probes `distro.reachable` (the transport gate) but its
+  // report carries only the requested sections, and the expensive legs — the
+  // resident smokes, the fence smoke, the registry query, the port survey —
+  // run only when their section is selected and the run is not quick. A full
+  // run (the default) sets `wanted = null`: every section, no gating.
+  const wanted = options.quick
+    ? new Set(QUICK_SECTIONS)
+    : options.sections.length > 0
+      ? (() => {
+        /** @param {string} s - one comma-separated section token. @returns {boolean} whether it names a section. */
+        const known = (s) => SECTIONS.includes(s);
+        const picked = options.sections.split(",").map((s) => s.trim()).filter(known);
+        if (picked.length === 0) return null;
+        return new Set(picked);
+      })()
+      : null;
+  const quick = options.quick;
+  /** Whether a section is in this run's scope. */
+  const want = (/** @type {string} */ section) => wanted === null || wanted.has(section);
+  /** @type {{ sections: string[], quick: boolean } | undefined} */
+  let scope;
+  if (wanted !== null) scope = { sections: [...wanted], quick };
 
   // ---- host ----------------------------------------------------------------
   const windows = await run([CMD, "/c", "ver"]);
@@ -813,9 +873,14 @@ async function main(options) {
   // default) means the workspace decides, so every installed distro is a
   // candidate and all are checked; `default` resolves to the distro WSL
   // itself marks as default; a pinned name checks exactly that one.
-  const runInfo = /** @type {{ distros: string[], config?: EffectiveConfig, timingsMs?: Record<string, number>, bundle?: { path: string, redact: boolean, manifest: { name?: string, version?: string, peerDependencies?: Record<string, string> } } }} */ ({ distros: [], timingsMs });
+  const runInfo = /** @type {{ distros: string[], config?: EffectiveConfig, timingsMs?: Record<string, number>, scope?: { sections: string[], quick: boolean }, bundle?: { path: string, redact: boolean, manifest: { name?: string, version?: string, peerDependencies?: Record<string, string> } } }} */ ({ distros: [], timingsMs });
   if (options.bundle.length > 0) runInfo.bundle = { path: options.bundle, redact: options.redact, manifest };
   runInfo.config = { ...effective };
+  if (options.fix && wanted !== null) {
+    console.error("doctor: --fix needs a full run — a scoped run cannot re-verify what it did not probe");
+    return 2;
+  }
+  if (scope !== undefined) runInfo.scope = scope;
   /** The `wsl.exe -l -v` table, parsed once: the default marker feeds target selection, the VERSION column feeds `distro.wsl-mode`. */
   const wslTable = parseWslVerbose((await run([wslExe, "-l", "-v"])).stdout.replace(/\0/g, ""));
   /** @type {string[]} */
@@ -942,10 +1007,14 @@ async function main(options) {
     // ---- sandbox prerequisites ----------------------------------------------
     let bwrapUsable = false;
     let bwrapPath = "";
-    const bwrapAnswer = await probe("command -v bwrap");
     const install = installRemedy(target, family);
-    if (!bwrapAnswer.ok && bwrapAnswer.flaked) flakeCheck("sandbox.bwrap", "bubblewrap", bwrapAnswer);
-    else {
+    if (!want("sandbox")) {
+      // sandbox section out of scope: bwrapPath stays "" and the fence smoke
+      // below is skipped with it.
+    } else {
+      const bwrapAnswer = await probe("command -v bwrap");
+      if (!bwrapAnswer.ok && bwrapAnswer.flaked) flakeCheck("sandbox.bwrap", "bubblewrap", bwrapAnswer);
+      else {
       bwrapPath = bwrapAnswer.stdout.trim();
       if (bwrapPath.length === 0) {
         check("sandbox.bwrap", "fail", "bubblewrap", "missing; every confined command fails closed without it", `${install}, or run "pnpm run bootstrap ${target} --install"`);
@@ -958,6 +1027,7 @@ async function main(options) {
           bwrapUsable = true;
         } else check("sandbox.bwrap-usable", "fail", "bubblewrap usability", "installed but the read-only profile failed", "the kernel likely disables unprivileged user namespaces; reinstalling will not help — see docs/LIMITATIONS.md");
       }
+      }
     }
 
     // ---- session sandbox prerequisites --------------------------------------
@@ -966,6 +1036,9 @@ async function main(options) {
     // per-command bwrap profile and `false` does not use the scope at all, so
     // in both cases a missing prerequisite downgrades to a warning — a `fail`
     // always blocks, which is the invariant the verdict leans on.
+    let runtimeSystemd = false;
+    let systemdPid = "";
+    if (want("session")) {
     const systemd = await probe('if [ -d /run/systemd/system ]; then printf "systemd %s" "$(cat /proc/1/comm)"; else printf "none %s" "$(cat /proc/1/comm)"; fi');
     if (!systemd.ok && systemd.flaked) flakeCheck("session.systemd", "systemd as PID 1", systemd);
     else if (!systemd.stdout.startsWith("systemd")) {
@@ -995,6 +1068,9 @@ async function main(options) {
       if (lingerState === "Linger=yes") check("session.linger", "ok", "Linger", lingerState);
       else check("session.linger", sessionStatus(), "Linger", withScopeNote(lingerState.length > 0 ? lingerState : "unset"), `wsl.exe -d ${target} -- loginctl enable-linger "$(id -un)" (this needs the user's own session; run it inside the distro)`);
     }
+    runtimeSystemd = systemd.stdout.startsWith("systemd");
+    systemdPid = systemd.stdout.trim();
+    }
 
     // ---- /etc/wsl.conf cross-checks ------------------------------------------
     // The distro-level settings the plugin cannot change (LIMITATIONS): boot,
@@ -1007,17 +1083,25 @@ async function main(options) {
     const confFlaked = !confAnswer.ok && confAnswer.flaked;
     const conf = parseIni(confAnswer.stdout);
     const noConf = confAnswer.stdout.trim().length === 0;
-    const runtimeSystemd = systemd.stdout.startsWith("systemd");
-    if (confFlaked) {
-      flakeCheck("distro.wsl-conf-boot", "/etc/wsl.conf [boot]", confAnswer);
-      flakeCheck("distro.wsl-conf-interop", "/etc/wsl.conf [interop]", confAnswer);
-      flakeCheck("distro.wsl-conf-automount", "/etc/wsl.conf [automount]", confAnswer);
+    const confWanted = want("session") || want("conf");
+    if (!confWanted) {
+      // Scoped run: neither the boot cross-check nor the interop/automount
+      // rows are in scope — the conf read above stays (one cheap call that
+      // the section rows share), but no rows report.
+    } else if (confFlaked) {
+      if (want("session")) flakeCheck("distro.wsl-conf-boot", "/etc/wsl.conf [boot]", confAnswer);
+      if (want("conf")) {
+        flakeCheck("distro.wsl-conf-interop", "/etc/wsl.conf [interop]", confAnswer);
+        flakeCheck("distro.wsl-conf-automount", "/etc/wsl.conf [automount]", confAnswer);
+      }
     } else {
     const bootSystemd = ((noConf ? undefined : conf.boot?.systemd) ?? "").trim().toLowerCase();
-    if (noConf) {
+    if (!want("session")) {
+      // boot row out of scope
+    } else if (noConf) {
       check("distro.wsl-conf-boot", "info", "/etc/wsl.conf [boot]", "no /etc/wsl.conf — the default (systemd off) applies, and the runtime matches it");
     } else if (bootSystemd === "true" && !runtimeSystemd) {
-      check("distro.wsl-conf-boot", "warn", "/etc/wsl.conf [boot]", `[boot] systemd=true but PID 1 is ${systemd.stdout.trim() || "not systemd"} — the value is set but not in effect`, `wsl.exe --terminate ${target} (or "wsl.exe --shutdown"), then reopen the session`);
+      check("distro.wsl-conf-boot", "warn", "/etc/wsl.conf [boot]", `[boot] systemd=true but PID 1 is ${systemdPid || "not systemd"} — the value is set but not in effect`, `wsl.exe --terminate ${target} (or "wsl.exe --shutdown"), then reopen the session`);
     } else if (bootSystemd === "false" && runtimeSystemd) {
       check("distro.wsl-conf-boot", "warn", "/etc/wsl.conf [boot]", "[boot] systemd=false but PID 1 is systemd — the running boot predates the value", `wsl.exe --terminate ${target} applies it; check sessionSandbox first, because the scope needs systemd`);
     } else {
@@ -1025,7 +1109,9 @@ async function main(options) {
     }
 
     const interopEnabled = ((noConf ? undefined : conf.interop?.enabled) ?? "").trim().toLowerCase();
-    if (interopEnabled === "false") {
+    if (!want("conf")) {
+      // interop/automount rows out of scope
+    } else if (interopEnabled === "false") {
       const binfmtProbe = await probe("[ -e /proc/sys/fs/binfmt_misc/WSLInterop ] && printf yes || printf no");
       const binfmt = binfmtProbe.ok && !binfmtProbe.flaked ? binfmtProbe.stdout.trim() : "unreadable";
       check("distro.wsl-conf-interop", "warn", "/etc/wsl.conf [interop]", `interop is disabled in wsl.conf${binfmt === "yes" ? " but the WSLInterop handler is still loaded (stale boot)" : binfmt === "unreadable" ? " (the binfmt cross-check flaked — treat the stale-boot note as unverified)" : ""} — Windows git, open-in-app and the cmd.exe probes are unreachable from this distro`, `remove the [interop] enabled=false line in /etc/wsl.conf, then wsl.exe --terminate ${target}`);
@@ -1038,7 +1124,9 @@ async function main(options) {
 
     const automountEnabled = ((noConf ? undefined : conf.automount?.enabled) ?? "").trim().toLowerCase();
     const automountRoot = ((noConf ? undefined : conf.automount?.root) ?? "").trim();
-    if (automountEnabled === "false") {
+    if (!want("conf")) {
+      // automount row out of scope
+    } else if (automountEnabled === "false") {
       check("distro.wsl-conf-automount", "warn", "/etc/wsl.conf [automount]", "automount is disabled — /mnt has no Windows drives and Windows files are unreachable from this distro; the masking stance is moot", `remove [automount] enabled=false in /etc/wsl.conf, then wsl.exe --terminate ${target}`);
     } else if (automountRoot.length > 0 && automountRoot !== "/mnt" && interopMasked) {
       check("distro.wsl-conf-automount", "warn", "/etc/wsl.conf [automount]", `the automount root is ${automountRoot}, not /mnt — the drive-masking stance is in effect and targets /mnt, so ${automountRoot} is not covered`, `reset [automount] root to /mnt in /etc/wsl.conf, then wsl.exe --terminate ${target}`);
@@ -1075,9 +1163,9 @@ async function main(options) {
     // the VPN-tunnel class where the file looks fine but queries die. The
     // probe is warn-grade and honest about offline — a machine without a
     // network answers the same as a broken resolver.
-    const resolvAnswer = await probe("wc -c < /etc/resolv.conf 2>/dev/null || printf 0");
-    if (!resolvAnswer.ok && resolvAnswer.flaked) flakeCheck("distro.dns", "DNS", resolvAnswer);
-    else {
+    const resolvAnswer = want("net") ? await probe("wc -c < /etc/resolv.conf 2>/dev/null || printf 0") : undefined;
+    if (resolvAnswer !== undefined && !resolvAnswer.ok && resolvAnswer.flaked) flakeCheck("distro.dns", "DNS", resolvAnswer);
+    else if (resolvAnswer !== undefined) {
       const resolvBytes = Number(resolvAnswer.stdout.trim());
       if (!Number.isFinite(resolvBytes) || resolvBytes === 0) {
         check("distro.dns", "warn", "DNS", "/etc/resolv.conf is missing or empty — name resolution fails (npm, git fetch, bootstrap installs)", `wsl.conf [network] generateResolvConf controls the file; "wsl.exe --shutdown" regenerates it unless disabled`);
@@ -1106,6 +1194,10 @@ async function main(options) {
     }
 
     // ---- agents and caches ---------------------------------------------------
+    // Gated on the agent section: this region is the expensive chain (arch,
+    // cache inventory, handshake, resident smokes). A scoped run without it
+    // (quick included) stops after the session rows.
+    if (want("agent")) {
     const archAnswer = await probe("uname -m");
     if (!archAnswer.ok && archAnswer.flaked) flakeCheck("agent.arch", "Distro architecture", archAnswer);
     else {
@@ -1128,15 +1220,19 @@ async function main(options) {
         check("agent.cache", bad > 0 ? "warn" : "ok", "Agent cache", `${entries.length} cached binary(ies)${bad > 0 ? `, ${bad} not executable` : ""}`, bad > 0 ? `rm -rf ~/.cache/dsh-wsl/agent inside "${target}"; the next command repopulates it` : undefined);
       }
     }
+    }
 
-    const scopesAnswer = await probe(STALE_SCOPE_REPORT);
+    // ---- session scopes (section: session) ------------------------------------
+    const scopesAnswer = want("session") ? await probe(STALE_SCOPE_REPORT) : undefined;
     let stale = 0;
     /** @type {string[]} */
     let livePids = [];
     /** @type {string[]} */
     let scopeLines = [];
-    if (!scopesAnswer.ok && scopesAnswer.flaked) flakeCheck("runtime.scopes", "Session scopes", scopesAnswer);
-    else {
+    /** ok | fail | info — the handshake state the smoke legs read. */
+    let handshakeState = "info";
+    if (scopesAnswer !== undefined && !scopesAnswer.ok && scopesAnswer.flaked) flakeCheck("runtime.scopes", "Session scopes", scopesAnswer);
+    else if (scopesAnswer !== undefined) {
       const scopes = scopesAnswer.stdout.trim();
       scopeLines = scopes === "none" || scopes.length === 0 ? [] : scopes.split(/\r?\n/);
       stale = scopeLines.filter((line) => /\sstale(\s|$)/.test(line)).length;
@@ -1147,11 +1243,13 @@ async function main(options) {
       });
     }
 
-    // ---- resident handshake --------------------------------------------------
+    // ---- resident handshake (section: agent) ----------------------------------
     const agentScript = join(ROOT, "agent", "wsl-agent.sh");
     /** ok | fail | info — the legs skip with a story that matches. */
-    let handshakeState = "info";
-    if (!agentScript.startsWith("/")) {
+    handshakeState = "info";
+    if (!want("agent")) {
+      // agent section out of scope: no handshake, no resident smokes.
+    } else if (!agentScript.startsWith("/")) {
       check("agent.handshake", "info", "Agent handshake", "skipped: run the doctor from inside the distro (the script path is a Windows path)");
     } else if (!existsSync(agentScript)) {
       check("agent.handshake", "fail", "Agent handshake", "agent/wsl-agent.sh is missing from this install", "reinstall the plugin; the shell agent ships with the package");
@@ -1180,7 +1278,9 @@ async function main(options) {
     }
 
     // ---- stale session scopes ------------------------------------------------
-    if (scopeLines.length === 0) check("runtime.scopes", "info", "Session scopes", "none (no user manager, or none left behind)");
+    if (!want("session")) {
+      // session section out of scope
+    } else if (scopeLines.length === 0) check("runtime.scopes", "info", "Session scopes", "none (no user manager, or none left behind)");
     else if (stale === 0) check("runtime.scopes", "ok", "Session scopes", `${scopeLines.length} live, none stale`);
     else check("runtime.scopes", "warn", "Session scopes", `${stale} stale of ${scopeLines.length}`, "--fix stops them (the same sweep the session preflight runs); they are safe to stop when no agent process is inside");
 
@@ -1193,7 +1293,13 @@ async function main(options) {
     const residentBlocked = handshakeState !== "ok";
     const sandboxBlocked = bwrapPath.length === 0 || !bwrapUsable;
     const residentBlocker = handshakeState === "fail" ? "blocked by agent.handshake" : "the handshake could not run in this distro";
-    if (residentBlocked) {
+    // A quick run skips both smokes — their worth is the deep verdict, and
+    // the quick profile's promise is a fast prerequisite answer.
+    const residentSmokeWanted = want("agent") && !quick;
+    const sandboxSmokeWanted = want("sandbox") && !quick;
+    if (!residentSmokeWanted) {
+      // resident smokes out of scope (or quick)
+    } else if (residentBlocked) {
       check("functional.exec", "skipped", "Smoke: EXEC", `skipped: ${residentBlocker}`);
       check("functional.fs", "skipped", "Smoke: FSB batch", `skipped: ${residentBlocker}`);
     } else {
@@ -1209,7 +1315,9 @@ async function main(options) {
       check("functional.exec", smoke.execOk ? "ok" : "fail", "Smoke: EXEC", smoke.execDetail, smoke.execOk ? undefined : "restart the DSH app; if it persists, delete ~/.cache/dsh-wsl/agent inside the distro and rerun the doctor");
       check("functional.fs", smoke.fsOk ? "ok" : "fail", "Smoke: FSB batch", smoke.fsDetail, smoke.fsOk ? undefined : "restart the DSH app; if it persists, delete ~/.cache/dsh-wsl/agent inside the distro and rerun the doctor");
     }
-    if (sandboxBlocked) {
+    if (!sandboxSmokeWanted) {
+      // fence smoke out of scope (or quick)
+    } else if (sandboxBlocked) {
       check("functional.sandbox", "skipped", "Smoke: confined profile", `skipped: blocked by ${bwrapPath.length === 0 ? "sandbox.bwrap" : "sandbox.bwrap-usable"}`);
     } else {
       let sandbox = await runSandboxSmoke(target);
@@ -1248,6 +1356,10 @@ async function main(options) {
   // resolves git to a distro sentinel and routes everything. What the doctor
   // can probe cheaply from here is interop git.exe and its whitelist.
   let winGitOk = false;
+  if (quick) {
+    // quick profile: the trust check needs interop git.exe and is advice, not
+    // a prerequisite — a scoped run leaves it out.
+  } else {
   const winGitVersion = await run(["git.exe", "--version"]);
   if (!winGitVersion.ok) {
     check("git.win-safe", "info", "Windows git trust", "Windows git not found through interop — WSL change review uses the distro fallback; host (C:\\...) workspaces would need git for their own review");
@@ -1259,6 +1371,7 @@ async function main(options) {
       whitelisted ? `the \\\\wsl.localhost share is whitelisted (${entries.length} entr${entries.length === 1 ? "y" : "ies"})`
         : "Windows git does not trust the \\\\wsl.localhost share; WSL workspaces' change review silently degrades to file-tool edits",
       whitelisted ? undefined : 'on Windows: git config --global --add safe.directory "//wsl.localhost/*", then restart the app');
+  }
   }
 
   phase("git");
@@ -1309,7 +1422,7 @@ async function main(options) {
   // serves the human, with the two actions the facts imply: the localhost URL
   // WSL2's forwarding already makes reachable, and the netsh line that would
   // extend reach beyond the host (printed, never applied).
-  if (!options.json) {
+  if (!options.json && !quick) {
     const portScript = procNetScript();
     let anyPorts = false;
     for (const d of running) {
@@ -1346,10 +1459,13 @@ async function main(options) {
   // stable channel's newest release against this checkout's version. A
   // registry the doctor cannot reach is normal (offline, a proxy), so it
   // reports as `info` and points at the page that asks it live — never a
-  // warning, and never a network side effect beyond the two GETs.
+  // warning, and never a network side effect beyond the two GETs. The quick
+  // profile skips it: no network on the fast path.
   const installedVersion = manifest.version ?? "";
-  const latest = installedVersion.length > 0 ? await fetchLatestRelease() : undefined;
-  if (latest === undefined) {
+  const latest = !quick && installedVersion.length > 0 ? await fetchLatestRelease() : undefined;
+  if (quick) {
+    // quick profile: no update row at all — the registry stays untouched.
+  } else if (latest === undefined) {
     check("update.latest", "info", "Update check", "the registry was unreachable (offline, or a proxy is in the way); the app's Versions page asks the same question live");
   } else if (compareVersions(latest.version, installedVersion) > 0) {
     const message = updateFactMessage({ installed: installedVersion, latest: latest.version, incompatible: false, ...(latest.deprecated === undefined ? {} : { deprecated: latest.deprecated }), checkedAt: 0 });
@@ -1753,11 +1869,18 @@ async function confirm(question, yes) {
  *
  * @param {Check[]} checks - the collected checks (distro-scoped ones carry their `distro`).
  * @param {{ json: boolean }} options - the output mode.
- * @param {{ distros?: string[], config?: EffectiveConfig, timingsMs?: Record<string, number>, bundle?: { path: string, redact: boolean, manifest: { name?: string, version?: string, peerDependencies?: Record<string, string> } } }} [runInfo] - the target distros, the effective configuration, the per-phase wall clock, and the bundle request.
+ * @param {{ distros?: string[], config?: EffectiveConfig, timingsMs?: Record<string, number>, scope?: { sections: string[], quick: boolean }, bundle?: { path: string, redact: boolean, manifest: { name?: string, version?: string, peerDependencies?: Record<string, string> } } }} [runInfo] - the target distros, the effective configuration, the run scope, the per-phase wall clock, and the bundle request.
  * @returns {number} 0 when the verdict is `ready`, 1 when `blocked`.
  */
 function report(checks, options, runInfo = {}) {
-  const stamped = checks.map((entry) => ({
+  // Scoped run: keep only the requested sections. `distro.reachable` is the
+  // transport gate every scoped run probes, so it always stays — a scoped
+  // verdict answers "is this distro healthy *within the requested scope*".
+  const wantedSections = runInfo.scope === undefined ? null : new Set(runInfo.scope.sections);
+  /** @param {{ id: string }} entry - the check. @returns {boolean} whether it survives the scope. */
+  const inScope = (entry) => wantedSections === null || wantedSections.has(sectionOf(entry.id)) || entry.id === "distro.reachable";
+  const scoped = checks.filter(inScope);
+  const stamped = scoped.map((entry) => ({
     ...entry,
     blocksFirstCommand: entry.status === "fail",
   }));
@@ -1783,6 +1906,7 @@ function report(checks, options, runInfo = {}) {
       schemaVersion: 2,
       generatedAt: new Date().toISOString(),
       ...(runInfo.config === undefined ? {} : { config: runInfo.config }),
+      ...(runInfo.scope === undefined ? {} : { scope: runInfo.scope }),
       checks: stamped,
       summary,
       distroVerdicts,
@@ -1840,7 +1964,7 @@ function report(checks, options, runInfo = {}) {
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
-    console.log("node scripts/doctor.mjs [distro] [--all] [--json] [--fix] [--install] [--yes] [--read-only] [--bundle <path>] [--redact]");
+    console.log("node scripts/doctor.mjs [distro] [--all] [--json] [--quick] [--sections host,sandbox,session,conf,net,agent] [--fix] [--install] [--yes] [--read-only] [--bundle <path>] [--redact]");
   } else {
     process.exitCode = await main(options);
   }

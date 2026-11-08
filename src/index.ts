@@ -253,6 +253,17 @@ export async function doctorReport(distro: string, options?: {
   /** The `wsl.exe` the doctor probes with; forwarded as `--wsl <path>`. */
   wslPath?: string;
   /**
+   * Run the quick profile instead of the full scan: first-command
+   * prerequisites only (host/session/sandbox, no smokes, no registry query,
+   * no port survey) — forwarded as `--quick`.
+   */
+  quick?: boolean;
+  /**
+   * Restrict the run to these doctor sections (host, sandbox, session, conf,
+   * net, agent); forwarded as `--sections <csv>`. Undefined runs everything.
+   */
+  sections?: readonly string[];
+  /**
    * Prepended to the doctor subprocess's PATH — a caller that stages a fake
    * `wsl.exe` (tests) passes the staging directory here instead of mutating
    * `process.env`, whose visibility across spawned grandchildren is exactly
@@ -263,6 +274,8 @@ export async function doctorReport(distro: string, options?: {
 }): Promise<DoctorReport> {
   const script = options?.doctorPath ?? DOCTOR_SCRIPT;
   const argv = [script, distro, "--json"];
+  if (options?.quick === true) argv.push("--quick");
+  if (options?.sections !== undefined && options.sections.length > 0) argv.push("--sections", [...options.sections].join(","));
   if (options?.wslPath !== undefined) argv.push("--wsl", options.wslPath);
   // A nonzero doctor exit usually means an environment check FAILED on the
   // machine being examined — that is a valid report, not a broken collection.

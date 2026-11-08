@@ -16,6 +16,26 @@ were part of the record.
 
 ## [Unreleased]
 
+### Added
+
+- **The `wsl_doctor` tool is interactive: quick first, sections for
+  follow-ups, per-section tallies in every answer.** The old shape was one
+  blocking call (100 s+ across every distro) that returned a bare verdict
+  plus the fail list — the conversation hung and the result said nothing
+  about what had been tested. The tool now takes `depth: "quick"` (the
+  prerequisites: host facts, the session quartet, bubblewrap — ~10 s in one
+  distro, no smokes, no registry, no port survey) and `section` (one of
+  host/sandbox/session/conf/net/agent) for focused follow-ups; `depth:
+  "full"` stays the complete scan. Every digest carries per-section tallies
+  (ok/warn/fail/unknown), so the passed checks are visible instead of
+  silent. The CLI mirrors the scoping (`--quick`, `--sections <csv>`, a
+  `scope` block in the scoped `--json` report; `--fix` still requires a full
+  run). One tool, multiple calls — the progress story is the call sequence,
+  because the tool pipeline has no mid-execution event channel (verified
+  end-to-end: `dsh-tools` contract, `dsh-session` event map, and the
+  conversation UI's surface projection all lack one; to be proposed
+  upstream).
+
 ### Fixed
 
 - **A transport flake no longer reports a config verdict.** Under the

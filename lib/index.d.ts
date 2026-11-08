@@ -109,6 +109,17 @@ export declare function doctorReport(distro: string, options?: {
     /** The `wsl.exe` the doctor probes with; forwarded as `--wsl <path>`. */
     wslPath?: string;
     /**
+     * Run the quick profile instead of the full scan: first-command
+     * prerequisites only (host/session/sandbox, no smokes, no registry query,
+     * no port survey) — forwarded as `--quick`.
+     */
+    quick?: boolean;
+    /**
+     * Restrict the run to these doctor sections (host, sandbox, session, conf,
+     * net, agent); forwarded as `--sections <csv>`. Undefined runs everything.
+     */
+    sections?: readonly string[];
+    /**
      * Prepended to the doctor subprocess's PATH — a caller that stages a fake
      * `wsl.exe` (tests) passes the staging directory here instead of mutating
      * `process.env`, whose visibility across spawned grandchildren is exactly

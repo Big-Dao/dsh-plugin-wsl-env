@@ -24,7 +24,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const AGENT_DIGEST = createHash("sha256").update(readFileSync(join(ROOT, "agent", "wsl-agent.sh"))).digest("hex");
 
 /** @typedef {{ id: string, status: string, detail?: string, remedy?: string, distro?: string, blocksFirstCommand?: boolean }} Check */
-/** @typedef {{ schemaVersion: number, checks: Check[], summary: Record<string, number>, verdict?: string, blockers?: string[], distroVerdicts?: Array<{ name: string, verdict: string, blockers: string[] }>, config?: Record<string, string | string[]> }} Report */
+/** @typedef {{ schemaVersion: number, checks: Check[], summary: Record<string, number>, verdict?: string, blockers?: string[], distroVerdicts?: Array<{ name: string, verdict: string, blockers: string[] }>, config?: Record<string, string | string[]>, scope?: { sections: string[], quick: boolean } }} Report */
 
 if (process.platform === "win32") {
   console.log("SKIP  doctor tests: the fake wsl.exe is a POSIX script");
@@ -213,8 +213,32 @@ try {
     assert.equal(report.checks.find((entry) => entry.id === "peers.versions")?.status, "ok");
   });
 
-  await check("a one-shot transport flake is retried and does not taint the verdict", async () => {
-    rmSync(join(stateDir, "flake-once"), { force: true });
+  await check("the quick profile runs prerequisites only and stamps the scope", async () => {
+    const run = doctor(["--json", "--quick"]);
+    assert.equal(run.status, 0, run.stderr);
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    assert.deepEqual(report.scope, { sections: ["host", "session", "sandbox"], quick: true });
+    for (const id of report.checks.map((/** @type {{ id: string }} */ c) => c.id)) {
+      assert.doesNotMatch(id, /^(functional\.|agent\.)/, "quick never runs the agent smokes or the agent chain");
+    }
+    assert.equal(report.checks.find((entry) => entry.id === "update.latest"), undefined, "quick skips the registry query");
+    assert.equal(report.checks.find((entry) => entry.id === "distro.dns"), undefined, "quick skips the net section");
+    assert.ok(report.checks.find((entry) => entry.id === "session.linger"), "the session prerequisites stay in the quick profile");
+  });
+
+  await check("--sections bounds the report and the verdict answers for the requested scope", async () => {
+    const run = doctor(["--json", "--sections", "sandbox"]);
+    assert.equal(run.status, 0, run.stderr);
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    assert.deepEqual(report.scope?.sections, ["sandbox"]);
+    const ids = report.checks.map((/** @type {{ id: string }} */ c) => c.id);
+    assert.ok(ids.includes("distro.reachable"), "the transport gate stays in every scoped run");
+    assert.ok(ids.includes("sandbox.bwrap"), "the selected section reports");
+    assert.ok(!ids.includes("session.linger"), "other sections stay out");
+    assert.equal(report.verdict, "ready", "a scoped verdict answers for its scope only");
+  });
+
+  await check("a one-shot transport flake is retried and does not taint the verdict", async () => {    rmSync(join(stateDir, "flake-once"), { force: true });
     const run = doctor(["--json"], { FAKE_FLAKE: "once" });
     assert.equal(run.status, 0, run.stderr);
     const report = /** @type {Report} */ (JSON.parse(run.stdout));

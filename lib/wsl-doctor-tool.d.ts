@@ -61,15 +61,25 @@ export interface DoctorReportLike {
         distro?: string;
     }>;
     summary?: Record<string, number>;
+    /** The run's scope when the report is quick or section-filtered. */
+    scope?: {
+        sections: string[];
+        quick: boolean;
+    };
 }
-/** The cordis context slice this service consumes. */
+/** The doctor report collector: distro plus run scope in, report out. */
+export type DoctorCollector = (distro: string, options?: {
+    quick?: boolean;
+    sections?: readonly string[];
+}) => Promise<DoctorReportLike>;
+/** The context slice this service consumes. */
 export type WslDoctorToolContext = {
     tools: ToolRegistrySlice;
     workingDirectory: WorkingDirectoryToolSlice;
     /** Optional cordis-style lookup: how production resolves `doctor` without an inject. */
     get?: (name: string) => unknown;
     /** The in-process collector: a provided `doctor` service, or the test seam's fake. */
-    doctor?: (distro: string) => Promise<DoctorReportLike>;
+    doctor?: DoctorCollector;
 };
 /** The tool's config: the row takes no options. */
 export interface WslDoctorToolConfig {
@@ -89,6 +99,19 @@ export interface DoctorDigest {
     failing: FailingCheck[];
     warningCount: number;
     skippedCount: number;
+    /** Per-section tallies for the checks the report carried, in SECTIONS order. */
+    sections: Array<{
+        section: string;
+        ok: number;
+        warn: number;
+        fail: number;
+        unknown: number;
+    }>;
+    /** The scope the report answers for (quick profile or a section subset). */
+    scope?: {
+        sections: string[];
+        quick: boolean;
+    };
     distroVerdicts: Array<{
         name: string;
         verdict: string;
@@ -97,8 +120,21 @@ export interface DoctorDigest {
     note: string;
 }
 /**
+ * The section a check id belongs to. Mirrors `sectionOf` in
+ * `scripts/doctor.mjs` (the CLI's `--sections` filter reads that one); the
+ * parity is pinned by a test in `test/wsl-doctor-tool.test.mjs`, so a check
+ * cannot move sections on one side without the other noticing.
+ * @param id - the check id.
+ * @returns the section name.
+ */
+export declare function sectionOf(id: string): "host" | "sandbox" | "session" | "conf" | "net" | "agent";
+/** The sections in report order, matching the doctor CLI's SECTIONS list. */
+export declare const SECTIONS: string[];
+/**
  * Digest one doctor report down to what the model acts on: the verdict, the
- * blockers, and every failing check with its copy-paste remedy. Warnings and
+ * blockers, every failing check with its copy-paste remedy, and the
+ * per-section tallies that make the passed checks visible (a bare verdict
+ * says nothing about what was tested — the sections do). Warnings and
  * skipped legs count but do not list — the report's own ids name them when
  * the model asks.
  * @param report - the collected (and live-merged) doctor report.
@@ -107,8 +143,9 @@ export interface DoctorDigest {
 export declare function digestReport(report: DoctorReportLike): DoctorDigest;
 /**
  * Render the digest as the tool's text output: one verdict line, one line
- * per failing check with its remedy. The model narrates this; keeping it
- * plain text keeps the transcript readable.
+ * per tested section with its tallies (what was checked and how it came
+ * out), then one line per failing check with its remedy. The model narrates
+ * this; keeping it plain text keeps the transcript readable.
  * @param digest - the digested report.
  * @returns the multi-line text.
  */

@@ -14,7 +14,12 @@ document: the 0.1.0 entry's `design-history §` references are to
 keeps the superseded designs under the section numbers they had while they
 were part of the record.
 
-## [Unreleased]
+## [0.22.0] - 2026-11-08
+
+One theme: the doctor's report becomes something a human can read and act on —
+every check itemized with an explicit status marker, the run reachable as a
+global `/wsl-doctor` command that renders outside model history, and the fixed
+skeleton localized to the host language.
 
 ### Added
 
@@ -35,6 +40,30 @@ were part of the record.
   end-to-end: `dsh-tools` contract, `dsh-session` event map, and the
   conversation UI's surface projection all lack one; to be proposed
   upstream).
+
+- **The doctor's report itemizes every check, and `/wsl-doctor` runs it
+  detached from model history.** A scoped run used to say nothing about the
+  checks its profile never executed, and a multi-distro report flattened into
+  one undifferentiated block. `digestReport` now carries per-distro tallies
+  (first-appearance order, the session's distro flagged) and an itemized
+  listing — every check with an explicit `[OK]`/`[WARN]`/`[FAIL]`/`[INFO]`/
+  `[SKIP]`/`[??]` marker, its title and what it found, the copy-paste remedy
+  under every failure; scoped runs surface untouched checks as `[SKIP]` rows
+  driven by a check catalog. The `wsl_doctor` tool's structured result field
+  is `report` now, and `depth` defaults to `quick`. The new `/wsl-doctor`
+  command registers globally and spawns the standalone doctor CLI as a host
+  subprocess: the report renders without consuming tokens, and the diagnosis
+  still answers when the plugin's own runtime is what is broken. The composer
+  button becomes a mode menu (quick/full + the six sections); deployments
+  without a command adapter keep the CLI.
+
+- **The doctor's fixed skeleton localizes.** Check catalogs live in
+  `locale/doctor/{en,zh}.json`; a `--locale` flag and `DSH_WSL_DOCTOR_LOCALE`
+  override exist, and the Windows locale is detected through `reg query`
+  (no PowerShell startup). `--json` stays language-independent.
+  `installMessagesLocale` falls back to the OS ICU locale when no Settings
+  preference was stored, so a provisional-Chinese UI renders Chinese; an
+  explicit Settings choice always wins.
 
 ### Fixed
 

@@ -16,6 +16,22 @@ were part of the record.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A transport flake no longer reports a config verdict.** Under the
+  doctor's concurrent probing of several distros on one VM, `wsl.exe` calls
+  can time out (`Wsl/Service/WSAETIMEDOUT`) or answer from a cold,
+  mid-boot distro — and those reads were reported as authoritative `fail`s:
+  a static `/etc/wsl.conf` read broken one run and fine the next. Every
+  in-distro probe now retries once after a settle delay when a capture smells
+  like a flake (execFile deadline, or WSL's own wedged-service error text);
+  a flake that survives the retry reports the new `unknown` status — it
+  names the flake in its detail, never blocks, and never feeds a config
+  verdict. The smoke sessions (EXEC/FSB, the confined fence) retry once on
+  failure too, so the most alarming row in the report cannot rest on one
+  wedged transport. A one-shot flake recovers invisibly; a persistent one
+  earns a rerun remedy, not a false remedy for a healthy machine.
+
 ## [0.21.0] - 2026-11-08
 
 One theme: the doctor and the preflight reach the GUI — the readiness probes

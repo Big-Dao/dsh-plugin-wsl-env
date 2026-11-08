@@ -20,7 +20,9 @@
  * config-awareness downgrades a check's *status* (a missing systemd only fails
  * under `sessionSandbox: true`; `auto` and `false` downgrade it to a warning),
  * so there is no per-id exception table to drift. `skipped` marks a check that
- * could not run because another check failed. `--fix` performs only safe
+ * could not run because another check failed. `unknown` marks a read the
+ * wsl.exe transport could not vouch for (a flake that survived one retry) —
+ * it never blocks and never feeds a config verdict; rerun for a clean answer. `--fix` performs only safe
  * actions: it sweeps stale `dsh-wsl-*.scope` units (the same sweep the session
  * preflight runs). Installing packages needs `--install` *and* an explicit
  * confirmation (`--yes` skips the prompt, not the flag), so a fix run can never
@@ -104,7 +106,10 @@ const CACHE_REPORT = [
  * One check result.
  * @typedef {object} Check
  * @property {string} id - stable dotted id.
- * @property {"ok"|"warn"|"fail"|"info"|"skipped"} status - the verdict.
+ * @property {"ok"|"warn"|"fail"|"info"|"skipped"|"unknown"} status - the verdict.
+ *   `unknown` marks a read the transport could not vouch for (a wsl.exe flake
+ *   that survived one retry): it never blocks, and it never feeds a config
+ *   verdict — a flaked read of `wsl.conf` must not report the file broken.
  * @property {string} title - what was checked.
  * @property {string} [detail] - the evidence.
  * @property {string} [remedy] - a copy-paste next step when not ok.
@@ -128,7 +133,7 @@ const CACHE_REPORT = [
 /**
  * Run one host command; never throws.
  * @param {string[]} argv - executable and arguments.
- * @returns {Promise<{ ok: boolean, stdout: string, stderr: string, code?: string }>} the capture.
+ * @returns {Promise<{ ok: boolean, stdout: string, stderr: string, code?: string, timedOut?: boolean }>} the capture.
  */
 function run(argv) {
   return new Promise((settle) => {
@@ -141,7 +146,8 @@ function run(argv) {
      */
     const done = (error, stdout, stderr) => {
       const code = error === null ? undefined : /** @type {NodeJS.ErrnoException} */ (error).code ?? "1";
-      settle({ ok: error === null, stdout: stdout ?? "", stderr: stderr ?? "", code });
+      const timedOut = error !== null && /** @type {NodeJS.ErrnoException & { signal?: string }} */ (error).signal === "SIGTERM";
+      settle({ ok: error === null, stdout: stdout ?? "", stderr: stderr ?? "", code, timedOut });
     };
     execFile(file, args, { encoding: "utf8", timeout: TIMEOUT_MS, windowsHide: true, env: { ...process.env, WSL_UTF8: "1" } }, done);
   });
@@ -399,6 +405,42 @@ export function effectiveConfig(dshHome, root) {
  */
 function inDistro(distro, script) {
   return run([WSL, "-d", distro, "--exec", "sh", "-c", script]);
+}
+
+/**
+ * Whether one capture smells like a `wsl.exe` transport flake rather than an
+ * answer from the distro: the execFile deadline fired, or the output carries
+ * WSL's own wedged-service error (`Wsl/Service/WSAETIMEDOUT` and friends —
+ * localized text is fine, the error class rides every language). Under the
+ * doctor's concurrent probing of several distros on one VM, these flakes
+ * arrive exactly when a cold distro is mid-boot, and trusting them produced
+ * the wrong class of report: static config (`wsl.conf`, resolv.conf) read as
+ * broken when the read itself was the casualty.
+ * @param {{ ok: boolean, stdout: string, stderr: string, timedOut?: boolean }} answer - the capture.
+ * @returns {boolean} true when the capture must not feed a config verdict.
+ */
+export function isFlake(answer) {
+  return answer.timedOut === true || /WSAETIMEDOUT|Wsl\/Service/i.test(`${answer.stderr}\n${answer.stdout}`);
+}
+
+/** How long one retry waits for the VM to settle before probing again. */
+const FLAKE_SETTLE_MS = 2_000;
+
+/**
+ * One in-distro probe with a transport-flake retry: a capture that smells like
+ * a flake is retried once after a settle delay, and the result carries whether
+ * the FINAL answer is still untrusted (`flaked`), so a caller can report
+ * `unknown` instead of a configuration verdict built on a wedged read.
+ * @param {string} distro - the distro name.
+ * @param {string} script - the shell script.
+ * @returns {Promise<{ ok: boolean, stdout: string, stderr: string, code?: string, timedOut?: boolean, flaked: boolean }>} the capture plus the flake flag.
+ */
+async function askDistro(distro, script) {
+  const first = await inDistro(distro, script);
+  if (first.ok || !isFlake(first)) return { ...first, flaked: isFlake(first) };
+  await new Promise((resolve) => setTimeout(resolve, FLAKE_SETTLE_MS));
+  const second = await inDistro(distro, script);
+  return { ...second, flaked: isFlake(second) };
 }
 
 /**
@@ -811,7 +853,17 @@ async function main(options) {
     const check = (/** @type {string} */ id, /** @type {Check["status"]} */ status, /** @type {string} */ title, /** @type {string | undefined} */ detail = undefined, /** @type {string | undefined} */ remedy = undefined) => {
       collected.push({ id, status, title, ...(detail === undefined ? {} : { detail }), ...(remedy === undefined ? {} : { remedy }), distro: target });
     };
-    const alive = await inDistro(target, "printf %s ok");
+    /** One in-distro probe with the flake retry. */
+    const probe = (/** @type {string} */ script) => askDistro(target, script);
+    /** The `unknown` row a transport flake earns instead of a config verdict. */
+    const flakeCheck = (/** @type {string} */ id, /** @type {string} */ title, /** @type {{ stderr: string, stdout: string }} */ answer) => check(id, "unknown", title,
+      `transport flake — wsl.exe timed out or wedged (${(answer.stderr || answer.stdout || "no output").trim().split(/\r?\n/)[0]?.slice(0, 80) || "no output"}); this read is not trusted as a configuration verdict`,
+      `rerun the doctor; if the flake repeats, "wsl.exe -t ${target}" (terminate just this distro) and rerun again`);
+    const alive = await probe("printf %s ok");
+    if (!alive.ok && alive.flaked) {
+      flakeCheck("distro.reachable", `Distro "${target}"`, alive);
+      return { checks: collected, reachable: false, bwrapPath: "", stale: 0, family: "unknown" };
+    }
     if (!alive.ok || alive.stdout.trim() !== "ok") {
       check("distro.reachable", "fail", `Distro "${target}"`, "wsl.exe could not run a command in it (stopped, wedged, or missing)", `wsl.exe -d ${target} -- true; if that hangs, wsl.exe --shutdown, then retry`);
       return { checks: collected, reachable: false, bwrapPath: "", stale: 0, family: "unknown" };
@@ -819,22 +871,36 @@ async function main(options) {
     check("distro.reachable", "ok", `Distro "${target}"`, "answers commands");
 
     // ---- distro facts --------------------------------------------------------
-    const shellAnswer = await inDistro(target, 's=$(getent passwd "$(id -u)" | cut -d: -f7); [ -n "$s" ] || s=$SHELL; printf %s "$s"');
-    const shell = shellAnswer.stdout.trim();
-    if (shell.startsWith("/")) check("distro.shell", "ok", "Login shell", shell);
-    else check("distro.shell", "fail", "Login shell", shell.length === 0 ? "no shell reported" : shell, `check the user's /etc/passwd entry in "${target}": getent passwd "$(id -u)"`);
+    let family = "unknown";
+    const shellAnswer = await probe('s=$(getent passwd "$(id -u)" | cut -d: -f7); [ -n "$s" ] || s=$SHELL; printf %s "$s"');
+    if (!shellAnswer.ok && shellAnswer.flaked) flakeCheck("distro.shell", "Login shell", shellAnswer);
+    else {
+      const shell = shellAnswer.stdout.trim();
+      if (shell.startsWith("/")) check("distro.shell", "ok", "Login shell", shell);
+      else check("distro.shell", "fail", "Login shell", shell.length === 0 ? "no shell reported" : shell, `check the user's /etc/passwd entry in "${target}": getent passwd "$(id -u)"`);
+    }
 
-    const homeAnswer = await inDistro(target, 'printf %s "$HOME"');
-    const home = homeAnswer.stdout.trim();
-    if (home.startsWith("/")) check("distro.home", "ok", "Home", home);
-    else check("distro.home", "fail", "Home", home.length === 0 ? "no home reported" : home, `check the default user's home in "${target}": getent passwd "$(id -u)"`);
+    const homeAnswer = await probe('printf %s "$HOME"');
+    if (!homeAnswer.ok && homeAnswer.flaked) flakeCheck("distro.home", "Home", homeAnswer);
+    else {
+      const home = homeAnswer.stdout.trim();
+      if (home.startsWith("/")) check("distro.home", "ok", "Home", home);
+      else check("distro.home", "fail", "Home", home.length === 0 ? "no home reported" : home, `check the default user's home in "${target}": getent passwd "$(id -u)"`);
+    }
 
-    const kernel = (await inDistro(target, "uname -r")).stdout.trim();
-    check("distro.kernel", "info", "Kernel", kernel.length > 0 ? kernel : "unreadable");
+    const kernelAnswer = await probe("uname -r");
+    if (!kernelAnswer.ok && kernelAnswer.flaked) flakeCheck("distro.kernel", "Kernel", kernelAnswer);
+    else {
+      const kernel = kernelAnswer.stdout.trim();
+      check("distro.kernel", "info", "Kernel", kernel.length > 0 ? kernel : "unreadable");
+    }
 
-    const familyAnswer = await inDistro(target, `for f in ${FAMILIES.join(" ")}; do command -v "$f" >/dev/null 2>&1 && { echo "$f"; exit 0; }; done; echo unknown`);
-    const family = familyAnswer.stdout.trim();
-    check("distro.family", "info", "Package family", family.length > 0 ? family : "unknown");
+    const familyAnswer = await probe(`for f in ${FAMILIES.join(" ")}; do command -v "$f" >/dev/null 2>&1 && { echo "$f"; exit 0; }; done; echo unknown`);
+    if (!familyAnswer.ok && familyAnswer.flaked) flakeCheck("distro.family", "Package family", familyAnswer);
+    else {
+      family = familyAnswer.stdout.trim();
+      check("distro.family", "info", "Package family", family.length > 0 ? family : "unknown");
+    }
 
     // ---- WSL mode ------------------------------------------------------------
     // WSL1 is a declared non-goal, but until now it failed unexplained: the
@@ -854,35 +920,44 @@ async function main(options) {
     // the ext4 VHDX stops growing (or the Windows drive holding it is full)
     // and every write failure surfaces as something unrelated. One df call;
     // the fail line at 97% is where the first cache write starts to break.
-    const dfAnswer = await inDistro(target, "df -Pm /");
-    const dfLine = dfAnswer.stdout.trim().split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0)[1] ?? "";
-    const dfFields = dfLine.split(/\s+/);
-    const dfCapacity = Number((dfFields[4] ?? "").replace(/%$/, ""));
-    const dfTotal = dfFields[1] ?? "?";
-    const dfAvail = dfFields[3] ?? "?";
-    if (!Number.isFinite(dfCapacity)) {
-      check("distro.disk", "info", "Disk", "unreadable — df did not answer in the expected shape");
-    } else if (dfCapacity >= 97) {
-      check("distro.disk", "fail", "Disk", `/${dfCapacity}% used (${dfAvail} MiB free of ${dfTotal} MiB) — writes into the distro will start failing`, `free space inside "${target}" or on the Windows drive holding the ext4 VHDX; sparse VHD (the .wslconfig sparseVhd key) lets "wsl.exe --shutdown" shrink it back`);
-    } else if (dfCapacity >= 90) {
-      check("distro.disk", "warn", "Disk", `/${dfCapacity}% used (${dfAvail} MiB free of ${dfTotal} MiB)`, "plan a cleanup before the 97% line, where writes start to fail");
-    } else {
-      check("distro.disk", "ok", "Disk", `/${dfCapacity}% used (${dfAvail} MiB free of ${dfTotal} MiB)`);
+    const dfAnswer = await probe("df -Pm /");
+    if (!dfAnswer.ok && dfAnswer.flaked) flakeCheck("distro.disk", "Disk", dfAnswer);
+    else {
+      const dfLine = dfAnswer.stdout.trim().split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0)[1] ?? "";
+      const dfFields = dfLine.split(/\s+/);
+      const dfCapacity = Number((dfFields[4] ?? "").replace(/%$/, ""));
+      const dfTotal = dfFields[1] ?? "?";
+      const dfAvail = dfFields[3] ?? "?";
+      if (!Number.isFinite(dfCapacity)) {
+        check("distro.disk", "info", "Disk", "unreadable — df did not answer in the expected shape");
+      } else if (dfCapacity >= 97) {
+        check("distro.disk", "fail", "Disk", `/${dfCapacity}% used (${dfAvail} MiB free of ${dfTotal} MiB) — writes into the distro will start failing`, `free space inside "${target}" or on the Windows drive holding the ext4 VHDX; sparse VHD (the .wslconfig sparseVhd key) lets "wsl.exe --shutdown" shrink it back`);
+      } else if (dfCapacity >= 90) {
+        check("distro.disk", "warn", "Disk", `/${dfCapacity}% used (${dfAvail} MiB free of ${dfTotal} MiB)`, "plan a cleanup before the 97% line, where writes start to fail");
+      } else {
+        check("distro.disk", "ok", "Disk", `/${dfCapacity}% used (${dfAvail} MiB free of ${dfTotal} MiB)`);
+      }
     }
 
     // ---- sandbox prerequisites ----------------------------------------------
     let bwrapUsable = false;
-    const bwrapPath = (await inDistro(target, "command -v bwrap")).stdout.trim();
+    let bwrapPath = "";
+    const bwrapAnswer = await probe("command -v bwrap");
     const install = installRemedy(target, family);
-    if (bwrapPath.length === 0) {
-      check("sandbox.bwrap", "fail", "bubblewrap", "missing; every confined command fails closed without it", `${install}, or run "pnpm run bootstrap ${target} --install"`);
-    } else {
-      check("sandbox.bwrap", "ok", "bubblewrap", bwrapPath);
-      const userns = await inDistro(target, "bwrap --ro-bind / / -- true");
-      if (userns.ok) {
-        check("sandbox.bwrap-usable", "ok", "bubblewrap usability", "a read-only profile runs");
-        bwrapUsable = true;
-      } else check("sandbox.bwrap-usable", "fail", "bubblewrap usability", "installed but the read-only profile failed", "the kernel likely disables unprivileged user namespaces; reinstalling will not help — see docs/LIMITATIONS.md");
+    if (!bwrapAnswer.ok && bwrapAnswer.flaked) flakeCheck("sandbox.bwrap", "bubblewrap", bwrapAnswer);
+    else {
+      bwrapPath = bwrapAnswer.stdout.trim();
+      if (bwrapPath.length === 0) {
+        check("sandbox.bwrap", "fail", "bubblewrap", "missing; every confined command fails closed without it", `${install}, or run "pnpm run bootstrap ${target} --install"`);
+      } else {
+        check("sandbox.bwrap", "ok", "bubblewrap", bwrapPath);
+        const userns = await probe("bwrap --ro-bind / / -- true");
+        if (!userns.ok && userns.flaked) flakeCheck("sandbox.bwrap-usable", "bubblewrap usability", userns);
+        else if (userns.ok) {
+          check("sandbox.bwrap-usable", "ok", "bubblewrap usability", "a read-only profile runs");
+          bwrapUsable = true;
+        } else check("sandbox.bwrap-usable", "fail", "bubblewrap usability", "installed but the read-only profile failed", "the kernel likely disables unprivileged user namespaces; reinstalling will not help — see docs/LIMITATIONS.md");
+      }
     }
 
     // ---- session sandbox prerequisites --------------------------------------
@@ -891,32 +966,53 @@ async function main(options) {
     // per-command bwrap profile and `false` does not use the scope at all, so
     // in both cases a missing prerequisite downgrades to a warning — a `fail`
     // always blocks, which is the invariant the verdict leans on.
-    const systemd = await inDistro(target, 'if [ -d /run/systemd/system ]; then printf "systemd %s" "$(cat /proc/1/comm)"; else printf "none %s" "$(cat /proc/1/comm)"; fi');
-    if (!systemd.stdout.startsWith("systemd")) {
+    const systemd = await probe('if [ -d /run/systemd/system ]; then printf "systemd %s" "$(cat /proc/1/comm)"; else printf "none %s" "$(cat /proc/1/comm)"; fi');
+    if (!systemd.ok && systemd.flaked) flakeCheck("session.systemd", "systemd as PID 1", systemd);
+    else if (!systemd.stdout.startsWith("systemd")) {
       check("session.systemd", sessionStatus(), "systemd as PID 1", withScopeNote(systemd.stdout.trim().length > 0 ? systemd.stdout.trim() : "not systemd"), `set [boot] systemd=true in /etc/wsl.conf inside "${target}", run "wsl.exe --shutdown", then reopen the session. Without it, sessionSandbox cannot run`);
     } else check("session.systemd", "ok", "systemd as PID 1", "running");
 
-    const systemdRun = (await inDistro(target, "command -v systemd-run")).stdout.trim();
-    if (systemdRun.length > 0) check("session.systemd-run", "ok", "systemd-run", systemdRun);
-    else check("session.systemd-run", sessionStatus(), "systemd-run", withScopeNote("missing; the distro's systemd package is incomplete"), `reinstall systemd inside "${target}" (apt-get install --reinstall systemd, or the family's equivalent)`);
+    const systemdRun = await probe("command -v systemd-run");
+    if (!systemdRun.ok && systemdRun.flaked) flakeCheck("session.systemd-run", "systemd-run", systemdRun);
+    else {
+      const systemdRunPath = systemdRun.stdout.trim();
+      if (systemdRunPath.length > 0) check("session.systemd-run", "ok", "systemd-run", systemdRunPath);
+      else check("session.systemd-run", sessionStatus(), "systemd-run", withScopeNote("missing; the distro's systemd package is incomplete"), `reinstall systemd inside "${target}" (apt-get install --reinstall systemd, or the family's equivalent)`);
+    }
 
-    const userManager = (await inDistro(target, "systemctl --user is-system-running 2>/dev/null || true")).stdout.trim();
-    if (userManager === "running" || userManager === "degraded") check("session.user-manager", "ok", "systemd user manager", userManager);
-    else check("session.user-manager", sessionStatus(), "systemd user manager", withScopeNote(userManager.length > 0 ? userManager : "unreachable"), `log in to "${target}" once, or enable lingering (next remedy), then retry`);
+    const userManager = await probe("systemctl --user is-system-running 2>/dev/null || true");
+    if (!userManager.ok && userManager.flaked) flakeCheck("session.user-manager", "systemd user manager", userManager);
+    else {
+      const userState = userManager.stdout.trim();
+      if (userState === "running" || userState === "degraded") check("session.user-manager", "ok", "systemd user manager", userState);
+      else check("session.user-manager", sessionStatus(), "systemd user manager", withScopeNote(userState.length > 0 ? userState : "unreachable"), `log in to "${target}" once, or enable lingering (next remedy), then retry`);
+    }
 
-    const linger = (await inDistro(target, 'loginctl show-user "$(id -un)" -p Linger 2>/dev/null')).stdout.trim();
-    if (linger === "Linger=yes") check("session.linger", "ok", "Linger", linger);
-    else check("session.linger", sessionStatus(), "Linger", withScopeNote(linger.length > 0 ? linger : "unset"), `wsl.exe -d ${target} -- loginctl enable-linger "$(id -un)" (this needs the user's own session; run it inside the distro)`);
+    const linger = await probe('loginctl show-user "$(id -un)" -p Linger 2>/dev/null');
+    if (!linger.ok && linger.flaked) flakeCheck("session.linger", "Linger", linger);
+    else {
+      const lingerState = linger.stdout.trim();
+      if (lingerState === "Linger=yes") check("session.linger", "ok", "Linger", lingerState);
+      else check("session.linger", sessionStatus(), "Linger", withScopeNote(lingerState.length > 0 ? lingerState : "unset"), `wsl.exe -d ${target} -- loginctl enable-linger "$(id -un)" (this needs the user's own session; run it inside the distro)`);
+    }
 
     // ---- /etc/wsl.conf cross-checks ------------------------------------------
     // The distro-level settings the plugin cannot change (LIMITATIONS): boot,
     // interop, automount. Each check reads the conf against the runtime facts
     // the probes above collected and names the terminate semantics — a conf
     // value that is not in effect is a different problem from one that is.
-    const confAnswer = await inDistro(target, "cat /etc/wsl.conf 2>/dev/null || true");
+    // A flaked read earns three `unknown` rows, never a verdict: the conf is
+    // on disk, and the read — not the file — is what failed.
+    const confAnswer = await probe("cat /etc/wsl.conf 2>/dev/null || true");
+    const confFlaked = !confAnswer.ok && confAnswer.flaked;
     const conf = parseIni(confAnswer.stdout);
     const noConf = confAnswer.stdout.trim().length === 0;
     const runtimeSystemd = systemd.stdout.startsWith("systemd");
+    if (confFlaked) {
+      flakeCheck("distro.wsl-conf-boot", "/etc/wsl.conf [boot]", confAnswer);
+      flakeCheck("distro.wsl-conf-interop", "/etc/wsl.conf [interop]", confAnswer);
+      flakeCheck("distro.wsl-conf-automount", "/etc/wsl.conf [automount]", confAnswer);
+    } else {
     const bootSystemd = ((noConf ? undefined : conf.boot?.systemd) ?? "").trim().toLowerCase();
     if (noConf) {
       check("distro.wsl-conf-boot", "info", "/etc/wsl.conf [boot]", "no /etc/wsl.conf — the default (systemd off) applies, and the runtime matches it");
@@ -930,8 +1026,9 @@ async function main(options) {
 
     const interopEnabled = ((noConf ? undefined : conf.interop?.enabled) ?? "").trim().toLowerCase();
     if (interopEnabled === "false") {
-      const binfmt = (await inDistro(target, "[ -e /proc/sys/fs/binfmt_misc/WSLInterop ] && printf yes || printf no")).stdout.trim();
-      check("distro.wsl-conf-interop", "warn", "/etc/wsl.conf [interop]", `interop is disabled in wsl.conf${binfmt === "yes" ? " but the WSLInterop handler is still loaded (stale boot)" : ""} — Windows git, open-in-app and the cmd.exe probes are unreachable from this distro`, `remove the [interop] enabled=false line in /etc/wsl.conf, then wsl.exe --terminate ${target}`);
+      const binfmtProbe = await probe("[ -e /proc/sys/fs/binfmt_misc/WSLInterop ] && printf yes || printf no");
+      const binfmt = binfmtProbe.ok && !binfmtProbe.flaked ? binfmtProbe.stdout.trim() : "unreadable";
+      check("distro.wsl-conf-interop", "warn", "/etc/wsl.conf [interop]", `interop is disabled in wsl.conf${binfmt === "yes" ? " but the WSLInterop handler is still loaded (stale boot)" : binfmt === "unreadable" ? " (the binfmt cross-check flaked — treat the stale-boot note as unverified)" : ""} — Windows git, open-in-app and the cmd.exe probes are unreachable from this distro`, `remove the [interop] enabled=false line in /etc/wsl.conf, then wsl.exe --terminate ${target}`);
     } else {
       const appendWindowsPath = ((noConf ? undefined : conf.interop?.appendWindowsPath) ?? "").trim().toLowerCase();
       check("distro.wsl-conf-interop", "ok", "/etc/wsl.conf [interop]", noConf
@@ -950,20 +1047,25 @@ async function main(options) {
         ? "no /etc/wsl.conf — /mnt mounts (the default)"
         : `enabled=${automountEnabled || "true (the default)"}, root=${automountRoot || "/mnt"}`);
     }
+    }
 
     // ---- clock ----------------------------------------------------------------
     // A sleeping host desyncs the WSL clock (the VM's clock stops with it);
     // the classic symptom is TLS and git failing with certificate or
     // timestamp errors minutes after resume. One comparison, one remedy.
-    const distroEpoch = Number((await inDistro(target, "date +%s")).stdout.trim());
-    if (!Number.isFinite(distroEpoch) || distroEpoch <= 0) {
-      check("distro.clock", "info", "Clock", "unreadable — date did not answer an epoch");
-    } else {
-      const skew = Math.abs(distroEpoch - Math.floor(Date.now() / 1000));
-      if (skew > 60) {
-        check("distro.clock", "warn", "Clock", `the distro clock is ${skew}s off the host — TLS and git fail with certificate/timestamp errors after a host sleep`, `"wsl.exe --shutdown", then reopen — the VM resyncs on boot`);
+    const clockAnswer = await probe("date +%s");
+    if (!clockAnswer.ok && clockAnswer.flaked) flakeCheck("distro.clock", "Clock", clockAnswer);
+    else {
+      const distroEpoch = Number(clockAnswer.stdout.trim());
+      if (!Number.isFinite(distroEpoch) || distroEpoch <= 0) {
+        check("distro.clock", "info", "Clock", "unreadable — date did not answer an epoch");
       } else {
-        check("distro.clock", "ok", "Clock", `within ${skew}s of the host`);
+        const skew = Math.abs(distroEpoch - Math.floor(Date.now() / 1000));
+        if (skew > 60) {
+          check("distro.clock", "warn", "Clock", `the distro clock is ${skew}s off the host — TLS and git fail with certificate/timestamp errors after a host sleep`, `"wsl.exe --shutdown", then reopen — the VM resyncs on boot`);
+        } else {
+          check("distro.clock", "ok", "Clock", `within ${skew}s of the host`);
+        }
       }
     }
 
@@ -973,15 +1075,19 @@ async function main(options) {
     // the VPN-tunnel class where the file looks fine but queries die. The
     // probe is warn-grade and honest about offline — a machine without a
     // network answers the same as a broken resolver.
-    const resolvBytes = Number((await inDistro(target, "wc -c < /etc/resolv.conf 2>/dev/null || printf 0")).stdout.trim());
-    if (!Number.isFinite(resolvBytes) || resolvBytes === 0) {
-      check("distro.dns", "warn", "DNS", "/etc/resolv.conf is missing or empty — name resolution fails (npm, git fetch, bootstrap installs)", `wsl.conf [network] generateResolvConf controls the file; "wsl.exe --shutdown" regenerates it unless disabled`);
-    } else {
-      const resolved = (await inDistro(target, "getent hosts deb.debian.org 2>/dev/null | head -1")).stdout.trim();
-      if (resolved.length > 0) {
-        check("distro.dns", "ok", "DNS", `resolv.conf present (${resolvBytes} bytes); ${(resolved.split(/\s+/)[0] ?? "?")} resolved the probe name`);
+    const resolvAnswer = await probe("wc -c < /etc/resolv.conf 2>/dev/null || printf 0");
+    if (!resolvAnswer.ok && resolvAnswer.flaked) flakeCheck("distro.dns", "DNS", resolvAnswer);
+    else {
+      const resolvBytes = Number(resolvAnswer.stdout.trim());
+      if (!Number.isFinite(resolvBytes) || resolvBytes === 0) {
+        check("distro.dns", "warn", "DNS", "/etc/resolv.conf is missing or empty — name resolution fails (npm, git fetch, bootstrap installs)", `wsl.conf [network] generateResolvConf controls the file; "wsl.exe --shutdown" regenerates it unless disabled`);
       } else {
-        check("distro.dns", "warn", "DNS", `resolv.conf present (${resolvBytes} bytes) but the probe name did not resolve — offline, or the resolver is broken (the VPN-tunnel class)`, "check the network; with a VPN up, see the WSL DNS tunneling notes in docs/CONFIGURATION.md");
+        const resolved = (await probe("getent hosts deb.debian.org 2>/dev/null | head -1")).stdout.trim();
+        if (resolved.length > 0) {
+          check("distro.dns", "ok", "DNS", `resolv.conf present (${resolvBytes} bytes); ${(resolved.split(/\s+/)[0] ?? "?")} resolved the probe name`);
+        } else {
+          check("distro.dns", "warn", "DNS", `resolv.conf present (${resolvBytes} bytes) but the probe name did not resolve — offline, or the resolver is broken (the VPN-tunnel class)`, "check the network; with a VPN up, see the WSL DNS tunneling notes in docs/CONFIGURATION.md");
+        }
       }
     }
 
@@ -990,35 +1096,56 @@ async function main(options) {
     /** @type {Array<[string, string]>} */
     const optionalTools = [["rg", "in-distro search"], ["git", "workspace-change baselines"], ["inotifywait", "the watcher's primary backend"]];
     for (const [tool, purpose] of optionalTools) {
-      const found = (await inDistro(target, `command -v ${tool}`)).stdout.trim();
-      if (found.length > 0) check(`tools.${tool}`, "ok", tool, found);
-      else check(`tools.${tool}`, "warn", tool, `missing; ${purpose} degrades to a slower fallback`, install);
+      const toolAnswer = await probe(`command -v ${tool}`);
+      if (!toolAnswer.ok && toolAnswer.flaked) flakeCheck(`tools.${tool}`, tool, toolAnswer);
+      else {
+        const found = toolAnswer.stdout.trim();
+        if (found.length > 0) check(`tools.${tool}`, "ok", tool, found);
+        else check(`tools.${tool}`, "warn", tool, `missing; ${purpose} degrades to a slower fallback`, install);
+      }
     }
 
     // ---- agents and caches ---------------------------------------------------
-    const arch = (await inDistro(target, "uname -m")).stdout.trim();
-    const packaged = ["x86_64", "aarch64"].includes(arch) ? join(ROOT, "agent", "native", `linux-${arch}`, "dsh-wsl-agent") : "";
-    if (arch.length === 0) check("agent.arch", "info", "Distro architecture", "unreadable");
-    else if (packaged.length === 0) check("agent.arch", "info", "Distro architecture", `${arch} has no packaged native agent; the shell agent is the only backend`);
-    else if (existsSync(packaged)) check("agent.native", "ok", "Packaged native agent", packaged.slice(ROOT.length + 1));
-    else check("agent.native", "warn", "Packaged native agent", `missing for ${arch}`, "reinstall the plugin (the binaries ship with the package), or use agentBackend: shell");
-
-    const cache = (await inDistro(target, CACHE_REPORT)).stdout.trim();
-    if (cache === "none" || cache.length === 0) check("agent.cache", "info", "Agent cache", "empty (a first command populates it)");
+    const archAnswer = await probe("uname -m");
+    if (!archAnswer.ok && archAnswer.flaked) flakeCheck("agent.arch", "Distro architecture", archAnswer);
     else {
-      const entries = cache.split(/\r?\n/).filter((line) => line.trim().length > 0);
-      const bad = entries.filter((line) => line.startsWith("noexec ")).length;
-      check("agent.cache", bad > 0 ? "warn" : "ok", "Agent cache", `${entries.length} cached binary(ies)${bad > 0 ? `, ${bad} not executable` : ""}`, bad > 0 ? `rm -rf ~/.cache/dsh-wsl/agent inside "${target}"; the next command repopulates it` : undefined);
+      const arch = archAnswer.stdout.trim();
+      const packaged = ["x86_64", "aarch64"].includes(arch) ? join(ROOT, "agent", "native", `linux-${arch}`, "dsh-wsl-agent") : "";
+      if (arch.length === 0) check("agent.arch", "info", "Distro architecture", "unreadable");
+      else if (packaged.length === 0) check("agent.arch", "info", "Distro architecture", `${arch} has no packaged native agent; the shell agent is the only backend`);
+      else if (existsSync(packaged)) check("agent.native", "ok", "Packaged native agent", packaged.slice(ROOT.length + 1));
+      else check("agent.native", "warn", "Packaged native agent", `missing for ${arch}`, "reinstall the plugin (the binaries ship with the package), or use agentBackend: shell");
     }
 
-    const scopes = (await inDistro(target, STALE_SCOPE_REPORT)).stdout.trim();
-    const scopeLines = scopes === "none" || scopes.length === 0 ? [] : scopes.split(/\r?\n/);
-    const stale = scopeLines.filter((line) => /\sstale(\s|$)/.test(line)).length;
-    const livePids = scopeLines.flatMap((line) => {
-      const m = /\spids:([0-9 ]+)$/.exec(line);
-      if (m === null) return [];
-      return (m[1] ?? "").trim().split(/\s+/).filter((p) => p.length > 0);
-    });
+    const cacheAnswer = await probe(CACHE_REPORT);
+    if (!cacheAnswer.ok && cacheAnswer.flaked) flakeCheck("agent.cache", "Agent cache", cacheAnswer);
+    else {
+      const cache = cacheAnswer.stdout.trim();
+      if (cache === "none" || cache.length === 0) check("agent.cache", "info", "Agent cache", "empty (a first command populates it)");
+      else {
+        const entries = cache.split(/\r?\n/).filter((line) => line.trim().length > 0);
+        const bad = entries.filter((line) => line.startsWith("noexec ")).length;
+        check("agent.cache", bad > 0 ? "warn" : "ok", "Agent cache", `${entries.length} cached binary(ies)${bad > 0 ? `, ${bad} not executable` : ""}`, bad > 0 ? `rm -rf ~/.cache/dsh-wsl/agent inside "${target}"; the next command repopulates it` : undefined);
+      }
+    }
+
+    const scopesAnswer = await probe(STALE_SCOPE_REPORT);
+    let stale = 0;
+    /** @type {string[]} */
+    let livePids = [];
+    /** @type {string[]} */
+    let scopeLines = [];
+    if (!scopesAnswer.ok && scopesAnswer.flaked) flakeCheck("runtime.scopes", "Session scopes", scopesAnswer);
+    else {
+      const scopes = scopesAnswer.stdout.trim();
+      scopeLines = scopes === "none" || scopes.length === 0 ? [] : scopes.split(/\r?\n/);
+      stale = scopeLines.filter((line) => /\sstale(\s|$)/.test(line)).length;
+      livePids = scopeLines.flatMap((line) => {
+        const m = /\spids:([0-9 ]+)$/.exec(line);
+        if (m === null) return [];
+        return (m[1] ?? "").trim().split(/\s+/).filter((p) => p.length > 0);
+      });
+    }
 
     // ---- resident handshake --------------------------------------------------
     const agentScript = join(ROOT, "agent", "wsl-agent.sh");
@@ -1070,15 +1197,28 @@ async function main(options) {
       check("functional.exec", "skipped", "Smoke: EXEC", `skipped: ${residentBlocker}`);
       check("functional.fs", "skipped", "Smoke: FSB batch", `skipped: ${residentBlocker}`);
     } else {
-      const smoke = await runSmokeLegs(target, agentScript, wslExe);
+      // One retry for both smoke sessions: under concurrent probing a wedge
+      // can kill an otherwise healthy chain, and a smoke `fail` is the most
+      // alarming row the report can carry — it must not rest on one flaked
+      // transport.
+      let smoke = await runSmokeLegs(target, agentScript, wslExe);
+      if (!smoke.execOk || !smoke.fsOk) {
+        await new Promise((resolve) => setTimeout(resolve, FLAKE_SETTLE_MS));
+        smoke = await runSmokeLegs(target, agentScript, wslExe);
+      }
       check("functional.exec", smoke.execOk ? "ok" : "fail", "Smoke: EXEC", smoke.execDetail, smoke.execOk ? undefined : "restart the DSH app; if it persists, delete ~/.cache/dsh-wsl/agent inside the distro and rerun the doctor");
       check("functional.fs", smoke.fsOk ? "ok" : "fail", "Smoke: FSB batch", smoke.fsDetail, smoke.fsOk ? undefined : "restart the DSH app; if it persists, delete ~/.cache/dsh-wsl/agent inside the distro and rerun the doctor");
     }
     if (sandboxBlocked) {
       check("functional.sandbox", "skipped", "Smoke: confined profile", `skipped: blocked by ${bwrapPath.length === 0 ? "sandbox.bwrap" : "sandbox.bwrap-usable"}`);
     } else {
-      const sandbox = await runSandboxSmoke(target);
-      check("functional.sandbox", sandbox.ok ? "ok" : "fail", "Smoke: confined profile", sandbox.detail, sandbox.ok ? undefined : "the shipped profile refused a write it must allow, or allowed one it must refuse — see docs/LIMITATIONS.md and pnpm run probe:sandbox");
+      let sandbox = await runSandboxSmoke(target);
+      if (!sandbox.ok && !sandbox.flaked) {
+        await new Promise((resolve) => setTimeout(resolve, FLAKE_SETTLE_MS));
+        sandbox = await runSandboxSmoke(target);
+      }
+      if (sandbox.flaked) flakeCheck("functional.sandbox", "Smoke: confined profile", { stderr: sandbox.detail, stdout: "" });
+      else check("functional.sandbox", sandbox.ok ? "ok" : "fail", "Smoke: confined profile", sandbox.detail, sandbox.ok ? undefined : "the shipped profile refused a write it must allow, or allowed one it must refuse — see docs/LIMITATIONS.md and pnpm run probe:sandbox");
     }
 
     return { checks: collected, reachable: true, bwrapPath, stale, family };
@@ -1563,21 +1703,23 @@ function runSmokeLegs(distro, scriptPath, wslExe = WSL) {
  * are the two assertions `probe:sandbox` makes, in miniature, so the doctor's
  * verdict covers the fence and not just the binary.
  * @param {string} distro - the distro.
- * @returns {Promise<{ ok: boolean, detail: string }>} the fence verdict.
+ * @returns {Promise<{ ok: boolean, flaked: boolean, detail: string }>} the fence verdict.
  */
 async function runSandboxSmoke(distro) {
-  const dirAnswer = await inDistro(distro, 'd=$(mktemp -d /tmp/dsh-doctor-smoke-XXXXXXXX) && printf %s "$d"');
+  const dirAnswer = await askDistro(distro, 'd=$(mktemp -d /tmp/dsh-doctor-smoke-XXXXXXXX) && printf %s "$d"');
   const dir = dirAnswer.stdout.trim();
-  if (dir.length === 0) return { ok: false, detail: "the temp dir for the fence leg could not be created" };
+  if (dir.length === 0) return { ok: false, flaked: !dirAnswer.ok && dirAnswer.flaked, detail: "the temp dir for the fence leg could not be created" };
   const prefix = bwrapArgvPrefix({ mode: "workspace-write", workspaceRoot: dir }, {});
   const inside = await run([WSL, "-d", distro, "--exec", ...prefix, "sh", "-c", 'printf ok > "$0" && cat "$0"', `${dir}/inside`]);
   const outside = await run([WSL, "-d", distro, "--exec", ...prefix, "sh", "-c", 'printf no > "$0" 2>/dev/null', "/etc/dsh-doctor-smoke-refuse"]);
-  const cleanup = await inDistro(distro, `rm -rf "${dir}"`);
+  const cleanup = await askDistro(distro, `rm -rf "${dir}"`);
+  const flaked = [inside, outside, cleanup].some((answer) => isFlake(answer));
   const insideOk = inside.ok && inside.stdout.trim() === "ok";
   const outsideRefused = !outside.ok;
   const ok = insideOk && outsideRefused;
   return {
     ok,
+    flaked,
     detail: `a write inside ${dir} ${insideOk ? "ran" : "was REFUSED (the profile broke)"} and a write to /etc ${outsideRefused ? "was refused" : "RAN (the fence is open)"} — the shipped workspace-write shape${cleanup.ok ? "" : `; CLEANUP FAILED — ${dir} is left behind`}`,
   };
 }
@@ -1621,7 +1763,7 @@ function report(checks, options, runInfo = {}) {
   }));
   /** @param {string} status - the status to count. @returns {number} how many checks carry it. */
   const count = (status) => stamped.filter((entry) => entry.status === status).length;
-  const summary = { ok: count("ok"), warn: count("warn"), fail: count("fail"), info: count("info"), skipped: count("skipped") };
+  const summary = { ok: count("ok"), warn: count("warn"), fail: count("fail"), info: count("info"), skipped: count("skipped"), unknown: count("unknown") };
   const blockers = stamped.filter((entry) => entry.blocksFirstCommand).map((entry) => entry.id);
   const verdict = blockers.length === 0 ? "ready" : "blocked";
   /** The blockers a distro verdict owns: its own fails plus the host-level ones.
@@ -1663,11 +1805,11 @@ function report(checks, options, runInfo = {}) {
         section = current;
         console.log(`\n${section}`);
       }
-      const mark = entry.status === "ok" ? "ok  " : entry.status === "warn" ? "warn" : entry.status === "fail" ? "fail" : entry.status === "skipped" ? "skip" : "info";
+      const mark = entry.status === "ok" ? "ok  " : entry.status === "warn" ? "warn" : entry.status === "fail" ? "fail" : entry.status === "skipped" ? "skip" : entry.status === "unknown" ? "unkn" : "info";
       console.log(`  ${mark}  ${entry.title}${entry.detail === undefined ? "" : ` — ${entry.detail}`}`);
       if (entry.remedy !== undefined) console.log(`        fix: ${entry.remedy}`);
     }
-    console.log(`\n${summary.ok} ok, ${summary.warn} warn, ${summary.fail} fail, ${summary.info} info${summary.skipped > 0 ? `, ${summary.skipped} skipped` : ""}`);
+    console.log(`\n${summary.ok} ok, ${summary.warn} warn, ${summary.fail} fail, ${summary.info} info${summary.skipped > 0 ? `, ${summary.skipped} skipped` : ""}${summary.unknown > 0 ? `, ${summary.unknown} unknown (transport flakes — rerun for a verdict)` : ""}`);
     const timingLine = Object.entries(runInfo.timingsMs ?? {}).filter(([key]) => key !== "total").map(([key, ms]) => `${key} ${ms}ms`).join(", ");
     if (timingLine.length > 0) console.log(`timings: ${timingLine}; total ${runInfo.timingsMs?.total ?? "?"}ms`);
     if (verdict === "ready") console.log(`verdict: READY — the first command should succeed${targets.length === 1 ? ` in ${targets[0]}` : targets.length > 1 ? ` in each of: ${targets.join(", ")}` : ""}`);

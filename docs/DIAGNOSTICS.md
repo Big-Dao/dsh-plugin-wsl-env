@@ -24,7 +24,12 @@ distro(s) under the expected scope; the smoke legs (`functional.exec`,
 `functional.sandbox`, `functional.fs`) prove the chain itself — frame I/O,
 the confined fence, the batched substrate — not just the prerequisites.
 A leg whose prerequisite failed reports `skipped` with the blocker named;
-`skipped` never blocks.
+`skipped` never blocks. A read the transport could not vouch for — `wsl.exe`
+timed out or wedged mid-probe, common when several distros are probed
+concurrently and one of them is cold-booting — reports `unknown` after one
+automatic retry, names the flake in its detail, and never blocks or feeds a
+config verdict: a flaked read of `/etc/wsl.conf` says the read failed, never
+that the file is broken. Rerun the doctor for a clean answer.
 
 `--fix` ends in a re-verified report: every fix is followed by a fresh probe
 of what it claims to have fixed, the affected checks carry the after state,

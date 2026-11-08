@@ -92,7 +92,10 @@ esac
 case "$all" in
   *"--exec sh -c"*)
     case "$all" in
-      *'printf %s ok'*) printf 'ok' ;;
+      *'printf %s ok'*)
+        if [ "$FAKE_FLAKE" = always ]; then printf 'connection attempt failed because the connected party did not properly respond Wsl/Service/WSAETIMEDOUT\n' >&2; exit 1; fi
+        if [ "$FAKE_FLAKE" = once ] && [ ! -f "\${FAKE_STATE_DIR:-/nonexistent}/flake-once" ]; then : > "\${FAKE_STATE_DIR:-/nonexistent}/flake-once"; printf 'connection attempt failed because the connected party did not properly respond Wsl/Service/WSAETIMEDOUT\n' >&2; exit 1; fi
+        printf 'ok' ;;
       *'getent passwd'*) printf '/bin/bash' ;;
       *'printf %s "$HOME"'*) printf '%s' "$HOME" ;;
       *'uname -r'*) printf '6.6.87.2' ;;
@@ -208,6 +211,30 @@ try {
     assert.equal(report.summary.fail, 0);
     assert.equal(report.checks.find((entry) => entry.id === "sandbox.bwrap")?.status, "ok");
     assert.equal(report.checks.find((entry) => entry.id === "peers.versions")?.status, "ok");
+  });
+
+  await check("a one-shot transport flake is retried and does not taint the verdict", async () => {
+    rmSync(join(stateDir, "flake-once"), { force: true });
+    const run = doctor(["--json"], { FAKE_FLAKE: "once" });
+    assert.equal(run.status, 0, run.stderr);
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    const reachable = report.checks.find((entry) => entry.id === "distro.reachable");
+    assert.equal(reachable?.status, "ok", "the retry recovers the flaked reachability probe");
+    assert.equal(report.summary.unknown, 0);
+    assert.equal(report.verdict, "ready");
+  });
+
+  await check("a persistent flake reports unknown, never a config verdict", async () => {
+    const run = doctor(["--json"], { FAKE_FLAKE: "always" });
+    assert.equal(run.status, 0, "unknown never blocks");
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    const reachable = report.checks.find((entry) => entry.id === "distro.reachable");
+    assert.equal(reachable?.status, "unknown");
+    assert.equal(reachable?.blocksFirstCommand, false, "unknown is not a blocker");
+    assert.match(String(reachable?.detail), /transport flake/);
+    assert.equal(report.summary.unknown, 1, "the flaked distro stops at reachability — no config rows follow");
+    assert.equal(report.verdict, "ready");
+    assert.deepEqual(report.distroVerdicts, [{ name: "ubuntu", verdict: "ready", blockers: [] }]);
   });
 
   await check("the verdict is ready under the effective config and stamps the distro scope", () => {

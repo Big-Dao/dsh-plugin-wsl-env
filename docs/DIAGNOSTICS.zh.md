@@ -19,7 +19,11 @@
 `verdict: ready` 表示首条命令应在目标 distro、预期 scope 下成功；smoke 腿
 （`functional.exec`、`functional.sandbox`、`functional.fs`）证明链路本身——
 帧 I/O、受限围栏、批量 substrate——而不只是前置条件。前置失败的腿以
-`skipped` 报告并点名阻断者；`skipped` 永不阻断。
+`skipped` 报告并点名阻断者；`skipped` 永不阻断。传输层无法担保的读数——
+`wsl.exe` 超时或探测中途卡死（多个 distro 并发探测、其中一个正在冷启动时
+最常见）——在自动重试一次后报告 `unknown`，detail 点名该次抖动；`unknown`
+永不阻断，也不构成配置裁决：`/etc/wsl.conf` 读数抖动说明的是读取失败，
+而不是文件损坏。重跑 doctor 即可得到干净答案。
 
 `--fix` 以复验报告收尾：每个修复后都跟着一次对它声称修好的东西的全新探查，
 受影响的检查项携带 after 状态，verdict 重算——`ready`，或剩余阻断者。

@@ -88,6 +88,53 @@ const en = {
     `"${workdir}" names a workspace in another WSL distro, and this profile pins its commands to "${distro}" — ` +
     `running them here would act on a different machine's tree. Open a session in that distro, ` +
     `or point cwd/workdir at this distro.`,
+
+  /** `wsl_doctor` digest: the verdict line. `verdict` is the report's own `ready`/`blocked`. */
+  doctorDigestVerdict: ({ verdict }: { verdict: string }): string =>
+    `wsl doctor verdict: ${verdict}`,
+  /** `wsl_doctor` digest: the host-wide group heading. */
+  doctorDigestHostLabel: (): string =>
+    "(host — Windows and global checks)",
+  /** `wsl_doctor` digest: the heading for checks the run's scope never executed. */
+  doctorDigestNotRunLabel: (): string =>
+    "(not run in this scope)",
+  /** `wsl_doctor` digest: marks which distro group is the session's own. */
+  doctorDigestSessionLabel: ({ name }: { name: string }): string =>
+    `${name} (this session's distro)`,
+  /** `wsl_doctor` digest: one summary line for the checks the run's scope never executed; `reason` says why (the run's scope profile). */
+  doctorDigestSkipRow: ({ n, reason, ids }: { n: number, reason: string, ids: string }): string =>
+    `[SKIP] not run in this scope — ${reason} (${n}): ${ids}`,
+  /** `wsl_doctor` digest: the scope reason for a quick run's skip line. */
+  doctorSkipReasonQuick: (): string =>
+    "the quick profile covers first-command prerequisites only",
+  /** `wsl_doctor` digest: the scope reason for a section-filtered run's skip line. */
+  doctorSkipReasonSections: ({ sections }: { sections: string }): string =>
+    `the run covered only: ${sections}`,
+  /** `wsl_doctor` digest: the scope reason when the report recorded none. */
+  doctorSkipReasonGeneric: (): string =>
+    "no scope recorded for this report",
+  /** `wsl_doctor` digest: one line per check a failed prerequisite gated out; `reason` names the blocker. */
+  doctorSkipGated: ({ id, reason }: { id: string, reason: string }): string =>
+    `[SKIP] ${id} — skipped: ${reason}`,
+  /** `wsl_doctor` digest: per-group tallies, one entry per non-zero status. */
+  doctorTallyOk: ({ n }: { n: number }): string => `${n} ok`,
+  doctorTallyWarn: ({ n }: { n: number }): string => `${n} warn`,
+  doctorTallyFail: ({ n }: { n: number }): string => `${n} fail`,
+  doctorTallyUnknown: ({ n }: { n: number }): string => `${n} unknown`,
+  doctorTallyInfo: ({ n }: { n: number }): string => `${n} info`,
+  doctorTallySkipped: ({ n }: { n: number }): string => `${n} skipped`,
+  /** `wsl_doctor` digest: the remedy prefix under a failed check. */
+  doctorDigestFixPrefix: ({ remedy }: { remedy: string }): string =>
+    `        fix: ${remedy}`,
+  /** `wsl_doctor` digest: the ready note (how to attach the full report). */
+  doctorDigestNoteReady: (): string =>
+    "the first command should succeed; run the CLI (pnpm run doctor --bundle <path>) for the attachable file",
+  /** `wsl_doctor` digest: the blocked note (the rerun is the re-verification). */
+  doctorDigestNoteBlocked: (): string =>
+    "apply each remedy above, then call this tool again — the re-run is the re-verification",
+  /** `wsl_doctor` digest: the blocked summary tail; `noneBlocking` is the fixed clause. */
+  doctorDigestBlockedTail: ({ blockers, warnings, skipped, note }: { blockers: string, warnings: number, skipped: number, note: string }): string =>
+    `blocked by: ${blockers}; ${warnings} warning(s), ${skipped} skipped leg(s) — none blocking; ${note}`,
 };
 
 /** The Chinese catalog; the type keeps every key and parameter in step with `en`. */
@@ -127,6 +174,39 @@ const zh: typeof en = {
   workdirAnotherDistro: ({ workdir, distro }) =>
     `"${workdir}" 指向另一个 WSL 发行版中的工作区，而本 profile 将命令固定在 "${distro}" —— ` +
     `在这里运行会作用于另一台机器的目录树。请在该发行版中打开会话，或将 cwd/workdir 指向本发行版。`,
+
+  doctorDigestVerdict: ({ verdict }) =>
+    `wsl doctor 裁决：${verdict}`,
+  doctorDigestHostLabel: () =>
+    "（宿主——Windows 与全局检查）",
+  doctorDigestNotRunLabel: () =>
+    "（不在本次范围）",
+  doctorDigestSessionLabel: ({ name }) =>
+    `${name}（当前会话的 distro）`,
+  doctorDigestSkipRow: ({ n, reason, ids }) =>
+    `[SKIP] 不在本次范围——${reason}（${n}）：${ids}`,
+  doctorSkipReasonQuick: () =>
+    "quick 档只探首条命令的前置项",
+  doctorSkipReasonSections: ({ sections }) =>
+    `本次只运行了这些分区：${sections}`,
+  doctorSkipReasonGeneric: () =>
+    "报告未记录运行范围",
+  doctorSkipGated: ({ id, reason }) =>
+    `[SKIP] ${id}——被前置阻断：${reason}`,
+  doctorTallyOk: ({ n }) => `通过 ${n}`,
+  doctorTallyWarn: ({ n }) => `警告 ${n}`,
+  doctorTallyFail: ({ n }) => `失败 ${n}`,
+  doctorTallyUnknown: ({ n }) => `未知 ${n}`,
+  doctorTallyInfo: ({ n }) => `信息 ${n}`,
+  doctorTallySkipped: ({ n }) => `跳过 ${n}`,
+  doctorDigestFixPrefix: ({ remedy }) =>
+    `        修复: ${remedy}`,
+  doctorDigestNoteReady: () =>
+    "首条命令应能成功；如需可附加的报告文件，运行 CLI（pnpm run doctor --bundle <path>）",
+  doctorDigestNoteBlocked: () =>
+    "应用上方每条修复，然后再次调用本工具——重跑即复核",
+  doctorDigestBlockedTail: ({ blockers, warnings, skipped, note }) =>
+    `阻断项：${blockers}；${warnings} 个警告，${skipped} 个跳过腿——均不阻断；${note}`,
 };
 
 type Catalog = typeof en;
@@ -217,9 +297,20 @@ type SettingsScope = Context & {
  * which also covers the `locale` entry activating after this row did. A read
  * that throws keeps the previous language: this is presentation, not gating.
  *
+ * A browser whose user never picked a language in Settings has NO persisted
+ * `locale.preference` — its Chinese UI came from the navigator's provisional
+ * match, which the Host settings never record. For that case the fallback
+ * reads the process's ICU default locale (Electron: the OS UI language), so
+ * a zh-CN Windows with a provisional-Chinese UI still renders Chinese. An
+ * explicit Settings choice always wins over the fallback.
+ *
  * @param ctx - the row's composition context.
  */
 export function installMessagesLocale(ctx: Context): void {
+  // Provisional fallback first: the settings read below is asynchronous (it
+  // waits for the injection), and the OS language is the best guess until a
+  // stored preference replaces it.
+  configureMessagesLocale(hostFallbackLocale());
   if (typeof ctx.inject !== "function") return;
   ctx.inject(["settings"], (scope) => {
     // Narrow once to the shape this module reads; see `SettingsScope`.
@@ -229,7 +320,12 @@ export function installMessagesLocale(ctx: Context): void {
     const read = (): void => {
       try {
         const row = settings.describe().find((entry) => entry.ns === "locale");
-        if (row === undefined) return;
+        if (row === undefined) {
+          // No stored preference (the provisional-UI case): the OS fallback
+          // stands. It was already applied above; keep it.
+          configureMessagesLocale(hostFallbackLocale());
+          return;
+        }
         // The descriptor's value is the entry's projected volatile form —
         // `{ preference?: string }` for the locale entry.
         const preference = (row.value as { preference?: unknown } | undefined)?.preference;
@@ -253,4 +349,31 @@ export function installMessagesLocale(ctx: Context): void {
  */
 export function resetMessagesLocaleForTests(): void {
   current = "en";
+}
+
+/**
+ * The no-settings fallback: the process's ICU default locale, which in the
+ * desktop app follows the OS UI language (a zh-CN Windows yields `zh-CN`).
+ * Under Node's small-icu builds this is `en-US`, which maps to English — the
+ * previous default. Exported for tests.
+ *
+ * @returns {"en" | "zh"} the language the OS-level locale selects.
+ */
+export function hostFallbackLocale(): MessagesLocale {
+  try {
+    return localeFromTag(Intl.DateTimeFormat().resolvedOptions().locale);
+  } catch {
+    return "en";
+  }
+}
+
+/**
+ * Map one BCP 47-style tag onto a catalog language: `zh*` renders Chinese,
+ * everything else English.
+ *
+ * @param tag - the locale tag (may be empty).
+ * @returns {"en" | "zh"} the catalog language the tag selects.
+ */
+function localeFromTag(tag: string): MessagesLocale {
+  return /^zh/iu.test(tag) ? "zh" : "en";
 }

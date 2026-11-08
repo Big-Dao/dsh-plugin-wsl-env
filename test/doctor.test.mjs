@@ -15,9 +15,11 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { peerSatisfied, latestFromPackument, parseWslConfig, parseWslSize, parseIni, parseWslVerbose } from "../scripts/doctor.mjs";
+import { peerSatisfied, latestFromPackument, parseWslConfig, parseWslSize, parseIni, parseWslVerbose, effectiveMaskWindowsDrive, updateFactMessage, localeNameFromReg, localeFromTag, overrideLocale, setDoctorLocale, doctorT } from "../scripts/doctor.mjs";
 import { mergeLiveResidentStatus } from "../lib/doctor-live.js";
 import { doctorReport } from "../lib/index.js";
+import { effectiveMaskWindowsDrive as libEffectiveMaskWindowsDrive } from "../lib/index.js";
+import { updateFactMessage as libUpdateFactMessage } from "../lib/update-check.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /** The digest the agent script self-reports; the fake HELLO carries it. */
@@ -913,8 +915,89 @@ try {
     assert.equal(trust?.status, "ok", "the git.win-safe entry carries the after state");
     assert.equal(report.verdict, "ready");
   });
+// ── Host-locale output ───────────────────────────────────────────────────────
+// The human skeleton renders in the host's language: catalogs in
+// `locale/doctor/{en,zh}.json`, detection through the registry, and
+// `--locale` / `DSH_WSL_DOCTOR_LOCALE` overrides. `--json` stays English and
+// language-independent.
+{
+  // The two catalogs ship the same keys, so a skeleton line cannot render
+  // English in a zh run because a key was forgotten on one side.
+  const en = JSON.parse(readFileSync(join(ROOT, "locale", "doctor", "en.json"), "utf8"));
+  const zh = JSON.parse(readFileSync(join(ROOT, "locale", "doctor", "zh.json"), "utf8"));
+  assert.deepEqual(Object.keys(zh).sort(), Object.keys(en).sort(), "catalog key parity");
+
+  // Placeholders substitute; an unknown placeholder stays visible for triage.
+  assert.equal(doctorT("summary", { ok: 1, warn: 0, fail: 0, info: 2 }), "1 ok, 0 warn, 0 fail, 2 info");
+  assert.equal(doctorT("ports.title", { distro: "ubuntu" }), "listening ports in ubuntu");
+  assert.equal(doctorT("no.such.key"), "no.such.key");
+  assert.match(doctorT("mark.fail"), /^fail|失败$/u);
+
+  // Detection and overrides.
+  assert.equal(localeNameFromReg("\n    LocaleName    REG_SZ    zh-CN\n"), "zh-CN");
+  assert.equal(localeNameFromReg("reg: unable to find LocaleName"), "");
+  assert.equal(localeFromTag("zh-CN"), "zh");
+  assert.equal(localeFromTag("zh_TW"), "zh");
+  assert.equal(localeFromTag("en-US"), "en");
+  assert.equal(localeFromTag(""), "en");
+  assert.equal(overrideLocale("zh"), "zh");
+  assert.equal(overrideLocale(""), "en");
+
+  // The flag localizes the human skeleton end to end through the fakes.
+  const zhRun = doctor(["--quick", "--locale", "zh"]);
+  assert.match(zhRun.stdout, /环境诊断/u);
+  assert.match(zhRun.stdout, /通过/u);
+  assert.match(zhRun.stdout, /裁决: (READY|BLOCKED)/u);
+  assert.doesNotMatch(zhRun.stdout, /verdict: (READY|BLOCKED)/u);
+  // `--json` is a data surface: English values, no locale subprocess.
+  const jsonRun = doctor(["--quick", "--json", "--locale", "zh"]);
+  assert.match(jsonRun.stdout, /"verdict"/u);
+  assert.doesNotMatch(jsonRun.stdout, /环境诊断/u);
+  // The environment override selects zh without the flag.
+  const envRun = doctor(["--quick"], { DSH_WSL_DOCTOR_LOCALE: "zh-CN" });
+  assert.match(envRun.stdout, /裁决:/u);
+  // Restore the default for the test process's own doctorT reads.
+  setDoctorLocale("en");
+  console.log("doctor locale catalog, detection, and overrides pass");
+}
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }
 
 console.log(`${passed} doctor checks pass`);
+
+// ── Peer-free inlining parity ────────────────────────────────────────────────
+// The doctor inlines the two helpers that lived behind peer-tainted lib
+// modules (`lib/index.js`, `lib/update-check.js`) so it still starts when the
+// plugin's runtime is broken. These assertions pin the inline copies against
+// the lib exports, so a semantic edit to one side cannot drift quietly.
+{
+  /** @type {Array<[Parameters<typeof import("../lib/index.js").effectiveMaskWindowsDrive>[0], boolean]>} */
+  const maskCases = [
+    [{}, false],
+    [{ maskWindowsDrive: true }, true],
+    [{ maskWindowsDrive: false }, false],
+    [{ interopVisibility: "masked" }, true],
+    [{ interopVisibility: "disabled" }, true],
+    [{ interopVisibility: "visible" }, false],
+    [{ interopVisibility: "visible", maskWindowsDrive: true }, false],
+    [{ interopVisibility: "masked", maskWindowsDrive: false }, true],
+  ];
+  for (const [config, expected] of maskCases) {
+    assert.equal(effectiveMaskWindowsDrive(config), expected, `inline mask ${JSON.stringify(config)}`);
+    assert.equal(effectiveMaskWindowsDrive(config), libEffectiveMaskWindowsDrive(config), `parity mask ${JSON.stringify(config)}`);
+  }
+  /** @type {Array<[Parameters<typeof import("../lib/update-check.js").updateFactMessage>[0], string]>} */
+  const factCases = [
+    [undefined, ""],
+    [{ latest: "1.2.3", installed: "1.0.0", incompatible: false, checkedAt: 0 }, "1.2.3 available (installed 1.0.0)"],
+    [{ latest: "1.2.3", installed: "1.0.0", incompatible: true, checkedAt: 0 }, "1.2.3 available (installed 1.0.0) — requires a newer DSH first"],
+    [{ latest: "1.2.3", installed: "1.0.0", incompatible: false, deprecated: "2026-01-01", checkedAt: 0 }, "1.2.3 available (installed 1.0.0) — deprecated: 2026-01-01"],
+    [{ latest: "1.2.3", installed: "1.0.0", incompatible: true, deprecated: "2026-01-01", checkedAt: 0 }, "1.2.3 available (installed 1.0.0) — requires a newer DSH first; deprecated: 2026-01-01"],
+  ];
+  for (const [update, expected] of factCases) {
+    assert.equal(updateFactMessage(update), expected, `inline fact ${JSON.stringify(update)}`);
+    assert.equal(updateFactMessage(update), libUpdateFactMessage(update), `parity fact ${JSON.stringify(update)}`);
+  }
+  console.log("doctor inlined helpers match the lib exports");
+}

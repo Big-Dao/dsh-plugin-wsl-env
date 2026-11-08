@@ -91,6 +91,32 @@ export interface FailingCheck {
     id: string;
     detail: string;
     remedy: string;
+    /** The distro the failing check ran in; absent for host-wide checks. */
+    distro?: string;
+}
+/** Per-distro tallies: what was tested in each distro and how it came out. */
+export interface DistroTally {
+    name: string;
+    ok: number;
+    warn: number;
+    fail: number;
+    unknown: number;
+    info: number;
+    skipped: number;
+    /** This distro is the session's own — the run's primary subject. */
+    session?: boolean;
+    /** The distro's own verdict when the report carried one. */
+    verdict?: string;
+}
+/** One check as the itemized listing carries it: what was tested and how it came out. */
+export interface CheckItem {
+    id: string;
+    /** The check's display name; falls back to the id when the report omits it. */
+    title: string;
+    status: string;
+    detail: string;
+    distro?: string;
+    remedy?: string;
 }
 /** The tool's result: the doctor's verdict, condensed for the model. */
 export interface DoctorDigest {
@@ -107,6 +133,10 @@ export interface DoctorDigest {
         fail: number;
         unknown: number;
     }>;
+    /** Per-distro tallies in first-appearance order — the grouped summary. */
+    distros: DistroTally[];
+    /** Every check the report carried, in report order — the itemized listing. */
+    items: CheckItem[];
     /** The scope the report answers for (quick profile or a section subset). */
     scope?: {
         sections: string[];
@@ -130,6 +160,25 @@ export interface DoctorDigest {
 export declare function sectionOf(id: string): "host" | "sandbox" | "session" | "conf" | "net" | "agent";
 /** The sections in report order, matching the doctor CLI's SECTIONS list. */
 export declare const SECTIONS: string[];
+/** The detail a scope-filtered skip row carries; the marker the renderer buckets on. */
+export declare const SCOPE_SKIP_DETAIL = "not run in this scope";
+/** The detail prefix a CLI-gated skip row carries (the blocker follows it). */
+export declare const SKIP_DETAIL_PREFIX = "skipped: ";
+/**
+ * Every check id the doctor can emit — the CLI's whole probing surface,
+ * including the ids that only appear conditionally (`distro.present` for a
+ * configured-but-missing distro, `fix.git-trust` for a `--fix` run) and the
+ * `tools.*` ids the optional-tool loop constructs. The itemized listing uses
+ * this to show the checks a scoped (quick or section) run did NOT execute as
+ * explicit `[SKIP]` rows instead of silently dropping them; the parity test
+ * in `test/wsl-doctor-tool.test.mjs` re-extracts the ids from the CLI source
+ * and fails when the catalog drifts. A full run carries no scope, so a
+ * conditional id whose trigger never fired (no distro is missing, no
+ * `--fix`) also surfaces there under the generic `no scope recorded`
+ * reason — for those ids the honest reading is "did not fire", not
+ * "out of scope".
+ */
+export declare const CHECK_CATALOG: readonly string[];
 /**
  * Digest one doctor report down to what the model acts on: the verdict, the
  * blockers, every failing check with its copy-paste remedy, and the
@@ -138,14 +187,20 @@ export declare const SECTIONS: string[];
  * skipped legs count but do not list — the report's own ids name them when
  * the model asks.
  * @param report - the collected (and live-merged) doctor report.
+ * @param sessionDistro - the distro this session runs in, when known; the
+ *   matching tally is flagged so the rendered summary can name it.
  * @returns the digest.
  */
-export declare function digestReport(report: DoctorReportLike): DoctorDigest;
+export declare function digestReport(report: DoctorReportLike, sessionDistro?: string): DoctorDigest;
 /**
- * Render the digest as the tool's text output: one verdict line, one line
- * per tested section with its tallies (what was checked and how it came
- * out), then one line per failing check with its remedy. The model narrates
- * this; keeping it plain text keeps the transcript readable.
+ * Render the digest as the tool's text output, in the style of a regular
+ * diagnostic tool: one verdict line, then an itemized listing — every check
+ * the report carried, grouped by distro, each with an explicit status marker
+ * (`[OK]` / `[WARN]` / `[FAIL]` / `[INFO]` / `[SKIP]` / `[??]`), its name and
+ * what it found. A failed check carries its copy-paste remedy on the next
+ * line; a warned check carries its detail, which is already the remedy's
+ * context. The model narrates this; keeping it plain text keeps the
+ * transcript readable.
  * @param digest - the digested report.
  * @returns the multi-line text.
  */

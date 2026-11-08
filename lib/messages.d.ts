@@ -92,6 +92,71 @@ declare const en: {
         workdir: string;
         distro: string;
     }) => string;
+    /** `wsl_doctor` digest: the verdict line. `verdict` is the report's own `ready`/`blocked`. */
+    doctorDigestVerdict: ({ verdict }: {
+        verdict: string;
+    }) => string;
+    /** `wsl_doctor` digest: the host-wide group heading. */
+    doctorDigestHostLabel: () => string;
+    /** `wsl_doctor` digest: the heading for checks the run's scope never executed. */
+    doctorDigestNotRunLabel: () => string;
+    /** `wsl_doctor` digest: marks which distro group is the session's own. */
+    doctorDigestSessionLabel: ({ name }: {
+        name: string;
+    }) => string;
+    /** `wsl_doctor` digest: one summary line for the checks the run's scope never executed; `reason` says why (the run's scope profile). */
+    doctorDigestSkipRow: ({ n, reason, ids }: {
+        n: number;
+        reason: string;
+        ids: string;
+    }) => string;
+    /** `wsl_doctor` digest: the scope reason for a quick run's skip line. */
+    doctorSkipReasonQuick: () => string;
+    /** `wsl_doctor` digest: the scope reason for a section-filtered run's skip line. */
+    doctorSkipReasonSections: ({ sections }: {
+        sections: string;
+    }) => string;
+    /** `wsl_doctor` digest: the scope reason when the report recorded none. */
+    doctorSkipReasonGeneric: () => string;
+    /** `wsl_doctor` digest: one line per check a failed prerequisite gated out; `reason` names the blocker. */
+    doctorSkipGated: ({ id, reason }: {
+        id: string;
+        reason: string;
+    }) => string;
+    /** `wsl_doctor` digest: per-group tallies, one entry per non-zero status. */
+    doctorTallyOk: ({ n }: {
+        n: number;
+    }) => string;
+    doctorTallyWarn: ({ n }: {
+        n: number;
+    }) => string;
+    doctorTallyFail: ({ n }: {
+        n: number;
+    }) => string;
+    doctorTallyUnknown: ({ n }: {
+        n: number;
+    }) => string;
+    doctorTallyInfo: ({ n }: {
+        n: number;
+    }) => string;
+    doctorTallySkipped: ({ n }: {
+        n: number;
+    }) => string;
+    /** `wsl_doctor` digest: the remedy prefix under a failed check. */
+    doctorDigestFixPrefix: ({ remedy }: {
+        remedy: string;
+    }) => string;
+    /** `wsl_doctor` digest: the ready note (how to attach the full report). */
+    doctorDigestNoteReady: () => string;
+    /** `wsl_doctor` digest: the blocked note (the rerun is the re-verification). */
+    doctorDigestNoteBlocked: () => string;
+    /** `wsl_doctor` digest: the blocked summary tail; `noneBlocking` is the fixed clause. */
+    doctorDigestBlockedTail: ({ blockers, warnings, skipped, note }: {
+        blockers: string;
+        warnings: number;
+        skipped: number;
+        note: string;
+    }) => string;
 };
 type Catalog = typeof en;
 type MessageKey = keyof Catalog;
@@ -147,6 +212,13 @@ export declare function resolveMessagesLocale(preference: unknown): MessagesLoca
  * which also covers the `locale` entry activating after this row did. A read
  * that throws keeps the previous language: this is presentation, not gating.
  *
+ * A browser whose user never picked a language in Settings has NO persisted
+ * `locale.preference` — its Chinese UI came from the navigator's provisional
+ * match, which the Host settings never record. For that case the fallback
+ * reads the process's ICU default locale (Electron: the OS UI language), so
+ * a zh-CN Windows with a provisional-Chinese UI still renders Chinese. An
+ * explicit Settings choice always wins over the fallback.
+ *
  * @param ctx - the row's composition context.
  */
 export declare function installMessagesLocale(ctx: Context): void;
@@ -154,4 +226,13 @@ export declare function installMessagesLocale(ctx: Context): void;
  * Restore English. Tests only: production wiring is process-wide by design.
  */
 export declare function resetMessagesLocaleForTests(): void;
+/**
+ * The no-settings fallback: the process's ICU default locale, which in the
+ * desktop app follows the OS UI language (a zh-CN Windows yields `zh-CN`).
+ * Under Node's small-icu builds this is `en-US`, which maps to English — the
+ * previous default. Exported for tests.
+ *
+ * @returns {"en" | "zh"} the language the OS-level locale selects.
+ */
+export declare function hostFallbackLocale(): MessagesLocale;
 export {};

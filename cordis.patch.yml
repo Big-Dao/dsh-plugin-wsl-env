@@ -163,6 +163,15 @@
     - id: wsl-env-client-host
       name: 'dsh-plugin-wsl-env'
 
+    # The human-facing `/wsl-doctor` command (the composer button's target):
+    # registered globally so any session can run the diagnosis, not only WSL
+    # preset agents. The handler spawns the standalone doctor CLI — no model
+    # turn, no in-process collector — so the command still answers when the
+    # plugin's own runtime is the thing being diagnosed. Deployments without a
+    # command adapter leave this row a no-op.
+    - id: wsl-doctor-command
+      name: 'dsh-plugin-wsl-env/wsl-doctor-command'
+
     - id: fs-routing
       name: 'dsh-plugin-wsl-env/fs-routing'
       config:

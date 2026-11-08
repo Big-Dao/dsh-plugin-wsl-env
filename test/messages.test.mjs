@@ -9,6 +9,7 @@
 import assert from "node:assert/strict";
 import {
   configureMessagesLocale,
+  hostFallbackLocale,
   installMessagesLocale,
   messagesLocale,
   resolveMessagesLocale,
@@ -195,21 +196,24 @@ check("the wiring reads locale.preference through an optional settings service",
   resetMessagesLocaleForTests();
 });
 
-check("a profile without the settings service keeps english", () => {
+check("a profile without the settings service falls back to the OS language", () => {
   resetMessagesLocaleForTests();
-  configureMessagesLocale("zh");
   installMessagesLocale(/** @type {never} */ ({
     inject: (/** @type {string[]} */ _names, /** @type {(scope: unknown) => void} */ cb) => cb({}),
   }));
-  assert.equal(messagesLocale(), "zh", "a scope without settings never overwrites the language");
+  assert.equal(messagesLocale(), hostFallbackLocale(), "no settings row: the OS ICU locale is the language");
   installMessagesLocale(/** @type {never} */ ({}));
-  assert.equal(messagesLocale(), "zh", "a context without inject is left alone");
+  assert.equal(messagesLocale(), hostFallbackLocale(), "a context without inject still gets the fallback");
   resetMessagesLocaleForTests();
+});
+
+check("the OS fallback maps tags onto the catalog languages", () => {
+  assert.ok(hostFallbackLocale() === "en" || hostFallbackLocale() === "zh", "the fallback is always a shipped language");
 });
 
 check("a describe failure keeps the previous language", () => {
   resetMessagesLocaleForTests();
-  configureMessagesLocale("zh");
+  configureMessagesLocale(hostFallbackLocale());
   /** @type {Array<() => void>} */
   const listeners = [];
   const scope = {
@@ -227,7 +231,7 @@ check("a describe failure keeps the previous language", () => {
     inject: (/** @type {string[]} */ _names, /** @type {(scope: unknown) => void} */ cb) => cb(scope),
   }));
   listeners[0]?.();
-  assert.equal(messagesLocale(), "zh", "presentation must never gate the row");
+  assert.equal(messagesLocale(), hostFallbackLocale(), "presentation must never gate the row");
   resetMessagesLocaleForTests();
 });
 

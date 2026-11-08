@@ -36,6 +36,13 @@
  * `distroVerdicts`, the effective `config`, and per-check `distro` /
  * `blocksFirstCommand` fields.
  *
+ * The doctor is the standalone surface by design: it loads **no peer
+ * dependency and no host service**, so it still starts when the plugin's own
+ * runtime is the thing that is broken (the chicken-and-egg failure the
+ * in-process tool path cannot escape). Only pure, peer-free lib modules are
+ * imported; the two helpers that lived behind peer-tainted modules are inlined
+ * below and drift-pinned by test.
+ *
  * This CLI always probes a **fresh** resident — the app process's live
  * resident's `deaths`/`lastError` are host-private (no IPC), and the report
  * says so at the handshake check. Consumers holding the plugin's context
@@ -52,13 +59,147 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
+// Pure, peer-free lib modules stay imported: `lint:build` pins them byte-for-byte
+// to `src/`, so the doctor probes exactly the shipped behavior without loading
+// any peer dependency (see the inlining note below).
 import { parseDistroList } from "../lib/wsl.js";
-import { effectiveMaskWindowsDrive } from "../lib/index.js";
 import { AGENT_NAME, PROTOCOL_VERSION, encodeExecFrame, encodeFsbFrame, parseAgentLine } from "../lib/agent-protocol.js";
 import { bwrapArgvPrefix } from "../lib/bwrap.js";
 import { sessionScopeSweepScript } from "../lib/session-scope.js";
 import { parseListeningPorts, procNetScript } from "../lib/ports.js";
-import { updateFactMessage } from "../lib/update-check.js";
+
+// ── Peer-free inlining of the two peer-tainted helpers ────────────────────────
+//
+// The doctor must start even when the plugin's runtime is the thing that is
+// broken. Two of the lib modules it used to import are unsafe for that:
+//
+//   - `lib/index.js` pulls the whole plugin graph and every `@deepseek-ai/dsh-*`
+//     peer dependency at load time;
+//   - `lib/update-check.js` imports `@deepseek-ai/schemastery` at the top level.
+//
+// Both helpers are pure two-liners, so they are inlined here instead. A test in
+// `test/doctor.test.mjs` compares these copies against the lib exports to pin
+// them against drift.
+//
+// Inlined from `src/index.ts` `effectiveMaskWindowsDrive`:
+/**
+ * Whether confined profiles shadow `/mnt` under this config.
+ *
+ * @param {{ interopVisibility?: "visible" | "masked" | "disabled", maskWindowsDrive?: boolean }} config - anything carrying the two keys.
+ * @returns {boolean} whether confined profiles shadow `/mnt`.
+ */
+export function effectiveMaskWindowsDrive(config) {
+  if (config.interopVisibility !== undefined) return config.interopVisibility !== "visible";
+  return config.maskWindowsDrive === true;
+}
+
+// Inlined from `src/update-check.ts` `updateFactMessage`:
+/**
+ * One human line about an available update.
+ *
+ * @param {{ latest: string, installed: string, incompatible?: boolean, deprecated?: string, checkedAt?: number } | undefined} update - the update fact, or undefined when none.
+ * @returns {string} the message, empty when there is no update.
+ */
+export function updateFactMessage(update) {
+  if (update === undefined) return "";
+  const marks = [];
+  if (update.incompatible) marks.push("requires a newer DSH first");
+  if (update.deprecated !== undefined) marks.push(`deprecated: ${update.deprecated}`);
+  const tail = marks.length === 0 ? "" : ` — ${marks.join("; ")}`;
+  return `${update.latest} available (installed ${update.installed})${tail}`;
+}
+
+// ── Host-locale output catalogs ──────────────────────────────────────────────
+//
+// The human output renders in the host's language: the doctor detects the
+// Windows locale through the registry (fast, no PowerShell startup), the
+// `--locale` flag and `DSH_WSL_DOCTOR_LOCALE` override it, and `--json` stays
+// language-independent. Only the fixed skeleton is cataloged (verdict,
+// summary, section marks, hints); per-check titles/details/remedies stay
+// English — remedies carry copy-paste commands. The catalogs live in
+// `locale/doctor/{en,zh}.json`; a test pins their key parity.
+
+/** The languages the doctor's own catalogs ship. @type {Record<string, Record<string, string> | undefined>} */
+const CATALOGS = {};
+/** The active catalog language; English until a detection or flag selects otherwise. */
+let LOCALE = "en";
+
+/**
+ * Load one catalog, falling back to the English file when the requested one
+ * is missing or unreadable (a truncated install must not break the run).
+ *
+ * @param {string} name - the catalog language id.
+ * @returns {Record<string, string>} the catalog table.
+ */
+function doctorCatalog(name) {
+  if (CATALOGS[name] === undefined) {
+    try {
+      CATALOGS[name] = JSON.parse(readFileSync(join(ROOT, "locale", "doctor", `${name}.json`), "utf8"));
+    } catch {
+      CATALOGS[name] = {};
+    }
+  }
+  return CATALOGS[name] ?? {};
+}
+
+/**
+ * Select the output language. `zh` requires its catalog to have loaded; any
+ * other id renders English.
+ *
+ * @param {string} name - the requested language id.
+ */
+export function setDoctorLocale(name) {
+  LOCALE = name === "zh" && Object.keys(doctorCatalog("zh")).length > 0 ? "zh" : "en";
+}
+
+/**
+ * Render one catalog message in the active language, substituting
+ * `{placeholder}` tokens; a key the active catalog lacks falls back to the
+ * English entry.
+ *
+ * @param {string} key - the catalog key.
+ * @param {Record<string, string | number>} [params] - the placeholder values.
+ * @returns {string} the rendered line.
+ */
+export function doctorT(key, params = {}) {
+  const template = doctorCatalog(LOCALE)[key] ?? doctorCatalog("en")[key] ?? key;
+  return template.replace(/\{(\w+)\}/gu, (whole, name) => (params[name] === undefined ? whole : String(params[name])));
+}
+
+/**
+ * Extract the locale name from a `reg query ... /v LocaleName` answer.
+ *
+ * @param {string} text - the command's stdout.
+ * @returns {string} the `LocaleName` value, or "" when the answer names none.
+ */
+export function localeNameFromReg(text) {
+  const match = text.match(/LocaleName\s+REG_SZ\s+(\S+)/);
+  return match === null ? "" : match[1] ?? "";
+}
+
+/**
+ * Map a BCP 47-style tag onto a catalog language: `zh*` renders Chinese,
+ * everything else English.
+ *
+ * @param {string} tag - the locale tag (may be empty).
+ * @returns {"en" | "zh"} the catalog language.
+ */
+export function localeFromTag(tag) {
+  return /^zh/iu.test(tag) ? "zh" : "en";
+}
+
+/**
+ * Resolve the output language: the `--locale` flag wins, then
+ * `DSH_WSL_DOCTOR_LOCALE`, then English (the caller probes the registry only
+ * when neither override is set).
+ *
+ * @param {string} flag - the `--locale` value, possibly empty.
+ * @returns {"en" | "zh"} the catalog language the overrides select, when they select one.
+ */
+export function overrideLocale(flag) {
+  const tag = flag.length > 0 ? flag : process.env.DSH_WSL_DOCTOR_LOCALE ?? "";
+  return tag.length > 0 ? localeFromTag(tag) : "en";
+}
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 let WSL = "wsl.exe";
@@ -470,7 +611,7 @@ async function askDistro(distro, script) {
 /**
  * Parse the doctor's own arguments.
  * @param {string[]} argv - `process.argv.slice(2)`.
- * @returns {{ distro: string, wsl: string, json: boolean, fix: boolean, install: boolean, yes: boolean, readOnly: boolean, all: boolean, bundle: string, redact: boolean, sections: string, quick: boolean, help: boolean }} the options.
+ * @returns {{ distro: string, wsl: string, json: boolean, fix: boolean, install: boolean, yes: boolean, readOnly: boolean, all: boolean, bundle: string, redact: boolean, sections: string, quick: boolean, help: boolean, locale: string }} the options.
  */
 function parseArgs(argv) {
   const options = {
@@ -487,10 +628,13 @@ function parseArgs(argv) {
     sections: "",
     quick: false,
     help: false,
+    locale: "",
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] ?? "";
     if (arg === "--json") options.json = true;
+    else if (arg === "--locale") options.locale = argv[++i] ?? "";
+    else if (arg.startsWith("--locale=")) options.locale = arg.slice("--locale=".length);
     else if (arg === "--fix") options.fix = true;
     else if (arg === "--install") options.install = true;
     else if (arg === "--yes" || arg === "-y") options.yes = true;
@@ -689,7 +833,7 @@ function installRemedy(distro, family) {
  * @returns {number} the exit status.
  */
 function rejectReadOnly() {
-  console.error("doctor: --read-only refuses --fix/--install; run `pnpm run doctor --fix` instead");
+  console.error(doctorT("refusal.read-only"));
   return 2;
 }
 
@@ -738,6 +882,17 @@ const DISTRO_CONCURRENCY = 3;
  * @returns {Promise<number>} 0 when the verdict is `ready`, 1 when `blocked`.
  */
 async function main(options) {
+  // The output language: an explicit `--locale` / `DSH_WSL_DOCTOR_LOCALE`
+  // wins without probing; otherwise a human run detects the Windows locale
+  // through the registry (fast, no PowerShell startup) — the refusals below
+  // render in the detected language too. `--json` stays language-independent
+  // and pays no extra subprocess.
+  if (options.json) setDoctorLocale("en");
+  else setDoctorLocale(overrideLocale(options.locale));
+  if (!options.json && options.locale.length === 0 && (process.env.DSH_WSL_DOCTOR_LOCALE ?? "").length === 0) {
+    const query = await run([CMD, "/c", "reg query \"HKCU\\Control Panel\\International\" /v LocaleName"]);
+    setDoctorLocale(localeFromTag(localeNameFromReg(query.stdout)));
+  }
   if (options.readOnly && (options.fix || options.install)) return rejectReadOnly();
   // One rebinding covers every probe below (`-l -q`, `inDistro`, the
   // resident handshake, the sessions survey): an explicit `--wsl` replaces
@@ -877,7 +1032,7 @@ async function main(options) {
   if (options.bundle.length > 0) runInfo.bundle = { path: options.bundle, redact: options.redact, manifest };
   runInfo.config = { ...effective };
   if (options.fix && wanted !== null) {
-    console.error("doctor: --fix needs a full run — a scoped run cannot re-verify what it did not probe");
+    console.error(doctorT("refusal.scoped-fix"));
     return 2;
   }
   if (scope !== undefined) runInfo.scope = scope;
@@ -1390,19 +1545,19 @@ async function main(options) {
   const running = ((await run([WSL, "--list", "--running"])).stdout ?? "").split(/\r?\n/).map((line) => line.trim().replace(/\s+\([^)]*\)$/, "")).filter((line) => distroNames.includes(line));
   if (!options.json) {
     console.log("");
-    console.log("sessions across running distros");
+    console.log(doctorT("sessions.title"));
     if (running.length === 0) {
-      console.log("  (none)");
+      console.log(doctorT("sessions.none"));
     } else {
       for (const d of running) {
         const report = (await inDistro(d, STALE_SCOPE_REPORT)).stdout.trim();
         const lines = report === "none" || report.length === 0 ? [] : report.split(/\r?\n/);
         if (report === "none") {
-          console.log(`  ${d}  no user manager — scopes unavailable`);
+          console.log(`  ${d}  ${doctorT("sessions.no-user-manager")}`);
           continue;
         }
         if (lines.length === 0) {
-          console.log(`  ${d}  no session scopes`);
+          console.log(`  ${d}  ${doctorT("sessions.no-scopes")}`);
           continue;
         }
         for (const line of lines) {
@@ -1432,12 +1587,12 @@ async function main(options) {
       anyPorts = true;
       const ip = ((await inDistro(d, "hostname -I")).stdout ?? "").trim().split(/\s+/)[0] ?? "";
       console.log("");
-      console.log(`listening ports in ${d}`);
+      console.log(doctorT("ports.title", { distro: d }));
       for (const port of ports) {
         console.log(`  :${port}  http://localhost:${port}   (LAN: netsh interface portproxy add v4tov4 listenport=${port} listenaddress=0.0.0.0 connectport=${port} connectaddress=${ip})`);
       }
     }
-    if (!anyPorts && running.length > 0) console.log("\nno listening ports in the running distros");
+    if (!anyPorts && running.length > 0) console.log(doctorT("ports.none"));
   }
 
   // ---- peers ---------------------------------------------------------------
@@ -1566,7 +1721,7 @@ async function main(options) {
         const install = installRemedy(target, state.family);
         if (!options.install) {
           fixCheck("fix.install", "info", "Package installation", "not attempted", "re-run with --fix --install (and --yes for a non-interactive run)");
-        } else if (!(await confirm(`Install ${PACKAGES} in "${target}" as root?`, options.yes))) {
+        } else if (!(await confirm(doctorT("confirm.install", { packages: PACKAGES, distro: target }), options.yes))) {
           fixCheck("fix.install", "info", "Package installation", "declined", install);
         } else {
           const command = INSTALL[state.family] ?? INSTALL["apt-get"] ?? `apt-get install -y ${PACKAGES}`;
@@ -1915,7 +2070,7 @@ function report(checks, options, runInfo = {}) {
       ...(runInfo.timingsMs === undefined ? {} : { timingsMs: runInfo.timingsMs }),
     }, null, 2));
   } else {
-    console.log("dsh-plugin-wsl-env doctor");
+    console.log(doctorT("app"));
     let section = "";
     let lastDistro = /** @type {string | undefined} */ (undefined);
     for (const entry of stamped) {
@@ -1929,16 +2084,23 @@ function report(checks, options, runInfo = {}) {
         section = current;
         console.log(`\n${section}`);
       }
-      const mark = entry.status === "ok" ? "ok  " : entry.status === "warn" ? "warn" : entry.status === "fail" ? "fail" : entry.status === "skipped" ? "skip" : entry.status === "unknown" ? "unkn" : "info";
+      const mark = doctorT(`mark.${entry.status}`);
       console.log(`  ${mark}  ${entry.title}${entry.detail === undefined ? "" : ` — ${entry.detail}`}`);
-      if (entry.remedy !== undefined) console.log(`        fix: ${entry.remedy}`);
+      if (entry.remedy !== undefined) console.log(doctorT("fix.prefix", { remedy: entry.remedy }));
     }
-    console.log(`\n${summary.ok} ok, ${summary.warn} warn, ${summary.fail} fail, ${summary.info} info${summary.skipped > 0 ? `, ${summary.skipped} skipped` : ""}${summary.unknown > 0 ? `, ${summary.unknown} unknown (transport flakes — rerun for a verdict)` : ""}`);
+    const summaryLine = doctorT("summary", { ok: summary.ok, warn: summary.warn, fail: summary.fail, info: summary.info })
+      + (summary.skipped > 0 ? doctorT("summary.skipped", { n: summary.skipped }) : "")
+      + (summary.unknown > 0 ? doctorT("summary.unknown", { n: summary.unknown }) : "");
+    console.log(`\n${summaryLine}`);
     const timingLine = Object.entries(runInfo.timingsMs ?? {}).filter(([key]) => key !== "total").map(([key, ms]) => `${key} ${ms}ms`).join(", ");
-    if (timingLine.length > 0) console.log(`timings: ${timingLine}; total ${runInfo.timingsMs?.total ?? "?"}ms`);
-    if (verdict === "ready") console.log(`verdict: READY — the first command should succeed${targets.length === 1 ? ` in ${targets[0]}` : targets.length > 1 ? ` in each of: ${targets.join(", ")}` : ""}`);
-    else console.log(`verdict: BLOCKED by: ${blockers.join(", ")} — apply the fixes above, then rerun`);
-    if (summary.fail > 0 || summary.skipped > 0) console.log("run with --fix to sweep stale scopes; --fix --install asks before installing packages");
+    if (timingLine.length > 0) console.log(doctorT("timings", { line: timingLine, total: runInfo.timingsMs?.total ?? "?" }));
+    if (verdict === "ready") console.log(targets.length === 1 && targets[0] !== undefined
+      ? doctorT("verdict.ready.one", { target: targets[0] })
+      : targets.length > 1
+        ? doctorT("verdict.ready.many", { targets: targets.join(", ") })
+        : doctorT("verdict.ready.none"));
+    else console.log(doctorT("verdict.blocked", { blockers: blockers.join(", ") }));
+    if (summary.fail > 0 || summary.skipped > 0) console.log(doctorT("fix.hint"));
   }
   if (runInfo.bundle !== undefined) {
     const bundle = {
@@ -1956,7 +2118,7 @@ function report(checks, options, runInfo = {}) {
       payload = payload.split(homeReal).join("<redacted-home>").split(dshReal).join("<redacted-dsh-home>");
     }
     writeFileSync(runInfo.bundle.path, payload);
-    console.log(`bundle: written to ${runInfo.bundle.path} (${payload.length} bytes${runInfo.bundle.redact ? ", redacted" : ""})`);
+    console.log(doctorT("bundle.written", { path: runInfo.bundle.path, bytes: payload.length, redacted: runInfo.bundle.redact ? doctorT("bundle.redacted") : "" }));
   }
   return verdict === "blocked" ? 1 : 0;
 }
@@ -1964,7 +2126,7 @@ function report(checks, options, runInfo = {}) {
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
-    console.log("node scripts/doctor.mjs [distro] [--all] [--json] [--quick] [--sections host,sandbox,session,conf,net,agent] [--fix] [--install] [--yes] [--read-only] [--bundle <path>] [--redact]");
+    console.log("node scripts/doctor.mjs [distro] [--all] [--json] [--quick] [--sections host,sandbox,session,conf,net,agent] [--fix] [--install] [--yes] [--read-only] [--bundle <path>] [--redact] [--locale <tag>]");
   } else {
     process.exitCode = await main(options);
   }

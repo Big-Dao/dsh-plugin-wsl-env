@@ -34,6 +34,25 @@
 report 附带；`--redact` 把 home 与 DSH 路径替换为 `<redacted-*>` 占位符。
 bundle 不含文件内容、环境变量，也没有遥测。
 
+## 三个入口
+
+doctor 通过三个入口给出同一份报告：
+
+- **独立 CLI**——`node scripts/doctor.mjs [distro] [--json] [--quick] [--sections …] [--locale <tag>]`。
+  这是权威入口：它**不加载任何 peer 依赖、任何宿主服务**，即使插件的运行时
+  本身就是故障源，它也能启动。只 import 纯净、无 peer 的 `lib/` 模块；原先
+  挂在 peer 污染模块（`lib/index.js`、`lib/update-check.js`）后面的两个
+  helper 已内联，并由 `test/doctor.test.mjs` 与 lib 导出对拍防漂移。
+  退出码 0 = `ready`，1 = `blocked`。
+- **`/wsl-doctor` UI 命令**——composer 按钮投下
+  `/wsl-doctor [quick|full|<分区>] [--distro <名称>]`；命令面在宿主侧执行，
+  handler 子进程运行独立 CLI，逐项报告直接渲染在 UI 上、不进模型历史
+  （无模型回合、零 token）。没有命令适配器的部署（headless、ACP）中该行是
+  no-op，CLI 就是入口。
+- **`wsl_doctor` 模型工具**——经 `doctorReport()` 进程内采集，会合并常驻
+  agent 的实时状态。这是唯一依赖模型链路的入口；怀疑插件运行时本身时，
+  用命令或 CLI。
+
 ## 地图
 
 类别图例：

@@ -43,6 +43,28 @@ configuration) for a setup report; `--redact` replaces home and DSH paths
 with `<redacted-*>` placeholders. The bundle contains no file contents, no
 environment variables, and no telemetry.
 
+## The surfaces
+
+The doctor answers through three surfaces with one report:
+
+- **The standalone CLI** — `node scripts/doctor.mjs [distro] [--json] [--quick] [--sections …] [--locale <tag>]`.
+  The authoritative surface: it loads **no peer dependency and no host
+  service**, so it still starts when the plugin's own runtime is the thing
+  that is broken. Only pure, peer-free `lib/` modules are imported; the two
+  helpers that used to live behind peer-tainted modules (`lib/index.js`,
+  `lib/update-check.js`) are inlined and drift-pinned against the lib exports
+  by `test/doctor.test.mjs`. Exit 0 = `ready`, 1 = `blocked`.
+- **The `/wsl-doctor` UI command** — the composer button drops a
+  `/wsl-doctor [quick|full|<section>] [--distro <name>]` line; the commands
+  registry executes it host-side, the handler spawns the standalone CLI, and
+  the itemized report renders detached from model history (no model turn, no
+  tokens). Without a command adapter (headless, ACP) the row is a no-op and
+  the CLI is the surface.
+- **The `wsl_doctor` model tool** — in-process via `doctorReport()`, so the
+  live resident's state merges in. This is the only surface that depends on
+  the model path; use the command or the CLI when the plugin's runtime itself
+  is under suspicion.
+
 ## The map
 
 Class legend:

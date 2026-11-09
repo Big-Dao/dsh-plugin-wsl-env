@@ -115,7 +115,7 @@ The rest of the module stays. `BINARY_SAMPLE_BYTES`, `FsCodedError`,
 `notTextError`, `decodeUtf8`, `decodeUtf8Stream` and `throwIfAborted`
 (`src/fsio-text.ts:23`, `:30`, `:53`, `:67`, `:86`, `:179`) have no counterpart
 in the fsio declarations, and the module's other consumers keep importing them
-locally (`src/fsio-agent.ts:27-36`, `src/fs-substrate.ts:37`,
+locally (`src/fsio-agent.ts:27-34`, `src/fs-substrate.ts:37`,
 `src/index.ts:57`). `lib/fsio-text.js` is not deleted; four of its ten exports
 are.
 
@@ -164,7 +164,7 @@ Files that move with it:
 
 - `src/fsio-text.ts` — drop `applyLiteralEdit`, `detectLineEndings`,
   `normalizeLineEndings`, `restoreLineEndings`; keep the rest.
-- `src/fsio-agent.ts` (imports `:27-36`, `detectLineEndings` used at `:528`)
+- `src/fsio-agent.ts` (imports `:27-34`, `detectLineEndings` used at `:756`)
   and `src/fs-substrate.ts` (`:37`) — take the four from the peer. Where they
   land decides the module's peer story: importing them directly keeps
   `src/fsio-text.ts` peer-free — and `test/fsio-text.test.mjs`, which imports

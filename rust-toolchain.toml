@@ -1,0 +1,16 @@
+# Pins the toolchain the spike (and therefore the shipped
+# agent/native/linux-*/dsh-wsl-agent binaries) builds with, so CI, release
+# verification and local builds produce the same bytes instead of drifting
+# with runner images. 1.99.1 is the version the committed binaries were last
+# built and qemu-tested with (rustup fetches it on first use — the runner
+# image's preinstalled stable is ignored). The targets list removes the need
+# for a separate `rustup target add` in the CI native-package job.
+#
+# This file sits at the repo root, not in agent/native/spike/: rustup finds
+# the toolchain file by walking up from the invocation directory and never
+# follows `--manifest-path`, so a pin next to the sources is invisible to
+# cargo steps launched from the repo root — they silently build with the
+# default toolchain, which on CI has no musl std targets (E0463).
+[toolchain]
+channel = "1.99.1"
+targets = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"]

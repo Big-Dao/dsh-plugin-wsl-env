@@ -75,7 +75,7 @@
 
 ## 历史和辅助材料
 
-- [2026-10-03 审查](../REVIEW-2026-10-03.md) 是有日期的历史审查，不是当前缺陷清单。
+- [2026-10-03 审查](archive/REVIEW-2026-10-03.md) 是有日期的历史审查，不是当前缺陷清单。
 - [归档索引](archive/README.md) 和 [英文索引](archive/README.en.md) 指向
   [设计历史](archive/design-history.zh.md) 与
   [工程记录](archive/engineering-record.zh.md)；保留原始时间背景。

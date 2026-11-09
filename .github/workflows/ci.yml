@@ -126,8 +126,8 @@ jobs:
   # behaviour; the plugin's Node suite never compiles it. This job builds the
   # spike from source, runs its manual suite against that build, then runs the
   # same suite against the binary committed in the package — the artifact the
-  # host copies into a distro. The runner image already carries Rust; no new
-  # action is needed.
+  # host copies into a distro. The runner image carries Rust through rustup,
+  # and agent/native/spike/rust-toolchain.toml pins the version it builds with.
   native:
     if: github.event_name != 'schedule'
     name: native spike (x86_64)
@@ -161,20 +161,25 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Add Rust targets and musl
+      # The toolchain is pinned so the shipped bytes do not drift with runner
+      # images: the Rust version and musl targets come from
+      # agent/native/spike/rust-toolchain.toml (rustup reads it on every cargo
+      # call), and cargo-zigbuild with the Zig linker are pinned here — 0.24.1
+      # is built and tested against Zig 0.17.x, the pairing the packaging
+      # channels ship.
+      - name: Add musl and python
         run: |
-          rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
           sudo apt-get update
           sudo apt-get install -y musl-tools python3-pip
       - name: Build x86_64 musl
         run: cargo build --release --target x86_64-unknown-linux-musl --manifest-path agent/native/spike/Cargo.toml
       - name: Strip the x86_64 binary
         run: strip --strip-all agent/native/spike/target/x86_64-unknown-linux-musl/release/dsh-wsl-agent-spike
-      - name: Install zigbuild
+      - name: Install the pinned zigbuild
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          pip install --user ziglang
-          cargo install cargo-zigbuild --locked
+          pip install --user ziglang==0.17.1
+          cargo install cargo-zigbuild --locked --version 0.24.1
       - name: Build aarch64 musl
         run: |
           export PATH="$HOME/.local/bin:$PATH"
@@ -200,6 +205,17 @@ jobs:
         run: node agent/native/spike/test.mjs agent/native/spike/target/aarch64-unknown-linux-musl/release/dsh-wsl-agent-spike
       - name: Test the committed aarch64 binary under qemu
         run: node agent/native/spike/test.mjs agent/native/linux-aarch64/dsh-wsl-agent
+      # The committed binaries are reviewed by hand, so record what this run
+      # produced: the hashes go to the run summary and travel with the
+      # artifact, so the bytes staged for review can be tied back to the run
+      # that built them.
+      - name: Record the artifact checksums
+        run: |
+          cd agent/native/spike/target
+          sha256sum x86_64-unknown-linux-musl/release/dsh-wsl-agent-spike \
+            aarch64-unknown-linux-musl/release/dsh-wsl-agent-spike \
+            | tee SHASUMS256.txt
+          cat SHASUMS256.txt >> "$GITHUB_STEP_SUMMARY"
       # The upload action is a tag rather than a SHA because the artifact is a
       # short-lived CI transport, not shipped code; the shipped bytes are the
       # committed binaries after review.
@@ -209,6 +225,7 @@ jobs:
           path: |
             agent/native/spike/target/x86_64-unknown-linux-musl/release/dsh-wsl-agent-spike
             agent/native/spike/target/aarch64-unknown-linux-musl/release/dsh-wsl-agent-spike
+            agent/native/spike/target/SHASUMS256.txt
           if-no-files-found: error
 
   # WSL-202's container leg: the shell agent runs in the non-Ubuntu families'

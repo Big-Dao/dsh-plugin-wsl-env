@@ -68,7 +68,9 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for individual probes, prerequisites,
 and optional performance probes not included in the suite.
 
 `npm publish` runs the `prepublishOnly` script, which is `pnpm test`. The local
-gates therefore run again during the release step.
+gates therefore run again during the release step. (The release workflow
+publishes with `--ignore-scripts` for exactly this reason — its Gates step has
+already run the chain; a hand-run publish keeps the hook.)
 
 ## 4. Commit and tag
 
@@ -96,8 +98,11 @@ this order:
 3. Asks the registry whether this version is already published, and skips the
    upload when it is. Re-pushing the same tag therefore does not publish again —
    it only gets you as far as the GitHub Release.
-4. Publishes with `npm publish --provenance --access public`. That attaches a
-   signed attestation tying the tarball to this workflow run and this commit.
+4. Publishes with `npm publish --provenance --access public --ignore-scripts`.
+   That attaches a signed attestation tying the tarball to this workflow run
+   and this commit. `--ignore-scripts` skips the `prepublishOnly` hook: the
+   Gates step has already run the full chain, and npm would otherwise re-run
+   it a second time. A hand-run publish keeps the hook as its safety net.
 5. Creates the GitHub Release, with notes taken from the changelog section by
    `scripts/changelog-section.mjs`.
 

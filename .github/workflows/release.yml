@@ -93,12 +93,20 @@ jobs:
         # `npm install dsh-plugin-wsl-env` consumer would take the rc. The
         # tag↔version discipline lives in scripts/check-release-tag.mjs; the
         # dist-tag policy lives here.
+        #
+        # --ignore-scripts skips the `prepublishOnly` hook (`pnpm test`): the
+        # Gates step above has already run the full chain, and npm would
+        # otherwise re-run it end to end a second time. A hand-run publish
+        # keeps the hook — package.json's `prepublishOnly` stays the safety
+        # net there. The tarball's contents are still verified without it:
+        # test/packaging.test.mjs packs and checks the file list inside the
+        # Gates, and the registry read-back step below compares counts.
         run: |
           version="$(node -p 'require("./package.json").version')"
           if echo "$version" | grep -qE -- '-(rc|alpha|beta|next)\.'; then
-            npm publish --provenance --access public --tag next
+            npm publish --provenance --access public --tag next --ignore-scripts
           else
-            npm publish --provenance --access public
+            npm publish --provenance --access public --ignore-scripts
           fi
       # The step that used to be docs-only (RELEASING.md's registry
       # verification; skipping it is how the 0.1.1 README incident shipped):

@@ -25,8 +25,9 @@ concurrency:
   cancel-in-progress: true
 
 # corepack resolves pnpm from the packageManager field and downloads it once per
-# runner; the flag silences its interactive download confirmation, which has no
-# TTY in CI.
+# runner; the +sha512 suffix in that field pins the tarball's digest, so a
+# tampered pnpm download fails the run. The flag silences corepack's
+# interactive download confirmation, which has no TTY in CI.
 env:
   COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
 
@@ -66,17 +67,22 @@ jobs:
         with:
           persist-credentials: false
         if: ${{ matrix.os != 'windows-latest' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+      # corepack runs BEFORE setup-node so the action's pnpm cache can work:
+      # `cache: "pnpm"` resolves `pnpm store path` when the step runs (and
+      # again in its post phase, saving the store), so pnpm must be on PATH.
+      - run: corepack enable pnpm
+        if: ${{ matrix.os != 'windows-latest' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: ${{ matrix.os != 'windows-latest' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
         with:
           node-version: ${{ matrix.node }}
+          cache: "pnpm"
       # The 0.7.x tests import pinned dev dependencies: the composition and boot
       # tests run the loader's REAL patch algorithm (`@deepseek-ai/cordis-plugin-include`)
       # and the fake agent runners exercise the service shapes. `pnpm install
       # --frozen-lockfile` reproduces the locked tree; the runtime package itself
       # still ships zero dependencies.
-      - run: corepack enable pnpm
-        if: ${{ matrix.os != 'windows-latest' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+      #
       # pnpm 11.7's lockfile supply-chain re-verification ignores the
       # minimumReleaseAgeExclude entries (see release.yml and
       # pnpm-workspace.yaml's note) — a freshly-pinned peer floor would fail
@@ -95,11 +101,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # corepack before setup-node: the cache flag below needs pnpm
+      # resolvable (see the test job).
+      - run: corepack enable pnpm
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
-      - run: corepack enable pnpm
-        if: ${{ matrix.os != 'windows-latest' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+          cache: "pnpm"
       # pnpm 11.7's lockfile supply-chain re-verification ignores the
       # minimumReleaseAgeExclude entries (see release.yml and
       # pnpm-workspace.yaml's note) — a freshly-pinned peer floor would fail
@@ -249,11 +257,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # corepack before setup-node: the cache flag below needs pnpm
+      # resolvable (see the test job).
+      - run: corepack enable pnpm
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
-      - run: corepack enable pnpm
-        if: ${{ matrix.os != 'windows-latest' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+          cache: "pnpm"
       # pnpm 11.7's lockfile supply-chain re-verification ignores the
       # minimumReleaseAgeExclude entries (see release.yml and
       # pnpm-workspace.yaml's note) — a freshly-pinned peer floor would fail

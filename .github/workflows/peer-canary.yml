@@ -33,12 +33,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # corepack, the same provisioning ci.yml uses (packageManager pins the
+      # version); the third-party pnpm action goes away with it. It runs
+      # BEFORE setup-node so the cache flag below can resolve pnpm.
+      - run: corepack enable pnpm
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-      # corepack, the same provisioning ci.yml uses (packageManager pins the
-      # version); the third-party pnpm action goes away with it.
-      - run: corepack enable pnpm
+          cache: "pnpm"
       - run: pnpm install --frozen-lockfile --config.minimum-release-age=0
       - name: Resolve the next line and test it in a scratch tree
         run: node scripts/peer-canary.mjs --apply --tag next

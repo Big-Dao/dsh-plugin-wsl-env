@@ -267,9 +267,8 @@
     #      `name`/`description` for the mode selector, `order: 2`.
     # Regenerate it when an app update changes the preset: take
     # `packages/bundle/web-app/presets/standard.patch.yml` from the harness tree
-    # the peer pins track and run `node scripts/build-preset-wsl.mjs <that
-    # file>`, then replace this row to the end of the file. The script applies
-    # changes 1 and 2 itself, so only change 3 is yours.
+    # the peer pins track, replace this row to the end of the file with its
+    # content, then re-apply changes 1–3 by hand.
     # ═════════════════════════════════════════════════════════════════════════════
     - id: preset-wsl
       name: '@deepseek-ai/dsh-agent-preset'

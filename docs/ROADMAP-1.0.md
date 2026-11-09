@@ -167,7 +167,7 @@ may move if the compatibility matrix exposes a higher-severity failure.
 |---|---|---|---|
 | Time to first command | Not systematically measured | p50 <= 5 min, p90 <= 15 min | Ten clean-machine runs |
 | Tier 1 first-run success | Not measured | >= 95% | Compatibility matrix |
-| Real-machine probes | 15 with `--include-fs` (14 base scripts incl. `fs-routing.sh`, plus `run.sh`); nightly job on hosted `windows-latest` skips without WSL | 100% on a Windows+WSL runner | Dispatch or a self-hosted runner that actually has WSL |
+| Real-machine probes | 17 with `--include-fs` (16 base scripts plus `run.sh`; suite grew to 17 on 2026-11-06); nightly on the self-hosted Windows+WSL runner since 0.15.0 (cron 21:30 UTC, hosted runners skip green) | 100% green on the nightly run | CI `probes` job history |
 | FS single-op p95 | ~22ms host round trip | <= 30ms | `fs-queue.mjs` |
 | 16 concurrent reads p95 | 2.4-8.2ms | <= 20ms | `fs-queue.mjs` |
 | GUI preview p95 | Backend 63.5 ms/MiB (service round trips on top) | <= 1s/MiB | `probe:gui-preview` |

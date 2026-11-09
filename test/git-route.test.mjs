@@ -130,11 +130,16 @@ check("translateGitEnv keeps the git hygiene flags and translates path-shaped va
   assert.deepEqual(wslenv, ["GIT_CONFIG_COUNT", "GIT_TERMINAL_PROMPT", "GIT_OPTIONAL_LOCKS", "LC_ALL", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES"]);
 });
 
-check("a colon-separated multi-directory value passes through untranslated", () => {
+check("a multi-directory list value is not skipped: Windows form folds onto the first drive, POSIX form rides verbatim", () => {
   assert.equal(
     translateGitEnvValue("/a:/b"),
     "/a:/b",
-    "the current callers set single directories; a list would need split-translate-join",
+    "a POSIX-form colon list matches neither translator; a list would need split-translate-join",
+  );
+  assert.equal(
+    translateGitEnvValue("C:\\a;D:\\b"),
+    "/mnt/c/a;D:/b",
+    "the single-value translation matches the first drive and folds the whole list onto its mount (no current caller sets a list)",
   );
 });
 

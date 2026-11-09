@@ -44,8 +44,10 @@
  * two shapes into distro paths with the same pure translations the fs seam
  * uses, forwards every other value verbatim (`GIT_CONFIG_COUNT=0` and
  * friends), and returns the names that must ride `WSLENV`. One documented
- * limit: a colon-separated multi-directory value (none of the current
- * callers set one) passes through untranslated.
+ * limit: the translation is single-valued, so a Windows-form multi-directory
+ * value is not skipped — it folds onto the first drive's mount (`C:\a;D:\b`
+ * becomes `/mnt/c/a;D:/b`) — and only a POSIX-form colon list (`/a:/b`)
+ * passes through untranslated (none of the current callers set a list).
  *
  * This is a TypeScript source built to `lib/git-route.js`; edit THIS file and
  * run `pnpm run build` — the artifact under `lib/` is generated, and `pnpm test`

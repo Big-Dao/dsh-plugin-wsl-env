@@ -72,6 +72,10 @@
 - ADR：[会话级沙箱](adr/0001-session-scoped-sandbox.md)、
   [原生 agent](adr/0002-native-agent.md)。ADR 解释决策时的背景；
   [原生实验](../agent/native/spike/README.md) 描述独立 spike，而非发布二进制。
+  ADR 不是每个决定都写，触发条件满足其一才写：推翻既有决策；被否方案
+  花过实际验证成本（spike、实测）；未来 agent 会话可能“好心改进”的刻意
+  设计。命名与纯实现细节不写，理由留在 commit message。草稿可由会话内的
+  agent 整理，但理由必须来自真实讨论过的内容，由人裁决后提交。
 - 上游接口记录：[文件引用](UPSTREAM-FILE-REFERENCE-SEAM.md)、
   [fsio 导出](UPSTREAM-FSIO-EXPORT.md)、[LSP](UPSTREAM-LSP-SEAM.md)、
   [Open in app](UPSTREAM-OPEN-IN-APP.md)、

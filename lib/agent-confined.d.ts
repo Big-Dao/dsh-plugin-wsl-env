@@ -38,7 +38,7 @@ export declare function runSpawnChecklist({ wslPath, distro, root, runFn }: {
     runFn?: (argv: string[]) => Promise<unknown>;
 }): Promise<void>;
 /** One confinement request. */
-export interface ConfinedAgentRequest {
+interface ConfinedAgentRequest {
     /** The distro to run in. */
     distro: string;
     /** The `wsl.exe` path. */
@@ -77,4 +77,4 @@ export interface ConfinedAgentRequest {
 export declare function confinedAgent({ distro, wslPath, policy, maskWindowsDrive, realTmp }: ConfinedAgentRequest): WslAgent;
 /** Test hook: forget every confined resident (the plain agent has no factory state). */
 export declare function resetConfinedAgents(): void;
-export default confinedAgent;
+export {};

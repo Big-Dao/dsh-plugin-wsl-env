@@ -51,7 +51,7 @@ type MoveFileOptions = Parameters<FileSystem["moveFile"]>[2];
  * routed backend reads. The distro keys are `??`-defaulted, so a host-only
  * config stays valid.
  */
-export interface RoutingConfig {
+interface RoutingConfig {
   /** The host backend's base directory. */
   cwd?: string;
   /** The host backend's overwrite-diff byte bound. */

@@ -30,8 +30,6 @@ import {
   decodeUtf8Stream,
   detectLineEndings,
   normalizeLineEndings,
-  restoreLineEndings,
-  applyLiteralEdit,
   throwIfAborted,
 } from "./fsio-text.js";
 import { posixToUnc, uncToPosix } from "./paths.js";
@@ -41,7 +39,7 @@ import type { WslAgent } from "./agent.js";
 const FS_OP_TIMEOUT_MS = 30_000;
 
 /** One agent FS round trip's result — the shape `WslAgent#fs` resolves to. */
-export interface AgentFsResult {
+interface AgentFsResult {
   /** The op's exit status. */
   exitCode: number;
   /** The op's payload bytes. */
@@ -118,7 +116,7 @@ export interface ResolvedTarget {
   targetKey: string;
 }
 
-export const REASON_CODES: Record<string, string> = {
+const REASON_CODES: Record<string, string> = {
   notfound: "FS_NOT_FOUND",
   notdir: "FS_NOT_DIRECTORY",
   perm: "FS_IO_ERROR",
@@ -147,7 +145,7 @@ export function reasonToCode(reason: string): string {
 const DENIAL_SIGNATURES = ["read-only file system"];
 
 /** One `find` listing row, as `listChildren` shapes it. */
-export interface ChildRow {
+interface ChildRow {
   name: string;
   type: string;
   target: { displayPath: string, targetKey: string };
@@ -156,7 +154,7 @@ export interface ChildRow {
 }
 
 /** The stat row `stat` returns. */
-export interface StatRow {
+interface StatRow {
   type: string;
   mode: number;
   size: number;
@@ -784,5 +782,3 @@ export class DistroFs {
   }
 }
 
-export { applyLiteralEdit, normalizeLineEndings, restoreLineEndings };
-export default DistroFs;

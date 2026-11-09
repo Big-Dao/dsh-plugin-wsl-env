@@ -42,7 +42,7 @@ import type { AgentExecRunner } from "./agent-exec.js";
 import { translateDiscoveryOutput } from "./git-route.js";
 
 /** One collected-stream reader with the seam's standard shape. */
-export interface GitStreamReader {
+interface GitStreamReader {
   /** Read the stream from a byte offset; `lossy` says the cap cut it. */
   readFrom: (from: number) => { text: string, lossy: boolean, nextOffset: number };
 }
@@ -61,7 +61,7 @@ export interface GitExecutionHandle {
 }
 
 /** Per-stream capture budgets the caller declared on its `stdio` spec. */
-export interface GitStreamCaps {
+interface GitStreamCaps {
   /** The stdout budget in bytes; the snapshot's `outputMaxBytes`. */
   stdout: number;
   /** The stderr tail budget in bytes. */

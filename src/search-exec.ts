@@ -37,7 +37,7 @@ import type { AgentExecRunner } from "./agent-exec.js";
  * The output-stream reader the search tool consumes: `handle.collected.stdout`
  * / `stderr` expose `readFrom(offset)` with the seam's standard shape.
  */
-export interface SearchCollectedReader {
+interface SearchCollectedReader {
   /** Read the stream from a byte offset. */
   readFrom: (from: number) => { text: string, lossy: boolean, nextOffset: number };
 }

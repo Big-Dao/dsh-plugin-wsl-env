@@ -20,7 +20,7 @@
  */
 
 /** One probe cache's surface. */
-export interface ProbeCache {
+interface ProbeCache {
   /**
    * Run one probe under the policy.
    *

@@ -33,7 +33,7 @@ export declare const NATIVE_AGENT_ENV = "DSH_WSL_AGENT_NATIVE";
  */
 export declare function nativeCacheScript(digest: string): string;
 /** The injectable edges. */
-export interface NativeBackendOptions {
+interface NativeBackendOptions {
     /** The `wsl.exe` path. */
     wslPath: string;
     /** The distro. */
@@ -53,7 +53,7 @@ export interface NativeBackendOptions {
     copy?: (script: string, binary: Buffer) => Promise<string>;
 }
 /** A prepared native binary: its in-distro path and the sha256 of its bytes. */
-export interface NativeBackendResult {
+interface NativeBackendResult {
     /** The Linux path the session runtime spawns. */
     path: string;
     /** Lowercase hex sha256; the agent's HELLO digest must match it. */
@@ -122,3 +122,4 @@ export declare function ensureNativeSessionAgent({ wslPath, distro, setNative, e
     /** Prepare the binary; tests substitute. */
     ensure?: (options: NativeBackendOptions) => Promise<NativeBackendResult | undefined>;
 }): Promise<void>;
+export {};

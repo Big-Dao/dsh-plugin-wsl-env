@@ -36,11 +36,11 @@ export declare const name = "wsl-doctor-tool";
  */
 export declare const inject: string[];
 /** The tool registry slice this service consumes. */
-export interface ToolRegistrySlice {
+interface ToolRegistrySlice {
     register: (tool: unknown) => unknown;
 }
 /** The harness's `workingDirectory` service slice (cwd resolution). */
-export interface WorkingDirectoryToolSlice {
+interface WorkingDirectoryToolSlice {
     ensure: (agent: unknown, signal?: unknown) => Promise<string>;
 }
 /** The doctor report this tool digests — the doctor CLI's versioned shape. */
@@ -68,12 +68,12 @@ export interface DoctorReportLike {
     };
 }
 /** The doctor report collector: distro plus run scope in, report out. */
-export type DoctorCollector = (distro: string, options?: {
+type DoctorCollector = (distro: string, options?: {
     quick?: boolean;
     sections?: readonly string[];
 }) => Promise<DoctorReportLike>;
 /** The context slice this service consumes. */
-export type WslDoctorToolContext = {
+type WslDoctorToolContext = {
     tools: ToolRegistrySlice;
     workingDirectory: WorkingDirectoryToolSlice;
     /** Optional cordis-style lookup: how production resolves `doctor` without an inject. */
@@ -81,13 +81,8 @@ export type WslDoctorToolContext = {
     /** The in-process collector: a provided `doctor` service, or the test seam's fake. */
     doctor?: DoctorCollector;
 };
-/** The tool's config: the row takes no options. */
-export interface WslDoctorToolConfig {
-    /** Reserved; the wrapper has no options today. */
-    enabled?: boolean;
-}
 /** One failing check as the digest carries it: what failed and what to do. */
-export interface FailingCheck {
+interface FailingCheck {
     id: string;
     detail: string;
     remedy: string;
@@ -95,7 +90,7 @@ export interface FailingCheck {
     distro?: string;
 }
 /** Per-distro tallies: what was tested in each distro and how it came out. */
-export interface DistroTally {
+interface DistroTally {
     name: string;
     ok: number;
     warn: number;
@@ -109,7 +104,7 @@ export interface DistroTally {
     verdict?: string;
 }
 /** One check as the itemized listing carries it: what was tested and how it came out. */
-export interface CheckItem {
+interface CheckItem {
     id: string;
     /** The check's display name; falls back to the id when the report omits it. */
     title: string;
@@ -160,10 +155,6 @@ export interface DoctorDigest {
 export declare function sectionOf(id: string): "host" | "sandbox" | "session" | "conf" | "net" | "agent";
 /** The sections in report order, matching the doctor CLI's SECTIONS list. */
 export declare const SECTIONS: string[];
-/** The detail a scope-filtered skip row carries; the marker the renderer buckets on. */
-export declare const SCOPE_SKIP_DETAIL = "not run in this scope";
-/** The detail prefix a CLI-gated skip row carries (the blocker follows it). */
-export declare const SKIP_DETAIL_PREFIX = "skipped: ";
 /**
  * Every check id the doctor can emit — the CLI's whole probing surface,
  * including the ids that only appear conditionally (`distro.present` for a
@@ -212,3 +203,4 @@ export declare function renderDigest(digest: DoctorDigest): string;
  *   registry and the workingDirectory service are reachable).
  */
 export declare function apply(ctx: WslDoctorToolContext): Promise<void>;
+export {};

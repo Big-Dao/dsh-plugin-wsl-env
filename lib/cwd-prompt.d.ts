@@ -51,12 +51,12 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     enabled: z<boolean, boolean, "defined">;
 }>>, "plain">;
 /** The config schema's validated output. */
-export interface CwdPromptConfig {
+interface CwdPromptConfig {
     /** Whether the runtime-context rewrite runs at all. */
     enabled?: boolean;
 }
 /** One named contribution to the assembled system prompt. */
-export interface PromptContextEntry {
+interface PromptContextEntry {
     /** The registry name; the harness's entry is `working-directory:current`. */
     name?: string;
     /** The literal contribution text, already resolved by its provider. */
@@ -65,16 +65,16 @@ export interface PromptContextEntry {
     interpolate?: boolean;
 }
 /** The slice of the assembly the waterfall hands around. */
-export interface PromptAssembly {
+interface PromptAssembly {
     /** The named contributions, ordered by registry order. */
     contexts?: PromptContextEntry[];
 }
 /** The waterfall's continuation; resolves to the (possibly rewritten) assembly. */
-export type AssembleNext = () => Promise<PromptAssembly>;
+type AssembleNext = () => Promise<PromptAssembly>;
 /** The waterfall listener's signature, as the harness's own services use it. */
-export type AssembleListener = (assembly: PromptAssembly, context: unknown, next: AssembleNext) => Promise<PromptAssembly>;
+type AssembleListener = (assembly: PromptAssembly, context: unknown, next: AssembleNext) => Promise<PromptAssembly>;
 /** The `systemPrompt` slice an injected agent scope exposes. */
-export interface CwdPromptScope {
+interface CwdPromptScope {
     systemPrompt: {
         /** Register one context entry in this scope's layer. */
         context: (entry: {
@@ -89,7 +89,7 @@ export interface CwdPromptScope {
     };
 }
 /** The assembly request context: what a provider's `text` receives. */
-export interface AssembleRequestContext {
+interface AssembleRequestContext {
     /** The live agent, when the assembly runs inside one. */
     agent?: {
         session?: {
@@ -100,7 +100,7 @@ export interface AssembleRequestContext {
     } | undefined;
 }
 /** The slice of a created agent this service inspects and injects into. */
-export interface CwdPromptAgent {
+interface CwdPromptAgent {
     /** The session stub, when mounted. */
     session?: {
         header?: {
@@ -117,11 +117,11 @@ export interface CwdPromptAgent {
  * The harness's `working-directory` service, read structurally: only `get`
  * is consumed, and its absence degrades to the session header's cwd.
  */
-export interface WorkingDirectorySlice {
+interface WorkingDirectorySlice {
     get?: (session: unknown) => string | undefined;
 }
 /** The cordis context slice this service consumes. */
-export type CwdPromptContext = {
+type CwdPromptContext = {
     logger?: {
         debug?: (message: string) => void;
     };
@@ -164,3 +164,4 @@ export declare function entryText(agent: AssembleRequestContext["agent"], workin
  * @param config - the schema-validated plugin config.
  */
 export declare function apply(ctx: CwdPromptContext, config?: CwdPromptConfig): void;
+export {};

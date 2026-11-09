@@ -9,11 +9,11 @@ export declare const name = "wsl-doctor-command";
  */
 export declare const inject: string[];
 /** The host commands registry slice this row consumes. */
-export interface CommandsRegistrySlice {
+interface CommandsRegistrySlice {
     register: (definition: WslDoctorCommandDefinition) => unknown;
 }
 /** The invocation face the registry hands a handler. */
-export interface WslDoctorCommandInvocation {
+interface WslDoctorCommandInvocation {
     /** The receiving agent, when the command ran against a session. */
     agent?: unknown;
     /** Everything after the command name, separator whitespace trimmed. */
@@ -31,12 +31,12 @@ export interface WslDoctorCommandDefinition {
     handler: (invocation: WslDoctorCommandInvocation) => Promise<WslDoctorCommandResult>;
 }
 /** The settled result the adapter renders detached from model history. */
-export interface WslDoctorCommandResult {
+interface WslDoctorCommandResult {
     kind: "success" | "error";
     text: string;
 }
 /** The context slice this service consumes. */
-export type WslDoctorCommandContext = {
+type WslDoctorCommandContext = {
     /** The commands registry, when the deployment has a command adapter. */
     commands?: CommandsRegistrySlice;
     /** The harness's cwd service, used to name the session's distro. */
@@ -49,9 +49,9 @@ export type WslDoctorCommandContext = {
     doctorCli?: DoctorCliRunner;
 };
 /** The CLI runner seam: argv in (node-less — the runner owns the runtime), JSON text out. */
-export type DoctorCliRunner = (argv: string[], signal?: AbortSignal) => Promise<string>;
+type DoctorCliRunner = (argv: string[], signal?: AbortSignal) => Promise<string>;
 /** The parsed `/wsl-doctor` line. */
-export interface ParsedDoctorInput {
+interface ParsedDoctorInput {
     /** quick → `--quick`; full → no flag; section → `--sections <name>`. */
     mode: "quick" | "full" | "section";
     /** The section name, when `mode` is `"section"`. */
@@ -103,3 +103,4 @@ export declare function formatDoctorReport(json: string, distro: string): string
  *   registry and the harness cwd service are reachable).
  */
 export declare function apply(ctx: WslDoctorCommandContext): Promise<void>;
+export {};

@@ -66,7 +66,7 @@ export function decodeB64(value: string): Buffer {
 }
 
 /** One EXEC frame's inputs. */
-export interface ExecFrameRequest {
+interface ExecFrameRequest {
   /** Caller-chosen request id (unique per agent). */
   id: string;
   /** Linux path to cd into before exec. */
@@ -143,7 +143,7 @@ export function encodeKill(id: string): string {
 }
 
 /** One FS frame's inputs. */
-export interface FsFrameRequest {
+interface FsFrameRequest {
   /** Caller-chosen request id (unique per agent). */
   id: string;
   /** One of the op names `encodeFsFrame` documents. */
@@ -186,7 +186,7 @@ export function encodeFsFrame({ id, op, args, timeoutMs = 0 }: FsFrameRequest): 
 }
 
 /** One op inside a batch frame — the same shape as an FS frame's op and args. */
-export interface FsBatchOp {
+interface FsBatchOp {
   /** The op name (`stat`, `lstat`, `list`, `read`, … — the FS vocabulary). */
   op: string;
   /** Op arguments, one wire line each. */
@@ -241,7 +241,7 @@ export interface HelloMessage {
 }
 
 /** `PONG` — the liveness answer to `PING`. */
-export interface PongMessage {
+interface PongMessage {
   type: "pong";
 }
 
@@ -294,7 +294,7 @@ export interface FsErrorMessage {
  * logged and dropped, because a `RES` for a request the host already gave up
  * on is expected noise.)
  */
-export interface UnknownMessage {
+interface UnknownMessage {
   type: "unknown";
   line: string;
 }

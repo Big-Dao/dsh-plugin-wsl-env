@@ -17,9 +17,9 @@
  * @module dsh-plugin-wsl-env/distro-route
  */
 /** Why a distro was selected, for diagnostics and for the docs. */
-export type DistroSource = "pinned" | "workspace" | "default";
+type DistroSource = "pinned" | "workspace" | "default";
 /** One distro selection. */
-export interface DistroChoice {
+interface DistroChoice {
     /** The distro name to use. */
     distro: string;
     /** Whether the name came from the config, the path, or WSL's default. */
@@ -73,3 +73,4 @@ export declare function selectDistro({ configured, candidates, fallback }: {
     /** WSL's default distro, already resolved by the caller. */
     fallback: string;
 }): DistroChoice;
+export {};

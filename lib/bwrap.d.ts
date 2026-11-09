@@ -24,7 +24,7 @@
  * @module dsh-plugin-wsl-env/bwrap
  */
 /** Profile options shared by the two confinement sites. */
-export interface BwrapProfileOptions {
+interface BwrapProfileOptions {
     /** Shadow `/mnt` with an empty tmpfs. */
     maskWindowsDrive?: boolean;
     /**
@@ -96,3 +96,4 @@ export declare function bwrapArgvPrefix(policy: {
     mode: string;
     workspaceRoot: string;
 }, options?: BwrapProfileOptions): string[];
+export {};

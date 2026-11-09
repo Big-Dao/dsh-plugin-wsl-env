@@ -70,7 +70,7 @@ export const Config = z.object({
 });
 
 /** The config schema's validated output. */
-export interface PreflightConfig {
+interface PreflightConfig {
   /** The distro mode: empty/`auto`, an explicit name, or `default`. */
   distro?: string;
   /** The `wsl.exe` path the probe spawns. */
@@ -107,7 +107,7 @@ const sweepStaleScopes = (wslPath: string, distro: string): void => {
  * The slice of a created agent this service inspects; the harness's agent
  * object is structural here, the same view `auto-preset` uses.
  */
-export interface PreflightAgent {
+interface PreflightAgent {
   /** The agent's id. */
   id: string;
   /** The session stub, when mounted. */
@@ -124,7 +124,7 @@ export interface PreflightAgent {
 }
 
 /** The slice of a session context that can carry the advisory. */
-export interface PreflightPromptScope {
+interface PreflightPromptScope {
   systemPrompt: {
     context: (entry: { name: string, order: number, text: () => string }) => unknown,
   };
@@ -136,7 +136,7 @@ export interface PreflightPromptScope {
  * visible to this plugin, so they are spelled structurally on top of the
  * framework's {@link Context}.
  */
-export type PreflightContext = Context & {
+type PreflightContext = Context & {
   logger?: {
     debug?: (message: string) => void,
     warn?: (message: string) => void,

@@ -29,16 +29,6 @@
  */
 export declare function missingBwrapRemedy(distro: string, family?: string): string;
 /**
- * The remedy for a bwrap that PROBED healthy but failed a run — the runtime
- * twin of {@link missingBwrapRemedy}. No family knowledge exists on this path
- * (the probe succeeded, so no family probe ever ran), and reinstalling is only
- * one of the plausible fixes, so the hint leads with diagnosis.
- *
- * @param distro - the distro whose bwrap failed at run time.
- * @returns the operator-facing hint text.
- */
-export declare function bwrapInstallHint(distro: string): string;
-/**
  * Append {@link bwrapInstallHint} to a runner-failure detail that names bwrap.
  * A probe-time failure composes its own classified remedy; this covers the
  * OTHER order — bwrap probed healthy, then failed a real command — where no
@@ -90,7 +80,7 @@ export declare function bwrapFailure(wslPath: string, distro: string): string | 
  * The seam's `ConfinedArgv` settlement facts, plus this core's `windowsDrive`
  * mitigation flag.
  */
-export interface WslConfined {
+interface WslConfined {
     /** The wrapped argv (bwrap prefix, separator, the caller's argv). */
     argv: string[];
     /**
@@ -147,3 +137,4 @@ export declare function createSandboxCore({ SandboxUnavailableError }: {
     wslPath?: string;
     maskWindowsDrive?: boolean;
 } | undefined) => WslSandboxCoreInstance;
+export {};

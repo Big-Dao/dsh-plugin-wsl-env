@@ -60,7 +60,7 @@ export async function probeSessionRuntime({ wslPath, distro, run }: {
 }
 
 /** One request for a session runtime. */
-export interface SessionRuntimeRequest {
+interface SessionRuntimeRequest {
   /** The session identity; absent requests each get a separate runtime. */
   sessionId?: string;
   /** The distro the runtime lives in. */
@@ -94,7 +94,7 @@ export interface SessionRuntimeEntry {
 }
 
 /** The injectable edges, so the registry is testable without systemd. */
-export interface SessionRuntimeOptions {
+interface SessionRuntimeOptions {
   /** Create the agent; tests substitute a fake. */
   spawnAgent?: (options: {
     /** The distro. */

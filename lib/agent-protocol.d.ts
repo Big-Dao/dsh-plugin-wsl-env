@@ -53,7 +53,7 @@ export declare function encodeB64(value: string | Uint8Array): string;
  */
 export declare function decodeB64(value: string): Buffer;
 /** One EXEC frame's inputs. */
-export interface ExecFrameRequest {
+interface ExecFrameRequest {
     /** Caller-chosen request id (unique per agent). */
     id: string;
     /** Linux path to cd into before exec. */
@@ -112,7 +112,7 @@ export declare function encodeSetEnv(key: string, value: string): string;
  */
 export declare function encodeKill(id: string): string;
 /** One FS frame's inputs. */
-export interface FsFrameRequest {
+interface FsFrameRequest {
     /** Caller-chosen request id (unique per agent). */
     id: string;
     /** One of the op names `encodeFsFrame` documents. */
@@ -147,7 +147,7 @@ export interface FsFrameRequest {
  */
 export declare function encodeFsFrame({ id, op, args, timeoutMs }: FsFrameRequest): string[];
 /** One op inside a batch frame — the same shape as an FS frame's op and args. */
-export interface FsBatchOp {
+interface FsBatchOp {
     /** The op name (`stat`, `lstat`, `list`, `read`, … — the FS vocabulary). */
     op: string;
     /** Op arguments, one wire line each. */
@@ -195,7 +195,7 @@ export interface HelloMessage {
     caps?: string[];
 }
 /** `PONG` — the liveness answer to `PING`. */
-export interface PongMessage {
+interface PongMessage {
     type: "pong";
 }
 /**
@@ -246,7 +246,7 @@ export interface FsErrorMessage {
  * logged and dropped, because a `RES` for a request the host already gave up
  * on is expected noise.)
  */
-export interface UnknownMessage {
+interface UnknownMessage {
     type: "unknown";
     line: string;
 }
@@ -259,3 +259,4 @@ export type AgentMessage = HelloMessage | PongMessage | AckMessage | ResultMessa
  * @returns the line's verdict; the message interfaces document each variant.
  */
 export declare function parseAgentLine(line: string): AgentMessage;
+export {};

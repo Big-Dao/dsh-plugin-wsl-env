@@ -36,7 +36,6 @@
  *
  * @module dsh-plugin-wsl-env/sandbox
  */
-export { bwrapProfileArgs } from "./bwrap.js";
 /**
  * The confinement over WSL: the probe-then-confine class bound to the peer's
  * failure type. See the core module for the probe policy and the profile.

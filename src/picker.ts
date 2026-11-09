@@ -68,7 +68,7 @@ const DEFAULT_DISTRO_CACHE_MS = 5_000;
 /**
  * The resolved service configuration, as {@link WslDirectoryPicker.Config} yields.
  */
-export interface PickerConfig {
+interface PickerConfig {
   /** Path to `wsl.exe`; overridable for a non-standard install. */
   wslPath: string;
   /**
@@ -100,7 +100,7 @@ export interface PickerConfig {
  * @param signal - caller lifetime; absent means plain awaiting.
  * @returns the operation's value.
  */
-export function raceAbort<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
+function raceAbort<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (signal === void 0) return operation;
   return new Promise((resolve, reject) => {
     const onAbort = () => {
@@ -512,4 +512,3 @@ export class WslDirectoryPicker extends DirectoryPicker {
 }
 
 export default WslDirectoryPicker;
-export { ancestryCrumbs, boundedInsert, breadcrumbs, fullyQualified } from "./listing.js";

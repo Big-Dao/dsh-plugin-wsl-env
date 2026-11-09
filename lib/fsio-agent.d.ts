@@ -21,23 +21,7 @@
  *
  * @module dsh-plugin-wsl-env/fsio-agent
  */
-import { normalizeLineEndings, restoreLineEndings, applyLiteralEdit } from "./fsio-text.js";
 import type { WslAgent } from "./agent.js";
-/** One agent FS round trip's result — the shape `WslAgent#fs` resolves to. */
-export interface AgentFsResult {
-    /** The op's exit status. */
-    exitCode: number;
-    /** The op's payload bytes. */
-    stdout: Buffer;
-    /** The op's diagnostic line(s). */
-    stderr: Buffer;
-    /**
-     * Protocol 7's FS refusal token, when the op failed through the structured
-     * FSERR line; the adapter maps it onto `FsErrorCode` directly. Undefined
-     * for legacy (v6) agents, whose refusal rides the stderr convention.
-     */
-    reason?: string;
-}
 /**
  * Normalize one agent timestamp ("seconds.frac", 9 or 10 fractional digits
  * depending on whether stat or find produced it) into the peer's nanosecond
@@ -91,7 +75,6 @@ export interface ResolvedTarget {
     /** The UNC identity this target keys on. */
     targetKey: string;
 }
-export declare const REASON_CODES: Record<string, string>;
 /**
  * Map one wire reason token onto the peer's `FsErrorCode` vocabulary.
  *
@@ -100,7 +83,7 @@ export declare const REASON_CODES: Record<string, string>;
  */
 export declare function reasonToCode(reason: string): string;
 /** One `find` listing row, as `listChildren` shapes it. */
-export interface ChildRow {
+interface ChildRow {
     name: string;
     type: string;
     target: {
@@ -111,7 +94,7 @@ export interface ChildRow {
     size?: number;
 }
 /** The stat row `stat` returns. */
-export interface StatRow {
+interface StatRow {
     type: string;
     mode: number;
     size: number;
@@ -426,5 +409,4 @@ export declare class DistroFs {
      */
     readTextForDiff(target: ResolvedTarget, maxBytes: number, signal?: AbortSignal): Promise<string | null>;
 }
-export { applyLiteralEdit, normalizeLineEndings, restoreLineEndings };
-export default DistroFs;
+export {};

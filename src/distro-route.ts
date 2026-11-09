@@ -20,10 +20,10 @@
 import { uncToPosix } from "./paths.js";
 
 /** Why a distro was selected, for diagnostics and for the docs. */
-export type DistroSource = "pinned" | "workspace" | "default";
+type DistroSource = "pinned" | "workspace" | "default";
 
 /** One distro selection. */
-export interface DistroChoice {
+interface DistroChoice {
   /** The distro name to use. */
   distro: string;
   /** Whether the name came from the config, the path, or WSL's default. */

@@ -30,7 +30,7 @@ export interface DistroPath {
  * What the two world-path translators may consult: the pinned distro and the
  * fallback directory for relative input.
  */
-export interface WorldPathOptions {
+interface WorldPathOptions {
     /**
      * The pinned distro, which maps a POSIX-absolute input onto its UNC identity
      * in {@link toWorldPath}.
@@ -198,3 +198,4 @@ export declare function distroRoot(distro: string): string;
  * @returns true for `\\wsl.localhost` and `\\wsl$` in any casing.
  */
 export declare function isProviderRoot(value: string): boolean;
+export {};

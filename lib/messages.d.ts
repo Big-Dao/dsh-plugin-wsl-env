@@ -23,7 +23,7 @@
  */
 import type { Context } from "@deepseek-ai/cordis";
 /** The languages the catalogs ship. More locales are additive: add a table and widen the resolver. */
-export type MessagesLocale = "en" | "zh";
+type MessagesLocale = "en" | "zh";
 /**
  * The message templates, keyed by call site. Each entry owns its parameter
  * shape; the `zh` table is type-checked against the `en` table's key and

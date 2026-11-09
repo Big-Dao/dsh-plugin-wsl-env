@@ -94,7 +94,7 @@ type MoveFileOptions = Parameters<FileSystem["moveFile"]>[2];
  * execution types ride in through the executor's own signatures.
  */
 export type ShellExecSpec = Parameters<LocalBashExecutor["execute"]>[0];
-export type ShellExecRequest = Parameters<LocalBashExecutor["resolve"]>[0];
+type ShellExecRequest = Parameters<LocalBashExecutor["resolve"]>[0];
 export type ShellExecution = Awaited<ReturnType<LocalBashExecutor["execute"]>>;
 
 /**
@@ -102,7 +102,7 @@ export type ShellExecution = Awaited<ReturnType<LocalBashExecutor["execute"]>>;
  * the wrapped argv, the enforcement completeness, the denial dialect, the
  * runner-failure rules and the Windows-drive masking fact.
  */
-export type ConfinedProfile = Awaited<ReturnType<InstanceType<typeof WslSandbox>["confine"]>>;
+type ConfinedProfile = Awaited<ReturnType<InstanceType<typeof WslSandbox>["confine"]>>;
 
 /**
  * The resolved spec this executor stamps with its home-marker fields: an empty
@@ -110,7 +110,7 @@ export type ConfinedProfile = Awaited<ReturnType<InstanceType<typeof WslSandbox>
  * joins against the distro home. The extra keys are this provider's own; the
  * seam's `ShellExecSpec` does not know them.
  */
-export type WslExecSpec = ShellExecSpec & { relativeWorkdir?: string };
+type WslExecSpec = ShellExecSpec & { relativeWorkdir?: string };
 
 /**
  * Every model shell call gets a rebuilt managed `DSH_*` namespace (see
@@ -325,7 +325,7 @@ export function effectiveMaskWindowsDrive(config: { interopVisibility?: "visible
   return config.maskWindowsDrive === true;
 }
 
-export interface WslShellExecutorConfig {
+interface WslShellExecutorConfig {
   /** The pinned distro; empty means WSL's default. */
   distro: string;
   /** The `wsl.exe` path. */
@@ -1443,7 +1443,7 @@ export class WslShellExecutor
  * type does not know. This provider has no volatile fields: every key is read
  * as its plain value.
  */
-export interface WslFileSystemConfig {
+interface WslFileSystemConfig {
   /** The pinned distro; empty resolves WSL's default. */
   distro: string;
   /** The base directory for relative input. */

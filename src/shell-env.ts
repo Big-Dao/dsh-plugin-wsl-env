@@ -90,7 +90,7 @@ export const Config = z.object({
 });
 
 /** The config schema's validated output. */
-export interface ShellEnvConfig {
+interface ShellEnvConfig {
   /** The distro mode: empty/`auto`, an explicit name, or `default`. */
   distro?: string;
   /** How often the listening-port snapshot refreshes, in milliseconds. */
@@ -101,7 +101,7 @@ export interface ShellEnvConfig {
  * The execution slice the shell-env registry hands a contributor's `resolve`;
  * the harness's execution object is structural here.
  */
-export interface ShellEnvExecution {
+interface ShellEnvExecution {
   /** The executing session's agent stub. */
   agent?: { session?: { header?: { cwd?: string | undefined } | undefined } | undefined } | undefined;
 }

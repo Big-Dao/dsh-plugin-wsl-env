@@ -48,7 +48,7 @@ export const Config = z.object({
 });
 
 /** The config schema's validated output. */
-export interface UpdateCheckConfig {
+interface UpdateCheckConfig {
   /** Whether the update check runs at all. */
   enabled?: boolean;
   /** How often the registry is asked, in milliseconds. */
@@ -99,7 +99,7 @@ export interface PluginManagerSlice {
 }
 
 /** The update fact one successful check publishes. */
-export interface UpdateFact {
+interface UpdateFact {
   /** The version this process runs. */
   installed: string;
   /** The version the stable channel offers. */
@@ -245,7 +245,7 @@ export function updateFactMessage(update: UpdateFact | undefined): string {
  * visible to this plugin, so they are spelled structurally on top of the
  * framework's {@link Context}.
  */
-export type UpdateCheckContext = Context & {
+type UpdateCheckContext = Context & {
   logger?: {
     debug?: (message: string) => void,
   },

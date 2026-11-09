@@ -67,18 +67,8 @@ export interface AgentExecRunner {
     /** Run one command. */
     exec: (request: AgentExecRequest) => Promise<AgentExecResult>;
 }
-/** How the exec promise settled: the result, or the failure to propagate. */
-export type SettledExec = {
-    ok: true;
-    result: AgentExecResult;
-    error?: undefined;
-} | {
-    ok: false;
-    result?: undefined;
-    error: unknown;
-};
 /** The memory-reader slice of one output stream. */
-export interface OutputReader {
+interface OutputReader {
     /** Read the stream from a byte offset. */
     readFrom: (fromByte: number) => {
         text: string;
@@ -168,3 +158,4 @@ export declare function agentExecutionHandle({ agent, cwd, argv, timeoutMs, maxO
      */
     onStarted?: (proc: object) => void;
 }): AgentExecutionHandle;
+export {};

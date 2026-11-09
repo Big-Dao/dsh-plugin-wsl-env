@@ -45,7 +45,7 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     intervalMs: z<number, number, "defined">;
 }>>, "plain">;
 /** The config schema's validated output. */
-export interface UpdateCheckConfig {
+interface UpdateCheckConfig {
     /** Whether the update check runs at all. */
     enabled?: boolean;
     /** How often the registry is asked, in milliseconds. */
@@ -92,7 +92,7 @@ export interface PluginManagerSlice {
     listVersions: (name: string) => Promise<VersionList>;
 }
 /** The update fact one successful check publishes. */
-export interface UpdateFact {
+interface UpdateFact {
     /** The version this process runs. */
     installed: string;
     /** The version the stable channel offers. */
@@ -181,7 +181,7 @@ export declare function updateFactMessage(update: UpdateFact | undefined): strin
  * visible to this plugin, so they are spelled structurally on top of the
  * framework's {@link Context}.
  */
-export type UpdateCheckContext = Context & {
+type UpdateCheckContext = Context & {
     logger?: {
         debug?: (message: string) => void;
     };

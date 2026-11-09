@@ -102,7 +102,7 @@ export async function runSpawnChecklist({ wslPath, distro, root, runFn }: { wslP
 }
 
 /** One confinement request. */
-export interface ConfinedAgentRequest {
+interface ConfinedAgentRequest {
   /** The distro to run in. */
   distro: string;
   /** The `wsl.exe` path. */
@@ -171,4 +171,3 @@ export function resetConfinedAgents(): void {
   confinedAgents.clear();
 }
 
-export default confinedAgent;

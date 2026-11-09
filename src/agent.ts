@@ -47,7 +47,7 @@ import { AGENT_NAME, MAX_FRAME_BYTES, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, en
 import type { AckMessage, AgentErrorMessage, AgentMessage, FsErrorMessage, HelloMessage, ResultMessage } from "./agent-protocol.js";
 
 /** One settled command result, as `exec` resolves it. */
-export interface ExecResult {
+interface ExecResult {
   /** The command's exit status. */
   exitCode: number;
   /** Captured stdout. */
@@ -68,7 +68,7 @@ export interface ExecResult {
  * One request in flight on an agent: its frame, its settlement callbacks, and
  * the ACK-armed watchdog.
  */
-export interface PendingRequest {
+interface PendingRequest {
   /** The request id, as the agent echoes it. */
   id: string;
   /** The request's numeric sequence; newer requests have a larger one. */
@@ -127,7 +127,7 @@ interface TrackRequest {
 }
 
 /** Per-kind request metrics. */
-export interface RequestMetrics {
+interface RequestMetrics {
   /** Requests that settled (successful, failed or cancelled). */
   requests: number;
   /** Total queue wait (submission -> ACK), ms. */
@@ -163,7 +163,7 @@ export interface AgentStatus {
 }
 
 /** The agent's cumulative request metrics. */
-export interface AgentMetrics {
+interface AgentMetrics {
   /** FS frames. */
   fs: RequestMetrics;
   /** EXEC frames (commands, ping). */
@@ -189,7 +189,7 @@ function emptyAgentMetrics(): AgentMetrics {
 }
 
 /** The entry an async preparation may select before the first spawn. */
-export interface WslAgentPrepared {
+interface WslAgentPrepared {
   /** The agent entrypoint (the shell script or the native cache path). */
   scriptPath: string;
   /** The HELLO digest to verify. */

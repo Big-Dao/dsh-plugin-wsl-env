@@ -336,4 +336,3 @@ export declare class AgentSubstrate {
         };
     }>;
 }
-export default AgentSubstrate;

@@ -120,7 +120,7 @@ const WSL_PROGRAM = "wsl";
  * present after validation; `hostCwd` is the volatile accessor the schema
  * builds.
  */
-export interface WslSubprocessConfig {
+interface WslSubprocessConfig {
   /**
    * Distro mode: empty/`"auto"` follows the launch directory, `"default"`
    * forces WSL's default, and an explicit name pins.

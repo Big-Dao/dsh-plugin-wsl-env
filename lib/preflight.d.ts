@@ -86,7 +86,7 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     startup: z<boolean, boolean, "defined">;
 }>>, "plain">;
 /** The config schema's validated output. */
-export interface PreflightConfig {
+interface PreflightConfig {
     /** The distro mode: empty/`auto`, an explicit name, or `default`. */
     distro?: string;
     /** The `wsl.exe` path the probe spawns. */
@@ -102,7 +102,7 @@ export interface PreflightConfig {
  * The slice of a created agent this service inspects; the harness's agent
  * object is structural here, the same view `auto-preset` uses.
  */
-export interface PreflightAgent {
+interface PreflightAgent {
     /** The agent's id. */
     id: string;
     /** The session stub, when mounted. */
@@ -122,7 +122,7 @@ export interface PreflightAgent {
     } | undefined;
 }
 /** The slice of a session context that can carry the advisory. */
-export interface PreflightPromptScope {
+interface PreflightPromptScope {
     systemPrompt: {
         context: (entry: {
             name: string;
@@ -137,7 +137,7 @@ export interface PreflightPromptScope {
  * visible to this plugin, so they are spelled structurally on top of the
  * framework's {@link Context}.
  */
-export type PreflightContext = Context & {
+type PreflightContext = Context & {
     logger?: {
         debug?: (message: string) => void;
         warn?: (message: string) => void;
@@ -156,3 +156,4 @@ export type PreflightContext = Context & {
  * @param config - the schema-validated plugin config.
  */
 export declare function apply(ctx: PreflightContext, config?: PreflightConfig): Promise<void>;
+export {};

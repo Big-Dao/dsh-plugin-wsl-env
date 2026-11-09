@@ -19,7 +19,7 @@
  * fails when it drifts.
  */
 /** One probe cache's surface. */
-export interface ProbeCache {
+interface ProbeCache {
     /**
      * Run one probe under the policy.
      *
@@ -49,3 +49,4 @@ export interface ProbeCache {
  * @returns the policy object `lib/sandbox-core.js` holds per provider.
  */
 export declare function createProbeCache(): ProbeCache;
+export {};

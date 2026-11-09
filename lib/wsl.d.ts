@@ -15,7 +15,7 @@
 /**
  * What every `wsl.exe` call may tune: the executable path and cancellation.
  */
-export interface WslCallOptions {
+interface WslCallOptions {
     /**
      * Executable name or absolute path; defaults to `wsl.exe`, resolved through
      * PATH.
@@ -214,7 +214,7 @@ export declare function wslErrorCode(stdout?: string, stderr?: string): string |
 /**
  * What {@link defaultShell} may tune: the `wsl.exe` path and cancellation.
  */
-export interface WslShellProbeOptions {
+interface WslShellProbeOptions {
     /** Executable name or absolute path. */
     wslPath?: string;
     /** Optional cancellation. */
@@ -234,3 +234,4 @@ export interface WslShellProbeOptions {
  *   both probes failed.
  */
 export declare function defaultShell(distro: string, options?: WslShellProbeOptions): Promise<string | undefined>;
+export {};

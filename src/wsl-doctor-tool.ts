@@ -44,12 +44,12 @@ export const name = "wsl-doctor-tool";
 export const inject = ["tools", "workingDirectory"];
 
 /** The tool registry slice this service consumes. */
-export interface ToolRegistrySlice {
+interface ToolRegistrySlice {
   register: (tool: unknown) => unknown;
 }
 
 /** The harness's `workingDirectory` service slice (cwd resolution). */
-export interface WorkingDirectoryToolSlice {
+interface WorkingDirectoryToolSlice {
   ensure: (agent: unknown, signal?: unknown) => Promise<string>;
 }
 
@@ -65,10 +65,10 @@ export interface DoctorReportLike {
 }
 
 /** The doctor report collector: distro plus run scope in, report out. */
-export type DoctorCollector = (distro: string, options?: { quick?: boolean, sections?: readonly string[] }) => Promise<DoctorReportLike>;
+type DoctorCollector = (distro: string, options?: { quick?: boolean, sections?: readonly string[] }) => Promise<DoctorReportLike>;
 
 /** The context slice this service consumes. */
-export type WslDoctorToolContext = {
+type WslDoctorToolContext = {
   tools: ToolRegistrySlice;
   workingDirectory: WorkingDirectoryToolSlice;
   /** Optional cordis-style lookup: how production resolves `doctor` without an inject. */
@@ -77,14 +77,8 @@ export type WslDoctorToolContext = {
   doctor?: DoctorCollector;
 };
 
-/** The tool's config: the row takes no options. */
-export interface WslDoctorToolConfig {
-  /** Reserved; the wrapper has no options today. */
-  enabled?: boolean;
-}
-
 /** One failing check as the digest carries it: what failed and what to do. */
-export interface FailingCheck {
+interface FailingCheck {
   id: string;
   detail: string;
   remedy: string;
@@ -93,7 +87,7 @@ export interface FailingCheck {
 }
 
 /** Per-distro tallies: what was tested in each distro and how it came out. */
-export interface DistroTally {
+interface DistroTally {
   name: string;
   ok: number;
   warn: number;
@@ -108,7 +102,7 @@ export interface DistroTally {
 }
 
 /** One check as the itemized listing carries it: what was tested and how it came out. */
-export interface CheckItem {
+interface CheckItem {
   id: string;
   /** The check's display name; falls back to the id when the report omits it. */
   title: string;
@@ -160,9 +154,9 @@ export const SECTIONS = ["host", "sandbox", "session", "conf", "net", "agent"];
 /** The pseudo-distro a check lands under when this run's scope never executed it. */
 const NOT_RUN = "(not run)";
 /** The detail a scope-filtered skip row carries; the marker the renderer buckets on. */
-export const SCOPE_SKIP_DETAIL = "not run in this scope";
+const SCOPE_SKIP_DETAIL = "not run in this scope";
 /** The detail prefix a CLI-gated skip row carries (the blocker follows it). */
-export const SKIP_DETAIL_PREFIX = "skipped: ";
+const SKIP_DETAIL_PREFIX = "skipped: ";
 
 /**
  * Every check id the doctor can emit — the CLI's whole probing surface,

@@ -11,7 +11,7 @@
  * @module dsh-plugin-wsl-env/listing
  */
 /** One picker row: a display name, its jump target, and the dot-entry flag. */
-export interface ListingRow {
+interface ListingRow {
     /** The row's display name. */
     name: string;
     /** The row's jump target, Windows spelling. */
@@ -119,3 +119,4 @@ export declare function parseDirListing(stdout: string | Buffer, linuxDir: strin
     rows: ListingRow[];
     truncated: boolean;
 };
+export {};

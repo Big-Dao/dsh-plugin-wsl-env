@@ -39,37 +39,20 @@ export declare const name = "wsl-cwd-prompt-tool";
  * the design (a missing service is a composition error, not a degradation).
  */
 export declare const inject: string[];
-/** The config schema's validated output: the row takes no options. */
-export interface CwdPromptToolConfig {
-    /** Reserved; the wrapper has no options today. */
-    enabled?: boolean;
-}
 /** The tool registry slice this service consumes. */
-export interface ToolRegistrySlice {
+interface ToolRegistrySlice {
     register: (tool: unknown) => unknown;
 }
 /** The harness's `workingDirectory` service slice the shipped tool uses. */
-export interface WorkingDirectoryToolSlice {
+interface WorkingDirectoryToolSlice {
     ensure: (agent: unknown, signal?: unknown) => Promise<string>;
     set: (agent: unknown, path: string, signal?: unknown) => Promise<string>;
 }
 /** The cordis context slice this service consumes. */
-export type CwdPromptToolContext = {
+type CwdPromptToolContext = {
     tools: ToolRegistrySlice;
     workingDirectory: WorkingDirectoryToolSlice;
 };
-/** A resolved tool call: what the shipped tool's `execute` receives. */
-export interface ToolExec {
-    /** The live agent, required by the shipped tool too. */
-    agent: unknown;
-    /** Cancellation for the underlying directory operations. */
-    signal?: unknown;
-}
-/** The tool's result: one rewritten absolute path. */
-export interface WorkingDirectoryResult {
-    /** The current absolute working directory, distro-native on WSL sessions. */
-    cwd: string;
-}
 /**
  * A raw absolute path as the model should see it: the POSIX path a WSL UNC
  * names, and every other path unchanged. This is the single-path sibling of
@@ -86,3 +69,4 @@ export declare function rewriteUncPath(path: string): string;
  *   tool row is disabled by the patch layer).
  */
 export declare function apply(ctx: CwdPromptToolContext): Promise<void>;
+export {};

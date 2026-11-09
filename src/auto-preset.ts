@@ -77,7 +77,7 @@ export const Config = z.object({
 });
 
 /** The config schema's validated output. */
-export interface AutoPresetConfig {
+interface AutoPresetConfig {
   /** Preset to bind for a WSL workspace. */
   preset?: string;
   /** Attempts before giving up; each waits `retryMs`. */
@@ -90,7 +90,7 @@ export interface AutoPresetConfig {
  * The slice of a created agent this plugin inspects; the harness's agent
  * object is structural here.
  */
-export interface CreatedAgentView {
+interface CreatedAgentView {
   /** The agent's id. */
   id: string;
   /** The session stub, when mounted. */
@@ -105,7 +105,7 @@ export interface CreatedAgentView {
  * packages, whose declarations are not visible to this plugin, so they are
  * spelled structurally on top of the framework's {@link Context}.
  */
-export type AutoPresetContext = Context & {
+type AutoPresetContext = Context & {
   agents: { list: () => CreatedAgentView[] },
   agentPresets: {
     composedPreset: (ctx: Context) => string | undefined,

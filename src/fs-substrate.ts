@@ -532,4 +532,3 @@ export class AgentSubstrate {
   }
 }
 
-export default AgentSubstrate;

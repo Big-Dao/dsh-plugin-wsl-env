@@ -16,7 +16,7 @@
 import type { AgentStatus } from "./agent.js";
 
 /** One check line of the doctor's versioned JSON report. */
-export interface DoctorCheck {
+interface DoctorCheck {
   /** The stable check id, e.g. `agent.handshake`. */
   id: string;
   /** `ok` | `warn` | `fail` | `info` | `skipped`. */

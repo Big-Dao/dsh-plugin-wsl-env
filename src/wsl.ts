@@ -19,7 +19,7 @@ import { posixToUnc } from "./paths.js";
 /**
  * What every `wsl.exe` call may tune: the executable path and cancellation.
  */
-export interface WslCallOptions {
+interface WslCallOptions {
   /**
    * Executable name or absolute path; defaults to `wsl.exe`, resolved through
    * PATH.
@@ -361,7 +361,7 @@ export function wslErrorCode(stdout?: string, stderr?: string): string | undefin
 /**
  * What {@link defaultShell} may tune: the `wsl.exe` path and cancellation.
  */
-export interface WslShellProbeOptions {
+interface WslShellProbeOptions {
   /** Executable name or absolute path. */
   wslPath?: string;
   /** Optional cancellation. */

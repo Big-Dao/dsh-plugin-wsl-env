@@ -54,7 +54,7 @@ import type { DirectoryEntry, DirectoryListing, DirectoryPickerBrowseCapability 
 /**
  * The resolved service configuration, as {@link WslDirectoryPicker.Config} yields.
  */
-export interface PickerConfig {
+interface PickerConfig {
     /** Path to `wsl.exe`; overridable for a non-standard install. */
     wslPath: string;
     /**
@@ -74,18 +74,6 @@ export interface PickerConfig {
     /** How long a resolved distro list stays fresh. */
     distroCacheMs: number;
 }
-/**
- * Await `operation`, but reject with the signal's reason the moment it aborts.
- * Node's filesystem reads are not retractable, so the operation itself keeps
- * running against a handle the caller then closes; its late settlement is
- * swallowed so an abandoned read cannot surface as an unhandled rejection.
- *
- * @template T
- * @param operation - the in-flight filesystem step.
- * @param signal - caller lifetime; absent means plain awaiting.
- * @returns the operation's value.
- */
-export declare function raceAbort<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T>;
 /**
  * The `ctx.directoryPicker` WSL implementation.
  *
@@ -263,4 +251,3 @@ export declare class WslDirectoryPicker extends DirectoryPicker {
     createDistroDirectory(parent: string, name: string, target: string): Promise<string>;
 }
 export default WslDirectoryPicker;
-export { ancestryCrumbs, boundedInsert, breadcrumbs, fullyQualified } from "./listing.js";

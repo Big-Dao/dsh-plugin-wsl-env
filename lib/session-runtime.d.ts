@@ -42,7 +42,7 @@ export declare function probeSessionRuntime({ wslPath, distro, run }: {
     run: (argv: string[]) => Promise<string>;
 }): Promise<string | null>;
 /** One request for a session runtime. */
-export interface SessionRuntimeRequest {
+interface SessionRuntimeRequest {
     /** The session identity; absent requests each get a separate runtime. */
     sessionId?: string;
     /** The distro the runtime lives in. */
@@ -74,7 +74,7 @@ export interface SessionRuntimeEntry {
     refs: number;
 }
 /** The injectable edges, so the registry is testable without systemd. */
-export interface SessionRuntimeOptions {
+interface SessionRuntimeOptions {
     /** Create the agent; tests substitute a fake. */
     spawnAgent?: (options: {
         /** The distro. */
@@ -161,3 +161,4 @@ export declare class SessionRuntimes {
 }
 /** The process-wide registry the providers will share. */
 export declare const sessionRuntimes: SessionRuntimes;
+export {};

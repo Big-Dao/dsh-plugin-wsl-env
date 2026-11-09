@@ -183,7 +183,7 @@ export function missingBwrapRemedy(distro: string, family?: string): string {
  * @param distro - the distro whose bwrap failed at run time.
  * @returns the operator-facing hint text.
  */
-export function bwrapInstallHint(distro: string): string {
+function bwrapInstallHint(distro: string): string {
   return t("bwrapRuntimeFailure", { distro });
 }
 
@@ -253,7 +253,7 @@ export function bwrapFailure(wslPath: string, distro: string): string | undefine
  * The seam's `ConfinedArgv` settlement facts, plus this core's `windowsDrive`
  * mitigation flag.
  */
-export interface WslConfined {
+interface WslConfined {
   /** The wrapped argv (bwrap prefix, separator, the caller's argv). */
   argv: string[];
   /**

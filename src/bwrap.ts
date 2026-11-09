@@ -25,7 +25,7 @@
  */
 
 /** Profile options shared by the two confinement sites. */
-export interface BwrapProfileOptions {
+interface BwrapProfileOptions {
   /** Shadow `/mnt` with an empty tmpfs. */
   maskWindowsDrive?: boolean;
   /**

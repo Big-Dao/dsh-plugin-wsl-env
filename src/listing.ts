@@ -15,7 +15,7 @@ import { win32 } from "node:path";
 import { isWslUnc, uncToPosix } from "./paths.js";
 
 /** One picker row: a display name, its jump target, and the dot-entry flag. */
-export interface ListingRow {
+interface ListingRow {
   /** The row's display name. */
   name: string;
   /** The row's jump target, Windows spelling. */

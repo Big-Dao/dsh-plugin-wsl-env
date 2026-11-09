@@ -177,7 +177,7 @@
     "scripts/profile-preset.mjs"
   ],
   "scripts": {
-    "test": "pnpm run lint:style && pnpm run lint:links && pnpm run lint:requirements && pnpm run test:syntax && pnpm run lint:build && pnpm run lint:types && pnpm run test:unit",
+    "test": "pnpm run lint:style && pnpm run lint:links && pnpm run lint:requirements && pnpm run lint:docs && pnpm run test:syntax && pnpm run lint:build && pnpm run lint:types && pnpm run test:unit",
     "lint:types": "tsc --noEmit",
     "build": "node scripts/build.mjs",
     "lint:build": "node test/build-freshness.mjs",
@@ -187,6 +187,7 @@
     "lint:style": "node test/style.mjs",
     "lint:links": "node scripts/check-links.mjs",
     "lint:requirements": "node scripts/check-requirements.mjs",
+    "lint:docs": "node scripts/check-doc-consistency.mjs",
     "prepublishOnly": "pnpm test",
     "probe": "bash test/probe/run.sh",
     "probe:clean": "rm -rf test/probe/.scratch && mkdir -p test/probe/.scratch",

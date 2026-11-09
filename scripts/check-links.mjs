@@ -67,11 +67,11 @@ for (const file of files) {
 
 for (const line of broken) console.log(`BROKEN  ${line}`);
 
-// Bilingual pairing: every `.zh.md` translation must have its authoritative
-// English file next to it. The docs map fixes the direction — English is the
-// authority, Chinese follows — so a missing pair means a half-shipped doc.
-// Chinese-only maintainer documents are exempt on purpose; the docs map names
-// them as Chinese-only and outside the shipped `files` list.
+// Bilingual pairing: every `.zh.md` file must have its counterpart next to
+// it. The docs map fixes the direction — the Chinese side is the authority
+// and the English side follows it — so a missing pair means a half-shipped
+// doc. Chinese-only maintainer documents are exempt on purpose; the docs map
+// names them as Chinese-only and outside the shipped `files` list.
 const CHINESE_ONLY = ["docs/REQUIREMENTS.zh.md", "docs/VALUE.zh.md"];
 // The repo rule keeps one README at the package root and its Chinese
 // translation under `docs/`, so that pair maps across directories.

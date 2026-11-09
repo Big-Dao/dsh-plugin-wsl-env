@@ -215,7 +215,7 @@ More error codes and refusals are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md
 ```bash
 pnpm install           # development dependencies
 pnpm run build         # compile src/ into lib/ (lib/ is committed)
-pnpm test              # style, links, requirement citations, syntax, build consistency, types, unit tests
+pnpm test              # style, links, requirement citations, doc consistency, syntax, build consistency, types, unit tests
 pnpm run test:coverage # unit tests with coverage thresholds
 pnpm run sync:windows  # update the Windows-side copy the app loads
 ```

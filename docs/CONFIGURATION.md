@@ -360,7 +360,9 @@ re-verifies what it fixed (packages need `--fix --install` and an explicit
 confirmation), `--all` checks every installed distro, `--bundle
 <path>` writes the attachable diagnostic file (`--redact` strips the paths),
 and `--locale <tag>` (or `DSH_WSL_DOCTOR_LOCALE`) selects the skeleton
-language without re-probing. `DSH_UPDATE_REGISTRIES` overrides the
+language without re-probing. `--yes` skips the confirmation prompt (not the
+confirmation gate itself), and `--read-only` refuses to run together with
+`--fix` or `--install`. `DSH_UPDATE_REGISTRIES` overrides the
 registries the on-demand update check asks (comma-separated; empty skips
 it — for air-gapped machines).
 See [DIAGNOSTICS.md](DIAGNOSTICS.md) for the verdict contract and the

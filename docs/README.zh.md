@@ -202,7 +202,7 @@ wsl preset（每个会话）
 ```bash
 pnpm install           # 开发依赖
 pnpm run build         # 从 src/ 生成 lib/（lib/ 提交进仓）
-pnpm test              # 风格、链接、需求引用、语法、构建一致性、类型、单元测试
+pnpm test              # 风格、链接、需求引用、文档一致性、语法、构建一致性、类型、单元测试
 pnpm run test:coverage # 带覆盖率阈值的单元测试
 pnpm run sync:windows  # 更新应用加载的 Windows 侧副本
 ```

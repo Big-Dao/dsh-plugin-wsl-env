@@ -22,5 +22,3 @@
 /// <reference types="@deepseek-ai/dsh-sandbox" />
 /// <reference types="@deepseek-ai/dsh-sandbox-policy" />
 /// <reference types="@deepseek-ai/dsh-host-directory-picker" />
-/// <reference types="@deepseek-ai/dsh-api-workspace-files" />
-/// <reference types="@deepseek-ai/dsh-typert-protocol" />

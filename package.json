@@ -18,10 +18,6 @@
       "types": "./lib/client-host.d.ts",
       "default": "./lib/client-host.js"
     },
-    "./shell": {
-      "types": "./lib/shell.d.ts",
-      "default": "./lib/shell.js"
-    },
     "./agent": {
       "types": "./lib/agent.d.ts",
       "default": "./lib/agent.js"
@@ -32,6 +28,10 @@
     },
     "./auto-preset/locale/en.json": "./locale/auto-preset/en.json",
     "./auto-preset/locale/zh.json": "./locale/auto-preset/zh.json",
+    "./client": {
+      "types": "./client.d.ts",
+      "default": "./client.js"
+    },
     "./cwd-prompt": {
       "types": "./lib/cwd-prompt.d.ts",
       "default": "./lib/cwd-prompt.js"
@@ -39,18 +39,6 @@
     "./cwd-prompt-tool": {
       "types": "./lib/cwd-prompt-tool.d.ts",
       "default": "./lib/cwd-prompt-tool.js"
-    },
-    "./wsl-doctor-tool": {
-      "types": "./lib/wsl-doctor-tool.d.ts",
-      "default": "./lib/wsl-doctor-tool.js"
-    },
-    "./wsl-doctor-command": {
-      "types": "./lib/wsl-doctor-command.d.ts",
-      "default": "./lib/wsl-doctor-command.js"
-    },
-    "./client": {
-      "types": "./client.d.ts",
-      "default": "./client.js"
     },
     "./file-reference-wsl": {
       "types": "./lib/file-reference-wsl.d.ts",
@@ -60,13 +48,13 @@
       "types": "./lib/fs.d.ts",
       "default": "./lib/fs.js"
     },
-    "./index": {
-      "types": "./lib/index.d.ts",
-      "default": "./lib/index.js"
-    },
     "./fs-routing": {
       "types": "./lib/fs-routing.d.ts",
       "default": "./lib/fs-routing.js"
+    },
+    "./index": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
     },
     "./locale/en.json": "./locale/en.json",
     "./locale/zh.json": "./locale/zh.json",
@@ -75,16 +63,16 @@
       "types": "./lib/paths.d.ts",
       "default": "./lib/paths.js"
     },
-    "./preflight": {
-      "types": "./lib/preflight.d.ts",
-      "default": "./lib/preflight.js"
-    },
     "./picker": {
       "types": "./lib/picker.d.ts",
       "default": "./lib/picker.js"
     },
     "./picker/locale/en.json": "./locale/picker/en.json",
     "./picker/locale/zh.json": "./locale/picker/zh.json",
+    "./preflight": {
+      "types": "./lib/preflight.d.ts",
+      "default": "./lib/preflight.js"
+    },
     "./preflight/locale/en.json": "./locale/preflight/en.json",
     "./preflight/locale/zh.json": "./locale/preflight/zh.json",
     "./shell": {
@@ -110,6 +98,14 @@
     "./wsl": {
       "types": "./lib/wsl.d.ts",
       "default": "./lib/wsl.js"
+    },
+    "./wsl-doctor-command": {
+      "types": "./lib/wsl-doctor-command.d.ts",
+      "default": "./lib/wsl-doctor-command.js"
+    },
+    "./wsl-doctor-tool": {
+      "types": "./lib/wsl-doctor-tool.d.ts",
+      "default": "./lib/wsl-doctor-tool.js"
     }
   },
   "dsh": {
@@ -174,8 +170,10 @@
     "SUPPORT.md",
     "LICENSE",
     "scripts/bootstrap.sh",
+    "scripts/bootstrap-import.sh",
     "scripts/diagnose.sh",
     "scripts/doctor.mjs",
+    "scripts/open-wsl-vscode.ps1",
     "scripts/profile-preset.mjs"
   ],
   "scripts": {

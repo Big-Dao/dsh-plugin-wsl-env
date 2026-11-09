@@ -300,7 +300,8 @@
               # session. This needs systemd as PID 1 (`[boot] systemd=true` in
               # /etc/wsl.conf) and a lingering user manager (`loginctl
               # enable-linger <user>`); the preflight refuses with those remedies
-              # when one is missing. Set `sessionSandbox: false` for the old
+              # when one is missing. Set `sessionSandbox` to `auto` (falls back
+              # to the per-command shape without systemd) or `false` for the old
               # per-command shape. Bubblewrap is still required for the mount
               # profile; without it the providers fail closed.
               - id: wsl-shell

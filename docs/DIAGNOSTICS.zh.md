@@ -28,7 +28,7 @@
 `--fix` 以复验报告收尾：每个修复后都跟着一次对它声称修好的东西的全新探查，
 受影响的检查项携带 after 状态，verdict 重算——`ready`，或剩余阻断者。
 会改写用户或 distro 所有文件的修复（`.wslconfig`、`/etc/wsl.conf`、WSL1
-转换、安装 distro）永不开户自动化；remedy 文本会写明。
+转换、安装 distro）永不开启自动化；补救文本会写明。
 
 `--bundle <path>` 写出本地 JSON 文件（报告 + 版本 + 生效配置）供 setup
 report 附带；`--redact` 把 home 与 DSH 路径替换为 `<redacted-*>` 占位符。
@@ -38,7 +38,8 @@ bundle 不含文件内容、环境变量，也没有遥测。
 
 doctor 通过三个入口给出同一份报告：
 
-- **独立 CLI**——`node scripts/doctor.mjs [distro] [--json] [--quick] [--sections …] [--locale <tag>]`。
+- **独立 CLI**——`node scripts/doctor.mjs [distro] [--all] [--json] [--quick] [--sections host,sandbox,session,conf,net,agent] [--fix] [--install] [--yes] [--read-only] [--bundle <路径>] [--redact] [--locale <标签>]`
+  （与 `--help` 输出同一行）。
   这是权威入口：它**不加载任何 peer 依赖、任何宿主服务**，即使插件的运行时
   本身就是故障源，它也能启动。只 import 纯净、无 peer 的 `lib/` 模块；原先
   挂在 peer 污染模块（`lib/index.js`、`lib/update-check.js`）后面的两个

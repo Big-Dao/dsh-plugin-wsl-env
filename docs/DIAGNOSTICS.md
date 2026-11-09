@@ -47,7 +47,8 @@ environment variables, and no telemetry.
 
 The doctor answers through three surfaces with one report:
 
-- **The standalone CLI** — `node scripts/doctor.mjs [distro] [--json] [--quick] [--sections …] [--locale <tag>]`.
+- **The standalone CLI** — `node scripts/doctor.mjs [distro] [--all] [--json] [--quick] [--sections host,sandbox,session,conf,net,agent] [--fix] [--install] [--yes] [--read-only] [--bundle <path>] [--redact] [--locale <tag>]`
+  (the same line `--help` prints).
   The authoritative surface: it loads **no peer dependency and no host
   service**, so it still starts when the plugin's own runtime is the thing
   that is broken. Only pure, peer-free `lib/` modules are imported; the two

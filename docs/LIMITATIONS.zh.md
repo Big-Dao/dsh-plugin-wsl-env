@@ -1,6 +1,6 @@
 # Limitations
 
-_本文是 [LIMITATIONS](LIMITATIONS.md) 的中文译本，以英文版为准。_
+_本页是权威版本；英文译本见 [LIMITATIONS](LIMITATIONS.md)。_
 
 插件不做什么，以及为什么。写进文档的限制是设计边界；
 没写进文档的迟早会变成 bug 报告。每一条都说明限制本身和补救方法；
@@ -77,8 +77,9 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
   [COMPATIBILITY.md](COMPATIBILITY.md#scope-decisions)）。`auto` 仍会选择
   包内二进制；`native` 在准备失败时拒绝；`shell` 强制使用 shell agent。
 - **会话 runtime 需要 systemd 和带 linger 的 user manager** —— 否则在
-  第一条命令时被拒绝并给出补救方法；`sessionSandbox: false` 保留旧的
-  按命令形态。应用硬崩溃可能留下过期的 `dsh-wsl-*.scope`；预检会在下一个
+  第一条命令时被拒绝并给出补救方法；把 `sessionSandbox` 设为 `auto`
+  （无 systemd 时即按命令形态）或 `false` 保留旧的按命令形态。应用硬崩溃
+  可能留下过期的 `dsh-wsl-*.scope`；预检会在下一个
   WSL 会话时清扫过期 scope（从不清扫其他活跃会话的）。
 - **沙箱不管辖 WSL interop** —— 上报为 `enforcement: partial`。
   `maskWindowsDrive` 和 `interopVisibility` 收窄 `/mnt` 但不是关闭；即使是
@@ -128,6 +129,20 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
 - **doctor 的 `git.win-safe` 探针通过 interop 的 `git.exe` 报告 Windows git
   的信任状态** —— 装了 Windows git 时，WSL 变更审查需要那份
   `safe.directory` 白名单（见下文"终端"）。
+
+## doctor 的裁决与补救边界
+
+doctor 的 `verdict` 在生效配置（应用加载的 profile 层叠加在随包 preset
+之上）下给出——但它是对机器与配置的裁决，不是对某个会话的：**policy** 与
+**data** 类的错误码（见 [DIAGNOSTICS.zh.md](DIAGNOSTICS.zh.md#地图)）是
+逐次调用的决策，doctor 无法预知，`ready` 也不为它们背书。
+
+doctor 只读取和报告，从不改写用户或发行版所有的文件。`.wslconfig`、
+`/etc/wsl.conf`、WSL1 转换和发行版安装只以补救命令的形式出现——补救文本
+携带确切的命令；可自动修复的集合仅限安全且可逆的部分（过期 scope、
+`--install` 加确认后的可选软件包、以及同一道确认门后的 Windows git
+`safe.directory` 白名单）。裁决从不升级沙箱的安全声明：
+`enforcement: partial` 不受影响。
 
 ## 会话启动建议
 

@@ -12,6 +12,8 @@ Harness 进程仍在 Windows 上。命令执行、shell 脚本和文件访问都
 
 仅支持 Windows + WSL 2。
 
+**刚接触？** 从 [docs/QUICKSTART.zh.md](QUICKSTART.zh.md) 开始：前置条件、常用配方与兼容性表。
+
 ## 需要这个插件吗？
 
 如果 harness 本身可以跑在发行版里，更简单的做法是**不用**这个插件：把 CLI 装在
@@ -75,7 +77,7 @@ Windows 上的编程工具要在 WSL 项目中工作，有三条路：把整个�
 
 - Windows 10 或 11，启用 WSL 2，并至少有一个发行版。
 - 发行版内安装 `bubblewrap`，必需。
-- 默认的会话沙箱需要 systemd：在 `/etc/wsl.conf` 设置 `[boot] systemd=true`，重启 WSL，然后执行一次 `loginctl enable-linger "$USER"`。没有 systemd 时，在 `wsl-shell` 和 `wsl-fs` 上都设置 `sessionSandbox: false`。
+- 默认的会话沙箱需要 systemd：在 `/etc/wsl.conf` 设置 `[boot] systemd=true`，重启 WSL，然后执行一次 `loginctl enable-linger "$USER"`。没有 systemd 时，在 `wsl-shell` 和 `wsl-fs` 上把 `sessionSandbox` 设为 `auto`（可用时仍用 scope，否则每条命令单独约束）或显式 `false`。
 - 可选：`ripgrep` 用于搜索，`git` 用于变更快照，`inotify-tools` 用于文件监视。
 
 发行版内不需要 Node.js。
@@ -109,9 +111,9 @@ dsh --profile wsl                                  # 启动
 wsl.exe -d <发行版> -u root -- apt-get install -y bubblewrap
 ```
 
-在插件检出目录中，`pnpm run doctor` 是一键环境体检：Windows/WSL 版本、每个发行版的 WSL 模式、`.wslconfig` 与 `/etc/wsl.conf` 交叉核对、磁盘、时钟与 DNS、bubblewrap 可用性、systemd / user manager / Linger、可选工具、peer 版本、agent 缓存、新 agent 握手、三条证明链路完好的冒烟腿（帧 I/O、受限围栏、批量 substrate）、残留会话 scope、已知的 profile 补丁与废弃键陷阱，以及 registry 上是否存在更新的稳定版。报告逐项列出每个检查——按 distro 分组，每项带显式状态标记，失败项下附可复制的处理办法——并以裁决收尾：`ready`（首条命令应能成功）或 `blocked`（列明待修项），按生效配置计算。运行可以收窄范围：`--quick` 只探首条命令的前置项（约 10 秒），`--sections <名称>` 只运行一个分区，且范围化报告会把未运行的检查显式列为跳过项。`--json` 供脚本使用，`--fix` 会复核它修过的项（安装包需要 `--fix --install` 并显式确认），`--all` 检查每个已装发行版，`--bundle <路径>` 写出可附加到问题报告的诊断文件（`--redact` 将路径脱敏）。固定骨架按宿主语言渲染——从 Windows 区域设置检测，可用 `--locale <标签>` 或 `DSH_WSL_DOCTOR_LOCALE` 覆盖；`--json` 保持语言无关。同一份报告经三个入口给出：本 CLI、`/wsl-doctor` 命令（composer 按钮——宿主侧执行，不进模型对话）、以及 `wsl_doctor` 模型工具（进程内采集，合并常驻 agent 的实时状态）。`pnpm run diagnose` 是 CLI 的只读别名。`pnpm run bootstrap <发行版>` 仍是较窄的工具安装助手。
+在插件检出目录中，`pnpm run doctor` 是一键环境体检：Windows/WSL 版本、每个发行版的 WSL 模式、`.wslconfig` 与 `/etc/wsl.conf` 交叉核对、磁盘、时钟与 DNS、bubblewrap 可用性、systemd / user manager / Linger、可选工具、peer 版本、agent 缓存、新 agent 握手、三条证明链路完好的冒烟腿（帧 I/O、受限围栏、批量 substrate）、残留会话 scope、已知的 profile 补丁与废弃键陷阱，以及 registry 上是否存在更新的稳定版。报告逐项列出每个检查——按 distro 分组，每项带显式状态标记，失败项下附可复制的处理办法——并以裁决收尾：`ready`（首条命令应能成功）或 `blocked`（列明待修项），按生效配置计算。运行可以收窄范围：`--quick` 只探首条命令的前置项（约 10 秒），`--sections <分区清单>`（逗号分隔）只运行指定分区，且范围化报告会把未运行的检查显式列为跳过项。`--json` 供脚本使用，`--fix` 会复核它修过的项（安装包需要 `--fix --install` 并显式确认），`--all` 检查每个已装发行版，`--bundle <路径>` 写出可附加到问题报告的诊断文件（`--redact` 将路径脱敏）。固定骨架按宿主语言渲染——从 Windows 区域设置检测，可用 `--locale <标签>` 或 `DSH_WSL_DOCTOR_LOCALE` 覆盖；`--json` 保持语言无关。同一份报告经三个入口给出：本 CLI、`/wsl-doctor` 命令（composer 按钮——宿主侧执行，不进模型对话）、以及 `wsl_doctor` 模型工具（进程内采集，合并常驻 agent 的实时状态）。`DSH_WSL_DOCTOR` 还携带一条现成命令（`sh -c "$DSH_WSL_DOCTOR --json"`），可在发行版内直接重放 doctor。`pnpm run diagnose` 是 CLI 的只读别名。`pnpm run bootstrap <发行版>` 仍是较窄的工具安装助手。
 
-插件大约每天自行检查一次更新（启动后几分钟内首查），方式是询问应用的插件管理器——它从不自行联网。当存在更新的稳定版时，每个发行版会话中受管的 `DSH_WSL_PLUGIN_UPDATE` 变量会携带该事实；补丁配置里的 `wsl-update-check.enabled: false` 可关闭该检查，`DSH_UPDATE_REGISTRIES` 覆盖 doctor 的按需检查询问哪些 registry（逗号分隔，留空可让气隙机器跳过）。升级保持手动，因为 harness 没有热重载：重新安装（Plugins 页面或 `add` 命令），然后重启。
+插件大约每天自行检查一次更新（启动后 2–10 分钟内首查），方式是询问应用的插件管理器——它从不自行联网。当存在更新的稳定版时，每个发行版会话中受管的 `DSH_WSL_PLUGIN_UPDATE` 变量会携带该事实；补丁配置里的 `wsl-update-check.enabled: false` 可关闭该检查，`DSH_UPDATE_REGISTRIES` 覆盖 doctor 的按需检查询问哪些 registry（逗号分隔，留空可让气隙机器跳过）。升级保持手动，因为 harness 没有热重载：重新安装（Plugins 页面或 `add` 命令），然后重启。
 
 卸载：在 Plugins 页面移除，或在 CLI 发行版执行 `dsh plugin --profile wsl remove dsh-plugin-wsl-env`；之后可删除 `~/.cache/dsh-wsl`。如果你为了恢复预览在 profile 里加过 `workspace-files-wsl` 的临时覆盖，升级后请删掉：插件不再挂载该行。
 
@@ -133,13 +135,13 @@ wsl.exe -d <发行版> -u root -- apt-get install -y bubblewrap
 |---|---|---|---|
 | `wsl-shell` | `distro` | `''` | 发行版模式；空/`auto` 跟随工作区，`default` 强制 WSL 默认 |
 | | `sandbox` | `true` | 用 `bubblewrap` 约束命令 |
-| | `sessionSandbox` | 随包 `true` | 会话命令跑在同一个 systemd user scope 中 |
+| | `sessionSandbox` | `false`；随包 `true` | 会话命令跑在同一个 systemd user scope 中 |
 | | `agentBackend` | `auto` | 发行版内 agent：`auto`、`native` 或 `shell` |
 | | `maskWindowsDrive` | `false` | 让受限命令看不到 `/mnt` |
 | `wsl-fs` | `distro` | `''` | 发行版模式；空/`auto` 跟随每个目标路径 |
 | | `restrictToDistro` | `true` | 固定发行版（`default` 或名字）时拒绝属于其他发行版的路径 |
 | | `sandbox` | `true` | 按策略检查受限写入 |
-| | `sessionSandbox` | 随包 `true` | 受限写入跑在会话 runtime 中 |
+| | `sessionSandbox` | `false`；随包 `true` | 受限写入跑在会话 runtime 中 |
 | | `substrate` | `agent` | 发行版内 agent；`share` 在启动时被拒绝 |
 | `directory-picker-wsl` | `includeHostHome` | `true` | 同时列出 Windows 家目录 |
 | `subprocess-wsl` | `distro` | `''` | 发行版模式；空/`auto` 跟随启动目录 |
@@ -187,7 +189,7 @@ wsl preset（每个会话）
 | 现象 | 处理 |
 |---|---|
 | 每条命令都报 `SANDBOX_UNAVAILABLE` | 在发行版内安装 `bubblewrap`，或设置 `sandbox: false` |
-| 会话在第一条命令前就被拒绝 | 运行 `pnpm run doctor`；启用 systemd 和 linger，或在 `wsl-shell`、`wsl-fs` 上设置 `sessionSandbox: false` |
+| 会话在第一条命令前就被拒绝 | 运行 `pnpm run doctor`；启用 systemd 和 linger，或把 `wsl-shell`、`wsl-fs` 上的 `sessionSandbox` 设为 `auto` 或 `false` |
 | 发行版内 `glob`、`grep` 很慢 | 运行 `pnpm run bootstrap <发行版>`，使用打印的安装命令安装 `ripgrep` |
 | `dsh plugin add` 没有输出，或 Plugins 页面装完没有日志 | 以 profile 的 `package.json` 与 `dsh.profile.bundles` 为准：列出插件即安装成功 |
 | 对 `wsl-shell`/`wsl-fs` 的 profile 补丁不生效 | 这些行嵌套在 `preset-wsl` 里。运行 `pnpm run preset --check <补丁>`；它会失败并输出需要粘贴的完整块 |
@@ -200,7 +202,7 @@ wsl preset（每个会话）
 ```bash
 pnpm install           # 开发依赖
 pnpm run build         # 从 src/ 生成 lib/（lib/ 提交进仓）
-pnpm test              # 风格、语法、构建一致性、类型、单元测试
+pnpm test              # 风格、链接、需求引用、语法、构建一致性、类型、单元测试
 pnpm run test:coverage # 带覆盖率阈值的单元测试
 pnpm run sync:windows  # 更新应用加载的 Windows 侧副本
 ```
@@ -214,9 +216,12 @@ pnpm run sync:windows  # 更新应用加载的 Windows 侧副本
 | 文档 | 内容 |
 |---|---|
 | [docs/QUICKSTART.md](QUICKSTART.md) | 首次运行、常用配方、兼容性 |
+| [docs/PERFORMANCE.md](PERFORMANCE.md) | ext4 agent 对比 9p 的实测延迟与复现方法 |
+| [docs/MIGRATION.md](MIGRATION.md) | 从早期版本升级、发布门槛 |
+| [docs/COMPATIBILITY.md](COMPATIBILITY.md) | 已测的 Windows/WSL/发行版矩阵与范围决定 |
+| [docs/API.md](API.md) | 包的子路径导出一览 |
 | [docs/CONFIGURATION.md](CONFIGURATION.md) | 所有配置键及覆盖方法 |
 | [docs/ARCHITECTURE.md](ARCHITECTURE.md) | 服务、路径路由、沙箱、错误码 |
-| [docs/PERFORMANCE.md](PERFORMANCE.md) | ext4 agent 对比 9p 的实测延迟与复现方法 |
 | [docs/LIMITATIONS.md](LIMITATIONS.md) | 插件不做的事 |
 | [docs/ROADMAP.md](ROADMAP.md) | 当前计划和推迟项 |
 | [docs/ROADMAP-1.0.md](ROADMAP-1.0.md) | 1.0 与生态优化计划 |

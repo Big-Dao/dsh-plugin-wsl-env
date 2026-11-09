@@ -212,7 +212,8 @@ terminal if you would rather not see the prompt.
 | `pnpm run probe:sandbox-off` | the documented opt-out on both providers | yes |
 
 Every script above is wired in `package.json`. `pnpm test` runs `lint:style`,
-`lint:links`, `test:syntax`, `lint:build`, `lint:types` and `test:unit` in that order.
+`lint:links`, `lint:requirements`, `test:syntax`, `lint:build`, `lint:types`
+and `test:unit` in that order.
 `prepublishOnly` runs `pnpm test` again at publish time, so a broken gate stops a
 release before the upload.
 

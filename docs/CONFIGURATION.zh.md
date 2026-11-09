@@ -1,6 +1,6 @@
 # Configuration
 
-_本文是 [CONFIGURATION](CONFIGURATION.md) 的中文译本，以英文版为准。_
+_本页是权威版本；英文译本见 [CONFIGURATION](CONFIGURATION.md)。_
 
 ## Profile patch
 
@@ -136,6 +136,8 @@ Loader 在挂载该行之前会校验宿主和发行版设置；
 | | `startup` | `true` | 插件加载时（即安装 + 重启后）对 pin 的或 WSL 默认发行版预先运行同一组检查，让判定在任何会话打开之前就出现在日志里。 |
 | `wsl-shell-env` | `distro` | `''` | 用于填充 `DSH_WSL_*` 环境事实的发行版。 |
 | | `portsRefreshMs` | `10000` | 监听端口快照的刷新间隔，单位毫秒。 |
+| `wsl-update-check` | `enabled` | `true` | 插件是否向应用的插件管理器查询更新的稳定版。结果经 `DSH_WSL_PLUGIN_UPDATE` 送达；该检查从不安装。 |
+| | `intervalMs` | `86400000` | 检查间隔，单位毫秒（启动后 2–10 分钟首查）；下限一分钟。 |
 
 GUI 文件树和预览通过 `fs-routing` 使用随包的 `workspace-files` 行；
 它们不使用单独的 WSL 提供者行。要修改其 peer 定义的限额，
@@ -327,9 +329,11 @@ profile 不使用会话 runtime 时，设置 `sessionSandbox: false`。
 bubblewrap、systemd/Linger、peer 下限、新 agent 握手、残留会话 scope、已知的
 profile 补丁与废弃键陷阱——每个失败附可复制的修复。运行以生效配置下计算的
 裁决（`ready` 或 `blocked`）收尾：`--json` 是机器契约（schemaVersion 2），
-`--fix` 复核它修过的项，`--all` 检查每个已装发行版，`--bundle <路径>` 写出
-可附加的诊断文件（`--redact` 脱敏路径），`--locale <标签>`（或
-`DSH_WSL_DOCTOR_LOCALE`）无需重新探测即可选择骨架语言。
+`--fix` 复核它修过的项（安装软件包需要 `--fix --install` 并显式确认），
+`--all` 检查每个已装发行版，`--bundle <路径>` 写出可附加的诊断文件
+（`--redact` 脱敏路径），`--locale <标签>`（或 `DSH_WSL_DOCTOR_LOCALE`）
+无需重新探测即可选择骨架语言。按需的 registry 更新查询可用
+`DSH_UPDATE_REGISTRIES` 覆盖（逗号分隔；置空即跳过，气隙机器适用）。
 判定契约与错误码地图见 [DIAGNOSTICS.zh.md](DIAGNOSTICS.zh.md)。
 CLI 发行版可用 `dsh --profile <name> --dump-config` 检查合成后的 profile，
 无需真正启动；输出会显示某行的覆盖是否生效。桌面应用没有 `dsh` 命令，

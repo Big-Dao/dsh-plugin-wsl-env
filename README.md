@@ -78,7 +78,7 @@ A desktop remote reconnects faster and is more mature. A CLI agent installed ins
 
 - Windows 10 or 11 with WSL 2 and at least one distro.
 - `bubblewrap` in the distro. It is required.
-- systemd in the distro for the default session sandbox: set `[boot] systemd=true` in `/etc/wsl.conf`, restart WSL, then run `loginctl enable-linger "$USER"` once. Without systemd, set `sessionSandbox: false` on both `wsl-shell` and `wsl-fs`.
+- systemd in the distro for the default session sandbox: set `[boot] systemd=true` in `/etc/wsl.conf`, restart WSL, then run `loginctl enable-linger "$USER"` once. Without systemd, set `sessionSandbox` to `auto` (the scope when available, otherwise per-command confinement) or explicit `false` on both `wsl-shell` and `wsl-fs`.
 - Optional: `ripgrep` for search, `git` for change snapshots, `inotify-tools` for file watching.
 
 No Node.js is required inside the distro.
@@ -115,9 +115,9 @@ Install `bubblewrap` before the first command:
 wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap
 ```
 
-From a checkout, `pnpm run doctor` is the one-command environment check: Windows/WSL versions, the per-distro WSL mode, `.wslconfig` and `/etc/wsl.conf` cross-checks, the disk, clock and DNS, bubblewrap usability, systemd / the user manager / Linger, the optional tools, peer versions, the agent cache, a fresh-agent handshake, three smoke legs that prove the chain (frame I/O, the confined fence, the batched substrate), stale session scopes, the known profile-patch and deprecated-key traps, and whether a newer stable release exists on the registry. The report itemizes every check — grouped by distro, each with an explicit status marker and a copy-paste remedy under every failure — and ends in a verdict, `ready` (the first command should succeed) or `blocked` (the named checks to fix), computed under the effective configuration. A run can be scoped: `--quick` probes the first-command prerequisites only (~10 s), `--sections <name>` runs one area, and a scoped report lists the checks it did not run as explicit skips. `--json` is the machine contract, `--fix` re-verifies what it fixed (packages need `--fix --install` and an explicit confirmation), `--all` checks every installed distro, and `--bundle <path>` writes the diagnostic file a setup report attaches (`--redact` strips the paths). The fixed skeleton renders in the host's language — detected from the Windows locale, overridable with `--locale <tag>` or `DSH_WSL_DOCTOR_LOCALE`; `--json` stays language-independent. The same report answers through three surfaces: this CLI, the `/wsl-doctor` command (the composer button — host-side, no model turn), and the `wsl_doctor` model tool (in-process, merging the live resident's state). `pnpm run diagnose` is the CLI's read-only alias. `pnpm run bootstrap <distro>` remains the narrower tool-install helper.
+From a checkout, `pnpm run doctor` is the one-command environment check: Windows/WSL versions, the per-distro WSL mode, `.wslconfig` and `/etc/wsl.conf` cross-checks, the disk, clock and DNS, bubblewrap usability, systemd / the user manager / Linger, the optional tools, peer versions, the agent cache, a fresh-agent handshake, three smoke legs that prove the chain (frame I/O, the confined fence, the batched substrate), stale session scopes, the known profile-patch and deprecated-key traps, and whether a newer stable release exists on the registry. The report itemizes every check — grouped by distro, each with an explicit status marker and a copy-paste remedy under every failure — and ends in a verdict, `ready` (the first command should succeed) or `blocked` (the named checks to fix), computed under the effective configuration. A run can be scoped: `--quick` probes the first-command prerequisites only (~10 s), `--sections <list>` (comma-separated) runs the named sections, and a scoped report lists the checks it did not run as explicit skips. `--json` is the machine contract, `--fix` re-verifies what it fixed (packages need `--fix --install` and an explicit confirmation), `--all` checks every installed distro, and `--bundle <path>` writes the diagnostic file a setup report attaches (`--redact` strips the paths). The fixed skeleton renders in the host's language — detected from the Windows locale, overridable with `--locale <tag>` or `DSH_WSL_DOCTOR_LOCALE`; `--json` stays language-independent. The same report answers through three surfaces: this CLI, the `/wsl-doctor` command (the composer button — host-side, no model turn), and the `wsl_doctor` model tool (in-process, merging the live resident's state). `DSH_WSL_DOCTOR` additionally carries a ready-to-run command (`sh -c "$DSH_WSL_DOCTOR --json"`) that replays the doctor inside the distro. `pnpm run diagnose` is the CLI's read-only alias. `pnpm run bootstrap <distro>` remains the narrower tool-install helper.
 
-The plugin notices its own updates about once a day (first check a few minutes after startup) by asking the app's plugin manager — it never fetches on its own. When a newer stable release exists, the managed `DSH_WSL_PLUGIN_UPDATE` variable in every distro session carries the fact; `wsl-update-check.enabled: false` in the patch config turns the check off, and `DSH_UPDATE_REGISTRIES` overrides which registries the doctor's on-demand check asks (comma-separated, or empty to skip it on an air-gapped machine). Upgrading stays manual, because the harness has no hot reload: install again (Plugins page, or the `add` command), then restart. Uninstall on
+The plugin notices its own updates about once a day (first check 2–10 minutes after startup) by asking the app's plugin manager — it never fetches on its own. When a newer stable release exists, the managed `DSH_WSL_PLUGIN_UPDATE` variable in every distro session carries the fact; `wsl-update-check.enabled: false` in the patch config turns the check off, and `DSH_UPDATE_REGISTRIES` overrides which registries the doctor's on-demand check asks (comma-separated, or empty to skip it on an air-gapped machine). Upgrading stays manual, because the harness has no hot reload: install again (Plugins page, or the `add` command), then restart. Uninstall on
 the Plugins page, or with `dsh plugin --profile wsl remove dsh-plugin-wsl-env`
 where the CLI is installed; the agent cache under `~/.cache/dsh-wsl` can then be
 deleted. If you added a local `workspace-files-wsl` workaround to your profile to
@@ -142,13 +142,13 @@ Settings live on named rows in `$DSH_HOME/profiles/<name>/cordis.patch.yml`. The
 |---|---|---|---|
 | `wsl-shell` | `distro` | `''` | distro mode; empty/`auto` follows the workspace, `default` forces WSL's default |
 | | `sandbox` | `true` | confine commands with `bubblewrap` |
-| | `sessionSandbox` | shipped `true` | run the session's commands in one systemd user scope |
+| | `sessionSandbox` | `false`; shipped `true` | run the session's commands in one systemd user scope |
 | | `agentBackend` | `auto` | `auto`, `native` or `shell` for the in-distro agent |
 | | `maskWindowsDrive` | `false` | hide `/mnt` from confined commands |
 | `wsl-fs` | `distro` | `''` | distro mode; empty/`auto` follows each target path |
 | | `restrictToDistro` | `true` | under a fixed distro, refuse paths that belong to another distro |
 | | `sandbox` | `true` | check confined writes against the policy |
-| | `sessionSandbox` | shipped `true` | run confined writes in the session runtime |
+| | `sessionSandbox` | `false`; shipped `true` | run confined writes in the session runtime |
 | | `substrate` | `agent` | in-distro agent; `share` is rejected at startup |
 | `directory-picker-wsl` | `includeHostHome` | `true` | also list the Windows home directory |
 | `subprocess-wsl` | `distro` | `''` | distro mode; empty/`auto` follows the launch directory |
@@ -202,9 +202,9 @@ Enforcement is reported as `partial`. A command inside the distro can still star
 | Symptom | Fix |
 |---|---|
 | every command reports `SANDBOX_UNAVAILABLE` | install `bubblewrap` in the distro, or set `sandbox: false` |
-| the session refuses before the first command | run `pnpm run doctor`; enable systemd and linger, or set `sessionSandbox: false` on `wsl-shell` and `wsl-fs` |
+| the session refuses before the first command | run `pnpm run doctor`; enable systemd and linger, or set `sessionSandbox` to `auto` or `false` on `wsl-shell` and `wsl-fs` |
 | `glob` and `grep` are slow in the distro | run `pnpm run bootstrap <distro>` and use its printed install command to install `ripgrep` |
-| `dsh plugin add` prints nothing | the plugin is already installed; this is success |
+| `dsh plugin add` prints nothing, or the Plugins page finishes without feedback | trust the profile's `package.json` and its `dsh.profile.bundles` entry: the plugin listed there is installed |
 | a profile patch for `wsl-shell`/`wsl-fs` changes nothing | those rows are nested inside `preset-wsl`. Run `pnpm run preset --check <patch>`; it fails with the complete block to paste |
 | changes under `lib/` have no effect | run `pnpm run sync:windows`, then restart the app |
 
@@ -215,7 +215,7 @@ More error codes and refusals are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md
 ```bash
 pnpm install           # development dependencies
 pnpm run build         # compile src/ into lib/ (lib/ is committed)
-pnpm test              # style, syntax, build consistency, types, unit tests
+pnpm test              # style, links, requirement citations, syntax, build consistency, types, unit tests
 pnpm run test:coverage # unit tests with coverage thresholds
 pnpm run sync:windows  # update the Windows-side copy the app loads
 ```

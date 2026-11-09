@@ -1,6 +1,6 @@
 # Limitations
 
-*A Chinese translation lives at [LIMITATIONS.zh](LIMITATIONS.zh.md); the English version is authoritative.*
+*The Chinese version ([LIMITATIONS.zh](LIMITATIONS.zh.md)) is authoritative; this page is its English translation.*
 
 What the plugin does not do, and why. A limitation that is documented is a design
 boundary; one that is not is a bug report waiting to happen. Each entry states the
@@ -82,8 +82,9 @@ operations never use the 9p share.
   packaged binary; `native` refuses on preparation failure; `shell` forces the shell
   agent.
 - **The session runtime needs systemd and a lingering user manager** — refused on the
-  first command with the remedy otherwise; `sessionSandbox: false` keeps the old
-  per-command shape. A hard app crash can leave a stale `dsh-wsl-*.scope`; the
+  first command with the remedy otherwise; `sessionSandbox` set to `auto`
+  (per-command without systemd) or `false` keeps the old per-command shape.
+  A hard app crash can leave a stale `dsh-wsl-*.scope`; the
   preflight sweeps stale scopes on the next WSL session (never another live
   session's).
 - **The sandbox does not govern WSL interop** — reported as `enforcement: partial`.

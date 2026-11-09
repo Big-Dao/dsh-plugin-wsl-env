@@ -4,14 +4,29 @@
 配置和行为以当前代码、`cordis.patch.yml` 与 `package.json` 为准；带日期的
 实测、提案和历史记录只证明当时的情况，不应覆盖现行行为说明。
 
+## 事实权威表
+
+一类事实只归一个文件所有；其余文档只链接或摘要，不得与之矛盾。
+双语成对时权威在中文版（规则见下节）；`lint:docs` 守下表中标明的机械项。
+
+| 事实类 | 权威 |
+|---|---|
+| 配置项语义、默认值、合法值 | [CONFIGURATION.zh.md](CONFIGURATION.zh.md)（英文为译本）；随包值看 [`cordis.patch.yml`](../cordis.patch.yml) |
+| doctor 的 CLI 表面（flags、sections、env） | [DIAGNOSTICS.zh.md](DIAGNOSTICS.zh.md) 的概要行，与 `scripts/doctor.mjs --help` 输出逐字对齐（`lint:docs` 守门） |
+| doctor 检查项清单 | [DIAGNOSTICS.zh.md](DIAGNOSTICS.zh.md)；README、CONFIGURATION、ARCHITECTURE 中的枚举是摘要，不得与之矛盾 |
+| 前置条件与兼容矩阵 | [COMPATIBILITY.md](COMPATIBILITY.md)（暂无中文版，沿用现状） |
+| 限制与不承诺 | [LIMITATIONS.zh.md](LIMITATIONS.zh.md) |
+| 错误码 | [ARCHITECTURE.md](ARCHITECTURE.md#error-codes) |
+| 需求追溯 | [REQUIREMENTS.zh.md](REQUIREMENTS.zh.md)（只引用权威说明与测试，不另立实现规范） |
+
 ## 用户入口与行为契约
 
-- [README](../README.md) 是英文入口，[中文 README](README.zh.md) 是对应译本；
+- [中文 README](README.zh.md) 是权威入口，[README](../README.md) 是英文译本；
   [快速开始](QUICKSTART.md) 给出安装与首用步骤（[中文版](QUICKSTART.zh.md)）。
 - [配置](CONFIGURATION.md) 解释配置项、默认值和覆盖方式（[中文版](CONFIGURATION.zh.md)）；
   [限制](LIMITATIONS.md) 记录未实现或不能保证的行为（[中文版](LIMITATIONS.zh.md)）。
-  用户文档保持双语成对：英文版是权威版本，中文版随英文更新；新用户文档
-  落地时同步创建 `.zh.md`。
+  用户文档保持双语成对：**中文版是权威版本，修改先落 `.zh.md`，英文随中文
+  翻译对齐**；新用户文档落地时先写中文，再同步英文译本。
   [安全政策](../SECURITY.md) 定义漏洞报告与沙箱威胁边界。
 - [架构](ARCHITECTURE.md) 描述服务、路由、协议与验证分层；
   [根文件系统路由](root-fs-routing.md) 补充路径坐标和组合层设计。

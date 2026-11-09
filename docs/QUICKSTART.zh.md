@@ -1,6 +1,6 @@
 # Quickstart
 
-_本文是 [QUICKSTART](QUICKSTART.md) 的中文译本，以英文版为准。_
+_本页是权威版本；英文译本见 [QUICKSTART](QUICKSTART.md)。_
 
 从一台 Windows + WSL 2 机器到可用的 WSL 会话，只需以下步骤。
 本页是入口；每条说明都链接到负责该主题的文档。
@@ -34,10 +34,12 @@ doctor（`scripts/doctor.mjs`，或在检出目录中运行 `pnpm run doctor`）
 每项附可复制的处理办法。发行版的 WSL 模式由 doctor 自己从 `wsl.exe -l -v`
 读取，无需单独确认。doctor 默认只读，除非传入 `--fix`（清理过期 scope，以及
 确认后的 Windows git 信任）或 `--fix --install`（安装软件包，需确认）；
-`--bundle <路径>` 写出可附加到问题报告的诊断文件。运行可以收窄范围——
-`--quick` 只探首条命令的前置项（约 10 秒），`--sections <名称>` 只运行一个
-分区——报告按 distro 分组逐项列出每个检查，带显式状态标记。固定骨架按宿主
-语言渲染（`--locale <标签>` 或 `DSH_WSL_DOCTOR_LOCALE` 可覆盖检测）。
+`--bundle <路径>` 写出可附加到问题报告的诊断文件（`--redact`
+将其中的路径脱敏）。运行可以收窄范围——`--quick` 只探首条命令的前置项
+（约 10 秒），`--sections <分区清单>`（逗号分隔）只运行指定分区——
+或用 `--all` 扩展到每个已装发行版；报告按 distro 分组逐项列出每个检查，
+带显式状态标记。固定骨架按宿主语言渲染（`--locale <标签>` 或
+`DSH_WSL_DOCTOR_LOCALE` 可覆盖检测）。
 
 ## 2. 安装
 
@@ -103,6 +105,10 @@ Remote-WSL 扩展。
 发行版内核。如果第一条命令失败，错误信息会给出补救方法；
 [doctor](CONFIGURATION.md) 和[故障排查表](../README.md#troubleshooting)
 覆盖了常见情况。
+
+首次写入说明：沙箱会在会话策略尚未授予的写入前请求许可——提示会写明命令
+与目标，允许一次是安全的。在发行版内执行 `loginctl enable-linger <用户>`
+可以避免非 lingering 的 user manager 造成的重复弹窗。
 
 下面的探针会实时运行随包的、由内核强制的 bwrap profile——
 工作区内的写入生效，测试性的区外写入被以 `EROFS` 拒绝，

@@ -1,6 +1,6 @@
 # Configuration
 
-*A Chinese translation lives at [CONFIGURATION.zh](CONFIGURATION.zh.md); the English version is authoritative.*
+*The Chinese version ([CONFIGURATION.zh](CONFIGURATION.zh.md)) is authoritative; this page is its English translation.*
 
 ## Profile patches
 
@@ -356,10 +356,13 @@ the peer floor, a fresh agent handshake, stale session scopes, the known
 profile-patch and deprecated-key traps — each failure with a copyable remedy.
 The run ends in a verdict (`ready` or `blocked`) computed under the effective
 configuration: `--json` is the machine contract (schemaVersion 2), `--fix`
-re-verifies what it fixed, `--all` checks every installed distro, `--bundle
+re-verifies what it fixed (packages need `--fix --install` and an explicit
+confirmation), `--all` checks every installed distro, `--bundle
 <path>` writes the attachable diagnostic file (`--redact` strips the paths),
 and `--locale <tag>` (or `DSH_WSL_DOCTOR_LOCALE`) selects the skeleton
-language without re-probing.
+language without re-probing. `DSH_UPDATE_REGISTRIES` overrides the
+registries the on-demand update check asks (comma-separated; empty skips
+it — for air-gapped machines).
 See [DIAGNOSTICS.md](DIAGNOSTICS.md) for the verdict contract and the
 error-code map. With the CLI distribution, `dsh --profile <name> --dump-config` inspects
 the composed profile without booting it and shows whether a row override

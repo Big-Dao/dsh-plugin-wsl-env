@@ -1,6 +1,6 @@
 # Quickstart
 
-*A Chinese translation lives at [QUICKSTART.zh](QUICKSTART.zh.md); the English version is authoritative.*
+*The Chinese version ([QUICKSTART.zh](QUICKSTART.zh.md)) is authoritative; this page is its English translation.*
 
 Steps from a Windows + WSL 2 machine to a working WSL session.
 This page is the entry point; every claim links to the document that owns it.
@@ -39,10 +39,12 @@ remedy. It reads the distro's WSL mode from `wsl.exe -l -v` itself, so no
 separate version check is needed. Doctor is read-only unless you pass `--fix`
 (stale scopes, and the Windows git trust after a confirmation) or
 `--fix --install` (packages, after a confirmation); `--bundle <path>` writes
-the diagnostic file a setup report attaches. A run can be scoped — `--quick`
-probes the first-command prerequisites only (~10 s), `--sections <name>` runs
-one area — and the report itemizes every check with an explicit status marker,
-grouped by distro. The fixed skeleton renders in the host's language
+the diagnostic file a setup report attaches (`--redact` strips the paths
+from it). A run can be scoped — `--quick` probes the first-command
+prerequisites only (~10 s), `--sections <list>` (comma-separated) runs the
+named sections — or widened with `--all` to every installed distro; the
+report itemizes every check with an explicit status marker, grouped by
+distro. The fixed skeleton renders in the host's language
 (`--locale <tag>` or `DSH_WSL_DOCTOR_LOCALE` overrides the detection).
 
 ## 2. Install

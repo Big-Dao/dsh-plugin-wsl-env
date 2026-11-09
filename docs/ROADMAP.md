@@ -23,7 +23,7 @@ section.
 | A7 | native shared read agent (protocol v5 at the time); 16 concurrent shared reads 2.4–4.1 ms at the A7 measurement; shell remains the fallback |
 | A8 | aarch64 18-check under qemu-user in CI (built binary and committed `linux-aarch64` artifact); physical aarch64 WSL out of scope, see COMPATIBILITY.md |
 
-## Next
+## Step details
 
 ### A7 — native shared read agent (v5) — done
 
@@ -34,13 +34,13 @@ shell as the fallback:
 
 - **selection:** `shell` forces the shell; otherwise the shared agent tries
   the packaged binary for the distro's architecture (or the dev override).
-  Unlike session-runtime preparation with `agentBackend: native`, shared reads
-  fall back to the shell when native preparation fails;
+  In `auto`, shared reads fall back to the shell when native preparation fails;
+  `agentBackend: native` refuses instead;
 - **preparation:** `ensureNativeBackend` once per distro (cache/digest/exec
-  probe); the `WslAgent` with `expectedDigest` and `signalable: false`; on a
-  preparation or HELLO failure the shell agent serves the reads — fail-open to
-  the shell, never fail-closed;
-- **surface:** the same six FS ops (unchanged since v5) and `dsh-fs` side
+  probe); the `WslAgent` with `expectedDigest` and `signalable: false`; in
+  `auto`, a preparation or HELLO failure lets the shell agent serve the reads;
+  `native` reports the failure instead;
+- **surface:** the six FS ops of that era and `dsh-fs` side
   channel; the
   `fs-substrate`/`DistroFs` parse is unchanged; the A2 differential covers the
   records;
@@ -49,7 +49,7 @@ shell as the fallback:
   concurrent shared reads at **2.4-4.1 ms** (from 342-614 ms; later reruns
   span 2.4-8.2 ms); the first start
   pays the ensure/cache cost (~70 ms once). The shell still serves the reads
-  under `agentBackend: shell` and after a native failure.
+  under `agentBackend: shell`, and under `auto` after a native failure.
 
 ### A8 — aarch64 functional validation — done
 
@@ -58,6 +58,8 @@ The `native packages` job in CI builds static-musl aarch64 and runs the
 and the committed `agent/native/linux-aarch64/dsh-wsl-agent`. Physical
 aarch64 WSL is out of scope (COMPATIBILITY.md). The native-session probe on
 real aarch64 hardware is not planned.
+
+## Next
 
 ### A9 — maintenance
 

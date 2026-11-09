@@ -45,7 +45,7 @@ docs/ 各篇里的行为承诺登记成带编号的需求条目，并给每条�
 | R9 | bubblewrap 沙箱：与 Linux runner 同参数、fail-closed、`enforcement: partial` 诚实上报 | ARCHITECTURE「Sandbox」全节；SECURITY「Sandbox enforcement is `partial` by design」 | ①②③⑤⑥：选型依据（ACL 令牌触不到 WSL）、探针失败不缓存、interop 洞 + `maskWindowsDrive` 收窄及其自身极限（binfmt 按内容分发）、完全关闭唯一路径（`wsl.conf`）、`sandbox: false` 退出——行为到边界到逃生门完整成链 | `sandbox.test.mjs`、`probe-cache.test.mjs`；probe:sandbox、probe:sandbox-off | interop 使 enforcement 恒为 partial——已声明的设计边界 |
 | R10 | 文件搜索跑发行版自身的 rg，绝不跨 9p share | PARITY「Contract audit」第 2 条；LIMITATIONS「glob 和 grep」条 | ①②③：拦截点与参数逐字转发成文；缺 rg 浮出 exit 127 附 bootstrap 指引；grep 回退被拒绝且理由明文（不读 `.gitignore`，非 rg 替身） | `search-route.test.mjs`、`search-exec.test.mjs` | — |
 | R11 | watch()：inotify 优先（无界目录），轮询回退；粗粒度失效 | PARITY「Contract audit」第 1 条；LIMITATIONS watch 两条 | ①②③：契约向上追溯到宿主接缝（`changed()` 无载荷 → 粗粒度失效即可）；inotify 递归且 0.5s 合并、文件/限深/无 inotify-tools 回退轮询；更旧 mtime 盲区只属轮询路径、`watchMaxDepth` 旋钮、目标消失响亮报错成文 | `watcher.test.mjs`；probe:watch（无 inotify 时 7/7；装 inotify-tools 后盲区检查改为期望事件） | 轮询回退的 mtime 盲区已声明；inotify 路径依赖发行版的 inotify-tools |
-| R12 | share 基座退役：携带 `substrate: "share"` 的 profile 在 boot 被拒并附迁移 | README/CONFIGURATION/LIMITATIONS 三处一致 | ①②⑤：旧值处置与用户所见成文，迁移指引内嵌 | `fs-decisions.test.mjs`（拒绝消息与迁移指引文案） | boot 期拒绝分支无测试（构造器调 `shareSubstrateRefusal`，`src/index.ts:1056`）：`fs.boot.test.mjs` 只以 `sandbox: true` 启动该行，仓内没有构造 `substrate: "share"` profile 的测试 |
+| R12 | share 基座退役：携带 `substrate: "share"` 的 profile 在 boot 被拒并附迁移 | README/CONFIGURATION/LIMITATIONS 三处一致 | ①②⑤：旧值处置与用户所见成文，迁移指引内嵌 | `fs-decisions.test.mjs`（拒绝消息与迁移指引文案） | boot 期拒绝分支无测试（构造器调 `shareSubstrateRefusal`，`src/index.ts:1595`）：`fs.boot.test.mjs` 只以 `sandbox: true` 启动该行，仓内没有构造 `substrate: "share"` profile 的测试 |
 | R13 | 会话级 systemd scope：命令共享后台进程/真实 `/tmp`/`ps`，scope 随会话结束停止；systemd + linger 缺失时预检带修复拒绝 | ADR 0001；README/CONFIGURATION/LIMITATIONS 的 `sessionSandbox` 条 | ①②③⑤：scope 生命周期（agent 为主进程、refcount、dispose stop）、`sessionSandbox: false` 退出与 `auto` 回退、systemd/linger/systemd-run 四项预检与缓存策略成文；`/tmp` 与后台进程的保真边界限定在 runtime 开时 | `session-scope.test.mjs`、`session-runtime.test.mjs`、`provider.test.mjs`；真机会话验证（active scope、跨命令后台/`/tmp`、会话结束 0 units） | 硬崩溃可能留下 stale scope（启动清扫未随发，入 LIMITATIONS）；受限写入已共享 runtime，读仍走无约束共享 agent，根级 fs-routing 不持有 session runtime |
 | R14 | bootstrap：bwrap/ripgrep 等的就地体检与安装 | README「Install」「Troubleshooting」；CONFIGURATION | ①②⑤：`--install` 与只读体检两式、体检对象、错误消息补救指引成文 | 0.7.4 起脚本随包（`files` 收录，补救指引在 npm 安装下可用） | 脚本本身无 CI 腿（真机排错路径覆盖） |
 | R15 | 错误码方言：每个 `FS_*` 码给出抛出者、含义、解除条件；`wsl.exe` 自身失败显式收编 | ARCHITECTURE「Error codes」表 | ①②：逐码三列成表；两类历史隐形失败（UTF-16 stdout、cwd 回退 exit 0）收编；`FS_OUTSIDE_DISTRO` 独立成码的理由明文 | `fs-decisions.test.mjs`、`fsio-agent.test.mjs`、`fs-substrate.test.mjs`、`provider.test.mjs`（断言码与消息） | — |
@@ -77,7 +77,7 @@ docs/ 各篇里的行为承诺登记成带编号的需求条目，并给每条�
 | OI-1 | 非功能无量化目标：冷启动上界、常驻 agent 内存上界、watch 通知延迟上界均无规定 | 决策待定（开发工具语境可辩护，企业语境缺口） | 本表 R20 残差 |
 | OI-2 | 真机回归（协议/基座/沙箱的最高风险面）仅手动探针；CI runner 无 WSL distro | 环境受限决策，已如实记录 | ARCHITECTURE「Test layers」 |
 | OI-3 | 默认翻转（substrate、协议 v3→v4）无灰度、无遥测；迁移安全押在 boot 拒绝与响亮错误上 | OSS 取舍，企业语境缺口 | CHANGELOG 0.3.0 / 0.7.3 |
-| OI-4 | 端口轮询经共享 agent 使常驻进程永不闲置回收（LIMITATIONS 已记）；工程修复＝移出共享 agent 或改 one-shot | 工程项 | `lib/shell-env.js:79` |
+| OI-4 | 端口轮询经共享 agent 使常驻进程永不闲置回收（LIMITATIONS 已记）；工程修复＝移出共享 agent 或改 one-shot | 工程项 | `lib/shell-env.js:173`（端口扫描）、`:190`（刷新计时器） |
 | OI-5 | 发布后无目录 fsync，shell agent 忽略 `sync -f` 失败；机器崩溃可能丢失数据或目录项（见 LIMITATIONS） | 工程项 | `agent/wsl-agent.sh`、`agent/native/spike/src/main.rs` |
 
 OI-7 已解决（2026-10-19）：`test/fs-routing.test.mjs` 已进入 `test:unit` 与

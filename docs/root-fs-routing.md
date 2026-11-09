@@ -56,9 +56,10 @@ home 缓存，所以同一个根平面可以同时服务多个发行版；`distr
 | stat / listDir / readText / streamText / readBytes / readByteRange | targetKey 坐标 | substrate 对应操作 | super |
 | watch | targetKey 坐标 | distro inotify 或轮询（粗粒度失效） | chokidar |
 | writeText / editText | targetKey 坐标 | distro 写（substrate 守卫 + confined agent 内核强制） | super |
+| patchText / deleteFile / moveFile（v7） | targetKey 坐标；move 任一端为 distro 即整体路由 | distro 写（同一守卫 + confined agent；move 两端版本复核） | super |
 | contains / processPath | parent/targetKey 坐标 | Linux 路径语义（`contains` 按两个目标的 `processPath` 做 POSIX 包含判定） | super |
 
-未覆写的出口：本类覆写的是上表这 13 个方法，`fileUrl` 与
+未覆写的出口：本类覆写的是上表这 16 个方法，`fileUrl` 与
 `processPathFromHostPath` 沿用宿主实现——「按坐标路由」不等于接口全覆盖。
 
 - `fileUrl` 由继承的实现从 `processPath` 派生
@@ -68,7 +69,7 @@ home 缓存，所以同一个根平面可以同时服务多个发行版；`distr
   编码留给后端，正是因为执行平台可能与宿主不同
   （`dsh-fs/lib/types/index.d.ts:117-123`）；真有消费者时需要按 POSIX 语义覆写。
 - `processPathFromHostPath` 也是宿主实现（绝对宿主路径取 `resolve`）。被路由的
-  `WslFileSystem` 自己有一份 distro 映射（`src/index.ts:1412`），那份映射不经
+  `WslFileSystem` 自己有一份 distro 映射（`src/index.ts:2133`），那份映射不经
   本路由。
 
 ### 2.2 有意的行为差异（对照原根 fs-sandbox）

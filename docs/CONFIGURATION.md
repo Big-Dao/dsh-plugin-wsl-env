@@ -11,9 +11,11 @@ rows and values shipped by this plugin.
 
 A profile layer can target a top-level row by `id`. Plugin rows at that level
 include `fs-routing`, `directory-picker-wsl`, `subprocess-wsl`, `wsl-shell-env`,
-`wsl-preflight`, `auto-preset`, and `preset-wsl`. The `wsl-shell` and `wsl-fs`
-rows are nested inside `preset-wsl.config.plugins`; a profile entry targeting
-either id directly is ignored with a `patch: entry <id> not found` warning.
+`wsl-preflight`, `auto-preset`, `wsl-cwd-prompt`, `wsl-cwd-prompt-tool`,
+`wsl-update-check`, `wsl-doctor-command`, `wsl-env-client-host`, and
+`preset-wsl`. The `wsl-shell`, `wsl-fs` and `wsl-doctor-tool` rows are nested
+inside `preset-wsl.config.plugins`; a profile entry targeting those ids directly
+is ignored with a `patch: entry <id> not found` warning.
 
 A row's `config` is replaced as a whole. Include any non-default values from
 the bundled row that you want to retain. This matters most for `preset-wsl`,
@@ -138,6 +140,7 @@ The root router is app-level, not session-owned, so it does not use
 | | `startup` | `true` | Also run the same checks once at plugin load — install + restart — against the pinned or WSL-default distro, so the verdict is in the log before any session opens. |
 | `wsl-shell-env` | `distro` | `''` | Distro used to populate the `DSH_WSL_*` environment facts. |
 | | `portsRefreshMs` | `10000` | Listening-port snapshot interval, in milliseconds. |
+| `wsl-cwd-prompt` | `enabled` | `true` (shipped) | Rewrite the runtime context's working-directory entry to the distro's POSIX form. |
 | `wsl-update-check` | `enabled` | `true` | Whether the plugin checks the app's plugin manager for a newer stable release. The result is served as `DSH_WSL_PLUGIN_UPDATE`; the check never installs. |
 | | `intervalMs` | `86400000` | Check interval, in milliseconds (first check 2–10 minutes after startup); floored at one minute. |
 

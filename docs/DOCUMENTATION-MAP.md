@@ -12,7 +12,7 @@
 | 事实类 | 权威 |
 |---|---|
 | 配置项语义、默认值、合法值 | [CONFIGURATION.zh.md](CONFIGURATION.zh.md)（英文为译本）；随包值看 [`cordis.patch.yml`](../cordis.patch.yml) |
-| doctor 的 CLI 表面（flags、sections、env） | [DIAGNOSTICS.zh.md](DIAGNOSTICS.zh.md) 的概要行，与 `scripts/doctor.mjs --help` 输出逐字对齐（`lint:docs` 守门） |
+| doctor 的 CLI 表面（flags、sections、env） | [DIAGNOSTICS.zh.md](DIAGNOSTICS.zh.md) 的概要行；flags 与 `scripts/doctor.mjs --help` 逐字对齐（`lint:docs` 守门），sections/env 目前靠人工核对 |
 | doctor 检查项清单 | [DIAGNOSTICS.zh.md](DIAGNOSTICS.zh.md)；README、CONFIGURATION、ARCHITECTURE 中的枚举是摘要，不得与之矛盾 |
 | 前置条件与兼容矩阵 | [COMPATIBILITY.md](COMPATIBILITY.md)（暂无中文版，沿用现状） |
 | 限制与不承诺 | [LIMITATIONS.zh.md](LIMITATIONS.zh.md) |
@@ -56,7 +56,8 @@
   与 [企业级审查规划](superpowers/plans/2026-11-06-enterprise-grade-plan.md) 是当日两轮
   无人值守运行的执行计划；[首轮记录](superpowers/runs/2026-11-06-autonomous-run.md) 和
   [次轮记录](superpowers/runs/2026-11-06-enterprise-grade-run.md) 记实际结果。计划与
-  运行记录都是带日期的历史，不改写产品现状。
+  运行记录都是带日期的历史，不改写产品现状；未逐篇列出的
+  `docs/superpowers/` 计划、运行与探针记录同理。
 - [2026-11-07 Doctor 闭环运行规划](superpowers/plans/2026-11-07-doctor-closed-loop.md)
   是 WSL-316（doctor 商业级达标）的执行计划；契约以
   [issue #35](https://github.com/Big-Dao/dsh-plugin-wsl-env/issues/35) 为准，
@@ -76,6 +77,8 @@
   花过实际验证成本（spike、实测）；未来 agent 会话可能“好心改进”的刻意
   设计。命名与纯实现细节不写，理由留在 commit message。草稿可由会话内的
   agent 整理，但理由必须来自真实讨论过的内容，由人裁决后提交。
+- 协议设计：[Agent protocol v7](AGENT-PROTOCOL-V7.md)（WSL-312 的 v7 增量；
+  当前 `PROTOCOL_VERSION = 7`，最低接受 6）。
 - 上游接口记录：[文件引用](UPSTREAM-FILE-REFERENCE-SEAM.md)、
   [fsio 导出](UPSTREAM-FSIO-EXPORT.md)、[LSP](UPSTREAM-LSP-SEAM.md)、
   [Open in app](UPSTREAM-OPEN-IN-APP.md)、
@@ -88,6 +91,7 @@
   [晋升包](upstream/promotion-pack.md)、[UNC 问题草稿](upstream/issue-unc-validation.md)、
   [远程工作区提案](upstream/proposal-remote-workspaces.md)、
   [会话通知提案](upstream/proposal-session-notice.md)、
+  [同名服务热替换提案](upstream/proposal-service-swap.md)、
   [WSL 工作区 RFC](upstream/rfc-wsl-workspaces.md)、
   [Open in app 排查记录](upstream-open-in-app-bug.md)。它们是调查或提交材料，
   不等同于上游已接受的接口或当前发布承诺。

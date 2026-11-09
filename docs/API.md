@@ -7,7 +7,7 @@ this page is the quick tour.
 
 | Subpath | Exports | Role |
 |---|---|---|
-| `.` | — | the no-op root host half: a deliberate no-op plugin mounted at the bare package name, anchoring the browser client below (before 0.20.0 this resolved to the executor itself — see `./shell`) |
+| `.` | — | the no-op root host half: a deliberate no-op plugin mounted at the bare package name, anchoring the browser client below (before 0.21.0 this resolved to the executor itself — see `./shell`) |
 | `./shell` | `WslShellExecutor` | the model-facing shell executor (`ctx.shell`), mounted inside the WSL preset's isolate realm |
 | `./client` | — (no importable surface) | the browser half the harness's web client loader serves for the bare-name row: the composer doctor button |
 | `./fs` | `WslFileSystem` | the filesystem provider over the distro (`ctx.fs`) |

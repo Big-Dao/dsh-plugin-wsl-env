@@ -54,7 +54,8 @@ The doctor answers through three surfaces with one report:
   that is broken. Only pure, peer-free `lib/` modules are imported; the two
   helpers that used to live behind peer-tainted modules (`lib/index.js`,
   `lib/update-check.js`) are inlined and drift-pinned against the lib exports
-  by `test/doctor.test.mjs`. Exit 0 = `ready`, 1 = `blocked`.
+  by `test/doctor.test.mjs`. Exit 0 = `ready`, 1 = `blocked`, 2 = refused
+  (`--read-only` with `--fix`/`--install`, or `--fix` on a scoped run).
 - **The `/wsl-doctor` UI command** — the composer button drops a
   `/wsl-doctor [quick|full|<section>] [--distro <name>]` line; the commands
   registry executes it host-side, the handler spawns the standalone CLI, and

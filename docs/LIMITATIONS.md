@@ -17,8 +17,8 @@ operations never use the 9p share.
   bits; `chmod` when a new file must be executable.
 - **When the agent is out, file operations fail closed** — `FS_IO_ERROR` naming the
   substrate, with the recovery path. One crash rides a single rebuild; a spent
-  rebuild enters bounded revival (2/4/8 s); three deaths are permanent until the app
-  restarts. There is no fallback I/O — deliberately.
+  rebuild enters bounded revival (2/4/8 s) for three attempts; the fourth death
+  is permanent until the app restarts. There is no fallback I/O — deliberately.
 - **The mutation guard is not atomic compare-and-swap.** Creates use a no-replace
   link; overwrites re-verify the version before the rename. A mismatch returns
   `FS_STALE_VERSION`, but a change between check and rename can still be overwritten.

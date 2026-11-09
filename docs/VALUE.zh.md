@@ -2,7 +2,7 @@
 
 本文只回答一个问题：**在 Windows 上用 DeepSeek Harness 做 WSL 项目，为什么值得装这个插件。**
 功能、安装与逐项行为见 [README](../README.md) 和 [ARCHITECTURE.md](ARCHITECTURE.md)，这里谈收益、代价与适用边界。
-文中每条主张都指向仓库内可复核的证据；基线为 v0.9.0（2026-10-17）。
+文中每条主张都指向仓库内可复核的证据；基线为 v0.22.0（2026-11-08）。早期条目在 v0.9.0 基线上引入，2026-11-09 对版本、工具面与门禁链做了复核。
 
 > **一句话**：它把 WSL 发行版变成 DSH 会话真正的执行环境——命令、文件、终端、目录选择器都在发行版内完成，
 > 同时保留 DSH 的权限模型和发行版内的 bubblewrap 沙箱；不往发行版里装自己的服务，也不开端口。
@@ -52,13 +52,13 @@ DSH 是 Windows 桌面应用，项目在 WSL 的 ext4 里。不做集成，三�
 
 **机制。** 组合层按路径坐标路由：发行版 UNC 路径交给 agent 实现，盘符路径留给宿主后端；GUI 终端按会话路由，WSL 目录会话得到发行版 shell，Windows 目录会话仍是 PowerShell；`wsl-shell`/`wsl-fs` 挂在 preset 层，所以环境按会话生效。
 
-**可感知的差别。** 不需要为 WSL 单开一个应用或 profile，也不需要把整个应用切成「WSL 模式」。同一个窗口里，开 Windows 文件夹的会话不受影响，开 `\\wsl.localhost\...` 的会话自动进入发行版。换项目只是换一个打开的文件夹。模型侧尤其重要：插件不新增任何模型工具，现有工具的名字、参数、返回语义不变，变的只是它们实际作用的世界。
+**可感知的差别。** 不需要为 WSL 单开一个应用或 profile，也不需要把整个应用切成「WSL 模式」。同一个窗口里，开 Windows 文件夹的会话不受影响，开 `\\wsl.localhost\...` 的会话自动进入发行版。换项目只是换一个打开的文件夹。模型侧尤其重要：插件只新增 `wsl_doctor` 一个模型工具（另有 `/wsl-doctor` 命令）；其余现有工具的名字、参数、返回语义不变，变的只是它们实际作用的世界。
 
 **证据。** [README「Architecture」](../README.md#architecture)、[docs/root-fs-routing.md](root-fs-routing.md)；`test/composition.test.mjs`、`test/terminal.test.mjs`、`test/fs.boot.test.mjs`。
 
 ### 价值五：不装服务、不开端口、没有残留
 
-**机制。** 发行版里没有安装任何服务，也没有监听端口；插件只替换 DSH 的服务实现。文件操作与命令走发行版内按 distro 缓存的常驻 agent——它是传输层，不注册系统服务，agent 脚本在握手时校验 sha256。
+**机制。** 发行版里没有安装任何服务，也没有监听端口；插件替换 DSH 的服务实现，并新增 `wsl_doctor` 工具与 `/wsl-doctor` 命令。文件操作与命令走发行版内按 distro 缓存的常驻 agent——它是传输层，不注册系统服务，agent 脚本在握手时校验 sha256。
 
 **可感知的差别。** 不会多出 `~/.vscode-server` 这类目录，不会和本机端口冲突，卸载后发行版里没有需要手动清理的服务端目录。WSL 升级或发行版重启后，下一次调用重建传输；只有 agent 在「有请求在飞」时死亡才可能耗尽它的一次重建额度（见 [LIMITATIONS](LIMITATIONS.md)），这是已声明的边界，不是日常路径。
 
@@ -107,12 +107,12 @@ DSH 是 Windows 桌面应用，项目在 WSL 的 ext4 里。不做集成，三�
 
 | 层面 | 证据 |
 |---|---|
-| 每次提交 | `pnpm test`：风格、语法、构建逐字节一致、`tsc --noEmit`、单测全过 |
+| 每次提交 | `pnpm test`：风格、相对链接、需求引用、文档一致性、语法、构建逐字节一致、`tsc --noEmit`、单测全过 |
 | 覆盖率 | `pnpm run test:coverage`，门限 85/84/70（行/分支/函数） |
 | 真机 | 探针套件（`test/probe/run-all-when-closed.sh --include-fs`），含沙箱边界演示、agent/one-shot 双路径对拍、文件基座、终端、选择器 |
 | CI | Node 22 / 24 × Linux / Windows 跑 `pnpm test`；覆盖率在 Node 24 |
 | 上游接缝 | peer 钉版逐字节比对，[PEER-PARITY.md](PEER-PARITY.md)、[upstream/promotion-map.md](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/upstream/promotion-map.md) |
-| 行为承诺 | [REQUIREMENTS.zh.md](REQUIREMENTS.zh.md) 的 24 条登记与追溯矩阵 |
+| 行为承诺 | [REQUIREMENTS.zh.md](REQUIREMENTS.zh.md) 的 28 条登记（R1–R28）与追溯矩阵 |
 
 真机探针是手动步骤（托管 runner 没有 WSL 发行版），这是已记录的验证缺口（REQUIREMENTS 的 OI-2），不是隐性遗漏。
 

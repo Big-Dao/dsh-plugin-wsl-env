@@ -30,10 +30,10 @@ The version in HELLO is the AGENT's floor for the frames it accepts: a v7
 agent parses every v5/v6 frame forever. The HOST decides what it may send:
 
 - a host sends `FSB` / `FSERR`-expecting frames only against `HELLO ≥ 7`;
-- a v6 host (an older mirror) against a v7 agent sees `HELLO|…|6` never —
-  wait, the agent reports its own version. The rule that matters: **the host
-  gates new frames on `HELLO.version ≥ 7`, and the doctor's handshake reports
-  the negotiated pair**. A half-synced mirror (agent 6, host 7) therefore
+- a v6 host (an older mirror) against a v7 agent still reads `HELLO|…|7` — the
+  agent reports its own version — but the host's rule is what matters: **the
+  host gates new frames on `HELLO.version ≥ 7`**, and the doctor's handshake
+  reports the negotiated pair. A half-synced mirror (agent 6, host 7) therefore
   degrades to v6 behaviour instead of desyncing — the digest check still
   catches script drift, and version mismatch is the same recoverable state it
   is today (rebuild once, then one-shot fallback).

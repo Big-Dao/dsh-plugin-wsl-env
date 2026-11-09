@@ -5,7 +5,7 @@
 | Area | Supported |
 |---|---|
 | Operating system | Windows 10 and Windows 11 |
-| Linux side | WSL2 with at least one distro, and systemd as PID 1 with a lingering user manager (`loginctl enable-linger`) for the shipped session runtime. Set `sessionSandbox: false` on the preset's `wsl-shell` to keep the per-command sandbox instead |
+| Linux side | WSL2 with at least one distro, and systemd as PID 1 with a lingering user manager (`loginctl enable-linger`) for the shipped session runtime. Set `sessionSandbox: false` on both `wsl-shell` and `wsl-fs` in the preset to keep the per-command sandbox instead |
 | DSH packages | `peerDependencies` declares a `0.2.2-rc.1` floor; newer versions require compatibility validation |
 | Plugin version | the latest published version only |
 | Node | 22.19+ (`^22.19.0`), or 24 and later (`>=24.0.0`) |

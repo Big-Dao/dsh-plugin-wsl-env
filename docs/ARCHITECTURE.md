@@ -11,8 +11,9 @@ DSH exposes its capabilities as services. The model-facing tools (`bash`, `read`
 `write`, `edit`, `glob`, `grep`) consume those services. They never touch a
 filesystem or a shell directly.
 
-This plugin supplies WSL-backed implementations of three of them, takes over two
-root-plane services, and adds three smaller integrations.
+This plugin supplies WSL-backed implementations of three of them, replaces three
+app-level rows (`subprocess`, `fs-sandbox`, `directory-picker`), and adds the
+smaller integrations listed below.
 
 ## The three service providers
 
@@ -28,9 +29,9 @@ overridden.
 
 ## The root-plane filesystem takeover
 
-One of the shipped services is session-less — the root `ctx.fs` — so it cannot
-be served from an agent preset. The layer replaces its shipped row outright with
-a subclass that routes by coordinate:
+The root `ctx.fs` is session-less, so it cannot be served from an agent preset.
+The layer replaces its shipped row outright with a subclass that routes by
+coordinate:
 
 | Service | Class | File | What it does |
 |---|---|---|---|
@@ -170,8 +171,9 @@ profile carrying the value is refused at boot, and no file tool crosses the
   `realpath` and publication uses the kernel's rename or link.
 - **Guarded writes** carry their intent to the publication: a `createIfAbsent`
   publishes with a no-replace link, closing the check-then-write window for
-  creates outright; an overwrite or edit carries its version into the write op
-  and the agent re-verifies it before the rename. A mismatch returns
+  creates outright; an overwrite, edit, patch, delete or move carries its
+  expected version into the operation and the agent re-verifies it before the
+  rename or removal (`moveFile` checks both endpoints). A mismatch returns
   `FS_STALE_VERSION`, but a change after that check can still be overwritten.
 - **Kernel enforcement** is stage two: a mutation runs on a confined resident —
   one long-lived agent per (distro, policy), whose bwrap profile binds exactly
@@ -251,12 +253,14 @@ the row keys, and `lib/sandbox-core.js` states its honest ceiling.
 with one deliberate translation: for a session inside a distro the temp root is the
 distro's own `/tmp`, and the Windows temp directory is *not* granted, because it lies
 outside the execution world the policy describes. That avoids a mismatch where `bash`
-could write `/tmp` but the write tool could not. The two `/tmp`s are still different
-directories — the command's is a fresh tmpfs — see [LIMITATIONS.md](LIMITATIONS.md). The fence is complete for the model's reach: `writeText` and `editText` are
-the only mutation calls the model-facing file tools make on the filesystem seam,
-so checking those two checks everything the model can mutate. Both providers
-report their mode through `sandboxMode`. The tool layer and the Permissions
-selector read that value.
+could write `/tmp` but the write tool could not. In the per-command profile
+(`sessionSandbox: false`) the two `/tmp`s are different directories — the
+command's is a fresh tmpfs; the shipped session runtime shares the distro's real
+`/tmp` — see [LIMITATIONS.md](LIMITATIONS.md). The provider's mutation surface is
+`writeText`, `editText`, `patchText`, `deleteFile` and `moveFile`; each runs
+through `checkedTarget`, so the fence covers every mutation the provider can
+serve. Both providers report their mode through `sandboxMode`. The tool layer
+and the Permissions selector read that value.
 
 ### Reported enforcement
 
@@ -374,13 +378,14 @@ step with the checkout, and `pnpm run sync:windows` runs that script.
 | Type check | `tsc --noEmit` over `test/**` and `types/*.d.ts` (`src/` is checked by the build itself) | no |
 | Unit tests | `test/*.test.mjs` | no |
 | Requirements matrix | [`scripts/check-requirements.mjs`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/scripts/check-requirements.mjs) | no; every cited test must exist and stay wired |
+| Doc consistency | [`scripts/check-doc-consistency.mjs`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/scripts/check-doc-consistency.mjs) | no; repeated facts, doctor surface and bilingual pair completeness |
 | Sandbox probe | [`test/probe/sandbox.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/sandbox.sh) | no; it applies the profile arguments directly |
 | Harness probes | [`test/probe/run.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/run.sh), `terminal.sh`, `sandbox-shell.sh`, `interop-shell.sh`, `picker.sh`, `fs-routing.sh`, `missing-wsl.sh`, `sandbox-off.sh`, `native-session.sh` | yes: Windows, WSL2, a mounted profile, and a linked checkout |
 | Distro probes | [`test/probe/substrate.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/substrate.sh), `watch.sh`, `agent.sh`, `exec.sh`, `session-sandbox.sh`, `gui-preview.sh`, `file-reference-9p.sh` | Windows and WSL2, but no harness boot and no profile: they run from a distro terminal with Node available, reaching `wsl.exe` through interop |
 | Host probe | [`test/probe/mode.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/mode.sh) | Windows Node, no harness |
 | Probe plugins | the `*-probe.mjs` and `*-probe.yml` files in `test/probe/` (plus standalone measurers such as `gui-preview.mjs`, `native-session.mjs`, `fs-probe.mjs`, `fs-queue.mjs`) | loaded or invoked by the scripts above |
 
-`pnpm test` runs `lint:style`, `lint:links`, `lint:requirements`,
+`pnpm test` runs `lint:style`, `lint:links`, `lint:requirements`, `lint:docs`,
 `test:syntax`, `lint:build`, `lint:types` and `test:unit`, in that order.
 [`test/probe/run-all-when-closed.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/run-all-when-closed.sh)
 waits for the app to exit and then runs the whole real-machine suite once —
@@ -505,7 +510,8 @@ src/wsl.ts                   wsl.exe interop primitives (no DSH imports)
   names the documentation a reader would have acted on that is no longer true.
 - [`REQUIREMENTS.zh.md`](REQUIREMENTS.zh.md) is the requirements register: every
   documented behaviour commitment numbered, with where it is specified and what
-  verifies it, plus the open items (Chinese, maintainer-facing, not packaged).
+  verifies it, plus the open items (Chinese, maintainer-facing, shipped in the
+  npm package).
 - [`archive/engineering-record.zh.md`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/archive/engineering-record.zh.md) is the
   full engineering record, in Chinese: measured contracts, debugging rounds, and
   the conclusions as they stood then.
@@ -513,7 +519,9 @@ src/wsl.ts                   wsl.exe interop primitives (no DSH imports)
   [`archive/README.en.md`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/archive/README.en.md) are two English indexes of the
   same three archived files, the second so a reader who does not read Chinese can
   still tell what is there; the records themselves are Chinese.
-- [`README.md`](../README.md) is the only statement of current state.
+- [`README.md`](../README.md) and [`docs/README.zh.md`](README.zh.md) are the
+  current-state statement; the Chinese README is authoritative and the English
+  file is its translation (see the documentation map).
 
 ## Diagnostics
 

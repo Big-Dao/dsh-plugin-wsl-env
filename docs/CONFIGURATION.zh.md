@@ -11,9 +11,11 @@ profile 设置存放在 `$DSH_HOME/profiles/<name>/cordis.patch.yml`。可以用
 
 profile 层可以按 `id` 指向顶层行。这一层的插件行包括 `fs-routing`、
 `directory-picker-wsl`、`subprocess-wsl`、`wsl-shell-env`、`wsl-preflight`、
-`auto-preset` 和 `preset-wsl`。`wsl-shell` 和 `wsl-fs`
-两行嵌套在 `preset-wsl.config.plugins` 内；直接按这两个 id 配置的
-profile 条目会被忽略，并产生 `patch: entry <id> not found` 警告。
+`auto-preset`、`wsl-cwd-prompt`、`wsl-cwd-prompt-tool`、`wsl-update-check`、
+`wsl-doctor-command`、`wsl-env-client-host` 和 `preset-wsl`。
+`wsl-shell`、`wsl-fs` 与 `wsl-doctor-tool` 嵌套在
+`preset-wsl.config.plugins` 内；直接按这些 id 配置的 profile 条目会被忽略，
+并产生 `patch: entry <id> not found` 警告。
 
 一行的 `config` 是整体替换。如果你想保留随包行中的非默认值，
 必须把它们一并写入。这对 `preset-wsl` 尤其重要：
@@ -136,6 +138,7 @@ Loader 在挂载该行之前会校验宿主和发行版设置；
 | | `startup` | `true` | 插件加载时（即安装 + 重启后）对 pin 的或 WSL 默认发行版预先运行同一组检查，让判定在任何会话打开之前就出现在日志里。 |
 | `wsl-shell-env` | `distro` | `''` | 用于填充 `DSH_WSL_*` 环境事实的发行版。 |
 | | `portsRefreshMs` | `10000` | 监听端口快照的刷新间隔，单位毫秒。 |
+| `wsl-cwd-prompt` | `enabled` | `true`（shipped） | 把 runtime context 的工作目录条目改写为发行版的 POSIX 形式。 |
 | `wsl-update-check` | `enabled` | `true` | 插件是否向应用的插件管理器查询更新的稳定版。结果经 `DSH_WSL_PLUGIN_UPDATE` 送达；该检查从不安装。 |
 | | `intervalMs` | `86400000` | 检查间隔，单位毫秒（启动后 2–10 分钟首查）；下限一分钟。 |
 

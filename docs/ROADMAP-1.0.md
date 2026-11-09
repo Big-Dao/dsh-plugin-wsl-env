@@ -1,6 +1,6 @@
 # Roadmap 1.0: the WSL plugin the DSH ecosystem should have
 
-Status: working plan, last refreshed 2026-11-07 against `0.19.0` (WSL-316 doctor closed-loop planning; the §2 area tables were last refreshed at 0.15.0).
+Status: working plan, last refreshed 2026-11-09 against `0.22.0` (the WSL-316 doctor loop and the 0.21/0.22 GUI/localization line; the §2 area tables remain the 0.15.0 baseline and are explicitly historical).
 The 0.12.0 baseline that motivated the plan is kept below as history.
 Audience: maintainers and contributors. This is a plan, not a release promise.
 The short version: **from "the only WSL plugin" to "the default WSL plugin"** —
@@ -44,20 +44,21 @@ North-star metrics:
 | Real-machine probe suite | 100% on Tier 1, nightly |
 | Known documentation drift | 0 |
 
-## 2. Where 0.15.0 stands
+## 2. The 0.15.0 baseline
 
 > WSL-101 landed on 2026-10-19: the distro follows the workspace and the
 > per-distro caches are in place. 0.15.0 (2026-10-27) shipped the compatibility
 > matrix, container legs, qemu aarch64, doctor, preset helper, and
 > `interopVisibility`. The table that *motivated* the plan is frozen as the
-> 0.12.0 baseline; the 0.15.0 row is what a reader should act on.
+> 0.12.0 baseline; the 0.15.0 row records the state at that point. Current
+> status lives in the release notes and the WSL-316 section below.
 
-### 0.15.0 (current)
+### 0.15.0 baseline (historical)
 
-| Area | Strong today | Remaining gap |
+| Area | Strong at 0.15.0 | Remaining gap |
 |---|---|---|
 | Execution | Native agent default; systemd session scope; `distro: auto` coordinate routing; concurrent distros | Physical aarch64 WSL (out of scope); non-systemd real-machine session probe unrun |
-| Files | in-distro agent substrate, root-plane `fs-routing` in unit+coverage, kernel-enforced confined writes; protocol v7 `FSB` batch (0.18.0) serves the GUI preview's stat+list+read shape in one round trip | `@` completion still 9p until the upstream `FileReferenceTraversal` seam; the preview's remaining round trips (open/patch) are one per op by design |
+| Files | in-distro agent substrate, root-plane `fs-routing` in unit+coverage, kernel-enforced confined writes; protocol v7 `FSB` batch (0.19.0) serves the GUI preview's stat+list+read shape in one round trip | `@` completion still 9p until the upstream `FileReferenceTraversal` seam; the preview's remaining round trips (open/patch) are one per op by design |
 | Sandbox | `bubblewrap`, fail-closed, `enforcement: partial`, `interopVisibility` / `maskWindowsDrive` | Plugin keys do not disable WSL interop; distro `[interop] enabled=false` must be configured separately |
 | Onboarding | `doctor`, `bootstrap` / `bootstrap-import`, session preflight, `profile-preset` helper | Clean-machine first-run timing still unmeasured; session UI has no toast seam |
 | Configuration | Every shipped key documented; nested `preset-wsl` rows edited through the helper | An id patch of `wsl-shell` / `wsl-fs` still only warns |
@@ -131,7 +132,7 @@ correct once configured" and "the plugin is correct on first contact".
 | [P1.1](#wsl-201--sessionsandbox-auto) | `sessionSandbox: auto` for distros without systemd | Non-systemd distro runs the first command under per-command bwrap and reports the narrower scope; explicit `true` still refuses | M |
 | [P1.2](#wsl-202--compatibility-matrix-and-aarch64) | Compatibility matrix and real validation | Tier 1 (Ubuntu/Debian, systemd, x86_64) green; aarch64 spike runs under qemu; Tier 2 status documented | L |
 | [P1.3](#wsl-203--installupgradeuninstall-e2e) | Install/upgrade/uninstall E2E | Temporary `DSH_HOME`, packed tarball, profile install (Plugins page or `dsh plugin add`), `--dump-config` where the CLI exists, remove; upgrade from the previous minor | M |
-| [P1.4](#wsl-204--references-seam) | `@` references seam | Measure the 9p cost; land the upstream `FileReferenceTraversal` seam or a declared, tested fallback | L |
+| [P1.4](#wsl-204---references-seam) | `@` references seam | Measure the 9p cost; land the upstream `FileReferenceTraversal` seam or a declared, tested fallback | L |
 | [P1.5](#wsl-205--lsp-provider-spike) | LSP provider spike | A documented plan and prototype for `ctx.lsp` over fs + subprocess, conditional on the desktop composition mounting LSP | M |
 | [P1.6](#wsl-206--gui-preview-performance) | GUI preview performance | Baseline measured; p95 <= 1s/MiB for a representative page; v6 only if the measurement justifies it | M |
 | [P1.7](#wsl-207--agent-recovery-and-status) | Agent recovery and status | In-flight death recovers within 2s or fails with a named state; `doctor`/status shows agent and scope health | M |
@@ -370,7 +371,7 @@ remedy for `no-systemd`, `no-user-manager`, `no-systemd-run` and `no-linger`
 (`sessionSandbox: false` on the row skips the session half). The advisory is
 logged **and** published as a session-scoped `wsl-preflight` runtime-context
 entry, so it is visible in the session transcript rather than only in the app
-log. DSH 0.2.1 has no toast/banner seam; the exact ask was filed as
+log. DSH 0.2.2-rc.1 still has no toast/banner seam; the exact ask was filed as
 [#10263](https://github.com/deepseek-ai/deepseek-harness/discussions/10263) and is recorded in
 [UPSTREAM-SESSION-NOTICE.md](UPSTREAM-SESSION-NOTICE.md), and
 [LIMITATIONS.md](LIMITATIONS.md#session-start-advisories) records the boundary.
@@ -606,7 +607,7 @@ agent queue; the service-level round-trip count remains qualitative.
 
 **Status:** implemented (2026-10-19): a resident that spends its one rebuild
 enters a bounded revival (2/4/8 s backoff, one fresh transport and one rebuild
-per attempt); after three deaths the refusal is permanent and names the restart
+per attempt); after three revivals the fourth death is permanent and names the restart
 remedy. `WslAgent.status()` exposes state, pid, lastError, deaths and pending.
 `pnpm run doctor` probes a fresh shell resident (`agent.handshake`: pid,
 protocol, script digest) and reports the agent cache and live/stale
@@ -829,7 +830,7 @@ release gate; full probe suite.
 **Priority:** P2 · **Size:** L · **Labels:** `area:onboarding`,
 `type:feature`, `priority:P2`
 
-**Status:** implemented on the plugin side (2026-11-07); the app-closed probe suite legs and the GUI-session closed-loop leg are on the maintainer checklist — the real-machine record is [2026-11-07 doctor real-machine](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/superpowers/probe-runs/2026-11-07-doctor-real-machine.md). Designed and implemented the same day. The initial three
+**Status:** implemented on the plugin side (2026-11-07); the app-closed probe suite legs and the GUI-session closed-loop leg are on the maintainer checklist — the real-machine record is [2026-11-07 doctor real-machine](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/superpowers/probe-runs/2026-11-07-doctor-real-machine.md). Designed and implemented the same day; 0.21–0.22 then added the itemized per-distro digest, the `/wsl-doctor` command, the `wsl_doctor` tool and CLI/OS-locale localization. The initial three
 check groups (`distro.wsl-mode`, `config.wslconfig`, `distro.wsl-conf-*`) were
 filed in [issue #35](https://github.com/Big-Dao/dsh-plugin-wsl-env/issues/35)
 from the competitive triage (gaps #2/#3/#4). A commercial-doctor review added

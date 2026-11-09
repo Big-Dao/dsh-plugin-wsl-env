@@ -44,7 +44,8 @@ doctor 通过三个入口给出同一份报告：
   本身就是故障源，它也能启动。只 import 纯净、无 peer 的 `lib/` 模块；原先
   挂在 peer 污染模块（`lib/index.js`、`lib/update-check.js`）后面的两个
   helper 已内联，并由 `test/doctor.test.mjs` 与 lib 导出对拍防漂移。
-  退出码 0 = `ready`，1 = `blocked`。
+  退出码 0 = `ready`，1 = `blocked`，2 = 拒绝（`--read-only` 与
+  `--fix`/`--install` 同用，或对范围化运行使用 `--fix`）。
 - **`/wsl-doctor` UI 命令**——composer 按钮投下
   `/wsl-doctor [quick|full|<分区>] [--distro <名称>]`；命令面在宿主侧执行，
   handler 子进程运行独立 CLI，逐项报告直接渲染在 UI 上、不进模型历史

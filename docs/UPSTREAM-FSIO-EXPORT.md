@@ -176,13 +176,12 @@ Files that move with it:
 - `test/fsio-text.test.mjs` (the replica's tests, including the
   `detectLineEndings` checks at `:69-72`) and `test/fsio-agent.test.mjs:22`,
   which imports two of the four from `lib/fsio-text.js`. If that test file is
-  dropped or renamed, also the `test:coverage` and `test:unit` lists at
-  `package.json:114` and `:116`.
-- The documents that describe the replica as current: `docs/ARCHITECTURE.md:173`
-  and `:416` (the two entries marked "replicated … pending the … export"),
-  `docs/PEER-PARITY.md:3` and `:17` (plus its Maintenance section),
-  `docs/upstream/promotion-map.md:82` — and this file, whose status then becomes
-  "landed".
+  dropped or renamed, update the `test:coverage` and `test:unit` script lists
+  in `package.json` too.
+- The documents that describe the replica as current: `docs/ARCHITECTURE.md`
+  (the entries marked "replicated … pending the … export"), `docs/PEER-PARITY.md`
+  (plus its Maintenance section), `docs/upstream/promotion-map.md` — and this
+  file, whose status then becomes "landed".
 
 Done when: the pinned peer resolves the four names from both its runtime entry
 and its declarations, the plugin imports them there, `pnpm test` passes, and no

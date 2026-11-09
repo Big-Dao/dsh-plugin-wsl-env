@@ -16,7 +16,7 @@
  *
  * Compositions that still mount the bare name get the client half (the doctor
  * composer button) and nothing else; the executor keeps its behavior through
- * the explicit subpath. Before 0.20.0 `.` resolved to the executor itself —
+ * the explicit subpath. Before 0.21.0 `.` resolved to the executor itself —
  * a profile that relied on that shape must switch to `dsh-plugin-wsl-env/shell`.
  *
  * This is a TypeScript source built to `lib/client-host.js`; edit THIS file and

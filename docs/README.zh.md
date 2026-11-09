@@ -148,7 +148,7 @@ wsl.exe -d <发行版> -u root -- apt-get install -y bubblewrap
 | `wsl-preflight` | `distro` | `''` | 环境检查探测的发行版；空/`auto` 跟随会话工作区 |
 | | `startup` | `true` | 插件加载时预先运行同一组检查，让判定在任何会话打开之前就出现在日志里 |
 
-`wsl-shell` 和 `wsl-fs` 位于随包的 `wsl` preset 中，按 id 覆盖无效。要改就覆盖整个 `preset-wsl` 行；配方和其余键见 [docs/CONFIGURATION.md](CONFIGURATION.md)。[`cordis.patch.yml`](../cordis.patch.yml) 是随包值的注释参考。
+`fs-routing` 是根级 `ctx.fs` 调用的顶层路由：它的发行版设置独立于 `wsl-fs`，也是按 id 在顶层补丁中覆盖的行。`wsl-shell` 和 `wsl-fs` 位于随包的 `wsl` preset 中，按 id 覆盖无效。要改就覆盖整个 `preset-wsl` 行；配方和其余键见 [docs/CONFIGURATION.md](CONFIGURATION.md)。[`cordis.patch.yml`](../cordis.patch.yml) 是随包值的注释参考。
 
 ## 架构
 

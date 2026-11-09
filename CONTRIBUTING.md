@@ -186,7 +186,7 @@ terminal if you would rather not see the prompt.
 
 | Command | Covers | Needs a harness |
 |---|---|---|
-| `pnpm test` | style checks, relative links, syntax pass, build consistency, type check, and unit tests | no |
+| `pnpm test` | style checks, relative links, requirement citations, doc consistency, syntax pass, build consistency, type check, and unit tests | no |
 | `pnpm run lint:links` | relative Markdown links in README, CONTRIBUTING, AGENTS and `docs/**` | no |
 | `pnpm run test:coverage` | unit tests with coverage, then the per-module gate: every `lib/*.js` measured or allowlisted, per-module floors 85/70/60 | no |
 | `pnpm run lint:style` | style and lint rules | no |

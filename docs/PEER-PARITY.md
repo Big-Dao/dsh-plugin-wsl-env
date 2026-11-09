@@ -20,8 +20,9 @@ file records the verification against the real peers.
   Every replicated string survived verbatim; the fsio **read path** holds end
   to end and the **edit path** carries the same two declared divergences, listed
   at the end. The release also added a `FS_ERROR_CODES` const export with two
-  new codes (`FS_PATCH_MISMATCH`, `FS_SAME_TARGET`) for operations this plugin
-  does not serve — see the new-peer-operations section at the end.
+  new codes (`FS_PATCH_MISMATCH`, `FS_SAME_TARGET`). The plugin serves those
+  operations for real over protocol v7 — see the new-peer-operations section
+  at the end.
   `dsh-bash-local@0.2.2-rc.1`'s `lib/index.js` is byte-identical to
   `0.2.1-rc.3`'s (only manifests and locale files changed), so its references
   stand. `dsh-fs@0.2.2-rc.1` still has no `./invariant` export subpath; this
@@ -40,10 +41,10 @@ file records the verification against the real peers.
 
 ```sh
 mkdir -p /tmp/peer-audit && cd /tmp/peer-audit
-npm pack @deepseek-ai/dsh-fs-local@0.2.1-rc.3 @deepseek-ai/dsh-fs@0.2.1-rc.3 --pack-destination .
-openssl dgst -sha512 -binary deepseek-ai-dsh-fs-local-0.2.1-rc.3.tgz | base64 -w0
-tar xzf deepseek-ai-dsh-fs-local-0.2.1-rc.3.tgz   # -> package/lib/index.js
-wc -l package/lib/index.js                        # expect 909
+npm pack @deepseek-ai/dsh-fs-local@0.2.2-rc.1 @deepseek-ai/dsh-fs@0.2.2-rc.1 --pack-destination .
+openssl dgst -sha512 -binary deepseek-ai-dsh-fs-local-0.2.2-rc.1.tgz | base64 -w0
+tar xzf deepseek-ai-dsh-fs-local-0.2.2-rc.1.tgz   # -> package/lib/index.js
+wc -l package/lib/index.js                        # expect 1048
 ```
 
 The tarballs this audit compared, by content — the same values
@@ -102,7 +103,7 @@ declared extensions, listed at the end.
 2. **Per-stream truncation flags.** The EXEC frame carries an output budget;
    the RES line reports which streams the agent cut, surfaced as honest
    `truncated` flags. The collect-budget/spill machinery of the shell peer,
-   `@deepseek-ai/dsh-bash-local@0.2.1-rc.3` (`lib/index.js:30`, `:110`), is the
+   `@deepseek-ai/dsh-bash-local@0.2.2-rc.1` (`lib/index.js:30`, `:110`), is the
    spill-file path we deliberately do not run.
 3. **The transport around the ops** (ACK, KILL, the confined resident) is
    protocol this package owns; the peer has no agent.

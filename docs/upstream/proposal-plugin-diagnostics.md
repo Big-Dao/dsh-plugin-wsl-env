@@ -1,7 +1,11 @@
 # Proposal: a per-plugin diagnostics action on the Plugins page
 
-Status: proposal, filed 2026-11-07 as [deepseek-harness discussion #12499](https://github.com/deepseek-ai/deepseek-harness/discussions/12499). Companion to the session-notice ask
-(#10263) and the background-job kill report (#12433). Not a release promise.
+Status: **withdrawn** (2026-11-07). It was filed as
+[deepseek-harness discussion #12499](https://github.com/deepseek-ai/deepseek-harness/discussions/12499)
+and closed the same day as resolved: the cohesive implementation is the plugin's
+own `wsl_doctor` tool plus the `/wsl-doctor` command, with no upstream surface
+required. This file stays as a dated record, not a release promise. Companion to
+the session-notice ask (#10263) and the background-job kill report (#12433).
 
 ## The ask
 

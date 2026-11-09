@@ -3,7 +3,6 @@
     "agent-shared.js": "the shared resident's spawn/cache arms need a live distro; fs.boot.test.mjs covers the resident path, but only on a machine with a distro",
     "auto-preset.js": "peer-bound cordis row: no peer-level test yet, exercised by the probes only",
     "picker.js": "peer-bound cordis row: no peer-level test yet, exercised by the probes only",
-    "shell-env.js": "register/sweep/ports arms need a live distro or a live agent loop; the probes cover them",
     "subprocess.js": "peer-bound cordis row: the terminal and workspace-changes spawn override is probe-only for now"
   }
 }

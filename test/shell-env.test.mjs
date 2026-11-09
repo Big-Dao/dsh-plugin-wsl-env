@@ -208,6 +208,21 @@ if (POSIX) {
   }
 }
 
+// With no `wsl.exe` reachable at all, both mount probes fail — the distro
+// list and the default-distro re-read behind it. The row still mounts, names
+// no default, and every resolve falls back to the session's own distro with
+// no facts: absence over a lie, at the row's starkest.
+{
+  const mounted = await mount({ withAgents: true, config: { distro: "", portsRefreshMs: 3_600_000 } });
+  mounted.restorePath();
+  const resolve = /** @type {NonNullable<Contributor["resolve"]>} */ (mounted.registered[0]?.resolve);
+  const resolved = resolve({ agent: { session: { header: { cwd: "\\\\wsl.localhost\\ze-alone\\home" } } } });
+  assert.equal(resolved.DSH_WSL_DISTRO, "ze-alone", "both mount probes failed: the session's distro still names itself");
+  assert.equal(resolved.DSH_WSL_SHELL, undefined, "no facts were warmed for it");
+  assert.equal(resolved.DSH_WSL_HOME, undefined, "no invented home either");
+  console.log("PASS  both mount probes failing leaves the row alive and factless");
+}
+
 // `default` mode refuses sessions outside the default distro on both the
 // consider and resolve paths, and accepts sessions inside it.
 if (POSIX) {

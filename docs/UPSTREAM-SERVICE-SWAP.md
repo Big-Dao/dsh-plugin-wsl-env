@@ -1,11 +1,15 @@
 # Upstream proposal: a same-name service swap that survives live recomposition
 
-Status: observed, not yet filed. The failure was first seen on the desktop
-`0.2.2-rc.1` release (app-bundled `@deepseek-ai/cordis@4.1.0` +
+Status: observed, filing payload drafted; **not filed yet** — filing against
+`deepseek-ai/deepseek-harness` is a maintainer action. The failure was first
+seen on the desktop `0.2.2-rc.1` release (app-bundled
+`@deepseek-ai/cordis@4.1.0` +
 `@deepseek-ai/cordis-plugin-loader@1.1.0`; the npm line still ships
-cordis `4.0.5` / loader `1.0.5`, which this repository pins), reproduced
-in isolation against both version pairs on 2026-11-05, and the mechanism
-is confirmed down to the `_unload` diff. Filing payload not yet drafted.
+cordis `4.0.5` / loader `1.0.5`), reproduced in isolation against both
+version pairs on 2026-11-05, and the mechanism is confirmed down to the
+`_unload` diff. The exact filing payload (title, body, command; drafted
+2026-11-09) is
+[proposal-service-swap.md](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/upstream/proposal-service-swap.md).
 
 ## The gap
 

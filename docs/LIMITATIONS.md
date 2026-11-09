@@ -191,9 +191,11 @@ the sandbox's security statement: `enforcement: partial` is untouched.
   app. Two alternatives: the doctor's `git.win-safe` probe reports the state, and a
   machine **without** Windows git needs nothing — the provider routes discovery into
   the distro and translates the output into UNC form.
-- **Colon-separated multi-directory `GIT_*` values pass through untranslated.**
-  The git environment translation rewrites single Windows directory values; a
-  colon-separated list (no current caller sets one) is forwarded as-is.
+- **A multi-directory `GIT_*` value is translated, not skipped — and a
+  Windows-form list comes out wrong.** The translation applies the single-value
+  translator to every `GIT_*` value unchecked, so a list folds onto the first
+  drive's mount (`C:\a;D:\b` becomes `/mnt/c/a;D:/b`); only a POSIX-form colon
+  list (`/a:/b`) passes through verbatim (no current caller sets a list).
 - **A NEW tab's title reads `WSL`** whatever it runs — the controller titles from the
   composition's profile before the provider rewrites the launch, and a plugin cannot
   correct the default ([UPSTREAM-TERMINAL-TITLE.md](UPSTREAM-TERMINAL-TITLE.md)).

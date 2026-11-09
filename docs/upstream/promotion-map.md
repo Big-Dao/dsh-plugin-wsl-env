@@ -146,8 +146,9 @@ git 调用 ~232ms（几乎全是 `wsl.exe` 进程创建），常驻 agent ~1.6ms
 6-8 个调用省 1.4s 以上，推翻了旧注记"快照操作不敏感延迟"的前提）。已知限制：多目录 `GIT_ALTERNATE_OBJECT_
 DIRECTORIES`（列表值）不是被跳过而是被译坏——`translateGitEnv` 对每个 `GIT_*` 值
 无条件调用单值翻译，`C:\a;D:\b` 会得到混合形态 `/mnt/c/a;D:/b`（现无调用方设置
-列表值；`src/git-route.ts` 的模块注释仍写作 `passes through untranslated`，与
-实现不符）；distro 无 git 时报
+列表值；2026-11-09 运行时复核坐实——`/a:/b` 原样透传、`C:\a;D:\b` 得
+`/mnt/c/a;D:/b`——后，`src/git-route.ts` 模块注释与 `docs/LIMITATIONS.md`/
+`.zh.md` 的 GIT_* 句已改为如实描述）；distro 无 git 时报
 git 自己的 "command not found"（exit 127）——与搜索同样是**拒绝静默回退**
 （fail-closed）：把子进程自己的 command not found 原样上抛，而不是悄悄退回宿主侧。
 

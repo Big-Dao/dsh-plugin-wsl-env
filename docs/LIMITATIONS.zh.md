@@ -162,8 +162,10 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
   应用。两个替代方案：doctor 的 `git.win-safe` 探针可报告该状态；而
   **没有** Windows git 的机器什么都不用做——提供者把发现请求路由进
   发行版，并把输出转写成 UNC 形式。
-- **冒号分隔的多目录 `GIT_*` 值不做转写直接透传。** git 环境转写只改写单个
-  Windows 目录值；冒号分隔的列表（当前没有调用方设置这种形态）原样转发。
+- **多目录 `GIT_*` 值会被转写而不是跳过——Windows 形态的列表会译坏。**
+  git 环境转写对每个 `GIT_*` 值无条件套用单值翻译，列表被折叠进首个盘符的
+  挂载点（`C:\a;D:\b` 变成 `/mnt/c/a;D:/b`）；只有 POSIX 形态的冒号列表
+  （`/a:/b`）原样透传（当前没有调用方设置列表值）。
 - **NEW 标签页的标题显示 `WSL`**，无论它实际运行什么——控制器在提供者
   改写启动命令之前就按 composition 的 profile 命名了，而插件无法纠正
   这个默认值（[UPSTREAM-TERMINAL-TITLE.md](UPSTREAM-TERMINAL-TITLE.md)）。

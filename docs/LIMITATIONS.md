@@ -196,11 +196,14 @@ the sandbox's security statement: `enforcement: partial` is untouched.
   translator to every `GIT_*` value unchecked, so a list folds onto the first
   drive's mount (`C:\a;D:\b` becomes `/mnt/c/a;D:/b`); only a POSIX-form colon
   list (`/a:/b`) passes through verbatim (no current caller sets a list).
-- **A NEW tab's title reads `WSL`** whatever it runs — the controller titles from the
-  composition's profile before the provider rewrites the launch, and a plugin cannot
-  correct the default ([UPSTREAM-TERMINAL-TITLE.md](UPSTREAM-TERMINAL-TITLE.md)).
-  The menu ships host candidates (`powershell`, `cmd`): a manually selected shell is
-  titled after itself; double-click rename also works.
+- **A NEW tab's title reads `WSL`** whatever it runs — the controller stamps
+  `title: shell.name` from the composition's profile only after `spawnTerminal`
+  has returned, after the provider's rewrite has already run, and it never reads
+  back the program the launch really started (the spawn spec carries no
+  display-name field), so a plugin cannot correct the default
+  ([UPSTREAM-TERMINAL-TITLE.md](UPSTREAM-TERMINAL-TITLE.md)). The menu ships
+  host candidates (`powershell`, `cmd`): a manually selected shell is titled
+  after itself; double-click rename also works.
 - **Distro terminals ARE reclaimed when idle** — the handle counts the marked
   processes through the resident agent (exactly one at its prompt = `idle`; a nested
   shell or an `ssh-agent` from startup files reads `busy` by design). Threshold: the

@@ -95,18 +95,19 @@ With either, this plugin deletes the limitation paragraph in
 [LIMITATIONS.md](LIMITATIONS.md) and the `WSL`-over-PowerShell title, for any
 provider that rewrites launches — not just WSL. The same limitation is stated
 as current fact in four places. Three go stale the day the proposal lands; the
-fourth is already out of step and needs the corrections above whenever it is
-next touched:
+fourth — the `WSL` tab-title bullet under "Terminals" in
+[LIMITATIONS.md](LIMITATIONS.md) — was already out of step and needed the
+corrections above: it said the controller titles a tab *before* the provider
+rewrites the launch, the reverse of the ordering corrected at the top of this
+file, and it carried the one-line `shellCandidates` workaround that drops the
+row's `shell` block. Corrected on 2026-11-09 (the LIMITATIONS paragraph and
+its Chinese mirror now follow the ordering at the top of this file); the
+remaining three still go stale the day the proposal lands:
 
 - the GUI-terminal comment block in [`cordis.patch.yml`](../cordis.patch.yml);
 - the closing paragraph of "Why the terminal provider is app-level" in
   [ARCHITECTURE.md](ARCHITECTURE.md);
-- R4's `残差` (residual) column in [REQUIREMENTS.zh.md](REQUIREMENTS.zh.md);
-- the `WSL` tab-title bullet under "Terminals" in
-  [LIMITATIONS.md](LIMITATIONS.md) — the paragraph named just above. It says
-  the controller titles a tab *before* the provider rewrites the launch, the
-  reverse of the ordering corrected at the top of this file, and it carries the
-  one-line `shellCandidates` workaround that drops the row's `shell` block.
+- R4's `残差` (residual) column in [REQUIREMENTS.zh.md](REQUIREMENTS.zh.md).
 
 ## Workarounds until then
 

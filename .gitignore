@@ -34,6 +34,8 @@ test/probe/.scratch/
 
 # ZCode session scratch (plan-mode drafts live under plans/).
 .zcode/plans/
+# Agent worktrees (created per session for parallel lanes; never committed).
+.worktrees/
 # Cargo's home for the native spike's local builds (never shipped).
 .cargo-home/
 

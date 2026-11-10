@@ -1,0 +1,6 @@
+{
+  "name": "@dsh-plugin-wsl-env/probes",
+  "private": true,
+  "type": "module",
+  "description": "Gives test/probe modules their own package identity. Without it, the nearest manifest is this checkout's package.json, which declares dsh.client, so the client-modules roster treats a probe Loader row as a second source of dsh-plugin-wsl-env — the wslfs profile links the plugin from the Windows mirror, and composition fails with 'resolves from multiple active Loader sources'."
+}

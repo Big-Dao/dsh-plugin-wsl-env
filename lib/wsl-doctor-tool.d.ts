@@ -113,6 +113,8 @@ interface CheckItem {
     detail: string;
     distro?: string;
     remedy?: string;
+    /** Synthetic catalog row: this run's scope never executed the check. */
+    scopeSkip?: true;
 }
 /** The tool's result: the doctor's verdict, condensed for the model. */
 export interface DoctorDigest {
@@ -133,6 +135,12 @@ export interface DoctorDigest {
     distros: DistroTally[];
     /** Every check the report carried, in report order — the itemized listing. */
     items: CheckItem[];
+    /**
+     * Catalog ids the report did not carry: checks a scoped run never executed,
+     * plus conditional ids whose trigger did not fire (a quiet full run's
+     * `distro.present` / `fix.git-trust`).
+     */
+    notRun: number;
     /** The scope the report answers for (quick profile or a section subset). */
     scope?: {
         sections: string[];

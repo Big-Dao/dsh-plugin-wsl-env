@@ -15,7 +15,7 @@
   "verdict.ready.many": "verdict: READY — the first command should succeed in each of: {targets}",
   "verdict.blocked": "verdict: BLOCKED by: {blockers} — apply the fixes above, then rerun",
   "fix.prefix": "        fix: {remedy}",
-  "fix.hint": "run with --fix to sweep stale scopes; --fix --install asks before installing packages",
+  "fix.hint": "run with --fix to sweep stale scopes and purge a broken agent cache; --fix --install asks before installing packages",
   "sessions.title": "sessions across running distros",
   "sessions.none": "  (none)",
   "sessions.no-user-manager": "no user manager — scopes unavailable",
@@ -26,5 +26,6 @@
   "bundle.redacted": ", redacted",
   "refusal.read-only": "doctor: --read-only refuses --fix/--install; run `pnpm run doctor --fix` instead",
   "refusal.scoped-fix": "doctor: --fix needs a full run — a scoped run cannot re-verify what it did not probe",
-  "confirm.install": "Install {packages} in \"{distro}\" as root?"
+  "confirm.install": "Install {packages} in \"{distro}\" as root?",
+  "refusal.owned-install": "doctor: --fix-owned repairs plugin-owned state only and cannot be combined with --install"
 }

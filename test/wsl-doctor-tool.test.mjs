@@ -219,7 +219,7 @@ await check("digestReport tallies the sections a scoped report carried, in SECTI
     scope: { sections: ["host", "session", "sandbox"], quick: true },
     checks: [
       { id: "distro.reachable", status: "ok" },
-      { id: "distro.kernel", status: "info" },
+      { id: "distro.identity", status: "info" },
       { id: "session.linger", status: "fail", detail: "unset", remedy: "enable-linger" },
       { id: "sandbox.bwrap", status: "ok" },
       { id: "agent.handshake", status: "info", detail: "out of scope" },
@@ -240,10 +240,10 @@ await check("digestReport tallies the sections a scoped report carried, in SECTI
 await check("sectionOf parity with the doctor CLI's own mapping", async () => {
   const doctor = await import("../scripts/doctor.mjs");
   const ids = [
-    "distro.reachable", "distro.kernel", "distro.dns", "distro.wsl-conf-boot",
+    "distro.reachable", "distro.identity", "distro.dns", "distro.wsl-conf-boot",
     "sandbox.bwrap", "functional.sandbox", "session.linger", "runtime.scopes",
     "distro.wsl-conf-interop", "distro.wsl-conf-automount", "config.effective",
-    "agent.handshake", "functional.exec", "peers.versions", "git.win-safe", "update.latest",
+    "agent.handshake", "functional.exec", "peers.versions", "git.win-safe", "functional.native",
   ];
   for (const id of ids) {
     assert.equal(digestSectionOf(id), doctor.sectionOf(id), `sectionOf("${id}") agrees with the CLI`);
@@ -291,7 +291,8 @@ await check("a scoped report still lists the unexecuted checks as explicit skips
   const digest = digestReport({ verdict: "ready", blockers: [], checks: [{ id: "distro.reachable", status: "ok", distro: "ubuntu", title: "Distro \"ubuntu\"", detail: "answers commands" }] });
   const notRun = digest.items.filter((item) => item.distro === "(not run)");
   assert.ok(notRun.length >= CHECK_CATALOG.length - 1, "every unreported catalog id appears once");
-  assert.ok(notRun.every((item) => item.status === "skipped" && item.detail === "not run in this scope"));
+  assert.ok(notRun.every((item) => item.status === "skipped" && item.detail === "not run in this scope" && item.scopeSkip === true));
+  assert.equal(digest.notRun, notRun.length, "the digest counts the same synthetic rows it lists");
   const rendered = renderDigest(digest);
   assert.match(rendered, /== \(not run in this scope\) =/);
   assert.ok(!rendered.includes("agent.handshake: not run in this scope"), "individual skip rows collapse into one summary line");

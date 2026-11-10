@@ -57,7 +57,7 @@ const FIXTURE_REPORT = JSON.stringify({
   verdict: "blocked",
   blockers: ["distro.present"],
   checks: [
-    { id: "host.windows", status: "ok", detail: "Windows build: 10.0.26300.9818" },
+    { id: "host.platform", status: "ok", detail: "Windows 10.0.26300.9818; WSL version: 2.0.0" },
     { id: "distro.present", status: "fail", detail: "distro \"missing\" is not installed", remedy: "install it: wsl --install -d missing", distro: "missing" },
   ],
   summary: { ok: 1, fail: 1 },
@@ -327,7 +327,7 @@ await check("the registry resolves through ctx.get like production does", async 
 
 await check("formatDoctorReport digests the CLI's versioned JSON", () => {
   const text = formatDoctorReport(FIXTURE_REPORT, "missing");
-  assert.match(text, /host\.windows/);
+  assert.match(text, /host\.platform/);
   assert.match(text, /distro\.present/);
 });
 

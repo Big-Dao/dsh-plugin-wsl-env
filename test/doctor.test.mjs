@@ -11,19 +11,20 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { peerSatisfied, latestFromPackument, parseWslConfig, parseWslSize, parseIni, parseWslVerbose, effectiveMaskWindowsDrive, updateFactMessage, localeNameFromReg, localeFromTag, overrideLocale, setDoctorLocale, doctorT } from "../scripts/doctor.mjs";
+import { peerSatisfied, parseWslConfig, parseWslSize, parseIni, parseWslVerbose, effectiveMaskWindowsDrive, distroPath, hostDiskVerdict, localeNameFromReg, localeFromTag, overrideLocale, setDoctorLocale, doctorT } from "../scripts/doctor.mjs";
 import { mergeLiveResidentStatus } from "../lib/doctor-live.js";
 import { doctorReport } from "../lib/index.js";
 import { effectiveMaskWindowsDrive as libEffectiveMaskWindowsDrive } from "../lib/index.js";
-import { updateFactMessage as libUpdateFactMessage } from "../lib/update-check.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /** The digest the agent script self-reports; the fake HELLO carries it. */
 const AGENT_DIGEST = createHash("sha256").update(readFileSync(join(ROOT, "agent", "wsl-agent.sh"))).digest("hex");
+/** The content-addressed cache entry the fake native binary lives under. */
+const CACHE_DIGEST = "a".repeat(64);
 
 /** @typedef {{ id: string, status: string, detail?: string, remedy?: string, distro?: string, blocksFirstCommand?: boolean }} Check */
 /** @typedef {{ schemaVersion: number, checks: Check[], summary: Record<string, number>, verdict?: string, blockers?: string[], distroVerdicts?: Array<{ name: string, verdict: string, blockers: string[] }>, config?: Record<string, string | string[]>, scope?: { sections: string[], quick: boolean } }} Report */
@@ -32,12 +33,6 @@ if (process.platform === "win32") {
   console.log("SKIP  doctor tests: the fake wsl.exe is a POSIX script");
   process.exit(0);
 }
-
-// The update check asks the live registry; these checks must not depend on the
-// network. An empty override asks no registry at all — the doctor reports its
-// `info` unreachable line, and the packument parser is exercised directly
-// below instead.
-process.env.DSH_UPDATE_REGISTRIES = "";
 
 const scratch = mkdtempSync(join(tmpdir(), "dsh-doctor-"));
 const bin = join(scratch, "bin");
@@ -73,9 +68,9 @@ case "$all" in
     esac ;;
 esac
 case "$all" in
-  *"--exec sh /"*)
-    if [ "\${FAKE_AGENT_DIGEST:-}" = bad ]; then printf 'HELLO|wsl-agent|7|deadbeef|4242|batch\\n'; else printf 'HELLO|wsl-agent|7|${AGENT_DIGEST}|4242|batch\\n'; fi
-    [ "\${FAKE_RESIDENT_DIES:-no}" = yes ] && exit 0
+  *"--exec /"*)
+    printf 'HELLO|wsl-agent|7|${CACHE_DIGEST}|5150|conc,batch\n'
+    [ "\${FAKE_NATIVE:-ok}" = bad ] && exit 0
     while IFS= read -r line; do
       case "$line" in
         SHUTDOWN) exit 0 ;;
@@ -92,14 +87,41 @@ case "$all" in
     exit 0 ;;
 esac
 case "$all" in
+  *"--exec sh /"*)
+    if [ "\${FAKE_HANDSHAKE:-ok}" = fail ] && [ ! -f "\${FAKE_STATE_DIR:-/nonexistent}/cache-purged" ]; then exit 0; fi
+    if [ "\${FAKE_AGENT_DIGEST:-}" = bad ]; then printf 'HELLO|wsl-agent|7|deadbeef|4242|batch\\n'; else printf 'HELLO|wsl-agent|7|${AGENT_DIGEST}|4242|batch\\n'; fi
+    [ "\${FAKE_RESIDENT_DIES:-no}" = yes ] && exit 0
+    while IFS= read -r line; do
+      case "$line" in
+        SHUTDOWN) exit 0 ;;
+        PING) printf 'PONG\\n' ;;
+        EXEC\\|*|FS\\|*|FSB\\|*)
+          id="$(printf '%s' "$line" | cut -d'|' -f2)"
+          printf 'ACK|%s\\n' "$id"
+          case "$line" in
+            FSB\\|*)
+              if [ "\${FAKE_FSB:-ok}" = busybox ]; then
+                inner="$(printf 'find: unrecognized: -printf\\nBusyBox v1.37.0' | base64 | tr -d '\\n')"
+                payload="$(printf 'BAD 1|io|%s' "$inner" | base64 | tr -d '\\n')"
+              else
+                payload="$(printf 'OK 1|eA==\\nOK 2|eA==\\n' | base64 | tr -d '\\n')"
+              fi
+              printf 'RES|%s|0|%s||0|0\\n' "$id" "$payload" ;;
+            *) printf 'RES|%s|0|%s||0|0\\n' "$id" "$(printf 'x86_64' | base64 | tr -d '\\n')" ;;
+          esac ;;
+      esac
+    done
+    exit 0 ;;
+esac
+case "$all" in
   *"--exec sh -c"*)
     case "$all" in
+      *'.dsh-doctor-XXXXXXXX'*) printf '%s' "\${FAKE_HOME_PROBE:-ok}" ;;
       *'printf %s ok'*)
         if [ "$FAKE_FLAKE" = always ]; then printf 'connection attempt failed because the connected party did not properly respond Wsl/Service/WSAETIMEDOUT\n' >&2; exit 1; fi
         if [ "$FAKE_FLAKE" = once ] && [ ! -f "\${FAKE_STATE_DIR:-/nonexistent}/flake-once" ]; then : > "\${FAKE_STATE_DIR:-/nonexistent}/flake-once"; printf 'connection attempt failed because the connected party did not properly respond Wsl/Service/WSAETIMEDOUT\n' >&2; exit 1; fi
         printf 'ok' ;;
-      *'getent passwd'*) printf '/bin/bash' ;;
-      *'printf %s "$HOME"'*) printf '%s' "$HOME" ;;
+      *'SH='*) [ "\${FAKE_IDENTITY:-ok}" = bad ] && printf 'SH=\nHM=\n' || printf 'SH=/bin/bash\nHM=%s\n' "$HOME" ;;
       *'uname -r'*) printf '6.6.87.2' ;;
       *'for f in apt-get'*) printf 'apt-get' ;;
       *'apt-get install'*) : > "\${FAKE_STATE_DIR:-/nonexistent}/installed-bwrap"; exit 0 ;;
@@ -130,7 +152,11 @@ case "$all" in
       *'cat /proc/net/tcp'*) printf '  sl  local_address rem_address   st tx_queue rx_queue\n   0: 00000000:0BB8 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 0 1\n' ;;
       *'hostname -I'*) printf '172.20.0.5 ' ;;
       *'uname -m'*) printf 'x86_64' ;;
-      *'.cache/dsh-wsl/agent'*) printf 'exec abc123' ;;
+      *'rm -rf "$HOME/.cache/dsh-wsl/agent"'*) : > "\${FAKE_STATE_DIR:-/nonexistent}/cache-purged"; exit 0 ;;
+      *'.cache/dsh-wsl/agent'*)
+        if [ "\${FAKE_CACHE:-good}" = noexec ]; then
+          [ -f "\${FAKE_STATE_DIR:-/nonexistent}/cache-purged" ] && printf 'none' || printf 'noexec %s/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent' "$HOME"
+        else printf 'exec %s/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent' "$HOME"; fi ;;
       *'mktemp -d'*) printf '/tmp/dsh-doctor-smoke-fixed' ;;
       *'rm -rf'*) exit 0 ;;
       *) : ;;
@@ -143,7 +169,7 @@ const FAKE_CMD = `#!/bin/sh
 case "$*" in
   *"echo %USERPROFILE%"*) printf 'C:\\\\Users\\\\andy\\n'; exit 0 ;;
   *"type"*) printf '%s' "\${FAKE_WSLCONFIG:-}"; exit 0 ;;
-  *) printf 'Microsoft Windows [Version 10.0.26300.9711]\\n'; exit 0 ;;
+  *) printf 'Microsoft Windows [Version 10.0.%s]\\n' "\${FAKE_WINBUILD:-26300.9711}"; exit 0 ;;
 esac
 `;
 const FAKE_GIT_EXE = `#!/bin/sh
@@ -213,6 +239,103 @@ try {
     assert.equal(report.summary.fail, 0);
     assert.equal(report.checks.find((entry) => entry.id === "sandbox.bwrap")?.status, "ok");
     assert.equal(report.checks.find((entry) => entry.id === "peers.versions")?.status, "ok");
+    assert.equal(report.checks.find((entry) => entry.id === "functional.native")?.status, "ok", "the cached native binary answers HELLO with its cache digest");
+    assert.equal(report.checks.find((entry) => entry.id === "agent.home-writable")?.status, "ok");
+    assert.equal(report.checks.find((entry) => entry.id === "host.platform")?.status, "ok");
+  });
+
+  await check("host.platform fails on a Windows build below the WSL 2 floor", () => {
+    const old = /** @type {Report} */ (JSON.parse(doctor(["--json"], { FAKE_WINBUILD: "17763.1" }).stdout));
+    const platform = old.checks.find((entry) => entry.id === "host.platform");
+    assert.equal(platform?.status, "fail");
+    assert.match(String(platform?.detail), /19041/);
+    assert.equal(old.verdict, "blocked");
+    const modern = /** @type {Report} */ (JSON.parse(doctor(["--json"], { FAKE_WINBUILD: "19045.4291" }).stdout));
+    assert.equal(modern.checks.find((entry) => entry.id === "host.platform")?.status, "ok");
+  });
+
+  await check("distroPath translates Windows drives through the distro's automount root", () => {
+    assert.equal(distroPath("C:\\Users\\andy\\a.txt", "/mnt"), "/mnt/c/Users/andy/a.txt");
+    assert.equal(distroPath("/home/andy/a.sh", "/mnt"), "/home/andy/a.sh");
+    assert.equal(distroPath("\\\\server\\share", "/mnt"), undefined);
+    assert.equal(distroPath("D:\\x", "/c"), "/c/d/x");
+  });
+
+  await check("hostDiskVerdict warns before the Windows volume fills and fails when it is full", () => {
+    const G = 1024 ** 3;
+    assert.equal(hostDiskVerdict(50 * G, 500 * G).status, "ok");
+    assert.equal(hostDiskVerdict(4 * G, 500 * G).status, "warn");
+    assert.equal(hostDiskVerdict(1 * G, 500 * G).status, "fail");
+  });
+
+  await check("a disabled sandbox warns loudly and skips the fence instead of blocking", () => {
+    const profile = join(home, "profiles", "no-sandbox");
+    mkdirSync(profile, { recursive: true });
+    writeFileSync(join(profile, "cordis.patch.yml"), "- id: preset-wsl\n  config:\n    sessionSandbox: false\n    plugins:\n      - id: wsl-shell\n        config:\n          sandbox: false\n- id: fs-routing\n  config:\n    sandbox: false\n");
+    const run = doctor(["--json"]);
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    const bwrap = report.checks.find((entry) => entry.id === "sandbox.bwrap");
+    assert.equal(bwrap?.status, "warn");
+    assert.match(String(bwrap?.detail), /UNCONFINED/);
+    assert.equal(report.checks.find((entry) => entry.id === "sandbox.bwrap-usable")?.status, "skipped");
+    assert.equal(report.checks.find((entry) => entry.id === "functional.sandbox")?.status, "skipped");
+    assert.equal(report.verdict, "ready", "the opt-out is a warning, not a blocker");
+    assert.equal(run.status, 0);
+    rmSync(profile, { recursive: true, force: true });
+  });
+
+  await check("the identity check names a broken passwd entry", () => {
+    const report = /** @type {Report} */ (JSON.parse(doctor(["--json"], { FAKE_IDENTITY: "bad" }).stdout));
+    const identity = report.checks.find((entry) => entry.id === "distro.identity");
+    assert.equal(identity?.status, "fail");
+    assert.match(String(identity?.detail), /shell=\(none\)/);
+    assert.equal(report.verdict, "blocked");
+  });
+
+  await check("a pinned native backend turns a broken cache into a blocker", () => {
+    const profile = join(home, "profiles", "native-pin");
+    mkdirSync(profile, { recursive: true });
+    writeFileSync(join(profile, "cordis.patch.yml"), "- id: preset-wsl\n  config:\n    agentBackend: native\n    plugins:\n      - id: wsl-shell\n        config:\n          agentBackend: native\n");
+    const report = /** @type {Report} */ (JSON.parse(doctor(["--json"], { FAKE_CACHE: "noexec" }).stdout));
+    assert.equal(report.checks.find((entry) => entry.id === "agent.cache")?.status, "fail");
+    assert.equal(report.checks.find((entry) => entry.id === "functional.native")?.status, "skipped");
+    assert.equal(report.verdict, "blocked");
+    rmSync(profile, { recursive: true, force: true });
+  });
+
+  await check("a BusyBox shell fallback warns instead of blocking when the native backend is selected", () => {
+    const run = doctor(["--json"], { FAKE_FSB: "busybox" });
+    assert.equal(run.status, 0, "the fallback failure is not the first-command path");
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    const fs = report.checks.find((entry) => entry.id === "functional.fs");
+    assert.equal(fs?.status, "warn");
+    assert.match(String(fs?.detail), /find: unrecognized: -printf/, "the batch failure is decoded, not printed as base64");
+    assert.match(String(fs?.detail), /shell agent is the fallback/);
+    assert.equal(report.checks.find((entry) => entry.id === "functional.native")?.status, "ok", "the native legs answer the same chain");
+    assert.equal(report.verdict, "ready");
+  });
+
+  await check("auto fails when neither the native nor the shell backend answers the chain", () => {
+    const run = doctor(["--json"], { FAKE_FSB: "busybox", FAKE_NATIVE: "bad" });
+    assert.equal(run.status, 1);
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    assert.equal(report.checks.find((entry) => entry.id === "functional.native")?.status, "fail");
+    assert.match(String(report.checks.find((entry) => entry.id === "functional.native")?.detail), /shell fallback failed too/);
+    assert.equal(report.verdict, "blocked");
+  });
+
+  await check("the same BusyBox failure blocks when the shell agent is the configured backend", () => {
+    const profile = join(home, "profiles", "shell-pin");
+    mkdirSync(profile, { recursive: true });
+    writeFileSync(join(profile, "cordis.patch.yml"), "- id: preset-wsl\n  config:\n    agentBackend: shell\n    plugins:\n      - id: wsl-shell\n        config:\n          agentBackend: shell\n");
+    const run = doctor(["--json"], { FAKE_FSB: "busybox" });
+    assert.equal(run.status, 1);
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    const fs = report.checks.find((entry) => entry.id === "functional.fs");
+    assert.equal(fs?.status, "fail");
+    assert.match(String(fs?.remedy), /findutils/);
+    assert.equal(report.checks.find((entry) => entry.id === "functional.native")?.status, "skipped");
+    rmSync(profile, { recursive: true, force: true });
   });
 
   await check("the quick profile runs prerequisites only and stamps the scope", async () => {
@@ -223,7 +346,7 @@ try {
     for (const id of report.checks.map((/** @type {{ id: string }} */ c) => c.id)) {
       assert.doesNotMatch(id, /^(functional\.|agent\.)/, "quick never runs the agent smokes or the agent chain");
     }
-    assert.equal(report.checks.find((entry) => entry.id === "update.latest"), undefined, "quick skips the registry query");
+    assert.equal(report.checks.some((entry) => entry.id.startsWith("tools.")), false, "quick skips the optional-tool probes");
     assert.equal(report.checks.find((entry) => entry.id === "distro.dns"), undefined, "quick skips the net section");
     assert.ok(report.checks.find((entry) => entry.id === "session.linger"), "the session prerequisites stay in the quick profile");
   });
@@ -515,7 +638,10 @@ try {
     assert.equal(report.summary.skipped, 2);
   });
 
-  await check("a resident dying mid-smoke fails the leg with the named cause", () => {
+  await check("a resident dying mid-smoke fails the leg when the shell agent is the path", () => {
+    const profile = join(home, "profiles", "shell-pin");
+    mkdirSync(profile, { recursive: true });
+    writeFileSync(join(profile, "cordis.patch.yml"), "- id: preset-wsl\n  config:\n    agentBackend: shell\n    plugins:\n      - id: wsl-shell\n        config:\n          agentBackend: shell\n");
     const run = doctor(["--json"], { FAKE_RESIDENT_DIES: "yes" });
     assert.equal(run.status, 1);
     const report = /** @type {Report} */ (JSON.parse(run.stdout));
@@ -523,6 +649,7 @@ try {
     assert.equal(exec?.status, "fail");
     assert.match(String(exec?.detail), /exited mid-smoke/);
     assert.ok(report.blockers?.includes("functional.exec"));
+    rmSync(profile, { recursive: true, force: true });
   });
 
   await check("the fence leg is skipped when bubblewrap is missing, and the resident legs still run", () => {
@@ -564,6 +691,54 @@ try {
     assert.equal(/** @type {Report} */ (JSON.parse(fixed.stdout)).checks.find((entry) => entry.id === "fix.scopes")?.status, "ok");
   });
 
+  await check("a bad agent cache is purged and re-verified", () => {
+    const cacheState = join(stateDir, "cache-purge");
+    mkdirSync(cacheState, { recursive: true });
+    const fixed = doctor(["--json", "--fix", "--fix-owned"], { FAKE_CACHE: "noexec", FAKE_STATE_DIR: cacheState });
+    assert.equal(fixed.status, 0, "the cache purge clears the only finding");
+    const report = /** @type {Report} */ (JSON.parse(fixed.stdout));
+    const fix = report.checks.find((entry) => entry.id === "fix.cache");
+    assert.equal(fix?.status, "ok");
+    assert.match(String(fix?.detail), /1 cached, 1 invalid before → 0 cached, 0 invalid after/);
+    assert.equal(report.checks.find((entry) => entry.id === "agent.cache")?.status, "info");
+  });
+
+  await check("a failed handshake is re-probed after the cache purge", () => {
+    const handshakeState = join(stateDir, "cache-handshake");
+    mkdirSync(handshakeState, { recursive: true });
+    const fixed = doctor(["--json", "--fix", "--fix-owned"], { FAKE_CACHE: "noexec", FAKE_HANDSHAKE: "fail", FAKE_STATE_DIR: handshakeState });
+    const report = /** @type {Report} */ (JSON.parse(fixed.stdout));
+    assert.equal(report.checks.find((entry) => entry.id === "fix.cache")?.status, "ok");
+    const handshake = report.checks.find((entry) => entry.id === "agent.handshake");
+    assert.equal(handshake?.status, "ok");
+    assert.match(String(handshake?.detail), /re-probed after the cache purge/);
+  });
+
+  await check("--fix-owned implies --fix and never touches git or installs packages", () => {
+    const ownedState = join(stateDir, "cache-owned");
+    mkdirSync(ownedState, { recursive: true });
+    const fixed = doctor(["--json", "--fix-owned", "--yes"], { FAKE_BWRAP: "no", FAKE_CACHE: "noexec", FAKE_STATE_DIR: ownedState });
+    assert.equal(fixed.status, 1, "the missing bubblewrap still blocks");
+    const report = /** @type {Report} */ (JSON.parse(fixed.stdout));
+    assert.equal(report.checks.find((entry) => entry.id === "fix.cache")?.status, "ok", "--fix-owned runs the fix loop without --fix");
+    assert.equal(report.checks.some((entry) => entry.id === "fix.install"), false);
+    assert.equal(report.checks.some((entry) => entry.id === "fix.git-trust"), false);
+    assert.equal(report.checks.find((entry) => entry.id === "sandbox.bwrap")?.status, "fail");
+    assert.equal(existsSync(join(ownedState, "git-whitelisted")), false, "the Windows git whitelist is left alone");
+  });
+
+  await check("--fix-owned refuses --install", () => {
+    const run = doctor(["--fix-owned", "--install"]);
+    assert.equal(run.status, 2);
+    assert.match(run.stderr, /--fix-owned.*--install/);
+  });
+
+  await check("--read-only refuses --fix-owned", () => {
+    const run = doctor(["--read-only", "--fix-owned"]);
+    assert.equal(run.status, 2);
+    assert.match(run.stderr, /pnpm run doctor --fix/);
+  });
+
   await check("read-only refusal gives a runnable fix command", () => {
     const run = doctor(["--read-only", "--fix"]);
     assert.equal(run.status, 2);
@@ -577,6 +752,16 @@ try {
     const report = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
     const warning = report.checks.find((entry) => entry.id === "config.preset-trap");
     assert.match(String(warning?.remedy), /pnpm run preset --check <patch>/);
+    rmSync(profile, { recursive: true, force: true });
+  });
+
+  await check("an indented insert of the nested rows is not a preset trap", () => {
+    const profile = join(home, "profiles", "insert-ok");
+    mkdirSync(profile, { recursive: true });
+    writeFileSync(join(profile, "cordis.patch.yml"), "- insert:\n    - id: wsl-fs\n      name: 'dsh-plugin-wsl-env/fs'\n");
+    const report = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
+    assert.equal(report.checks.some((entry) => entry.id === "config.preset-trap"), false, "an insert adds a top-level row; it is not an id patch");
+    assert.equal(report.checks.find((entry) => entry.id === "config.deprecated")?.status, "ok");
     rmSync(profile, { recursive: true, force: true });
   });
 
@@ -806,37 +991,6 @@ try {
     assert.equal(peerSatisfied("4.0.5", "*"), undefined, "shapes outside the manifest's vocabulary stay unchecked");
   });
 
-  await check("the update check answers on demand and never fails the run", () => {
-    const run = doctor(["--json"]);
-    assert.equal(run.status, 0, run.stderr);
-    const update = /** @type {Report} */ (JSON.parse(run.stdout)).checks.find((entry) => entry.id === "update.latest");
-    // The empty override asked no registry: the honest answer is "cannot tell",
-    // as `info`, with the page that asks it live named as the way out.
-    assert.equal(update?.status, "info");
-    assert.match(String(update?.detail), /registry was unreachable/);
-  });
-
-  await check("latestFromPackument reads the stable channel and its marks", () => {
-    const packument = {
-      name: "dsh-plugin-wsl-env",
-      "dist-tags": { latest: "0.20.0", next: "0.21.0-rc.1" },
-      versions: {
-        "0.20.0": { deprecated: "superseded by 0.20.1" },
-        "0.21.0-rc.1": {},
-      },
-    };
-    assert.deepEqual(latestFromPackument(packument), { version: "0.20.0", deprecated: "superseded by 0.20.1" });
-    assert.deepEqual(
-      latestFromPackument({ "dist-tags": { latest: "0.20.0" }, versions: { "0.20.0": {} } }),
-      { version: "0.20.0" },
-      "a healthy release carries no marks",
-    );
-    assert.equal(latestFromPackument({}), undefined, "no dist-tags, no release");
-    assert.equal(latestFromPackument({ "dist-tags": {} }), undefined, "no latest tag, no release");
-    assert.equal(latestFromPackument({ "dist-tags": { latest: "0.20.0" }, versions: {} }), undefined, "a tag without a document names no release");
-    assert.equal(latestFromPackument("not an object"), undefined, "a non-object body names no release");
-  });
-
   await check("the fix loop re-verifies: swept scopes show before → after and the verdict recomputes", () => {
     rmSync(join(stateDir, "swept-scopes"), { force: true });
     const before = /** @type {Report} */ (JSON.parse(doctor(["--json"], { FAKE_STALE: "yes" }).stdout));
@@ -871,7 +1025,7 @@ try {
     writeFileSync(join(retiredDir, "cordis.patch.yml"), "- id: fs-routing\n  config:\n    substrate: share\n");
     const blocked = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
     const retired = blocked.checks.find((entry) => entry.id === "config.deprecated");
-    assert.equal(retired?.status, "warn", "a boot refusal the doctor can name before the session even starts");
+    assert.equal(retired?.status, "fail", "a boot refusal the doctor can name before the session even starts, so it blocks");
     assert.match(String(retired?.detail), /refuses to boot/);
     assert.match(String(retired?.remedy), /docs\/MIGRATION\.md/);
     rmSync(retiredDir, { recursive: true, force: true });
@@ -898,7 +1052,7 @@ try {
     const report = /** @type {Report} */ (JSON.parse(run.stdout));
     const hand = report.checks.find((entry) => entry.id === "agent.handshake" && entry.distro === "debian");
     assert.equal(hand?.status, "info");
-    assert.match(String(hand?.detail), /not readable inside "debian"/);
+    assert.match(String(hand?.detail), /not readable at .* inside "debian"/);
     const exec = report.checks.find((entry) => entry.id === "functional.exec" && entry.distro === "debian");
     assert.equal(exec?.status, "skipped");
     assert.match(String(exec?.detail), /the handshake could not run in this distro/);
@@ -923,7 +1077,7 @@ try {
     const redacted = doctor(["--bundle", redactedPath, "--redact"]);
     assert.equal(redacted.status, 0, redacted.stderr);
     const payload = readFileSync(redactedPath, "utf8");
-    assert.equal(payload.includes(homedir()), false, "the home path (the distro.home detail) is gone");
+    assert.equal(payload.includes(homedir()), false, "the home path (the distro.identity detail) is gone");
     assert.match(payload, /<redacted-home>/);
     assert.equal(JSON.parse(payload).report.verdict, "ready", "the redacted file is still valid JSON with the full report");
     rmSync(redactedPath, { force: true });
@@ -1005,10 +1159,10 @@ try {
 console.log(`${passed} doctor checks pass`);
 
 // ── Peer-free inlining parity ────────────────────────────────────────────────
-// The doctor inlines the two helpers that lived behind peer-tainted lib
-// modules (`lib/index.js`, `lib/update-check.js`) so it still starts when the
-// plugin's runtime is broken. These assertions pin the inline copies against
-// the lib exports, so a semantic edit to one side cannot drift quietly.
+// The doctor inlines the one helper that lives behind a peer-tainted lib
+// module (`lib/index.js`) so it still starts when the plugin's runtime is
+// broken. This assertion pins the inline copy against the lib export, so a
+// semantic edit to one side cannot drift quietly.
 {
   /** @type {Array<[Parameters<typeof import("../lib/index.js").effectiveMaskWindowsDrive>[0], boolean]>} */
   const maskCases = [
@@ -1025,17 +1179,5 @@ console.log(`${passed} doctor checks pass`);
     assert.equal(effectiveMaskWindowsDrive(config), expected, `inline mask ${JSON.stringify(config)}`);
     assert.equal(effectiveMaskWindowsDrive(config), libEffectiveMaskWindowsDrive(config), `parity mask ${JSON.stringify(config)}`);
   }
-  /** @type {Array<[Parameters<typeof import("../lib/update-check.js").updateFactMessage>[0], string]>} */
-  const factCases = [
-    [undefined, ""],
-    [{ latest: "1.2.3", installed: "1.0.0", incompatible: false, checkedAt: 0 }, "1.2.3 available (installed 1.0.0)"],
-    [{ latest: "1.2.3", installed: "1.0.0", incompatible: true, checkedAt: 0 }, "1.2.3 available (installed 1.0.0) — requires a newer DSH first"],
-    [{ latest: "1.2.3", installed: "1.0.0", incompatible: false, deprecated: "2026-01-01", checkedAt: 0 }, "1.2.3 available (installed 1.0.0) — deprecated: 2026-01-01"],
-    [{ latest: "1.2.3", installed: "1.0.0", incompatible: true, deprecated: "2026-01-01", checkedAt: 0 }, "1.2.3 available (installed 1.0.0) — requires a newer DSH first; deprecated: 2026-01-01"],
-  ];
-  for (const [update, expected] of factCases) {
-    assert.equal(updateFactMessage(update), expected, `inline fact ${JSON.stringify(update)}`);
-    assert.equal(updateFactMessage(update), libUpdateFactMessage(update), `parity fact ${JSON.stringify(update)}`);
-  }
-  console.log("doctor inlined helpers match the lib exports");
+  console.log("doctor inlined helper matches the lib export");
 }

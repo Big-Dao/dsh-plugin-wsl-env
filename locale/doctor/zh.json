@@ -15,7 +15,7 @@
   "verdict.ready.many": "裁决: READY——首条命令应能在以下每个 distro 中成功: {targets}",
   "verdict.blocked": "裁决: BLOCKED——阻断项: {blockers}；先应用上方的修复，再重跑",
   "fix.prefix": "        修复: {remedy}",
-  "fix.hint": "加 --fix 清扫残留 scope；--fix --install 安装软件包前会先询问",
+  "fix.hint": "加 --fix 清扫残留 scope 并清理损坏的 agent 缓存；--fix --install 安装软件包前会先询问",
   "sessions.title": "正在运行的 distro 会话",
   "sessions.none": "  （无）",
   "sessions.no-user-manager": "无用户管理器——scope 不可用",
@@ -26,5 +26,6 @@
   "bundle.redacted": "，已脱敏",
   "refusal.read-only": "doctor: --read-only 拒绝 --fix/--install；请改用 `pnpm run doctor --fix`",
   "refusal.scoped-fix": "doctor: --fix 需要完整运行——分区运行无法复核未探测的项目",
-  "confirm.install": "以 root 在 \"{distro}\" 中安装 {packages}？"
+  "confirm.install": "以 root 在 \"{distro}\" 中安装 {packages}？",
+  "refusal.owned-install": "doctor: --fix-owned 只修复插件自有状态，不能与 --install 同用"
 }

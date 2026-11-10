@@ -4,13 +4,16 @@
  * and per-distro shape: WSL-316).
  *
  * Answers "will this plugin work here, and if not, what do I paste?" in one
- * read-only pass: Windows and WSL versions, the distro and its shell, bubblewrap
+ * read-only pass: the Windows/WSL platform, the distro identity, bubblewrap
  * usability, systemd / the user manager / `systemd-run` / Linger, the optional
- * tools, the peer versions the plugin is loaded against, the native-agent cache,
- * a fresh-agent handshake, stale session scopes, the known profile-patch trap,
- * and whether a newer stable release exists on the registry.
+ * tools, the peer versions the plugin is loaded against, the native agent and
+ * its cache, a fresh-agent handshake, the shell and native smoke legs, stale
+ * session scopes, the host volume and the Windows share, and the known
+ * profile-patch / deprecated-key traps. The update check is deliberately NOT
+ * here: it is not a diagnosis, and the plugin's delegated update service plus
+ * the app's Versions page already answer it without a registry GET per run.
  *
- *   node scripts/doctor.mjs [distro] [--json] [--fix] [--install] [--yes] [--read-only]
+ *   node scripts/doctor.mjs [distro] [--json] [--fix] [--fix-owned] [--install] [--yes] [--read-only]
  *                            [--wsl <path to wsl.exe>]
  *
  * Exit status is 0 when the verdict is `ready` and 1 when it is `blocked`;
@@ -24,9 +27,13 @@
  * wsl.exe transport could not vouch for (a flake that survived one retry) —
  * it never blocks and never feeds a config verdict; rerun for a clean answer. `--fix` performs only safe
  * actions: it sweeps stale `dsh-wsl-*.scope` units (the same sweep the session
- * preflight runs). Installing packages needs `--install` *and* an explicit
- * confirmation (`--yes` skips the prompt, not the flag), so a fix run can never
- * install silently.
+ * preflight runs) and purges the plugin-owned agent cache when an entry is not
+ * executable, re-probing both afterwards. Installing packages needs `--install`
+ * *and* an explicit confirmation (`--yes` skips the prompt, not the flag), so a
+ * fix run can never install silently. `--fix-owned` narrows the fix loop to the
+ * plugin-owned state (the scope sweep and the cache purge): it skips the
+ * package install and the Windows git whitelist, and it cannot be combined
+ * with `--install`. The sidebar's status panel uses it for its repair action.
  *
  * `--read-only` refuses `--fix`/`--install`; `scripts/diagnose.sh` uses it to stay an
  * alias that can never change the machine.
@@ -40,7 +47,7 @@
  * dependency and no host service**, so it still starts when the plugin's own
  * runtime is the thing that is broken (the chicken-and-egg failure the
  * in-process tool path cannot escape). Only pure, peer-free lib modules are
- * imported; the two helpers that lived behind peer-tainted modules are inlined
+ * imported; the one helper that lived behind a peer-tainted module is inlined
  * below and drift-pinned by test.
  *
  * This CLI always probes a **fresh** resident — the app process's live
@@ -54,7 +61,7 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statfsSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -68,18 +75,14 @@ import { bwrapArgvPrefix } from "../lib/bwrap.js";
 import { sessionScopeSweepScript } from "../lib/session-scope.js";
 import { parseListeningPorts, procNetScript } from "../lib/ports.js";
 
-// ── Peer-free inlining of the two peer-tainted helpers ────────────────────────
+// ── Peer-free inlining of the one peer-tainted helper ─────────────────────────
 //
 // The doctor must start even when the plugin's runtime is the thing that is
-// broken. Two of the lib modules it used to import are unsafe for that:
-//
-//   - `lib/index.js` pulls the whole plugin graph and every `@deepseek-ai/dsh-*`
-//     peer dependency at load time;
-//   - `lib/update-check.js` imports `@deepseek-ai/schemastery` at the top level.
-//
-// Both helpers are pure two-liners, so they are inlined here instead. A test in
-// `test/doctor.test.mjs` compares these copies against the lib exports to pin
-// them against drift.
+// broken. `lib/index.js` pulls the whole plugin graph and every
+// `@deepseek-ai/dsh-*` peer dependency at load time, and the helper below is a
+// pure two-liner, so it is inlined here instead. A test in
+// `test/doctor.test.mjs` compares the copy against the lib export to pin it
+// against drift.
 //
 // Inlined from `src/index.ts` `effectiveMaskWindowsDrive`:
 /**
@@ -93,20 +96,54 @@ export function effectiveMaskWindowsDrive(config) {
   return config.maskWindowsDrive === true;
 }
 
-// Inlined from `src/update-check.ts` `updateFactMessage`:
 /**
- * One human line about an available update.
+ * The path one distro sees for a host file. A POSIX host path (the doctor
+ * running inside a distro) is returned as-is; a Windows drive path is
+ * translated through the distro's automount root, so the Windows entry can
+ * hand `wsl.exe` a script path the distro can actually read. Anything else
+ * (a UNC root, an unreadable root) is undefined — the caller reports why
+ * instead of passing a Windows path to `sh`.
  *
- * @param {{ latest: string, installed: string, incompatible?: boolean, deprecated?: string, checkedAt?: number } | undefined} update - the update fact, or undefined when none.
- * @returns {string} the message, empty when there is no update.
+ * @param {string} hostPath - the path as this host names it.
+ * @param {string} mountRoot - the distro's automount root (`/mnt` when unset).
+ * @returns {string | undefined} the distro-side path, or undefined when it cannot be expressed.
  */
-export function updateFactMessage(update) {
-  if (update === undefined) return "";
-  const marks = [];
-  if (update.incompatible) marks.push("requires a newer DSH first");
-  if (update.deprecated !== undefined) marks.push(`deprecated: ${update.deprecated}`);
-  const tail = marks.length === 0 ? "" : ` — ${marks.join("; ")}`;
-  return `${update.latest} available (installed ${update.installed})${tail}`;
+export function distroPath(hostPath, mountRoot) {
+  if (hostPath.startsWith("/")) return hostPath;
+  const match = /^([A-Za-z]):[\\/](.*)$/.exec(hostPath);
+  if (match === null) return undefined;
+  const drive = (match[1] ?? "").toLowerCase();
+  const rest = (match[2] ?? "").replace(/\\/g, "/");
+  return `${mountRoot.replace(/\/+$/, "")}/${drive}/${rest}`;
+}
+
+/**
+ * The host-volume verdict: the Windows drive holding the distro (the VHDX)
+ * fails writes the moment it is full, even while the distro's own `df` looks
+ * healthy, so this row answers that volume rather than the ext4 one.
+ *
+ * @param {number} freeBytes - bytes available to the current user.
+ * @param {number} totalBytes - the volume's size.
+ * @returns {{ status: "ok" | "warn" | "fail", detail: string, remedy: string | undefined }} the verdict.
+ */
+export function hostDiskVerdict(freeBytes, totalBytes) {
+  const gib = (/** @type {number} */ bytes) => `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
+  const detail = `${gib(freeBytes)} free of ${gib(totalBytes)}`;
+  if (freeBytes < 2 * 1024 ** 3) {
+    return {
+      status: "fail",
+      detail: `${detail} — the Windows volume holding the distro is nearly full; writes into the ext4 VHDX fail even when the distro's own df looks fine`,
+      remedy: 'free space on that Windows volume, or move the distro ("wsl --export" then "wsl --import" to another drive); sparseVhd plus "wsl.exe --shutdown" reclaims deleted data',
+    };
+  }
+  if (freeBytes < 5 * 1024 ** 3) {
+    return {
+      status: "warn",
+      detail: `${detail} — plan a cleanup before writes start failing`,
+      remedy: 'free space on the Windows volume holding the distro, or enable sparseVhd and "wsl.exe --shutdown" to shrink the VHDX',
+    };
+  }
+  return { status: "ok", detail, remedy: undefined };
 }
 
 // ── Host-locale output catalogs ──────────────────────────────────────────────
@@ -207,7 +244,7 @@ const CMD = "cmd.exe";
 const TIMEOUT_MS = 60_000;
 
 /** The package families the install remedies know, in probe order. */
-const FAMILIES = ["apt-get", "dnf", "pacman", "zypper"];
+const FAMILIES = ["apt-get", "dnf", "pacman", "zypper", "apk"];
 /** The package names the plugin uses, per family. */
 const PACKAGES = "bubblewrap git ripgrep inotify-tools";
 /** One install command per family; `zypper` spells its non-interactive flag differently. */
@@ -216,6 +253,15 @@ const INSTALL = /** @type {Record<string, string>} */ ({
   dnf: `dnf install -y ${PACKAGES}`,
   pacman: `pacman -Sy --noconfirm ${PACKAGES}`,
   zypper: `zypper --non-interactive install ${PACKAGES}`,
+  apk: `apk add --no-cache ${PACKAGES}`,
+});
+/** The one package the shell agent needs beyond the generic set: GNU find. */
+const FINDUTILS = /** @type {Record<string, string>} */ ({
+  "apt-get": "apt-get install -y findutils",
+  dnf: "dnf install -y findutils",
+  pacman: "pacman -S --noconfirm findutils",
+  zypper: "zypper --non-interactive install findutils",
+  apk: "apk add --no-cache findutils",
 });
 /** The read-only stale-scope report; `--fix` runs the shipped sweep instead. */
 const STALE_SCOPE_REPORT = [
@@ -239,7 +285,17 @@ const CACHE_REPORT = [
   '[ -d "$d" ] || { echo none; exit 0; }',
   'for f in "$d"/*/dsh-wsl-agent; do',
   "  [ -e \"$f\" ] || continue",
-  '  if [ -x "$f" ]; then echo "exec $(basename "$(dirname "$f")")"; else echo "noexec $(basename "$(dirname "$f")")"; fi',
+  '  name=$(basename "$(dirname "$f")")',
+  // The cache is content-addressed: only a 64-hex directory name is an agent
+  // entry. A stray directory (a probe fixture, a hand-made copy) is not, and
+  // must not turn into a cache warning the user cannot explain.
+  '  printf "%s" "$name" | grep -Eq "^[0-9a-f]{64}$" || continue',
+  '  if [ ! -x "$f" ]; then echo "noexec $f"; continue; fi',
+  '  if command -v timeout >/dev/null 2>&1; then',
+  '    if timeout 3 "$f" </dev/null >/dev/null 2>&1; then echo "exec $f"; else echo "broken $f"; fi',
+  '  else',
+  '    if "$f" </dev/null >/dev/null 2>&1; then echo "exec $f"; else echo "broken $f"; fi',
+  '  fi',
   "done",
 ].join("\n");
 
@@ -275,7 +331,7 @@ export function sectionOf(id) {
   if (id.startsWith("session.") || id === "runtime.scopes" || id === "distro.wsl-conf-boot") return "session";
   if (id.startsWith("config.") || id === "distro.wsl-conf-interop" || id === "distro.wsl-conf-automount") return "conf";
   if (id === "distro.dns") return "net";
-  if (id.startsWith("agent.") || id === "functional.exec" || id === "functional.fs") return "agent";
+  if (id.startsWith("agent.") || id === "functional.exec" || id === "functional.fs" || id === "functional.native") return "agent";
   return "host";
 }
 
@@ -513,7 +569,14 @@ export function effectiveConfig(dshHome, root) {
   const distro = rowKey(preset, "distro");
   const sessionSandbox = rowKey(preset, "sessionSandbox");
   const agentBackend = rowKey(preset, "agentBackend");
-  const sandbox = rowKey(routing, "sandbox");
+  // Confinement is on when ANY surface turns it on: the command row
+  // (`wsl-shell`), the file row (`wsl-fs`), or the mutation fence
+  // (`fs-routing`). The single effective key answers "does anything need
+  // bubblewrap", which is the question the sandbox checks and the verdict ask.
+  const shellSandbox = rowKey(rowBlock(preset, "wsl-shell"), "sandbox");
+  const fsSandbox = rowKey(rowBlock(preset, "wsl-fs"), "sandbox");
+  const routingSandbox = rowKey(routing, "sandbox");
+  const sandbox = shellSandbox ?? fsSandbox ?? routingSandbox;
   const maskWindowsDrive = rowKey(routing, "maskWindowsDrive");
   if (sessionSandbox !== undefined) {
     recognized = true;
@@ -540,7 +603,7 @@ export function effectiveConfig(dshHome, root) {
     const next = { ...config };
     const layerPreset = rowBlock(text, "preset-wsl");
     const layerRouting = rowBlock(text, "fs-routing");
-    for (const [block, keys] of [[layerPreset, ["distro", "sessionSandbox", "agentBackend"]], [layerRouting, ["sandbox", "maskWindowsDrive"]]]) {
+    for (const [block, keys] of [[layerPreset, ["distro", "sessionSandbox", "agentBackend", "sandbox"]], [layerRouting, ["sandbox", "maskWindowsDrive"]]]) {
       const source = /** @type {string} */ (block);
       /** The scalar keys the overlay may change; `source`/`overrides` are bookkeeping, not overlay inputs. */
       const scalar = /** @type {const} */ (["distro", "sessionSandbox", "agentBackend", "sandbox", "maskWindowsDrive", "interopVisibility"]);
@@ -611,7 +674,7 @@ async function askDistro(distro, script) {
 /**
  * Parse the doctor's own arguments.
  * @param {string[]} argv - `process.argv.slice(2)`.
- * @returns {{ distro: string, wsl: string, json: boolean, fix: boolean, install: boolean, yes: boolean, readOnly: boolean, all: boolean, bundle: string, redact: boolean, sections: string, quick: boolean, help: boolean, locale: string }} the options.
+ * @returns {{ distro: string, wsl: string, json: boolean, fix: boolean, fixOwned: boolean, install: boolean, yes: boolean, readOnly: boolean, all: boolean, bundle: string, redact: boolean, sections: string, quick: boolean, help: boolean, locale: string }} the options.
  */
 function parseArgs(argv) {
   const options = {
@@ -619,6 +682,7 @@ function parseArgs(argv) {
     wsl: "",
     json: false,
     fix: false,
+    fixOwned: false,
     install: false,
     yes: false,
     readOnly: false,
@@ -636,6 +700,7 @@ function parseArgs(argv) {
     else if (arg === "--locale") options.locale = argv[++i] ?? "";
     else if (arg.startsWith("--locale=")) options.locale = arg.slice("--locale=".length);
     else if (arg === "--fix") options.fix = true;
+    else if (arg === "--fix-owned") options.fixOwned = true;
     else if (arg === "--install") options.install = true;
     else if (arg === "--yes" || arg === "-y") options.yes = true;
     else if (arg === "--read-only") options.readOnly = true;
@@ -752,72 +817,6 @@ function installedPeer(packageName) {
   }
 }
 
-/** The registries the update check asks, in order; the official one first. */
-const UPDATE_REGISTRIES = ["https://registry.npmjs.org", "https://registry.npmmirror.com"];
-
-/**
- * The registries one run asks: `DSH_UPDATE_REGISTRIES` overrides the defaults
- * (comma-separated, for an operator pinned to one mirror); set it empty to ask
- * none at all — an air-gapped machine's way to keep the check silent without
- * paying two connect timeouts.
- * @returns {string[]} the registry base URLs.
- */
-function updateRegistries() {
-  const configured = process.env.DSH_UPDATE_REGISTRIES;
-  if (configured !== undefined) return configured.split(",").map((entry) => entry.trim()).filter((entry) => entry.length > 0);
-  return UPDATE_REGISTRIES;
-}
-
-/**
- * Read the stable channel's newest release off one registry packument. The
- * full document (not the abbreviated one) is requested, because only it
- * carries the per-version deprecation message.
- * @param {unknown} body - the parsed packument JSON.
- * @returns {{ version: string, deprecated?: string, publishedAt?: string } | undefined} the release, or undefined when the document names none.
- */
-export function latestFromPackument(body) {
-  if (typeof body !== "object" || body === null) return undefined;
-  const packument = /** @type {{ "dist-tags"?: Record<string, unknown>, versions?: Record<string, unknown> }} */ (body);
-  const tags = packument["dist-tags"];
-  const versions = packument.versions;
-  if (typeof tags !== "object" || tags === null || typeof versions !== "object" || versions === null) return undefined;
-  const latest = tags.latest;
-  if (typeof latest !== "string" || latest.length === 0) return undefined;
-  const manifest = /** @type {{ deprecated?: unknown } | undefined} */ (versions[latest]);
-  if (manifest === undefined || typeof manifest !== "object") return undefined;
-  return {
-    version: latest,
-    ...(typeof manifest.deprecated === "string" && manifest.deprecated.length > 0 ? { deprecated: manifest.deprecated } : {}),
-  };
-}
-
-/**
- * Ask the registries for the stable channel's newest release, official first,
- * mirror second — the same fallback order the harness's plugin install uses.
- * A short timeout keeps an offline run from stalling; every failure is an
- * undefined, never a throw.
- * @param {string[]} [registries] - the registries to ask; absent, `DSH_UPDATE_REGISTRIES` or the defaults (see {@link updateRegistries}).
- * @param {number} [timeoutMs] - per-registry timeout, for tests.
- * @returns {Promise<{ version: string, deprecated?: string, registry: string } | undefined>} the release and the registry that answered.
- */
-export async function fetchLatestRelease(registries, timeoutMs = 5_000) {
-  for (const registry of registries ?? updateRegistries()) {
-    try {
-      const response = await fetch(`${registry}/dsh-plugin-wsl-env`, {
-        headers: { accept: "application/json" },
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-      if (!response.ok) continue;
-      const latest = latestFromPackument(await response.json());
-      if (latest !== undefined) return { ...latest, registry };
-    } catch {
-      // Offline, a blocked proxy, or a mirror that does not answer: the next
-      // registry (or the undefined) speaks for this run.
-    }
-  }
-  return undefined;
-}
-
 /**
  * The install remedy for one distro and family.
  * @param {string} distro - the distro name.
@@ -872,7 +871,7 @@ const DISTRO_CONCURRENCY = 3;
 
 /**
  * Run the doctor.
-  * @param {{ distro: string, wsl: string, json: boolean, fix: boolean, install: boolean, yes: boolean, readOnly: boolean, all: boolean, bundle: string, redact: boolean, help: boolean }} options - the parsed options.
+  * @param {{ distro: string, wsl: string, json: boolean, fix: boolean, fixOwned: boolean, install: boolean, yes: boolean, readOnly: boolean, all: boolean, bundle: string, redact: boolean, help: boolean }} options - the parsed options.
  * @returns {Promise<number>} the exit status.
  */
 /**
@@ -893,6 +892,13 @@ async function main(options) {
     const query = await run([CMD, "/c", "reg query \"HKCU\\Control Panel\\International\" /v LocaleName"]);
     setDoctorLocale(localeFromTag(localeNameFromReg(query.stdout)));
   }
+  if (options.fixOwned && options.install) {
+    console.error(doctorT("refusal.owned-install"));
+    return 2;
+  }
+  // `--fix-owned` names a fix subset, so it implies the fix loop; the
+  // read-only gate below then still refuses it.
+  if (options.fixOwned) options.fix = true;
   if (options.readOnly && (options.fix || options.install)) return rejectReadOnly();
   // One rebinding covers every probe below (`-l -q`, `inDistro`, the
   // resident handshake, the sessions survey): an explicit `--wsl` replaces
@@ -952,22 +958,33 @@ async function main(options) {
   let scope;
   if (wanted !== null) scope = { sections: [...wanted], quick };
 
-  // ---- host ----------------------------------------------------------------
+  // ---- host platform -------------------------------------------------------
+  // One row for the two facts that gate WSL 2 itself: the Windows build (WSL 2
+  // needs 19041 or later) and the WSL version string. A build below that floor
+  // cannot run the plugin at all, so it fails rather than reading as context;
+  // an unreadable host (the doctor running inside a distro without interop)
+  // stays `info` — the distro checks below still speak for themselves.
   const windows = await run([CMD, "/c", "ver"]);
-  const build = /[0-9][0-9.]*/.exec(windows.stdout.replace(/\0/g, ""));
-  if (build !== null) check("host.windows", "ok", "Windows build", build[0]);
-  else check("host.windows", "info", "Windows build", "unreadable through cmd.exe; run this from Windows or a WSL with interop enabled");
-
+  const buildText = /[0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?/.exec(windows.stdout.replace(/\0/g, ""))?.[0] ?? "";
+  const buildNumber = buildText === "" ? 0 : Number(buildText.split(".")[2] ?? 0);
   const version = await run([wslExe, "--version"]);
-  const wslVersion = version.stdout.replace(/\0/g, "").split(/\r?\n/).filter((line) => line.trim().length > 0).slice(0, 2).join(" ");
-  if (version.ok && wslVersion.length > 0) check("host.wsl", "ok", "WSL version", wslVersion);
-  else check("host.wsl", "warn", "WSL version", "wsl.exe --version failed; WSL 1 or a very old build", "wsl.exe --update, then confirm the distro runs as WSL 2 (wsl.exe -l -v shows VERSION 2)");
+  const wslVersion = version.stdout.replace(/\0/g, "").split(/\r?\n/).filter((line) => line.trim().length > 0).slice(0, 2).join(" ").trim();
+  const platformDetail = [buildText === "" ? "" : `Windows ${buildText}`, wslVersion].filter((part) => part.length > 0).join("; ");
+  if (buildText === "" && wslVersion === "") {
+    check("host.platform", "info", "Windows and WSL", "neither the Windows build nor the WSL version is readable through cmd.exe — run the doctor from Windows or a WSL with interop enabled");
+  } else if (buildNumber > 0 && buildNumber < 19041) {
+    check("host.platform", "fail", "Windows and WSL", `${platformDetail} — WSL 2 needs Windows 10 build 19041 or later`, "upgrade Windows to a WSL 2-capable build; this plugin runs commands only in WSL 2 distros");
+  } else if (!version.ok || wslVersion === "") {
+    check("host.platform", "warn", "Windows and WSL", `${buildText === "" ? "the Windows build is unreadable" : `Windows ${buildText}`}; wsl.exe --version failed — WSL 1 or an old WSL 2 build`, "wsl.exe --update, then confirm the distro runs as WSL 2 (wsl.exe -l -v shows VERSION 2)");
+  } else {
+    check("host.platform", "ok", "Windows and WSL", platformDetail);
+  }
 
   phase("host");
   // ---- .wslconfig (the global VM config; host-level) ------------------------
   // WSL silently ignores a malformed file, so interop/masking advice can fail
   // to apply without a trace; this parser is where the trap gets named. The
-  // read rides cmd.exe (the same interop path `host.windows` uses), which
+  // read rides cmd.exe (the same interop path `host.platform` uses), which
   // works from Windows and from a WSL with interop regardless of where the
   // automount root sits — the route's own failure is reported, not guessed.
   const userProfile = (await run([CMD, "/c", "echo %USERPROFILE%"])).stdout.replace(/\0/g, "").trim();
@@ -994,6 +1011,30 @@ async function main(options) {
     check("host.distros", "fail", "Installed distros", "none", "wsl.exe --list --online lists names; wsl.exe --install -d <name> installs one, then reopen the session");
   } else {
     check("host.distros", "ok", "Installed distros", distros.join(", "));
+  }
+
+  // ---- host volume (the drive holding the distro) ---------------------------
+  // `distro.disk` reads the ext4 volume's own `df`; when the Windows volume
+  // that holds the VHDX is full, that df still looks healthy and every write
+  // fails anyway. The default distro location lives under `%LOCALAPPDATA%`, so
+  // that drive is the one this check answers for.
+  if (process.platform !== "win32") {
+    check("host.disk", "info", "Host disk", "only the Windows entry can read the volume holding the distro (this doctor runs inside a distro)");
+  } else {
+    const drive = /^([A-Za-z]):/.exec(process.env.LOCALAPPDATA ?? "")?.[1] ?? /^([A-Za-z]):/.exec(ROOT)?.[1] ?? "";
+    if (drive === "") {
+      check("host.disk", "info", "Host disk", "the volume holding the distro is unknown (%LOCALAPPDATA% is unreadable)");
+    } else {
+      try {
+        const stats = statfsSync(`${drive}:\\`);
+        const freeBytes = Number(stats.bavail) * Number(stats.bsize);
+        const totalBytes = Number(stats.blocks) * Number(stats.bsize);
+        const verdict = hostDiskVerdict(freeBytes, totalBytes);
+        check("host.disk", verdict.status, "Host disk", `${drive}: ${verdict.detail} (the default distro location under %LOCALAPPDATA%)`, verdict.remedy);
+      } catch (error) {
+        check("host.disk", "info", "Host disk", `unreadable (${/** @type {Error} */ (error).message})`);
+      }
+    }
   }
   // ---- effective configuration (read once, before anything config-gated) ---
   // The blocking verdict answers under the values the user actually runs, so
@@ -1065,11 +1106,13 @@ async function main(options) {
    * fails its own reachability check and contributes nothing further — one
    * wedged distro must not mask the others.
    * @param {string} target - the distro name.
-   * @returns {Promise<{ checks: Check[], reachable: boolean, bwrapPath: string, stale: number, family: string }>} the distro's own checks and the state the fix section needs.
+   * @returns {Promise<{ checks: Check[], reachable: boolean, bwrapPath: string, stale: number, cacheEntries: number, cacheBad: number, cacheExecPath: string, family: string, agentScriptDistro: string | undefined }>} the distro's own checks and the state the fix section needs.
    */
   const collectDistroChecks = async (target) => {
     /** @type {Check[]} */
     const collected = [];
+    /** The shipped shell agent, as this host names it (Windows or POSIX). */
+    const agentScript = join(ROOT, "agent", "wsl-agent.sh");
     const check = (/** @type {string} */ id, /** @type {Check["status"]} */ status, /** @type {string} */ title, /** @type {string | undefined} */ detail = undefined, /** @type {string | undefined} */ remedy = undefined) => {
       collected.push({ id, status, title, ...(detail === undefined ? {} : { detail }), ...(remedy === undefined ? {} : { remedy }), distro: target });
     };
@@ -1082,45 +1125,49 @@ async function main(options) {
     const alive = await probe("printf %s ok");
     if (!alive.ok && alive.flaked) {
       flakeCheck("distro.reachable", `Distro "${target}"`, alive);
-      return { checks: collected, reachable: false, bwrapPath: "", stale: 0, family: "unknown" };
+      return { checks: collected, reachable: false, bwrapPath: "", stale: 0, cacheEntries: 0, cacheBad: 0, cacheExecPath: "", family: "unknown", agentScriptDistro: undefined };
     }
     if (!alive.ok || alive.stdout.trim() !== "ok") {
       check("distro.reachable", "fail", `Distro "${target}"`, "wsl.exe could not run a command in it (stopped, wedged, or missing)", `wsl.exe -d ${target} -- true; if that hangs, wsl.exe --shutdown, then retry`);
-      return { checks: collected, reachable: false, bwrapPath: "", stale: 0, family: "unknown" };
+      return { checks: collected, reachable: false, bwrapPath: "", stale: 0, cacheEntries: 0, cacheBad: 0, cacheExecPath: "", family: "unknown", agentScriptDistro: undefined };
     }
     check("distro.reachable", "ok", `Distro "${target}"`, "answers commands");
 
-    // ---- distro facts --------------------------------------------------------
+    // ---- Windows share reachability (host section) ---------------------------
+    // The GUI file service, the workspace picker and open-in-app read the
+    // `\\wsl.localhost` share from the WINDOWS side; the agent path does not.
+    // A share Windows cannot read is a silent feature loss, so name it. The
+    // probe is meaningless from inside a distro (and from another distro's
+    // filesystem), so it reports that instead of guessing.
+    if (process.platform === "win32") {
+      const unc = `\\\\wsl.localhost\\${target}`;
+      const readable = existsSync(unc);
+      check("distro.unc", readable ? "ok" : "warn", "Windows share",
+        readable ? `${unc} is readable from Windows` : `Windows cannot read ${unc} — the GUI file service, workspace picker and open-in-app use this share`,
+        readable ? undefined : `wsl.exe --terminate ${target}, then retry; if it persists, check that the 9p/Plan9 service is not blocked by security software`);
+    } else {
+      check("distro.unc", "info", "Windows share", "only the Windows entry can test the \\\\wsl.localhost share (this doctor runs inside a distro)");
+    }
+
+    // ---- distro identity -----------------------------------------------------
+    // The login shell and the home directory are one fact (the passwd entry)
+    // and one probe: both are consumed by the executor's shell resolution and
+    // the agent cache, and a broken entry fails both at once. The family probe
+    // stays (the install remedy needs it) but no longer has a row of its own.
     let family = "unknown";
-    const shellAnswer = await probe('s=$(getent passwd "$(id -u)" | cut -d: -f7); [ -n "$s" ] || s=$SHELL; printf %s "$s"');
-    if (!shellAnswer.ok && shellAnswer.flaked) flakeCheck("distro.shell", "Login shell", shellAnswer);
+    const identityAnswer = await probe('s=$(getent passwd "$(id -u)" | cut -d: -f7); [ -n "$s" ] || s=$SHELL; printf "SH=%s\\nHM=%s\\n" "$s" "$HOME"');
+    if (!identityAnswer.ok && identityAnswer.flaked) flakeCheck("distro.identity", "Login shell and home", identityAnswer);
     else {
-      const shell = shellAnswer.stdout.trim();
-      if (shell.startsWith("/")) check("distro.shell", "ok", "Login shell", shell);
-      else check("distro.shell", "fail", "Login shell", shell.length === 0 ? "no shell reported" : shell, `check the user's /etc/passwd entry in "${target}": getent passwd "$(id -u)"`);
-    }
-
-    const homeAnswer = await probe('printf %s "$HOME"');
-    if (!homeAnswer.ok && homeAnswer.flaked) flakeCheck("distro.home", "Home", homeAnswer);
-    else {
-      const home = homeAnswer.stdout.trim();
-      if (home.startsWith("/")) check("distro.home", "ok", "Home", home);
-      else check("distro.home", "fail", "Home", home.length === 0 ? "no home reported" : home, `check the default user's home in "${target}": getent passwd "$(id -u)"`);
-    }
-
-    const kernelAnswer = await probe("uname -r");
-    if (!kernelAnswer.ok && kernelAnswer.flaked) flakeCheck("distro.kernel", "Kernel", kernelAnswer);
-    else {
-      const kernel = kernelAnswer.stdout.trim();
-      check("distro.kernel", "info", "Kernel", kernel.length > 0 ? kernel : "unreadable");
+      const shell = /^SH=(.*)$/m.exec(identityAnswer.stdout)?.[1]?.trim() ?? "";
+      const home = /^HM=(.*)$/m.exec(identityAnswer.stdout)?.[1]?.trim() ?? "";
+      const shellOk = shell.startsWith("/");
+      const homeOk = home.startsWith("/");
+      if (shellOk && homeOk) check("distro.identity", "ok", "Login shell and home", `${shell}, ${home}`);
+      else check("distro.identity", "fail", "Login shell and home", `shell=${shell.length === 0 ? "(none)" : shell}, home=${home.length === 0 ? "(none)" : home}`, `check the user's /etc/passwd entry in "${target}": getent passwd "$(id -u)"`);
     }
 
     const familyAnswer = await probe(`for f in ${FAMILIES.join(" ")}; do command -v "$f" >/dev/null 2>&1 && { echo "$f"; exit 0; }; done; echo unknown`);
-    if (!familyAnswer.ok && familyAnswer.flaked) flakeCheck("distro.family", "Package family", familyAnswer);
-    else {
-      family = familyAnswer.stdout.trim();
-      check("distro.family", "info", "Package family", family.length > 0 ? family : "unknown");
-    }
+    if (familyAnswer.ok) family = familyAnswer.stdout.trim();
 
     // ---- WSL mode ------------------------------------------------------------
     // WSL1 is a declared non-goal, but until now it failed unexplained: the
@@ -1160,12 +1207,22 @@ async function main(options) {
     }
 
     // ---- sandbox prerequisites ----------------------------------------------
+    // Config-aware like the session rows: with `sandbox: false` on every row
+    // AND `sessionSandbox: false`, nothing this plugin runs is confined, so a
+    // missing bwrap is not a failure — but it is a security posture worth a
+    // loud warning, not a silent `info`. The fence smoke is skipped with it.
     let bwrapUsable = false;
     let bwrapPath = "";
+    const sandboxDisabled = effective.sandbox === "false" && effective.sessionSandbox === "false";
     const install = installRemedy(target, family);
     if (!want("sandbox")) {
       // sandbox section out of scope: bwrapPath stays "" and the fence smoke
       // below is skipped with it.
+    } else if (sandboxDisabled) {
+      check("sandbox.bwrap", "warn", "bubblewrap (sandbox disabled)",
+        "the effective configuration disables confinement (sandbox: false on every row and sessionSandbox: false) — commands and writes run UNCONFINED; bubblewrap is not required",
+        'set sandbox: true on wsl-shell, wsl-fs and fs-routing (and sessionSandbox: true) to enforce the fence, then rerun the doctor');
+      check("sandbox.bwrap-usable", "skipped", "bubblewrap usability", "skipped: the sandbox is disabled by configuration");
     } else {
       const bwrapAnswer = await probe("command -v bwrap");
       if (!bwrapAnswer.ok && bwrapAnswer.flaked) flakeCheck("sandbox.bwrap", "bubblewrap", bwrapAnswer);
@@ -1193,6 +1250,15 @@ async function main(options) {
     // always blocks, which is the invariant the verdict leans on.
     let runtimeSystemd = false;
     let systemdPid = "";
+    /** The agent-cache inventory the fix loop consumes: entries and unusable ones. */
+    let cacheEntries = 0;
+    let cacheBad = 0;
+    /** The first cached native binary that passed its own exec check. */
+    let cacheExecPath = "";
+    /** Whether this package ships a native agent for the distro's architecture. */
+    let nativePackaged = false;
+    /** Whether the effective config makes the native backend mandatory. */
+    const nativeRequired = effective.agentBackend === "native";
     if (want("session")) {
     const systemd = await probe('if [ -d /run/systemd/system ]; then printf "systemd %s" "$(cat /proc/1/comm)"; else printf "none %s" "$(cat /proc/1/comm)"; fi');
     if (!systemd.ok && systemd.flaked) flakeCheck("session.systemd", "systemd as PID 1", systemd);
@@ -1238,6 +1304,12 @@ async function main(options) {
     const confFlaked = !confAnswer.ok && confAnswer.flaked;
     const conf = parseIni(confAnswer.stdout);
     const noConf = confAnswer.stdout.trim().length === 0;
+    const automountEnabled = ((noConf ? undefined : conf.automount?.enabled) ?? "").trim().toLowerCase();
+    const automountRoot = ((noConf ? undefined : conf.automount?.root) ?? "").trim();
+    /** Where the distro mounts Windows drives; the host->distro translation uses it. */
+    const mountRoot = automountRoot.length > 0 ? automountRoot : "/mnt";
+    /** The shell agent as the distro sees it; undefined when it cannot be reached from there. */
+    const agentScriptDistro = automountEnabled === "false" ? undefined : distroPath(agentScript, mountRoot);
     const confWanted = want("session") || want("conf");
     if (!confWanted) {
       // Scoped run: neither the boot cross-check nor the interop/automount
@@ -1266,19 +1338,29 @@ async function main(options) {
     const interopEnabled = ((noConf ? undefined : conf.interop?.enabled) ?? "").trim().toLowerCase();
     if (!want("conf")) {
       // interop/automount rows out of scope
-    } else if (interopEnabled === "false") {
-      const binfmtProbe = await probe("[ -e /proc/sys/fs/binfmt_misc/WSLInterop ] && printf yes || printf no");
-      const binfmt = binfmtProbe.ok && !binfmtProbe.flaked ? binfmtProbe.stdout.trim() : "unreadable";
-      check("distro.wsl-conf-interop", "warn", "/etc/wsl.conf [interop]", `interop is disabled in wsl.conf${binfmt === "yes" ? " but the WSLInterop handler is still loaded (stale boot)" : binfmt === "unreadable" ? " (the binfmt cross-check flaked — treat the stale-boot note as unverified)" : ""} — Windows git, open-in-app and the cmd.exe probes are unreachable from this distro`, `remove the [interop] enabled=false line in /etc/wsl.conf, then wsl.exe --terminate ${target}`);
     } else {
-      const appendWindowsPath = ((noConf ? undefined : conf.interop?.appendWindowsPath) ?? "").trim().toLowerCase();
-      check("distro.wsl-conf-interop", "ok", "/etc/wsl.conf [interop]", noConf
-        ? "no /etc/wsl.conf — interop on (the default)"
-        : `enabled=${interopEnabled || "true (the default)"}${appendWindowsPath === "false" ? "; appendWindowsPath=false (Windows PATH not appended — Windows tools need full paths)" : ""}`);
+      // The binfmt handler is the runtime fact behind the conf value: a conf
+      // that says enabled while the handler is absent is a stale boot (or a
+      // /proc that was not mounted), and every Windows-tool path — git.exe,
+      // explorer.exe, the cmd.exe probes — fails with a confusing command-not-
+      // found instead of naming interop. Probe it in BOTH directions.
+      const binfmtProbe = await probe("[ -e /proc/sys/fs/binfmt_misc/WSLInterop ] && printf yes || printf no");
+      if (!binfmtProbe.ok && binfmtProbe.flaked) flakeCheck("distro.wsl-conf-interop", "/etc/wsl.conf [interop]", binfmtProbe);
+      else {
+        const binfmt = binfmtProbe.ok ? binfmtProbe.stdout.trim() : "unreadable";
+        if (interopEnabled === "false") {
+          check("distro.wsl-conf-interop", "warn", "/etc/wsl.conf [interop]", `interop is disabled in wsl.conf${binfmt === "yes" ? " but the WSLInterop handler is still loaded (stale boot)" : ""} — Windows git, open-in-app and the cmd.exe probes are unreachable from this distro`, `remove the [interop] enabled=false line in /etc/wsl.conf, then wsl.exe --terminate ${target}`);
+        } else if (binfmt === "no") {
+          check("distro.wsl-conf-interop", "warn", "/etc/wsl.conf [interop]", `interop is enabled${noConf ? " (the default)" : " in wsl.conf"} but the WSLInterop handler is not registered — a stale boot, or /proc/sys/fs/binfmt_misc was not mounted; Windows git, open-in-app and the cmd.exe probes fail from this distro`, `wsl.exe --terminate ${target}; if it persists, check that /proc/sys/fs/binfmt_misc is mounted (WSL mounts it at boot)`);
+        } else {
+          const appendWindowsPath = ((noConf ? undefined : conf.interop?.appendWindowsPath) ?? "").trim().toLowerCase();
+          check("distro.wsl-conf-interop", "ok", "/etc/wsl.conf [interop]", noConf
+            ? "no /etc/wsl.conf — interop on (the default), and the WSLInterop handler is registered"
+            : `enabled=${interopEnabled || "true (the default)"}, the WSLInterop handler is registered${appendWindowsPath === "false" ? "; appendWindowsPath=false (Windows PATH not appended — Windows tools need full paths)" : ""}`);
+        }
+      }
     }
 
-    const automountEnabled = ((noConf ? undefined : conf.automount?.enabled) ?? "").trim().toLowerCase();
-    const automountRoot = ((noConf ? undefined : conf.automount?.root) ?? "").trim();
     if (!want("conf")) {
       // automount row out of scope
     } else if (automountEnabled === "false") {
@@ -1335,16 +1417,23 @@ async function main(options) {
     }
 
     // ---- optional tools ------------------------------------------------------
-    /** The optional tools, in the order users notice them losing. */
-    /** @type {Array<[string, string]>} */
-    const optionalTools = [["rg", "in-distro search"], ["git", "workspace-change baselines"], ["inotifywait", "the watcher's primary backend"]];
-    for (const [tool, purpose] of optionalTools) {
-      const toolAnswer = await probe(`command -v ${tool}`);
-      if (!toolAnswer.ok && toolAnswer.flaked) flakeCheck(`tools.${tool}`, tool, toolAnswer);
-      else {
-        const found = toolAnswer.stdout.trim();
-        if (found.length > 0) check(`tools.${tool}`, "ok", tool, found);
-        else check(`tools.${tool}`, "warn", tool, `missing; ${purpose} degrades to a slower fallback`, install);
+    // Feature-degradation warnings, not first-command prerequisites: the quick
+    // profile skips them (three process spawns a distro) and the full run names
+    // what each missing tool costs. None is a fallback-free break — a missing
+    // rg still leaves the model bash grep, a missing git still leaves
+    // file-tool edits, a missing inotifywait still polls.
+    if (!quick) {
+      /** The optional tools, in the order users notice them losing. */
+      /** @type {Array<[string, string]>} */
+      const optionalTools = [["rg", "the fs-search tool needs rg; the model can still run grep in a shell, slower"], ["git", "change review falls back to file-tool edits"], ["inotifywait", "the watcher falls back to polling"]];
+      for (const [tool, cost] of optionalTools) {
+        const toolAnswer = await probe(`command -v ${tool}`);
+        if (!toolAnswer.ok && toolAnswer.flaked) flakeCheck(`tools.${tool}`, tool, toolAnswer);
+        else {
+          const found = toolAnswer.stdout.trim();
+          if (found.length > 0) check(`tools.${tool}`, "ok", tool, found);
+          else check(`tools.${tool}`, "warn", tool, `missing; ${cost}`, install);
+        }
       }
     }
 
@@ -1353,15 +1442,25 @@ async function main(options) {
     // cache inventory, handshake, resident smokes). A scoped run without it
     // (quick included) stops after the session rows.
     if (want("agent")) {
+    // The native backend is preferred by `auto` and required by `native`; the
+    // check is config-aware because the consequence differs: a missing or
+    // unrunnable binary degrades to the shell agent under `auto`, but fails
+    // the first command (and every file operation) under `native`.
     const archAnswer = await probe("uname -m");
-    if (!archAnswer.ok && archAnswer.flaked) flakeCheck("agent.arch", "Distro architecture", archAnswer);
+    if (!archAnswer.ok && archAnswer.flaked) flakeCheck("agent.native", "Native agent", archAnswer);
     else {
       const arch = archAnswer.stdout.trim();
       const packaged = ["x86_64", "aarch64"].includes(arch) ? join(ROOT, "agent", "native", `linux-${arch}`, "dsh-wsl-agent") : "";
-      if (arch.length === 0) check("agent.arch", "info", "Distro architecture", "unreadable");
-      else if (packaged.length === 0) check("agent.arch", "info", "Distro architecture", `${arch} has no packaged native agent; the shell agent is the only backend`);
-      else if (existsSync(packaged)) check("agent.native", "ok", "Packaged native agent", packaged.slice(ROOT.length + 1));
-      else check("agent.native", "warn", "Packaged native agent", `missing for ${arch}`, "reinstall the plugin (the binaries ship with the package), or use agentBackend: shell");
+      if (arch === "") {
+        check("agent.native", nativeRequired ? "fail" : "info", "Native agent", "the distro architecture is unreadable, so the packaged native agent cannot be named", nativeRequired ? "probe the distro by hand (uname -m), or use agentBackend: auto" : undefined);
+      } else if (packaged === "") {
+        check("agent.native", nativeRequired ? "fail" : "info", "Native agent", `${arch} has no packaged native agent; only the shell agent can serve this distro`, nativeRequired ? "use agentBackend: auto (falls back to the shell agent) or shell" : undefined);
+      } else if (existsSync(packaged)) {
+        nativePackaged = true;
+        check("agent.native", "ok", "Native agent", `${packaged.slice(ROOT.length + 1)} for ${arch}${effective.agentBackend === "shell" ? " (agentBackend: shell does not use it)" : ""}`);
+      } else {
+        check("agent.native", nativeRequired ? "fail" : effective.agentBackend === "shell" ? "info" : "warn", "Native agent", `missing for ${arch}${effective.agentBackend === "shell" ? "; agentBackend: shell does not use it" : ""}`, "reinstall the plugin (the binaries ship with the package), or use agentBackend: auto/shell");
+      }
     }
 
     const cacheAnswer = await probe(CACHE_REPORT);
@@ -1371,9 +1470,29 @@ async function main(options) {
       if (cache === "none" || cache.length === 0) check("agent.cache", "info", "Agent cache", "empty (a first command populates it)");
       else {
         const entries = cache.split(/\r?\n/).filter((line) => line.trim().length > 0);
-        const bad = entries.filter((line) => line.startsWith("noexec ")).length;
-        check("agent.cache", bad > 0 ? "warn" : "ok", "Agent cache", `${entries.length} cached binary(ies)${bad > 0 ? `, ${bad} not executable` : ""}`, bad > 0 ? `rm -rf ~/.cache/dsh-wsl/agent inside "${target}"; the next command repopulates it` : undefined);
+        const bad = entries.filter((line) => line.startsWith("noexec ") || line.startsWith("broken ")).length;
+        cacheEntries = entries.length;
+        cacheBad = bad;
+        cacheExecPath = entries.find((line) => line.startsWith("exec "))?.slice("exec ".length).trim() ?? "";
+        const badNote = bad > 0 ? `, ${bad} not executable or not runnable` : "";
+        const cacheTone = bad === 0 ? "ok" : nativeRequired ? "fail" : effective.agentBackend === "shell" ? "info" : "warn";
+        check("agent.cache", cacheTone, "Agent cache", `${entries.length} cached binary(ies)${badNote}${bad > 0 && effective.agentBackend === "shell" ? " (agentBackend: shell does not use the cache)" : ""}`, bad > 0 ? `rm -rf ~/.cache/dsh-wsl/agent inside "${target}"; the next command repopulates it` : undefined);
       }
+    }
+
+    // ---- home writability and execution -------------------------------------
+    // The native agent is streamed into `$HOME/.cache/dsh-wsl/agent` and
+    // executed from there; a read-only home, or a home on a `noexec` mount
+    // (DrvFs when HOME points at /mnt/c), breaks that before any command runs.
+    // One temp dir answers both facts and is removed again.
+    const homeProbe = await probe('d=$(mktemp -d "$HOME/.dsh-doctor-XXXXXXXX" 2>/dev/null) || { echo nowrite; exit 0; }; printf "#!/bin/sh\\n" > "$d/x" && chmod 755 "$d/x" && "$d/x" >/dev/null 2>&1 && printf ok || printf noexec; rm -rf "$d"');
+    if (!homeProbe.ok && homeProbe.flaked) flakeCheck("agent.home-writable", "Home writability", homeProbe);
+    else {
+      const homeState = homeProbe.stdout.trim();
+      const homeTone = (/** @type {"fail" | "warn" | "info"} */ tone) => nativeRequired ? "fail" : effective.agentBackend === "shell" ? "info" : tone;
+      if (homeState === "ok") check("agent.home-writable", "ok", "Home writability", "a temp dir under $HOME was writable and executable (the native cache can live there)");
+      else if (homeState === "noexec") check("agent.home-writable", homeTone("warn"), "Home writability", `$HOME is writable but files there cannot execute (a noexec mount) — the native agent cache cannot run${effective.agentBackend === "shell" ? "; agentBackend: shell does not need it" : "; auto falls back to the shell agent"}`, "move HOME onto an exec-capable Linux filesystem (DrvFs is often noexec), or use agentBackend: shell");
+      else check("agent.home-writable", homeTone("warn"), "Home writability", `a temp dir under $HOME could not be created — the native agent cache cannot be extracted${effective.agentBackend === "shell" ? "; agentBackend: shell does not need it" : "; auto falls back to the shell agent"}`, "make $HOME writable (it is a read-only mount, or the user's entry is wrong), or use agentBackend: shell");
     }
     }
 
@@ -1386,6 +1505,8 @@ async function main(options) {
     let scopeLines = [];
     /** ok | fail | info — the handshake state the smoke legs read. */
     let handshakeState = "info";
+    /** The shell-agent smoke, kept so the native legs can say whether the fallback works. */
+    let shellSmoke = /** @type {{ execOk: boolean, fsOk: boolean } | undefined} */ (undefined);
     if (scopesAnswer !== undefined && !scopesAnswer.ok && scopesAnswer.flaked) flakeCheck("runtime.scopes", "Session scopes", scopesAnswer);
     else if (scopesAnswer !== undefined) {
       const scopes = scopesAnswer.stdout.trim();
@@ -1399,25 +1520,24 @@ async function main(options) {
     }
 
     // ---- resident handshake (section: agent) ----------------------------------
-    const agentScript = join(ROOT, "agent", "wsl-agent.sh");
     /** ok | fail | info — the legs skip with a story that matches. */
     handshakeState = "info";
     if (!want("agent")) {
       // agent section out of scope: no handshake, no resident smokes.
-    } else if (!agentScript.startsWith("/")) {
-      check("agent.handshake", "info", "Agent handshake", "skipped: run the doctor from inside the distro (the script path is a Windows path)");
     } else if (!existsSync(agentScript)) {
       check("agent.handshake", "fail", "Agent handshake", "agent/wsl-agent.sh is missing from this install", "reinstall the plugin; the shell agent ships with the package");
       handshakeState = "fail";
+    } else if (agentScriptDistro === undefined) {
+      check("agent.handshake", "info", "Agent handshake", `skipped: the package root (${ROOT}) has no path inside "${target}" — ${automountEnabled === "false" ? "automount is disabled in /etc/wsl.conf, so Windows drives are not mounted there" : "run the doctor from Windows or from inside the target"}`);
     } else {
       // The script is a Linux path in the checkout's OWN distro; another
       // distro cannot read it, and "exited before its HELLO" would be a
       // lie about a broken install. Probe readability first, honestly.
-      const readable = (await inDistro(target, `[ -f "${agentScript}" ] && printf yes || printf no`)).stdout.trim() === "yes";
+      const readable = (await inDistro(target, `[ -f "${agentScriptDistro}" ] && printf yes || printf no`)).stdout.trim() === "yes";
       if (!readable) {
-        check("agent.handshake", "info", "Agent handshake", `skipped: agent/wsl-agent.sh is not readable inside "${target}" — this doctor runs from the ${(process.env.WSL_DISTRO_NAME ?? "host")} filesystem; run it from Windows (the deployed layout reads the \\mnt\\c mirror) or inside "${target}"`);
+        check("agent.handshake", "info", "Agent handshake", `skipped: agent/wsl-agent.sh is not readable at ${agentScriptDistro} inside "${target}" — this doctor runs from the ${(process.env.WSL_DISTRO_NAME ?? "host")} filesystem; run it from Windows or inside "${target}"`);
       } else {
-        const handshake = await probeResident(target, agentScript, wslExe);
+        const handshake = await probeResident(target, agentScriptDistro, wslExe, agentScript);
         handshakeState = handshake.ok && handshake.digestMatches ? "ok" : "fail";
         if (handshake.ok) {
           const live = livePids.length > 0
@@ -1446,7 +1566,7 @@ async function main(options) {
     // prerequisite failed is `skipped` with the blocker named — absence is
     // never silent, and a skipped leg never blocks (its blocker already does).
     const residentBlocked = handshakeState !== "ok";
-    const sandboxBlocked = bwrapPath.length === 0 || !bwrapUsable;
+    const sandboxBlocked = !sandboxDisabled && (bwrapPath.length === 0 || !bwrapUsable);
     const residentBlocker = handshakeState === "fail" ? "blocked by agent.handshake" : "the handshake could not run in this distro";
     // A quick run skips both smokes — their worth is the deep verdict, and
     // the quick profile's promise is a fast prerequisite answer.
@@ -1462,16 +1582,65 @@ async function main(options) {
       // can kill an otherwise healthy chain, and a smoke `fail` is the most
       // alarming row the report can carry — it must not rest on one flaked
       // transport.
-      let smoke = await runSmokeLegs(target, agentScript, wslExe);
+      let smoke = await runSmokeLegs(target, ["sh", agentScriptDistro ?? ""], wslExe);
       if (!smoke.execOk || !smoke.fsOk) {
         await new Promise((resolve) => setTimeout(resolve, FLAKE_SETTLE_MS));
-        smoke = await runSmokeLegs(target, agentScript, wslExe);
+        smoke = await runSmokeLegs(target, ["sh", agentScriptDistro ?? ""], wslExe);
       }
-      check("functional.exec", smoke.execOk ? "ok" : "fail", "Smoke: EXEC", smoke.execDetail, smoke.execOk ? undefined : "restart the DSH app; if it persists, delete ~/.cache/dsh-wsl/agent inside the distro and rerun the doctor");
-      check("functional.fs", smoke.fsOk ? "ok" : "fail", "Smoke: FSB batch", smoke.fsDetail, smoke.fsOk ? undefined : "restart the DSH app; if it persists, delete ~/.cache/dsh-wsl/agent inside the distro and rerun the doctor");
+      // The shell agent is the fallback once `auto` can use the native binary
+      // (and the only path under `agentBackend: shell`). A BusyBox distro
+      // without GNU findures breaks the fallback's FSB enumeration, not the
+      // selected path — so it warns with the real cause instead of blocking.
+      const shellFallback = effective.agentBackend !== "shell" && nativePackaged;
+      const shellTone = shellFallback ? "warn" : "fail";
+      const fallbackNote = shellFallback ? ` (the shell agent is the fallback; agentBackend: ${effective.agentBackend} runs the native agent)` : "";
+      const findutilsHint = smoke.fsError !== undefined && /find: unrecognized: -printf|BusyBox/i.test(smoke.fsError.message)
+        ? `the shell agent needs GNU findutils (BusyBox find lacks -printf): wsl.exe -d ${target} -u root -- ${FINDUTILS[family] ?? FINDUTILS["apt-get"]}; or set agentBackend: auto/native`
+        : "restart the DSH app; if it persists, delete ~/.cache/dsh-wsl/agent inside the distro and rerun the doctor";
+      shellSmoke = smoke;
+      check("functional.exec", smoke.execOk ? "ok" : shellTone, "Smoke: EXEC", `shell agent: ${smoke.execDetail}${smoke.execOk ? "" : fallbackNote}`, smoke.execOk ? undefined : "restart the DSH app; if it persists, delete ~/.cache/dsh-wsl/agent inside the distro and rerun the doctor");
+      check("functional.fs", smoke.fsOk ? "ok" : shellTone, "Smoke: FSB batch", `shell agent: ${smoke.fsDetail}${smoke.fsOk ? "" : fallbackNote}`, smoke.fsOk ? undefined : findutilsHint);
+    }
+
+    // ---- native smoke (section: agent) ---------------------------------------
+    // The legs above prove the SHELL agent; `auto` prefers the native binary,
+    // so the binary the session will actually exec runs the SAME chain here:
+    // HELLO, one EXEC round trip, one FSB batch. The cache directory is named
+    // after the binary's sha256, so the HELLO self-digest binds the running
+    // process to the cache entry without reading the bytes again. A fresh
+    // machine has no cache yet (the first command extracts one), and `shell`
+    // never uses it.
+    if (!residentSmokeWanted) {
+      // out of scope (quick runs skip it too)
+    } else if (effective.agentBackend === "shell") {
+      check("functional.native", "skipped", "Smoke: native agent", "skipped: agentBackend: shell");
+    } else if (cacheExecPath === "") {
+      check("functional.native", "skipped", "Smoke: native agent", "skipped: no executable native binary in ~/.cache/dsh-wsl/agent yet — the first command extracts one");
+    } else {
+      const cachedDigest = cacheExecPath.split("/").slice(-2)[0] ?? "";
+      let native = await runSmokeLegs(target, [cacheExecPath], wslExe, cachedDigest);
+      if (!native.execOk || !native.fsOk) {
+        await new Promise((resolve) => setTimeout(resolve, FLAKE_SETTLE_MS));
+        native = await runSmokeLegs(target, [cacheExecPath], wslExe, cachedDigest);
+      }
+      const nativeOk = native.execOk && native.fsOk && native.digestMatches;
+      // `auto` falls back to the shell agent, so a native failure alone is a
+      // warning — unless the fallback fails too (then neither backend serves
+      // the session) or the backend is pinned.
+      const shellWorks = shellSmoke !== undefined && shellSmoke.execOk && shellSmoke.fsOk;
+      if (nativeOk) {
+        check("functional.native", "ok", "Smoke: native agent", `native agent: ${native.execDetail}; ${native.fsDetail}`);
+      } else if (!native.digestMatches) {
+        check("functional.native", nativeRequired ? "fail" : "warn", "Smoke: native agent", "native agent: the HELLO self-digest does not match the cache directory — the entry is stale or corrupt", "purge ~/.cache/dsh-wsl/agent inside the distro; the next command re-extracts it");
+      } else {
+        const nativeTone = nativeRequired || (effective.agentBackend === "auto" && !shellWorks) ? "fail" : "warn";
+        check("functional.native", nativeTone, "Smoke: native agent", `native agent: ${native.execDetail}; ${native.fsDetail}${nativeTone === "fail" && !nativeRequired ? " (the shell fallback failed too — neither backend answers the chain)" : ""}`, nativeTone === "fail" ? "agentBackend: native cannot fall back; use auto/shell, or reinstall the plugin" : "auto falls back to the shell agent; purge ~/.cache/dsh-wsl/agent to re-extract");
+      }
     }
     if (!sandboxSmokeWanted) {
       // fence smoke out of scope (or quick)
+    } else if (sandboxDisabled) {
+      check("functional.sandbox", "skipped", "Smoke: confined profile", "skipped: the sandbox is disabled by configuration");
     } else if (sandboxBlocked) {
       check("functional.sandbox", "skipped", "Smoke: confined profile", `skipped: blocked by ${bwrapPath.length === 0 ? "sandbox.bwrap" : "sandbox.bwrap-usable"}`);
     } else {
@@ -1484,11 +1653,11 @@ async function main(options) {
       else check("functional.sandbox", sandbox.ok ? "ok" : "fail", "Smoke: confined profile", sandbox.detail, sandbox.ok ? undefined : "the shipped profile refused a write it must allow, or allowed one it must refuse — see docs/LIMITATIONS.md and pnpm run probe:sandbox");
     }
 
-    return { checks: collected, reachable: true, bwrapPath, stale, family };
+    return { checks: collected, reachable: true, bwrapPath, stale, cacheEntries, cacheBad, cacheExecPath, family, agentScriptDistro };
   };
 
   phase("target");
-  /** @type {Map<string, { checks: Check[], reachable: boolean, bwrapPath: string, stale: number, family: string }>} */
+  /** @type {Map<string, { checks: Check[], reachable: boolean, bwrapPath: string, stale: number, cacheEntries: number, cacheBad: number, cacheExecPath: string, family: string, agentScriptDistro: string | undefined }>} */
   const states = new Map();
   const outcomes = await mapWithConcurrency(targets, DISTRO_CONCURRENCY, async (target) => {
     const distroStart = Date.now();
@@ -1609,39 +1778,18 @@ async function main(options) {
   else check("peers.versions", "fail", "Peer versions", badPeers.join("; "), "install the peer set this plugin pins (pnpm install in the plugin, or reinstall/upgrade it against this harness); see docs/PEER-PARITY.md");
 
   phase("surveys");
-  // ---- update check ----------------------------------------------------------
-  // The same question the app's Versions page asks, answered on demand: the
-  // stable channel's newest release against this checkout's version. A
-  // registry the doctor cannot reach is normal (offline, a proxy), so it
-  // reports as `info` and points at the page that asks it live — never a
-  // warning, and never a network side effect beyond the two GETs. The quick
-  // profile skips it: no network on the fast path.
-  const installedVersion = manifest.version ?? "";
-  const latest = !quick && installedVersion.length > 0 ? await fetchLatestRelease() : undefined;
-  if (quick) {
-    // quick profile: no update row at all — the registry stays untouched.
-  } else if (latest === undefined) {
-    check("update.latest", "info", "Update check", "the registry was unreachable (offline, or a proxy is in the way); the app's Versions page asks the same question live");
-  } else if (compareVersions(latest.version, installedVersion) > 0) {
-    const message = updateFactMessage({ installed: installedVersion, latest: latest.version, incompatible: false, ...(latest.deprecated === undefined ? {} : { deprecated: latest.deprecated }), checkedAt: 0 });
-    check("update.latest", "info", "Update check", `${message} (from ${latest.registry})`, "the app's Plugins page, Versions section, or `dsh plugin --profile <name> add dsh-plugin-wsl-env`, then restart DSH");
-  } else {
-    check("update.latest", "ok", "Update check", `${installedVersion} is the newest stable release`);
-  }
-
   // ---- effective configuration (verdict inputs, reported) ------------------
   check("config.effective", configRecognized ? "ok" : "info", "Effective configuration",
     configRecognized
       ? `distro=${effective.distro}, sessionSandbox=${effective.sessionSandbox}, agentBackend=${effective.agentBackend}, sandbox=${effective.sandbox}, maskWindowsDrive=${effective.maskWindowsDrive}, interopVisibility=${effective.interopVisibility || "unset"} — from ${effective.source}${effective.overrides.length > 0 ? ` (overrides: ${effective.overrides.join("; ")})` : ""}`
       : "the shipped preset rows were not recognized; the conservative defaults apply (sessionSandbox: true, so a missing systemd blocks) — see docs/CONFIGURATION.md");
 
-  phase("update-peers");
+  phase("profiles");
   // ---- profile-patch trap and deprecated keys ------------------------------
   const dshHome = process.env.DSH_HOME !== undefined && process.env.DSH_HOME.length > 0 ? process.env.DSH_HOME : join(homedir(), ".dsh");
   const profilesDir = join(dshHome, "profiles");
   if (!existsSync(profilesDir)) {
-    check("config.profiles", "info", "Profile patches", `no profiles under ${profilesDir}`);
-    check("config.deprecated", "info", "Deprecated keys", "no profile layers to scan");
+    check("config.deprecated", "info", "Deprecated keys", `no profile layers under ${profilesDir} to scan`);
   } else {
     /** @type {string[]} */
     const trapped = [];
@@ -1656,17 +1804,21 @@ async function main(options) {
       if (!existsSync(patch)) continue;
       seen += 1;
       const text = readFileSync(patch, "utf8");
-      if (/^\s*-\s*id:\s*(wsl-shell|wsl-fs)\s*$/m.test(text)) trapped.push(entry.name);
+      // Only a ROOT-level `- id:` entry is a patch by id. An entry indented
+      // under `insert:` adds a real top-level row (the probe profiles do
+      // exactly that), so matching it would warn about a patch that is not
+      // there.
+      if (/^-\s*id:\s*(wsl-shell|wsl-fs)\s*(?:#.*)?$/m.test(text)) trapped.push(entry.name);
       if (/substrate:\s*["']?share["']?/m.test(text)) retired.push(entry.name);
       if (/^\s*distro:\s*['"]['"]\s*$/m.test(text)) emptyDistro.push(entry.name);
     }
     if (trapped.length > 0) {
-      check("config.preset-trap", "warn", "Profile patches", `nested rows patched by id in: ${trapped.join(", ")}`, "wsl-shell and wsl-fs live inside preset-wsl; an id patch matches nothing and is ignored with a warning. Run \"pnpm run preset --check <patch>\" to get the complete block, or see docs/CONFIGURATION.md#configure-wsl-shell-and-wsl-fs");
-    } else {
-      check("config.profiles", "ok", "Profile patches", `${seen} profile patch(es) scanned`);
+      check("config.preset-trap", "warn", "Nested row patches",
+        `root-level id patch for a nested row in: ${trapped.join(", ")} — the wsl-shell / wsl-fs entry matches no top-level row and is ignored`,
+        'those names are profile directories; to add these providers at the top level use "- insert:", and to change the preset\'s nested rows replace the whole preset-wsl row. Run "pnpm run preset --check <patch>" for the complete block, or see docs/CONFIGURATION.md#configure-wsl-shell-and-wsl-fs');
     }
     if (retired.length > 0) {
-      check("config.deprecated", "warn", "Deprecated keys", `substrate: share in ${retired.join(", ")} — the plugin refuses to boot this profile, because serving the 9p share is exactly what it must not do`, "delete the substrate line (the agent substrate is the only shape), then restart the session — docs/MIGRATION.md#keeping-the-old-spelling");
+      check("config.deprecated", "fail", "Deprecated keys", `substrate: share in ${retired.join(", ")} — the plugin refuses to boot this profile, because serving the 9p share is exactly what it must not do`, "delete the substrate line (the agent substrate is the only shape), then restart the session — docs/MIGRATION.md#keeping-the-old-spelling");
     } else if (emptyDistro.length > 0) {
       check("config.deprecated", "info", "Deprecated keys", `distro: '' in ${emptyDistro.join(", ")} — empty has meant auto (follow the workspace) since 0.12.0, not WSL's default`, `pin distro: default on both rows to keep the old posture — docs/MIGRATION.md#case-study-distro-0120`);
     } else {
@@ -1676,8 +1828,10 @@ async function main(options) {
 
   phase("config");
   // ---- fixes (the loop ends in a re-verified report) ------------------------
-  // Safe actions only, per target: the sweep the session preflight runs, and
-  // package installation behind --install plus an explicit confirmation. Every
+  // Safe, reversible actions only, per target: the sweep the session preflight
+  // runs, a purge of the plugin-owned agent cache, and — outside
+  // `--fix-owned` — package installation behind --install plus an explicit
+  // confirmation and the Windows git whitelist behind the same gate. Every
   // fix is followed by a fresh probe of what it claims to have fixed — the
   // revised check carries the after state (so the verdict at the end is the
   // post-fix verdict, ready or the remaining blockers), and the fix.* row
@@ -1717,7 +1871,37 @@ async function main(options) {
           ? { status: "info", detail: "none (the fix above swept them)", remedy: undefined }
           : { status: afterStale === 0 ? "ok" : "warn", detail: `${afterLines.length} live, ${afterStale} stale after the fix`, remedy: afterStale === 0 ? undefined : "--fix stops them; they are safe to stop when no agent process is inside" });
       }
-      if (state.bwrapPath.length === 0) {
+      if (state.cacheBad > 0) {
+        // The cache is plugin-owned and content-addressed: every entry is
+        // re-extracted from the shipped agent on the next command, so purging
+        // it is safe and reversible. The after-state is a fresh inventory, and
+        // a failed handshake is re-probed because a corrupt cache is one of its
+        // causes.
+        const purged = await inDistro(target, 'rm -rf "$HOME/.cache/dsh-wsl/agent"');
+        const afterRaw = (await inDistro(target, CACHE_REPORT)).stdout.trim();
+        const afterLines = afterRaw === "none" || afterRaw.length === 0 ? [] : afterRaw.split(/\r?\n/).filter((line) => line.trim().length > 0);
+        const afterBad = afterLines.filter((line) => line.startsWith("noexec ") || line.startsWith("broken ")).length;
+        const fixed = purged.ok && afterBad === 0;
+        const cacheTone = fixed ? "ok" : effective.agentBackend === "native" ? "fail" : "warn";
+        fixCheck("fix.cache", fixed ? "ok" : "warn", "Purged the agent cache",
+          `${state.cacheEntries} cached, ${state.cacheBad} invalid before → ${afterLines.length} cached, ${afterBad} invalid after`,
+          fixed ? undefined : `rm -rf ~/.cache/dsh-wsl/agent inside "${target}"; the next command repopulates it`);
+        reviseCheck("agent.cache", target, afterLines.length === 0
+          ? { status: cacheTone === "ok" ? "info" : cacheTone, detail: "empty after the fix (the next command repopulates it)", remedy: undefined }
+          : { status: cacheTone, detail: `${afterLines.length} cached binary(ies)${afterBad > 0 ? `, ${afterBad} not executable or not runnable after the fix` : ""}`, remedy: fixed ? undefined : `rm -rf ~/.cache/dsh-wsl/agent inside "${target}"; the next command repopulates it` });
+        const handshakeEntry = checks.find((entry) => entry.id === "agent.handshake" && entry.distro === target);
+        const scriptPath = state.agentScriptDistro;
+        const scriptProbe = scriptPath !== undefined && existsSync(join(ROOT, "agent", "wsl-agent.sh"))
+          ? (await inDistro(target, `[ -f "${scriptPath}" ] && printf yes || printf no`)).stdout.trim()
+          : "no";
+        if (handshakeEntry !== undefined && handshakeEntry.status === "fail" && scriptProbe === "yes" && scriptPath !== undefined) {
+          const again = await probeResident(target, scriptPath, wslExe, join(ROOT, "agent", "wsl-agent.sh"));
+          reviseCheck("agent.handshake", target, again.ok && again.digestMatches
+            ? { status: "ok", detail: `re-probed after the cache purge: pid ${again.pid}, protocol ${PROTOCOL_VERSION}, digest matches`, remedy: undefined }
+            : { detail: `re-probed after the cache purge: ${again.ok ? "digest MISMATCH — the distro reads a different script than this package" : again.detail}` });
+        }
+      }
+      if (state.bwrapPath.length === 0 && !options.fixOwned) {
         const install = installRemedy(target, state.family);
         if (!options.install) {
           fixCheck("fix.install", "info", "Package installation", "not attempted", "re-run with --fix --install (and --yes for a non-interactive run)");
@@ -1743,8 +1927,9 @@ async function main(options) {
     }
     // B3: the Windows git whitelist is user-scoped and reversible — the same
     // confirmation gate as a package install, then a fresh probe. Without a
-    // TTY the fix declines loudly instead of silently doing nothing.
-    if (winGitOk) {
+    // TTY the fix declines loudly instead of silently doing nothing. A
+    // `--fix-owned` run leaves Windows-owned state alone.
+    if (winGitOk && !options.fixOwned) {
       const gitEntry = checks.find((entry) => entry.id === "git.win-safe");
       if (gitEntry !== undefined && gitEntry.status === "warn") {
         if (await confirm('Add "//wsl.localhost/*" to the Windows git safe.directory whitelist?', options.yes)) {
@@ -1774,9 +1959,11 @@ async function main(options) {
  *
  * @param {string} distro - the distro to probe.
  * @param {string} scriptPath - the agent script as a Linux path inside the distro.
+ * @param {string} [wslExe] - the wsl.exe to spawn.
+ * @param {string} [hostPath] - the same script as this host names it, for the digest (defaults to scriptPath).
  * @returns {Promise<{ ok: true, pid: number, digestMatches: boolean } | { ok: false, detail: string }>} the verdict, with the pid on success.
  */
-function probeResident(distro, scriptPath, wslExe = WSL) {
+function probeResident(distro, scriptPath, wslExe = WSL, hostPath = scriptPath) {
   return new Promise((settle) => {
     let settled = false;
     /** @param {{ ok: true, pid: number, digestMatches: boolean } | { ok: false, detail: string }} value - the verdict. */
@@ -1808,7 +1995,7 @@ function probeResident(distro, scriptPath, wslExe = WSL) {
         finish({ ok: false, detail: `protocol ${version}, expected ${PROTOCOL_VERSION}` });
         return;
       }
-      const expected = createHash("sha256").update(readFileSync(scriptPath)).digest("hex");
+      const expected = createHash("sha256").update(readFileSync(hostPath)).digest("hex");
       finish({ ok: true, pid: Number(pid), digestMatches: digest === expected });
     });
     child.on("error", (error) => finish({ ok: false, detail: error.message }));
@@ -1822,7 +2009,7 @@ function probeResident(distro, scriptPath, wslExe = WSL) {
       if (first.startsWith("HELLO|")) {
         const [kind, name, version, digest, pid] = first.split("|");
         if (kind === "HELLO" && name === AGENT_NAME && Number(version) === PROTOCOL_VERSION) {
-          const expected = createHash("sha256").update(readFileSync(scriptPath)).digest("hex");
+          const expected = createHash("sha256").update(readFileSync(hostPath)).digest("hex");
           finish({ ok: true, pid: Number(pid), digestMatches: digest === expected });
           return;
         }
@@ -1842,13 +2029,14 @@ function probeResident(distro, scriptPath, wslExe = WSL) {
  * its leg; a resident that dies mid-smoke fails fast instead of hanging.
  *
  * @param {string} distro - the distro.
- * @param {string} scriptPath - the agent script as a Linux path inside the distro.
- * @param {string} wslExe - the wsl.exe to spawn.
- * @returns {Promise<{ execOk: boolean, execDetail: string, fsOk: boolean, fsDetail: string }>} the two resident-leg verdicts.
+ * @param {string[]} residentArgv - the argv that starts the resident: `["sh", script]` for the shell agent, `[binaryPath]` for the native one.
+ * @param {string} [wslExe] - the wsl.exe to spawn.
+ * @param {string} [expectedDigest] - the sha256 the HELLO self-digest must equal (the native cache directory's name); empty for the shell agent, whose digest is compared separately.
+ * @returns {Promise<{ execOk: boolean, execDetail: string, fsOk: boolean, fsDetail: string, digestMatches: boolean, fsError: { op: number, reason: string, message: string } | undefined }>} the leg verdicts.
  */
-function runSmokeLegs(distro, scriptPath, wslExe = WSL) {
+function runSmokeLegs(distro, residentArgv, wslExe = WSL, expectedDigest = "") {
   return new Promise((settle) => {
-    const child = spawn(wslExe, ["-d", distro, "--exec", "sh", scriptPath], {
+    const child = spawn(wslExe, ["-d", distro, "--exec", ...residentArgv], {
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
       env: { ...process.env, WSL_UTF8: "1" },
@@ -1856,6 +2044,10 @@ function runSmokeLegs(distro, scriptPath, wslExe = WSL) {
     let settled = false;
     let buffer = "";
     let helloSeen = false;
+    /** Whether the HELLO self-digest matches the expected one (true when none is expected). */
+    let digestMatches = true;
+    /** The first refused batch operation, decoded — the panel's actual cause. */
+    let fsError = /** @type {{ op: number, reason: string, message: string } | undefined} */ (undefined);
     /** @type {Map<string, (line: string) => void>} */
     const waiters = new Map();
     let helloResolve = /** @type {((value: boolean) => void) | undefined} */ (undefined);
@@ -1869,7 +2061,7 @@ function runSmokeLegs(distro, scriptPath, wslExe = WSL) {
       try { child.stdin.write("SHUTDOWN\n"); } catch { /* the resident may already be gone */ }
       setTimeout(() => {
         try { child.kill(); } catch { /* already gone */ }
-        settle(value);
+        settle({ digestMatches, fsError, ...value });
       }, 150);
     };
     child.stdout.on("data", (chunk) => {
@@ -1883,6 +2075,7 @@ function runSmokeLegs(distro, scriptPath, wslExe = WSL) {
         const parsed = parseAgentLine(line);
         if (parsed.type === "hello") {
           helloSeen = true;
+          if (expectedDigest.length > 0 && parsed.digest !== expectedDigest) digestMatches = false;
           helloResolve?.(true);
           continue;
         }
@@ -1951,6 +2144,21 @@ function runSmokeLegs(distro, scriptPath, wslExe = WSL) {
       const fsbParsed = parseAgentLine(fsbLine);
       const payload = fsbParsed.type === "result" ? fsbParsed.stdout.toString("utf8") : "";
       const fsOk = fsbParsed.type === "result" && fsbParsed.exitCode === 0 && payload.includes("OK 1") && payload.includes("OK 2");
+      // A refused batch answers `BAD <op>|<reason>|<base64 message>` inside
+      // the RES payload. Decode it here so the report names the cause instead
+      // of printing base64 at the user.
+      if (!fsOk && fsbParsed.type === "result") {
+        const bad = /^BAD (\d+)\|([a-z]+)\|([A-Za-z0-9+/=]+)/.exec(payload);
+        if (bad !== null) {
+          let message = "";
+          try {
+            message = Buffer.from(bad[3] ?? "", "base64").toString("utf8").trim();
+          } catch {
+            // Undecodable payload: the raw head below still names the op.
+          }
+          fsError = { op: Number(bad[1] ?? 0), reason: bad[2] ?? "io", message };
+        }
+      }
       const rmId = "smoke-cleanup";
       const rmLine = await request(rmId, encodeExecFrame({ id: rmId, cwd: "/tmp", argv: ["rm", "-rf", dir], timeoutMs: 15_000, maxOutputBytes: 4096 }));
       const rmParsed = parseAgentLine(rmLine);
@@ -1958,7 +2166,9 @@ function runSmokeLegs(distro, scriptPath, wslExe = WSL) {
       const fsDetail = fsOk
         ? `stat + list over ${dir} answered one batch round trip${cleanupOk ? "; the dir is removed" : `; CLEANUP FAILED — ${dir} is left behind`}`
         : fsbParsed.type === "result"
-          ? `exit ${fsbParsed.exitCode}: ${payload.slice(0, 120)}${cleanupOk ? "" : `; cleanup failed, ${dir} is left behind`}`
+          ? fsError === undefined
+            ? `exit ${fsbParsed.exitCode}: ${payload.slice(0, 120)}${cleanupOk ? "" : `; cleanup failed, ${dir} is left behind`}`
+            : `operation ${fsError.op} (${fsError.reason}): ${fsError.message.slice(0, 160) || payload.slice(0, 120)}${cleanupOk ? "" : `; cleanup failed, ${dir} is left behind`}`
           : fsbParsed.type === "fsError"
             ? `${fsbParsed.reason}: ${fsbParsed.message}`
             : `unexpected reply: ${fsbLine.slice(0, 80)}`;
@@ -2126,7 +2336,7 @@ function report(checks, options, runInfo = {}) {
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
-    console.log("node scripts/doctor.mjs [distro] [--all] [--json] [--quick] [--sections host,sandbox,session,conf,net,agent] [--fix] [--install] [--yes] [--read-only] [--bundle <path>] [--redact] [--locale <tag>]");
+    console.log("node scripts/doctor.mjs [distro] [--all] [--json] [--quick] [--sections host,sandbox,session,conf,net,agent] [--fix] [--fix-owned] [--install] [--yes] [--read-only] [--bundle <path>] [--redact] [--locale <tag>]");
   } else {
     process.exitCode = await main(options);
   }

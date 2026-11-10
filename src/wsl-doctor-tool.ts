@@ -110,6 +110,8 @@ interface CheckItem {
   detail: string;
   distro?: string;
   remedy?: string;
+  /** Synthetic catalog row: this run's scope never executed the check. */
+  scopeSkip?: true;
 }
 
 /** The tool's result: the doctor's verdict, condensed for the model. */
@@ -125,6 +127,12 @@ export interface DoctorDigest {
   distros: DistroTally[];
   /** Every check the report carried, in report order — the itemized listing. */
   items: CheckItem[];
+  /**
+   * Catalog ids the report did not carry: checks a scoped run never executed,
+   * plus conditional ids whose trigger did not fire (a quiet full run's
+   * `distro.present` / `fix.git-trust`).
+   */
+  notRun: number;
   /** The scope the report answers for (quick profile or a section subset). */
   scope?: { sections: string[], quick: boolean };
   distroVerdicts: Array<{ name: string, verdict: string, blockers: string[] }>;
@@ -144,7 +152,7 @@ export function sectionOf(id: string): "host" | "sandbox" | "session" | "conf" |
   if (id.startsWith("session.") || id === "runtime.scopes" || id === "distro.wsl-conf-boot") return "session";
   if (id.startsWith("config.") || id === "distro.wsl-conf-interop" || id === "distro.wsl-conf-automount") return "conf";
   if (id === "distro.dns") return "net";
-  if (id.startsWith("agent.") || id === "functional.exec" || id === "functional.fs") return "agent";
+  if (id.startsWith("agent.") || id === "functional.exec" || id === "functional.fs" || id === "functional.native") return "agent";
   return "host";
 }
 
@@ -173,24 +181,21 @@ const SKIP_DETAIL_PREFIX = "skipped: ";
  * "out of scope".
  */
 export const CHECK_CATALOG: readonly string[] = [
-  "agent.arch",
   "agent.cache",
   "agent.handshake",
+  "agent.home-writable",
   "agent.native",
   "config.deprecated",
   "config.effective",
   "config.preset-trap",
-  "config.profiles",
   "config.wslconfig",
   "distro.clock",
   "distro.disk",
   "distro.dns",
-  "distro.family",
-  "distro.home",
-  "distro.kernel",
+  "distro.identity",
   "distro.present",
   "distro.reachable",
-  "distro.shell",
+  "distro.unc",
   "distro.wsl-conf-automount",
   "distro.wsl-conf-boot",
   "distro.wsl-conf-interop",
@@ -198,11 +203,12 @@ export const CHECK_CATALOG: readonly string[] = [
   "fix.git-trust",
   "functional.exec",
   "functional.fs",
+  "functional.native",
   "functional.sandbox",
   "git.win-safe",
+  "host.disk",
   "host.distros",
-  "host.windows",
-  "host.wsl",
+  "host.platform",
   "peers.versions",
   "runtime.scopes",
   "sandbox.bwrap",
@@ -214,7 +220,6 @@ export const CHECK_CATALOG: readonly string[] = [
   "tools.git",
   "tools.inotifywait",
   "tools.rg",
-  "update.latest",
 ];
 
 /**
@@ -282,6 +287,12 @@ export function digestReport(report: DoctorReportLike, sessionDistro?: string): 
       ...(verdict === undefined ? {} : { verdict }),
     };
   });
+  // Scope the listing never drops silently: every catalog id the report did
+  // not carry joins the items as an explicit skip row, so a quick or
+  // section-scoped answer still shows the full check surface. The same set
+  // feeds `notRun`, which the panel renders as "the full run covers N more".
+  const reported = new Set(checks.map((check) => check.id));
+  const notRunIds = CHECK_CATALOG.filter((id) => !reported.has(id));
   return {
     verdict,
     blockers,
@@ -301,16 +312,12 @@ export function digestReport(report: DoctorReportLike, sessionDistro?: string): 
           ? check.status === "fail" ? { remedy: "no remedy — see docs/DIAGNOSTICS.md" } : {}
           : { remedy: check.remedy }),
       }));
-      // Scope the listing never drops silently: every catalog id the report
-      // did not carry joins the items as an explicit skip row, so a quick or
-      // section-scoped answer still shows the full check surface.
-      const reported = new Set(checks.map((check) => check.id));
-      for (const id of CHECK_CATALOG) {
-        if (reported.has(id)) continue;
-        rows.push({ id, title: id, status: "skipped", detail: SCOPE_SKIP_DETAIL, distro: NOT_RUN });
+      for (const id of notRunIds) {
+        rows.push({ id, title: id, status: "skipped", detail: SCOPE_SKIP_DETAIL, distro: NOT_RUN, scopeSkip: true });
       }
       return rows;
     })(),
+    notRun: notRunIds.length,
     ...(report.scope === undefined ? {} : { scope: report.scope }),
     distroVerdicts: report.distroVerdicts ?? [],
     note: verdict === "ready"

@@ -213,25 +213,29 @@ the mirror does not, or one that differs.
 That destination is outside a session workspace, so a confined agent session is
 refused there and has to approve a wider permission for the one command.
 
-## 8.5. Announce on the upstream discussion
+## 8.5. Announce on the upstream discussions
 
-Every release appends an update comment to the plugin's upstream thread,
-[deepseek-ai/deepseek-harness discussion #8644](https://github.com/deepseek-ai/deepseek-harness/discussions/8644)
-(node id `D_kwDOT3T1g84AptnQ`), so followers of that thread see each version
+Every release appends an update comment to both plugin threads in
+[deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness):
+[discussion #8644](https://github.com/deepseek-ai/deepseek-harness/discussions/8644)
+(node id `D_kwDOT3T1g84AptnQ`) and
+[discussion #11251](https://github.com/deepseek-ai/deepseek-harness/discussions/11251)
+(node id `D_kwDOT3T1g84AqhvH`), so followers of either thread see each version
 without watching this repository:
 
-- One comment per release, in Chinese (the thread's established language for
-  updates; the English original stays as the top post, refreshed on notable
-  releases).
+- One comment per release in **each** thread, in Chinese (the established
+  language for updates; the English original stays as the top post, refreshed
+  on notable releases).
 - Content: the version, the two or three headline changes, the current
   verification snapshot in one line (unit tests, matrix, container and qemu
   legs, nightly probes), and the release link.
 - Post it with the same GraphQL mutation the 2026-10-27 update used
   (`addDiscussionComment` on the discussion's node id) from a session that
   holds the maintainer's GitHub credentials — the release workflow's
-  `GITHUB_TOKEN` is scoped to this repository and cannot write there.
+  `GITHUB_TOKEN` is scoped to this repository and cannot write there. Post the
+  same body to both, then read each back and compare it to the local source.
 
-This is a hard checklist item, not a nicety: the thread is where the DSH
+This is a hard checklist item, not a nicety: the threads are where the DSH
 community found the plugin, and a stale thread reads as an abandoned one.
 
 ## 9. If a version turns out to be bad

@@ -55,6 +55,12 @@ interface SessionRuntimeRequest {
     mode: string;
     /** Shadow `/mnt` in the runtime's mount profile. */
     maskWindowsDrive?: boolean;
+    /**
+     * Extra Linux roots to bind read-write in the runtime's profile. The
+     * providers resolved, filtered and checked them; they are part of the key
+     * because the mount table is fixed for the runtime's lifetime.
+     */
+    writableRoots?: readonly string[];
     /** The agent's client lease; 0 disables. */
     leaseMs?: number;
 }
@@ -134,7 +140,7 @@ export declare class SessionRuntimes {
      * @param request - the runtime request.
      * @returns the registry key.
      */
-    static key(request: Pick<SessionRuntimeRequest, "distro" | "workspaceRoot" | "mode" | "maskWindowsDrive" | "sessionId">): string;
+    static key(request: Pick<SessionRuntimeRequest, "distro" | "workspaceRoot" | "mode" | "maskWindowsDrive" | "sessionId" | "writableRoots">): string;
     /**
      * Acquire the runtime for one key, creating it on first use.
      *

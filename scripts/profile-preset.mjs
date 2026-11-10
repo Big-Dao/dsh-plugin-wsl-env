@@ -12,6 +12,7 @@
  *
  *   node scripts/profile-preset.mjs [--distro Debian] [--session-sandbox false|auto]
  *        [--sandbox false] [--mask-windows-drive true] [--agent-backend native]
+ *        [--writable-roots '~/.npm,~/.cache']
  *        [--out <profile/cordis.patch.yml>] [--check <file>] [--force]
  *
  * With no `--out`/`--check`, the block (with the edits) goes to stdout.
@@ -110,7 +111,7 @@ function setKey(lines, id, key, value) {
 /**
  * Apply the supported edits to a preset block.
  * @param {string} block - the block from {@link presetBlock}.
- * @param {{ distro?: string, sessionSandbox?: boolean | "auto", sandbox?: boolean, maskWindowsDrive?: boolean, agentBackend?: string }} edits - the edits.
+ * @param {{ distro?: string, sessionSandbox?: boolean | "auto", sandbox?: boolean, maskWindowsDrive?: boolean, agentBackend?: string, writableRoots?: string[] }} edits - the edits.
  * @returns {string} the edited block.
  */
 export function applyEdits(block, edits) {
@@ -127,18 +128,25 @@ export function applyEdits(block, edits) {
     setKey(lines, "wsl-fs", key, value);
   }
   if (edits.agentBackend !== undefined) setKey(lines, "wsl-shell", "agentBackend", edits.agentBackend);
+  if (edits.writableRoots !== undefined) {
+    // A flow sequence is valid YAML and keeps the helper's one-line-per-key
+    // edit shape; the rows themselves take a real list once the block is merged.
+    const value = JSON.stringify(edits.writableRoots);
+    setKey(lines, "wsl-shell", "writableRoots", value);
+    setKey(lines, "wsl-fs", "writableRoots", value);
+  }
   return lines.join("\n");
 }
 
 /**
  * Parse the helper's arguments.
  * @param {string[]} argv - `process.argv.slice(2)`.
- * @returns {{ edits: Record<string, string | boolean>, out?: string, check?: string, force: boolean }} the options.
+ * @returns {{ edits: Record<string, string | boolean | string[]>, out?: string, check?: string, force: boolean }} the options.
  */
 function parseArgs(argv) {
-  /** @type {Record<string, string | boolean>} */
+  /** @type {Record<string, string | boolean | string[]>} */
   const edits = {};
-  /** @type {{ edits: Record<string, string | boolean>, out?: string, check?: string, force: boolean }} */
+  /** @type {{ edits: Record<string, string | boolean | string[]>, out?: string, check?: string, force: boolean }} */
   const options = { edits, force: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] ?? "";
@@ -153,13 +161,17 @@ function parseArgs(argv) {
     else if (flag === "--agent-backend") {
       if (!["auto", "native", "shell"].includes(value)) throw new Error(`profile-preset: --agent-backend must be auto, native or shell (got "${value}")`);
       edits.agentBackend = value;
+    } else if (flag === "--writable-roots") {
+      const roots = value.split(",").map((root) => root.trim()).filter((root) => root.length > 0);
+      if (roots.length === 0) throw new Error("profile-preset: --writable-roots needs a comma-separated list of distro paths");
+      edits.writableRoots = roots;
     } else if (flag === "--out") options.out = value;
     else if (flag === "--check") options.check = value;
     else if (flag === "--force") {
       options.force = true;
       i -= 1;
     } else if (flag === "--help" || flag === "-h") {
-      console.log("node scripts/profile-preset.mjs [--distro NAME] [--session-sandbox true|false|auto] [--sandbox true|false] [--mask-windows-drive true|false] [--agent-backend auto|native|shell] [--out FILE] [--check FILE] [--force]");
+      console.log("node scripts/profile-preset.mjs [--distro NAME] [--session-sandbox true|false|auto] [--sandbox true|false] [--mask-windows-drive true|false] [--agent-backend auto|native|shell] [--writable-roots 'PATH,...'] [--out FILE] [--check FILE] [--force]");
       process.exit(0);
     } else throw new Error(`profile-preset: unknown option "${arg}"`);
   }

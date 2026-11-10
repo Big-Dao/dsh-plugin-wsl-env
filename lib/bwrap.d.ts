@@ -40,6 +40,14 @@ interface BwrapProfileOptions {
      * is then the cleanup boundary (ADR 0001).
      */
     pidNamespace?: boolean;
+    /**
+     * Extra Linux directories to bind read-write under `workspace-write` — the
+     * toolchain caches and linked-worktree grants the operator configured. The
+     * caller has already resolved, filtered and physically checked them
+     * (`lib/writable-roots.js`); this module only turns them into mounts.
+     * Inert under `read-only`: the mode grants no write outside `/`.
+     */
+    writableRoots?: readonly string[];
 }
 /**
  * Build the bwrap profile arguments for one file-effect policy, exactly as
@@ -71,6 +79,12 @@ interface BwrapProfileOptions {
  * inside a private tmpfs that reads cannot see and that dies with the
  * resident. Read-only mode mounts no `/tmp` at all, so the option is inert
  * there.
+ *
+ * `options.writableRoots` adds the operator's toolchain grants after the
+ * workspace bind. The caller owns their resolution, filtering and physical
+ * check (`lib/writable-roots.js`); binding a raw configured string here would
+ * let a model-written symlink redirect the grant, so this module never does
+ * that itself.
  *
  * @param policy - the policy to express as bwrap mounts.
  * @param options - profile options.

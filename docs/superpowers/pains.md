@@ -30,6 +30,17 @@ feature candidate; a pain seen once is noise. No solution proposals in the log
   is acceptable in real use — the human scanning the candidate list dominates
   the 9p walk (84.7 ms vs 1.5 ms). Recorded as the counter-example that killed
   the "per-file watch events" and "seam push" candidates.
+- 2026-11-10 | shell | the default `workspace-write` sandbox refuses the
+  package-manager caches under `$HOME`: `npm install` of an uncached package
+  (`EROFS` on `~/.npm/_cacache`), `pnpm add is-number@6.0.0` (`ERR_PNPM_EROFS`
+  on `~/.local/share/pnpm/store`), and `cargo fetch` of an uncached crate
+  (`~/.cargo/registry/cache`) all fail. The quickstart's `pnpm install` recipe
+  therefore fails for a dependency the store does not already hold. A retry
+  under `danger-full-access` works; a per-command `--cache /tmp/...` works for
+  npm. The sandbox-policy context advertises extra writable directories, but
+  the WSL route drops them before the bwrap profile is built. | per install:
+  one escalation approval plus a lost sandbox, or the task fails | recurs:
+  every new dependency
 
 ## Triage — the three questions
 

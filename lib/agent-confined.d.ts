@@ -65,6 +65,12 @@ interface ConfinedAgentRequest {
      * exists to prevent.
      */
     realTmp?: boolean;
+    /**
+     * Extra Linux roots to bind read-write in the resident's profile. The
+     * provider resolved, filtered and checked them; they are part of the cache
+     * key because the mount table is fixed for the resident's lifetime.
+     */
+    writableRoots?: readonly string[];
 }
 /**
  * The confined agent for one distro and one resolved policy, created on first
@@ -74,7 +80,7 @@ interface ConfinedAgentRequest {
  * @param request - the confinement request.
  * @returns the confined resident for this key.
  */
-export declare function confinedAgent({ distro, wslPath, policy, maskWindowsDrive, realTmp }: ConfinedAgentRequest): WslAgent;
+export declare function confinedAgent({ distro, wslPath, policy, maskWindowsDrive, realTmp, writableRoots }: ConfinedAgentRequest): WslAgent;
 /** Test hook: forget every confined resident (the plain agent has no factory state). */
 export declare function resetConfinedAgents(): void;
 export {};

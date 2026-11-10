@@ -41,6 +41,14 @@ interface BwrapProfileOptions {
    * is then the cleanup boundary (ADR 0001).
    */
   pidNamespace?: boolean;
+  /**
+   * Extra Linux directories to bind read-write under `workspace-write` — the
+   * toolchain caches and linked-worktree grants the operator configured. The
+   * caller has already resolved, filtered and physically checked them
+   * (`lib/writable-roots.js`); this module only turns them into mounts.
+   * Inert under `read-only`: the mode grants no write outside `/`.
+   */
+  writableRoots?: readonly string[];
 }
 
 /**
@@ -74,6 +82,12 @@ interface BwrapProfileOptions {
  * resident. Read-only mode mounts no `/tmp` at all, so the option is inert
  * there.
  *
+ * `options.writableRoots` adds the operator's toolchain grants after the
+ * workspace bind. The caller owns their resolution, filtering and physical
+ * check (`lib/writable-roots.js`); binding a raw configured string here would
+ * let a model-written symlink redirect the grant, so this module never does
+ * that itself.
+ *
  * @param policy - the policy to express as bwrap mounts.
  * @param options - profile options.
  * @returns profile arguments, before the `--` separator and the command argv.
@@ -89,6 +103,10 @@ export function bwrapProfileArgs(policy: { mode: string, workspaceRoot: string }
       args.push("--tmpfs", "/tmp");
     }
     args.push("--bind", policy.workspaceRoot, policy.workspaceRoot);
+    // The operator's toolchain grants come after the workspace bind, in the
+    // deterministic order the resolver returned. They are already filtered to
+    // roots with a read-only parent and checked to be physical directories.
+    for (const root of options.writableRoots ?? []) args.push("--bind", root, root);
   }
   if (options.maskWindowsDrive) {
     args.push("--tmpfs", "/mnt");

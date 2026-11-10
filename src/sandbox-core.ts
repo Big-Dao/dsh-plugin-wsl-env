@@ -282,7 +282,11 @@ export interface WslSandboxCoreInstance {
   /** Probe the distro's `bwrap`. */
   usable: (distro: string, signal?: AbortSignal | undefined) => Promise<boolean>;
   /** Wrap one argv in the profile. */
-  confine: (argv: string[], policy: { mode: "read-only" | "workspace-write", workspaceRoot: string }, options: { distro: string, signal?: AbortSignal | undefined }) => Promise<WslConfined>;
+  confine: (
+    argv: string[],
+    policy: { mode: "read-only" | "workspace-write", workspaceRoot: string },
+    options: { distro: string, signal?: AbortSignal | undefined, writableRoots?: readonly string[] | undefined },
+  ) => Promise<WslConfined>;
 }
 
 /**
@@ -336,13 +340,19 @@ export function createSandboxCore({ SandboxUnavailableError }: {
      * @param argv - the argv to run INSIDE the distro (shell, its flags, command).
      * @param policy - the resolved confined policy (`mode` is never
      *   `danger-full-access`; the caller does not confine that case at all).
-     * @param options - the distro to run in and optional cancellation.
+     * @param options - the distro to run in, optional cancellation, and the
+     *   resolved extra writable roots (already Linux paths, filtered and
+     *   physically checked by the provider).
      * @returns the wrapped argv plus the settlement-classification facts, in the
      *   seam's `ConfinedArgv` shape.
      * @throws SandboxUnavailableError when the distro has no usable `bwrap`, so a
      *   requested confinement never degrades into an unconfined run.
      */
-    async confine(argv: string[], policy: { mode: "read-only" | "workspace-write", workspaceRoot: string }, options: { distro: string, signal?: AbortSignal }): Promise<WslConfined> {
+    async confine(
+      argv: string[],
+      policy: { mode: "read-only" | "workspace-write", workspaceRoot: string },
+      options: { distro: string, signal?: AbortSignal, writableRoots?: readonly string[] | undefined },
+    ): Promise<WslConfined> {
       const { distro, signal } = options;
       if (!(await this.usable(distro, signal))) {
         throw new SandboxUnavailableError(
@@ -351,7 +361,7 @@ export function createSandboxCore({ SandboxUnavailableError }: {
         );
       }
       const workspaceRoot = toLinuxPath(policy.workspaceRoot);
-      const prefix = bwrapArgvPrefix({ ...policy, workspaceRoot }, { maskWindowsDrive: this.maskWindowsDrive });
+      const prefix = bwrapArgvPrefix({ ...policy, workspaceRoot }, { maskWindowsDrive: this.maskWindowsDrive, writableRoots: options.writableRoots });
       return {
         argv: [...prefix, ...argv],
         enforcement: ENFORCEMENT,

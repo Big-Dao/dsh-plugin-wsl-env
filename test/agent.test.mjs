@@ -670,6 +670,31 @@ checkReg("realTmp binds the real /tmp the fence grants, instead of an ephemeral 
   assert.equal(readOnly.includes("/tmp"), false, "realTmp is inert under read-only: no /tmp mount exists to change");
 });
 
+checkReg("writableRoots binds each effective root after the workspace", () => {
+  const args = bwrapProfileArgs({ mode: "workspace-write", workspaceRoot: "/w" }, { writableRoots: ["/cache", "/data"] });
+  assert.deepEqual(
+    args.slice(-9),
+    ["--bind", "/w", "/w", "--bind", "/cache", "/cache", "--bind", "/data", "/data"],
+    "the grants follow the workspace bind in the resolver's order",
+  );
+  const readOnly = bwrapProfileArgs({ mode: "read-only", workspaceRoot: "/" }, { writableRoots: ["/cache"] });
+  assert.equal(readOnly.includes("/cache"), false, "read-only grants no extra write");
+  const none = bwrapProfileArgs({ mode: "workspace-write", workspaceRoot: "/w" });
+  assert.equal(none.includes("/cache"), false, "the default still binds only the workspace");
+});
+
+checkReg("the confined factory keys the roots into the resident's identity", () => {
+  resetConfinedAgents();
+  const policy = { mode: "workspace-write", workspaceRoot: "/home/u/ws" };
+  const plain = confinedAgent({ distro: "ubuntu", policy });
+  const granted = confinedAgent({ distro: "ubuntu", policy, writableRoots: ["/home/u/.npm"] });
+  assert.notEqual(plain, granted, "a different mount table is a different resident");
+  const bind = granted.argvPrefix.indexOf("/home/u/.npm");
+  assert.ok(bind !== -1 && granted.argvPrefix[bind - 1] === "--bind", "the granted resident binds the cache");
+  assert.equal(plain.argvPrefix.includes("/home/u/.npm"), false, "the plain resident does not");
+  resetConfinedAgents();
+});
+
 checkReg("pidNamespace: false keeps the mounts and lets background processes survive", () => {
   const session = bwrapProfileArgs({ mode: "workspace-write", workspaceRoot: "/w" }, { pidNamespace: false, realTmp: true });
   assert.equal(session.includes("--unshare-pid"), false, "the session runtime has no PID namespace");

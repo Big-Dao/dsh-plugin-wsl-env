@@ -86,7 +86,7 @@ const WORKSPACE = "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj";
  * (`onExpiry`/`stdoutMaxBytes` are `resolve()`'s to fill); several checks
  * deliberately pin `execute`'s own defaulting of an unresolved request, so
  * they cannot call `resolve()` first. One bridge keeps that intent visible.
- * @param {{ command: string, workdir: string, timeoutMs?: number, relativeWorkdir?: string, signal?: AbortSignal, env?: Record<string, string>, dshEnv?: Record<string, string>, sandboxPolicy?: { mode: "read-only"|"workspace-write"|"danger-full-access", workspaceRoot: string, sessionId?: string } }} request - the fields under test.
+ * @param {{ command: string, workdir: string, timeoutMs?: number, relativeWorkdir?: string, signal?: AbortSignal, env?: Record<string, string>, dshEnv?: Record<string, string>, sandboxPolicy?: { mode: "read-only"|"workspace-write"|"danger-full-access", workspaceRoot: string, sessionId?: string, additionalWritableRoots?: readonly string[] } }} request - the fields under test.
  * @returns {Parameters<WslShellExecutor["withDefaultWorkdir"]>[0]} the same object, in the resolved-spec parameter type.
  */
 const spec = (request) => /** @type {Parameters<WslShellExecutor["withDefaultWorkdir"]>[0]} */ (/** @type {unknown} */ (request));
@@ -156,10 +156,10 @@ const spawnView = (executor) => /** @type {OneShotSeam} */ (/** @type {unknown} 
 
 /**
  * A filesystem provider over a fake substrate; the agent never spawns.
- * @param {{ sandbox?: boolean, restrictToDistro?: boolean, sessionSandbox?: boolean | "auto", distro?: string, policy?: { mode: "read-only"|"workspace-write"|"danger-full-access", workspaceRoot: string }, wslPath?: string }} [options] - the provider switches, the distro mode, the policy the fake resolves, and an optional `wslPath` for the home and default-distro probes.
+ * @param {{ sandbox?: boolean, restrictToDistro?: boolean, sessionSandbox?: boolean | "auto", distro?: string, policy?: { mode: "read-only"|"workspace-write"|"danger-full-access", workspaceRoot: string }, wslPath?: string, writableRoots?: string[] }} [options] - the provider switches, the distro mode, the policy the fake resolves, an optional `wslPath` for the home and default-distro probes, and root grants.
  * @returns {{ fs: WslFileSystem, substrate: MockSubstrate }} the provider and its scripted substrate.
  */
-function makeFs({ sandbox = true, restrictToDistro = true, distro = DISTRO, policy, sessionSandbox = false, wslPath } = {}) {
+function makeFs({ sandbox = true, restrictToDistro = true, distro = DISTRO, policy, sessionSandbox = false, wslPath, writableRoots } = {}) {
   // The unit suite must never resolve the packaged native binary: no wsl.exe.
   configureAgentBackend("shell");
   const resolved = policy ?? { mode: "workspace-write", workspaceRoot: WORKSPACE };
@@ -171,6 +171,7 @@ function makeFs({ sandbox = true, restrictToDistro = true, distro = DISTRO, poli
     restrictToDistro,
     sessionSandbox,
     ...(wslPath !== undefined ? { wslPath } : {}),
+    ...(writableRoots === undefined ? {} : { writableRoots }),
   }));
   /** @type {MockSubstrate} */
   const substrate = {
@@ -186,11 +187,11 @@ function makeFs({ sandbox = true, restrictToDistro = true, distro = DISTRO, poli
 
 /**
  * An executor whose agent and confinement are fakes at the seam.
- * @param {{ sandbox?: boolean, sessionSandbox?: boolean | "auto", distro?: string }} [options] - the executor switches and distro mode.
+ * @param {{ sandbox?: boolean, sessionSandbox?: boolean | "auto", distro?: string, writableRoots?: string[], additionalWritableRoots?: string[] }} [options] - the executor switches, distro mode and root grants.
  * @returns {{ executor: WslShellExecutor, agent: ScriptedAgent, agentCalls: AgentFrame[] }} the executor, its scripted frame-runner, and every frame it saw.
  */
-function makeExecutor({ sandbox = true, sessionSandbox = false, distro = DISTRO } = {}) {
-  const policy = { mode: "workspace-write", workspaceRoot: WORKSPACE };
+function makeExecutor({ sandbox = true, sessionSandbox = false, distro = DISTRO, writableRoots, additionalWritableRoots } = {}) {
+  const policy = { mode: "workspace-write", workspaceRoot: WORKSPACE, ...(additionalWritableRoots === undefined ? {} : { additionalWritableRoots }) };
   const ctx = new Context();
   ctx.provide("sandboxPolicy", { defaultMode: policy.mode, resolve: () => policy });
   const executor = new WslShellExecutor(ctx, WslShellExecutor.Config({
@@ -200,6 +201,7 @@ function makeExecutor({ sandbox = true, sessionSandbox = false, distro = DISTRO 
     agent: true,
     sessionSandbox,
     agentBackend: "shell",
+    ...(writableRoots === undefined ? {} : { writableRoots }),
   }));
   /** @type {AgentFrame[]} */
   const agentCalls = [];
@@ -218,13 +220,16 @@ function makeExecutor({ sandbox = true, sessionSandbox = false, distro = DISTRO 
    * real core's probe/path surface is unused by these checks.
    * @typedef {object} ScriptedCore
    * @property {Array<{ mode: string, workspaceRoot: string }>} confineCalls - every policy the fake was handed.
-   * @property {(argv: string[], policy: { mode: string, workspaceRoot: string }) => Promise<{ argv: string[], enforcement: "full", denialSignatures: string[], runnerFailureRules: Array<{ fatalSignatures: string[] }>, windowsDrive: "visible" }>} confine
+   * @property {Array<string[] | undefined>} writableRootsCalls - the roots each call carried.
+   * @property {(argv: string[], policy: { mode: string, workspaceRoot: string }, options?: { writableRoots?: readonly string[] }) => Promise<{ argv: string[], enforcement: "full", denialSignatures: string[], runnerFailureRules: Array<{ fatalSignatures: string[] }>, windowsDrive: "visible" }>} confine
    */
   /** @type {ScriptedCore} */
   const sandboxCore = {
     confineCalls: [],
-    async confine(argv, policyObject) {
+    writableRootsCalls: [],
+    async confine(argv, policyObject, options) {
       this.confineCalls.push(policyObject);
+      this.writableRootsCalls.push(options?.writableRoots === undefined ? undefined : [...options.writableRoots]);
       return {
         argv: ["/usr/bin/bwrap", "--ro-bind / /", "--", ...argv],
         enforcement: "full",
@@ -457,6 +462,19 @@ check("workspace-write refuses a target outside every writable root", async () =
     () => fs.checkedTarget(target, { mode: "workspace-write", workspaceRoot: WORKSPACE }),
     (error) => /** @type {{ code?: string }} */ (error).code === "FS_SANDBOX_DENIED",
   );
+});
+
+check("a configured cache root is fenced and bound for confined mutations", async () => {
+  const { fs } = makeFs({ writableRoots: ["/home/andy/.npm"] });
+  fs.sandbox = coreStub(true);
+  fs.resolvedDistro = DISTRO;
+  fs.resolvedHome = "/home/andy";
+  fs.writableRootsProbe = async () => "";
+  const target = { displayPath: "/home/andy/.npm/a.tgz", targetKey: FsTargetKey("\\\\wsl.localhost\\ubuntu\\home\\andy\\.npm\\a.tgz") };
+  const fresh = await fs.checkedTarget(target, { mode: "workspace-write", workspaceRoot: WORKSPACE });
+  assert.equal(fresh.displayPath, "/home/andy/.npm/a.tgz", "the fence accepts the granted root");
+  const agent = await fs.mutationAgent({ mode: "workspace-write", workspaceRoot: WORKSPACE });
+  assert.ok(agent.argvPrefix.includes("/home/andy/.npm"), "the confined resident binds the same root the fence accepted");
 });
 
 check("peerError preserves the coded dialect and downgrades agent loss to I/O", () => {
@@ -737,6 +755,39 @@ check("a confined agent command runs the confined argv in the distro coordinate"
   assert.deepEqual(factsOf(result), { mode: "workspace-write", denied: false, enforcement: "full", windowsDrive: "visible", sessionScope: "per-command" });
 });
 
+
+check("confined commands carry the row and policy writable roots into the profile", async () => {
+  const { executor } = makeExecutor({
+    writableRoots: ["/home/andy/.npm"],
+    additionalWritableRoots: ["\\\\wsl.localhost\\ubuntu\\home\\andy\\.cache"],
+  });
+  executor.resolvedDistro = DISTRO;
+  executor.resolvedHome = "/home/andy";
+  executor.writableRootsProbe = async () => "";
+  await executor.execute(spec({
+    command: "echo hi",
+    workdir: WORKSPACE,
+    timeoutMs: 5000,
+    sandboxPolicy: { mode: "workspace-write", workspaceRoot: WORKSPACE, additionalWritableRoots: ["\\\\wsl.localhost\\ubuntu\\home\\andy\\.cache"] },
+  }));
+  const roots = /** @type {{ writableRootsCalls: Array<string[] | undefined> }} */ (/** @type {unknown} */ (executor.sandbox)).writableRootsCalls;
+  assert.deepEqual(roots.at(-1), ["/home/andy/.npm", "/home/andy/.cache"], "row and policy grants arrive together, in Linux spelling");
+});
+
+check("a root inside the workspace is already writable and is not bound again", async () => {
+  const { executor } = makeExecutor({ writableRoots: ["/home/andy/proj/cache"] });
+  executor.resolvedDistro = DISTRO;
+  executor.resolvedHome = "/home/andy";
+  executor.writableRootsProbe = async () => "";
+  await executor.execute(spec({
+    command: "echo hi",
+    workdir: WORKSPACE,
+    timeoutMs: 5000,
+    sandboxPolicy: { mode: "workspace-write", workspaceRoot: WORKSPACE },
+  }));
+  const roots = /** @type {{ writableRootsCalls: Array<string[] | undefined> }} */ (/** @type {unknown} */ (executor.sandbox)).writableRootsCalls;
+  assert.deepEqual(roots.at(-1), [], "the workspace grant already covers it");
+});
 
 check("sessionSandbox refuses with the preflight remedy before acquiring", async () => {
   const { executor } = makeExecutor({ sessionSandbox: true });

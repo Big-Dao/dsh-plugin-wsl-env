@@ -148,6 +148,11 @@ pnpm test
 pnpm dev            # a dev server survives the command that started it with sessionSandbox: true
 ```
 
+冷缓存或新增依赖时，`workspace-write` 会拦住 `~/.npm`、pnpm store 等缓存写入
+（`EROFS`）。在 `wsl-shell` 和 `wsl-fs` 上配置同一组 `writableRoots`（例如
+`~/.npm`、`~/.cache`、`~/.local/share/pnpm`），见
+[CONFIGURATION](CONFIGURATION.zh.md#工具链缓存与额外可写目录)。
+
 快照成功后（默认每 10 s 刷新一次），server 的端口可能出现在 `DSH_WSL_PORTS`
 中；从 Windows 通过 `http://localhost:<port>` 访问转发的端口。
 

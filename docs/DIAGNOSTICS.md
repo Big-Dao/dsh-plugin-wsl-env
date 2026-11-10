@@ -119,6 +119,7 @@ Class legend:
 |---|---|---|---|
 | `SANDBOX_UNAVAILABLE` | environment | `sandbox.bwrap`, `sandbox.bwrap-usable`, `functional.sandbox` | the requested confinement cannot be enforced (no usable bubblewrap) |
 | `FS_SANDBOX_DENIED` | policy | `functional.sandbox` (the fence shape) | the file-effect policy refused the write, or the kernel refused it at the resident's profile |
+| `SANDBOX_INVALID_ROOT` | configuration | — (the per-entry `writableRoots` check runs on first use; the doctor does not pre-run it) | an extra writable root is malformed, names another world, or fails the physical-directory check |
 | `FS_OUTSIDE_DISTRO` | policy | `config.effective` (the effective `distro`) | the path names another distro's share while the fence is pinned |
 | `FS_IO_ERROR` | environment | `distro.reachable`, `distro.disk`, `host.disk`, `agent.handshake`, `agent.home-writable`, `functional.exec`, `functional.fs` | the catch-all: an agent outage, a wedged distro, a full disk, an unmappable path |
 | `FS_NOT_FOUND` | data | — | the path does not exist — the ordinary answer |

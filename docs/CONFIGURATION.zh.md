@@ -65,6 +65,7 @@ profile 层；检测到时会打印应使用的块。`--out` 会整体替换目�
 | `sandbox` | `true` | 用 `bwrap` 约束命令。`bwrap` 缺失或不可用时关闭（fail closed）。`false` 则不加约束地运行命令。 |
 | `interopVisibility` | 未设置；有效默认值为 `visible` | `visible`、`masked` 或 `disabled`。设置后优先于 `maskWindowsDrive`。见 [Windows interop](#windows-interop)。 |
 | `maskWindowsDrive` | `false` | 对受限命令，在 `/mnt` 上挂载空的 tmpfs。见 [Windows interop](#windows-interop)。 |
+| `writableRoots` | `[]` | `workspace-write` 下额外可写的发行版目录（`~` 可用），用于工具链缓存或 linked worktree 的共享 Git 目录。条目必须是已存在的物理目录；已在工作区、`/tmp`、`/dev/shm` 内或嵌套在另一条授权内的条目会被忽略。`wsl-fs` 上应配置同一列表。见[工具链缓存](#工具链缓存与额外可写目录)。 |
 | `cwd` | `''` | 默认工作目录。空则使用发行版用户家目录。 |
 | `timeoutMs` / `maxTimeoutMs` | `120000` / `600000`（shipped） | 默认的单次调用超时，以及一次调用可请求的最大超时。 |
 | `wslPath` | `wsl.exe` | `wsl.exe` 的路径。 |
@@ -80,11 +81,46 @@ profile 层；检测到时会打印应使用的块。`--out` 会整体替换目�
 | `sandbox` | `true` | 按沙箱策略检查写入。`bwrap` 不可用时，受限写入关闭（fail closed）。 |
 | `sessionSandbox` | `false`；shipped 为 `true` | 使用与 `wsl-shell` 相同的会话 runtime。`auto` 在会话 runtime 不可用时回退到按策略约束的常驻 agent。 |
 | `maskWindowsDrive` | `false` | 对受限变更隐藏 `/mnt`。读取不受影响。 |
+| `writableRoots` | `[]` | 与 `wsl-shell` 的键同义、同规则。受限写入与命令必须看到同一挂载表，因此两行应配置同一个列表。见[工具链缓存](#工具链缓存与额外可写目录)。 |
 | `substrate` | `agent`（shipped） | 文件操作使用发行版内 agent。旧值 `share` 在启动时被拒绝。 |
 | `cwd` | `''` | 相对路径的基准目录。空则使用发行版用户家目录。 |
 | `watchMaxDepth` | `0` | 监视整棵树。正值深度使用有界轮询，可能遗漏边界以下的变更，直到边界之上发生变更触发回调。 |
 | `wslPath` | `wsl.exe` | `wsl.exe` 的路径。 |
 | `diffBasisMaxBytes` | `10485760` | 覆盖写入 diff 每一侧的 UTF-8 字节上限。更大的文件不带 diff 直接写入。 |
+
+### 工具链缓存与额外可写目录
+
+默认的 `workspace-write` 只授予会话工作区和临时区（`/tmp`，会话 runtime 下是
+发行版的真实 `/tmp`）。npm、pnpm、cargo 等把包缓存写在 `$HOME` 下，所以安装一个
+尚未缓存的依赖会以 `EROFS` 失败。给**嵌套的** `wsl-shell` 和 `wsl-fs` 两行配置
+同一组目录即可；用 `pnpm run preset --writable-roots '~/.npm,~/.cache'` 可以把
+它们写进打印出的 `preset-wsl` 块，或手工在块内添加：
+
+```yaml
+              - id: wsl-shell
+                config:
+                  writableRoots: ['~/.npm', '~/.cache', '~/.local/share/pnpm']
+              - id: wsl-fs
+                config:
+                  writableRoots: ['~/.npm', '~/.cache', '~/.local/share/pnpm']
+```
+
+规则：
+
+- `~` 和 `~/...` 按发行版用户家目录展开；其他条目必须是绝对 Linux 路径。
+- 目录必须已经存在，且必须是物理目录（symlink 会被拒绝）。先 `mkdir -p`，
+  或让一次不受限命令创建它。
+- 已经位于工作区、`/tmp`、`/dev/shm` 内，或嵌套在另一条授权内的条目会被忽略：
+  它们本来就已可写，绑定它们只会增加 symlink 重定向的风险。
+- 两行必须一致；否则命令和受限写入可能看到不同的挂载表，会话 runtime 也会按
+  不同的 key 各建一份。
+- 只影响 `workspace-write`。`read-only` 忽略它；`danger-full-access` 本来就不
+  经过沙箱。
+- 安全边界：授权目录里的可执行内容（例如包缓存里的二进制）可以被后续构建或
+  命令使用。这是**显式收窄**沙箱，不是关闭沙箱；`enforcement` 仍是 `partial`。
+- 共享的 `sandboxPolicy.additionalWritableRoots` 也会被插件采用（同发行版 UNC
+  或 Linux 拼写），但它作用于整个 profile；同一 profile 里还有 Windows 会话时，
+  用上面的插件键更安全。
 
 ### `fs-routing`
 

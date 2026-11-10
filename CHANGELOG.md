@@ -16,6 +16,30 @@ were part of the record.
 
 ## [Unreleased]
 
+### Added
+
+- **`writableRoots` on `wsl-shell` and `wsl-fs`.** `workspace-write` still grants
+  only the session workspace and the temp areas by default, but a row can now
+  name extra distro directories to bind read-write — the package-manager caches
+  npm, pnpm and cargo write under `$HOME`, and a linked worktree's shared Git
+  directory. Entries accept `~`/`~/...` and absolute Linux paths, must be
+  existing physical directories, and are ignored when already writable inside
+  the workspace, `/tmp` or `/dev/shm`, or nested inside another grant. The two
+  rows should carry the same list. `pnpm run preset --writable-roots
+  '~/.npm,~/.cache'` writes it into both nested rows of the printed block.
+  CONFIGURATION documents the cache recipes and the security trade-off.
+
+### Fixed
+
+- **Confined WSL operations now honor the policy's `additionalWritableRoots`.**
+  The fence accepted a same-distro UNC extra root while the bwrap profile (and
+  the confined-write resident's cache key) dropped it, so an approved write
+  failed with `EROFS` or `FS_IO_ERROR`; a Linux-spelled entry was refused by the
+  fence even though it is the execution-world spelling. Both sources now resolve
+  through `lib/writable-roots.js` into one effective Linux list used by the
+  command profile, the confined-write resident and the session runtime, and the
+  session-runtime keys include the grants.
+
 ## [0.24.0] - 2026-11-10
 
 One theme: the diagnosis becomes something to act on — a sidebar panel

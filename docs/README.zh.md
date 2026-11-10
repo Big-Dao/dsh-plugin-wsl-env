@@ -139,11 +139,13 @@ wsl.exe -d <发行版> -u root -- apt-get install -y bubblewrap
 | | `sessionSandbox` | `false`；随包 `true` | 会话命令跑在同一个 systemd user scope 中 |
 | | `agentBackend` | `auto` | 发行版内 agent：`auto`、`native` 或 `shell` |
 | | `maskWindowsDrive` | `false` | 让受限命令看不到 `/mnt` |
+| | `writableRoots` | `[]` | 额外可写的发行版目录（工具链缓存等；`wsl-fs` 上配同一列表） |
 | `wsl-fs` | `distro` | `''` | 发行版模式；空/`auto` 跟随每个目标路径 |
 | | `restrictToDistro` | `true` | 固定发行版（`default` 或名字）时拒绝属于其他发行版的路径 |
 | | `sandbox` | `true` | 按策略检查受限写入 |
 | | `sessionSandbox` | `false`；随包 `true` | 受限写入跑在会话 runtime 中 |
 | | `substrate` | `agent` | 发行版内 agent；`share` 在启动时被拒绝 |
+| | `writableRoots` | `[]` | 与 `wsl-shell` 相同的额外可写目录列表 |
 | `directory-picker-wsl` | `includeHostHome` | `true` | 同时提供 Windows 路径分支（从驱动器开始） |
 | `subprocess-wsl` | `distro` | `''` | 发行版模式；空/`auto` 跟随启动目录 |
 | `wsl-preflight` | `distro` | `''` | 环境检查探测的发行版；空/`auto` 跟随会话工作区 |
@@ -192,6 +194,7 @@ wsl preset（每个会话）
 | 每条命令都报 `SANDBOX_UNAVAILABLE` | 在发行版内安装 `bubblewrap`，或设置 `sandbox: false` |
 | 会话在第一条命令前就被拒绝 | 运行 `pnpm run doctor`；启用 systemd 和 linger，或把 `wsl-shell`、`wsl-fs` 上的 `sessionSandbox` 设为 `auto` 或 `false` |
 | 发行版内 `glob`、`grep` 很慢 | 运行 `pnpm run bootstrap <发行版>`，使用打印的安装命令安装 `ripgrep` |
+| `npm install` / `pnpm add` 报 `EROFS` | 沙箱默认只授予工作区；在 `wsl-shell` 和 `wsl-fs` 上配置 `writableRoots`（如 `~/.npm`、`~/.cache`、`~/.local/share/pnpm`），见 [CONFIGURATION](CONFIGURATION.zh.md#工具链缓存与额外可写目录) |
 | `dsh plugin add` 没有输出，或 Plugins 页面装完没有日志 | 以 profile 的 `package.json` 与 `dsh.profile.bundles` 为准：列出插件即安装成功 |
 | 对 `wsl-shell`/`wsl-fs` 的 profile 补丁不生效 | 这些行嵌套在 `preset-wsl` 里。运行 `pnpm run preset --check <补丁>`；它会失败并输出需要粘贴的完整块 |
 | 改了 `lib/` 但不生效 | 运行 `pnpm run sync:windows`，然后重启应用 |

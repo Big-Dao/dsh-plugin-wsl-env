@@ -75,6 +75,24 @@ const request = {
   sessionId: "session-a",
 };
 
+check("writableRoots are part of the key and bind inside the scope", async () => {
+  const { registry, spawns } = harness();
+  const plain = registry.acquire(request);
+  const granted = registry.acquire({ ...request, writableRoots: ["/home/andy/.npm", "/home/andy/.cache"] });
+  assert.notEqual(plain, granted, "a different mount table is a different runtime");
+  assert.equal(spawns.length, 2, "the granted runtime spawned separately");
+  const prefix = spawns[1]?.argvPrefix ?? [];
+  const bwrap = prefix.indexOf("bwrap");
+  assert.ok(bwrap > 0, "the mount profile follows the scope prefix");
+  assert.deepEqual(prefix.slice(-10), [
+    "--bind", "/home/andy/proj", "/home/andy/proj",
+    "--bind", "/home/andy/.npm", "/home/andy/.npm",
+    "--bind", "/home/andy/.cache", "/home/andy/.cache",
+    "--",
+  ]);
+  assert.equal(registry.acquire({ ...request, writableRoots: ["/home/andy/.npm", "/home/andy/.cache"] }), granted, "the same roots reuse the runtime");
+});
+
 check("the same key is one runtime, refcounted, with the scope + mount prefix", async () => {
   const { registry, spawns, stops, events } = harness();
   const first = registry.acquire(request);

@@ -223,7 +223,7 @@ distro, and the argv is the same either way:
 ```text
 wsl.exe -d <distro> --cd <linux dir> --exec bwrap \
   --ro-bind / / --dev /dev --unshare-pid --proc /proc --die-with-parent \
-  [--tmpfs /tmp --bind <workspace> <workspace>]  [--tmpfs /mnt]  --  <shell> -lc <cmd>
+  [--tmpfs /tmp --bind <workspace> <workspace> [--bind <root> <root> ...]]  [--tmpfs /mnt]  --  <shell> -lc <cmd>
 ```
 
 By default the profile wraps the session's resident agent ONCE, under
@@ -244,10 +244,19 @@ cannot be read or exfiltrated and its executables cannot be launched through
 interop. The option is off by default; [CONFIGURATION.md](CONFIGURATION.md) lists
 the row keys, and `lib/sandbox-core.js` states its honest ceiling.
 
+The optional `--bind <root> <root>` pairs come from the row's `writableRoots`
+and the shared policy's `additionalWritableRoots`. `lib/writable-roots.js`
+resolves them (`~` expansion, UNC/Linux spelling), drops entries already
+writable under the workspace, `/tmp` or `/dev/shm` and entries nested inside
+another grant, then checks once per process that each remaining root is an
+existing physical directory. The same effective list goes into the command
+profile, the confined-write resident and the session runtime — and into their
+cache keys, because the mount table is fixed for an agent's lifetime.
+
 | Mode | What a command inside the distro can do |
 |---|---|
 | `read-only` | read the whole distro; a fresh `/dev` is mounted writable, so `/dev/null` and `/dev/shm` work, and nothing else does |
-| `workspace-write` | the above, plus the session workspace is writable; `/tmp` is the distro's real `/tmp` in the session runtime, and a fresh tmpfs in the per-command profile (`sessionSandbox: false`) |
+| `workspace-write` | the above, plus the session workspace and any explicitly granted roots are writable; `/tmp` is the distro's real `/tmp` in the session runtime, and a fresh tmpfs in the per-command profile (`sessionSandbox: false`) |
 | `danger-full-access` | no sandbox; used for an approved wider-permission request |
 
 `WslFileSystem` checks writes against the same policy and the same writable list,
@@ -320,6 +329,7 @@ own dialect, described after the table.
 | Code | Raised by | Meaning | What clears it |
 |---|---|---|---|
 | `SANDBOX_UNAVAILABLE` | `WslSandbox.confine` | the requested mode cannot be enforced: no usable `bwrap` in the distro | install `bubblewrap` there (a failed probe is re-run, so no restart is needed), or set `sandbox: false` |
+| `SANDBOX_INVALID_ROOT` | `effectiveWritableRoots` (both providers) | an entry in `writableRoots` or `additionalWritableRoots` is malformed, names another world, or fails the one-time physical-directory check | fix the entry; create the directory inside the distro first, use an absolute Linux path or `~/...`, and use the physical directory rather than a symlink |
 | `FS_SANDBOX_DENIED` | `WslFileSystem.checkedTarget`, and `lib/fsio-agent.js` (a write the confined resident's mount table refused, classified from the kernel's `read-only file system`) | the file-effect policy refused the write: `read-only`, or a target outside the writable roots — or the kernel refused it at the resident's profile | a wider permission for that one call, or a session workspace that contains the target |
 | `FS_OUTSIDE_DISTRO` | `WslFileSystem.worldPath` | `distro` is fixed (`default` or a name), `restrictToDistro` is on, and the path names **another distro**'s share — a configuration fence, not a sandbox decision. With `distro: ''`/`auto` a UNC target is served by its own distro, so the fence has nothing foreign to refuse | set `distro` to `''`/`auto` (the default), or open a session in that distro. A wider permission does **not** lift it |
 | `FS_NOT_OBSERVED` | `lib/fs-substrate.js` (`writeText`; the agent's `exists` conclusion, mapped in `lib/fsio-agent.js`) | a guarded create (`createIfAbsent`) targeted a file that exists and had not been read first | read the file, then overwrite with the version guard or edit it |

@@ -68,6 +68,7 @@ after a plugin upgrade that changes the preset.
 | `sandbox` | `true` | Confine commands with `bwrap`. A missing or unusable `bwrap` fails closed. `false` runs commands without confinement. |
 | `interopVisibility` | Unset; effective default is `visible` | `visible`, `masked`, or `disabled`. When set, this takes precedence over `maskWindowsDrive`. See [Windows interop](#windows-interop). |
 | `maskWindowsDrive` | `false` | For confined commands, mount an empty tmpfs over `/mnt`. See [Windows interop](#windows-interop). |
+| `writableRoots` | `[]` | Extra distro directories granted read-write under `workspace-write` (`~` allowed), for toolchain caches or a linked worktree's shared Git directory. Each entry must be an existing physical directory; entries already inside the workspace, `/tmp` or `/dev/shm`, or nested inside another grant, are ignored. Put the same list on `wsl-fs`. See [Toolchain caches](#toolchain-caches-and-extra-writable-roots). |
 | `cwd` | `''` | Default workdir. Empty uses the distro user's home. |
 | `timeoutMs` / `maxTimeoutMs` | `120000` / `600000` (shipped) | Default per-call timeout and the maximum timeout a call may request. |
 | `wslPath` | `wsl.exe` | Path to `wsl.exe`. |
@@ -83,11 +84,53 @@ after a plugin upgrade that changes the preset.
 | `sandbox` | `true` | Check writes against the sandbox policy. Confined writes fail closed if `bwrap` is unavailable. |
 | `sessionSandbox` | `false`; shipped `true` | Use the same session runtime as `wsl-shell`. `auto` falls back to a per-policy confined resident when the session runtime is unavailable. |
 | `maskWindowsDrive` | `false` | Hide `/mnt` from confined mutations. Reads are unaffected. |
+| `writableRoots` | `[]` | Same key and rules as on `wsl-shell`. Confined writes and commands must see one mount table, so configure the same list on both rows. See [Toolchain caches](#toolchain-caches-and-extra-writable-roots). |
 | `substrate` | `agent` (shipped) | File operations use the in-distro agent. The legacy `share` value is refused at startup. |
 | `cwd` | `''` | Base directory for relative paths. Empty uses the distro user's home. |
 | `watchMaxDepth` | `0` | Watch the full tree. A positive depth uses bounded polling and can miss changes below the bound until a change above it triggers the callback. |
 | `wslPath` | `wsl.exe` | Path to `wsl.exe`. |
 | `diffBasisMaxBytes` | `10485760` | UTF-8 byte limit per side of an overwrite diff. Larger files are written without a diff. |
+
+### Toolchain caches and extra writable roots
+
+The default `workspace-write` grants only the session workspace and the temp
+areas (`/tmp`, the distro's real `/tmp` under the session runtime). npm, pnpm,
+cargo and friends keep their package caches under `$HOME`, so installing a
+dependency that is not already cached fails with `EROFS`. Configure the same
+list on the **nested** `wsl-shell` and `wsl-fs` rows; `pnpm run preset
+--writable-roots '~/.npm,~/.cache'` writes both into the printed `preset-wsl`
+block, or edit the block by hand:
+
+```yaml
+              - id: wsl-shell
+                config:
+                  writableRoots: ['~/.npm', '~/.cache', '~/.local/share/pnpm']
+              - id: wsl-fs
+                config:
+                  writableRoots: ['~/.npm', '~/.cache', '~/.local/share/pnpm']
+```
+
+Rules:
+
+- `~` and `~/...` expand against the distro user's home; every other entry must
+  be an absolute Linux path.
+- The directory must already exist and must be a physical directory (symlinks
+  are refused). Create it with `mkdir -p` first, or let one unconfined command
+  create it.
+- Entries already inside the workspace, `/tmp` or `/dev/shm`, or nested inside
+  another grant, are ignored: they are already writable, and binding them would
+  only add a symlink-redirection risk.
+- Keep both rows equal; otherwise commands and confined writes can see
+  different mount tables, and the session runtime keys diverge.
+- It applies only to `workspace-write`. `read-only` ignores it, and
+  `danger-full-access` does not go through the sandbox at all.
+- Security boundary: executable content in a granted directory (for example a
+  package cache's binaries) can be used by a later build or command. This is an
+  explicit narrowing of the sandbox, not a way to turn it off; `enforcement`
+  stays `partial`.
+- The shared `sandboxPolicy.additionalWritableRoots` is honored too (same-distro
+  UNC or Linux spelling), but it applies to the whole profile. When the same
+  profile also serves Windows sessions, prefer the plugin key above.
 
 ### `fs-routing`
 

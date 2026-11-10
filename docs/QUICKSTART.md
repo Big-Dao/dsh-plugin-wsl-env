@@ -164,6 +164,11 @@ pnpm test
 pnpm dev            # a dev server survives the command that started it with sessionSandbox: true
 ```
 
+On a cold cache or a new dependency, `workspace-write` blocks the
+`~/.npm`/pnpm-store writes (`EROFS`). Configure the same `writableRoots` list on
+`wsl-shell` and `wsl-fs` (e.g. `~/.npm`, `~/.cache`, `~/.local/share/pnpm`);
+see [CONFIGURATION](CONFIGURATION.md#toolchain-caches-and-extra-writable-roots).
+
 The server's port can appear in `DSH_WSL_PORTS` after a successful snapshot
 (refreshed every 10 s by default); open a forwarded port from Windows at
 `http://localhost:<port>`.

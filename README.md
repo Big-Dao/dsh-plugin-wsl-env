@@ -146,11 +146,13 @@ Settings live on named rows in `$DSH_HOME/profiles/<name>/cordis.patch.yml`. The
 | | `sessionSandbox` | `false`; shipped `true` | run the session's commands in one systemd user scope |
 | | `agentBackend` | `auto` | `auto`, `native` or `shell` for the in-distro agent |
 | | `maskWindowsDrive` | `false` | hide `/mnt` from confined commands |
+| | `writableRoots` | `[]` | extra distro directories to grant (toolchain caches; put the same list on `wsl-fs`) |
 | `wsl-fs` | `distro` | `''` | distro mode; empty/`auto` follows each target path |
 | | `restrictToDistro` | `true` | under a fixed distro, refuse paths that belong to another distro |
 | | `sandbox` | `true` | check confined writes against the policy |
 | | `sessionSandbox` | `false`; shipped `true` | run confined writes in the session runtime |
 | | `substrate` | `agent` | in-distro agent; `share` is rejected at startup |
+| | `writableRoots` | `[]` | the same extra-writable list as `wsl-shell` |
 | `directory-picker-wsl` | `includeHostHome` | `true` | also offer the Windows path branch (starting at the drives) |
 | `subprocess-wsl` | `distro` | `''` | distro mode; empty/`auto` follows the launch directory |
 | `wsl-preflight` | `distro` | `''` | distro the environment checks probe; empty/`auto` follows the session workspace |
@@ -205,6 +207,7 @@ Enforcement is reported as `partial`. A command inside the distro can still star
 | every command reports `SANDBOX_UNAVAILABLE` | install `bubblewrap` in the distro, or set `sandbox: false` |
 | the session refuses before the first command | run `pnpm run doctor`; enable systemd and linger, or set `sessionSandbox` to `auto` or `false` on `wsl-shell` and `wsl-fs` |
 | `glob` and `grep` are slow in the distro | run `pnpm run bootstrap <distro>` and use its printed install command to install `ripgrep` |
+| `npm install` / `pnpm add` fail with `EROFS` | the sandbox grants only the workspace by default; configure `writableRoots` on `wsl-shell` and `wsl-fs` (e.g. `~/.npm`, `~/.cache`, `~/.local/share/pnpm`); see [CONFIGURATION](docs/CONFIGURATION.md#toolchain-caches-and-extra-writable-roots) |
 | `dsh plugin add` prints nothing, or the Plugins page finishes without feedback | trust the profile's `package.json` and its `dsh.profile.bundles` entry: the plugin listed there is installed |
 | a profile patch for `wsl-shell`/`wsl-fs` changes nothing | those rows are nested inside `preset-wsl`. Run `pnpm run preset --check <patch>`; it fails with the complete block to paste |
 | changes under `lib/` have no effect | run `pnpm run sync:windows`, then restart the app |

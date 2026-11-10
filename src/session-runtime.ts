@@ -73,6 +73,12 @@ interface SessionRuntimeRequest {
   mode: string;
   /** Shadow `/mnt` in the runtime's mount profile. */
   maskWindowsDrive?: boolean;
+  /**
+   * Extra Linux roots to bind read-write in the runtime's profile. The
+   * providers resolved, filtered and checked them; they are part of the key
+   * because the mount table is fixed for the runtime's lifetime.
+   */
+  writableRoots?: readonly string[];
   /** The agent's client lease; 0 disables. */
   leaseMs?: number;
 }
@@ -217,8 +223,15 @@ export class SessionRuntimes {
    * @param request - the runtime request.
    * @returns the registry key.
    */
-  static key(request: Pick<SessionRuntimeRequest, "distro" | "workspaceRoot" | "mode" | "maskWindowsDrive" | "sessionId">): string {
-    return [request.sessionId ?? "", request.distro, request.workspaceRoot, request.mode, request.maskWindowsDrive === true ? "masked" : "visible"].join("\u0000");
+  static key(request: Pick<SessionRuntimeRequest, "distro" | "workspaceRoot" | "mode" | "maskWindowsDrive" | "sessionId" | "writableRoots">): string {
+    return [
+      request.sessionId ?? "",
+      request.distro,
+      request.workspaceRoot,
+      request.mode,
+      request.maskWindowsDrive === true ? "masked" : "visible",
+      (request.writableRoots ?? []).join("\u0000"),
+    ].join("\u0000");
   }
 
   /**
@@ -240,7 +253,7 @@ export class SessionRuntimes {
     if (request.mode !== "danger-full-access") {
       prefix.push(...bwrapArgvPrefix(
         { mode: request.mode, workspaceRoot: toLinuxPath(request.workspaceRoot) },
-        { maskWindowsDrive: request.maskWindowsDrive, realTmp: true, pidNamespace: false },
+        { maskWindowsDrive: request.maskWindowsDrive, realTmp: true, pidNamespace: false, writableRoots: request.writableRoots },
       ));
     }
     const agent = this.spawnAgent({

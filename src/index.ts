@@ -74,6 +74,7 @@ import type { SessionRuntimeEntry } from "./session-runtime.js";
 // `runCapture` and distro discovery live in ./wsl.js so the directory picker
 // can use them without pulling this file's executor and filesystem peers in.
 import { defaultDistro, defaultShell, linuxHomePath, runCapture, shellArgs, workdirFailure, wslErrorCode } from "./wsl.js";
+import { WritableRootError, ensureWritableRoots, resolveWritableRoots, validateWritableRootsConfig } from "./writable-roots.js";
 import type { Context } from "@deepseek-ai/cordis";
 import type { FsDeleteOutcome, FsDirEntry, FsEditOutcome, FsEditRequest, FsErrorCode, FsInfo, FsMoveOutcome, FsPathInfo, FsTarget, FsVersion, FsWriteIntent, FsWriteOutcome, FileSystem } from "@deepseek-ai/dsh-fs";
 import type { ConfinedSandboxMode, SandboxExecutionPolicy, SandboxMode } from "@deepseek-ai/dsh-sandbox";
@@ -197,33 +198,68 @@ async function distroHome(owner: WslShellExecutor | WslFileSystem, distro: strin
  * execution world the policy describes. A session whose workspace is a Windows
  * folder keeps upstream's grant verbatim.
  *
- * Extra directories follow the same world rule as the temp areas, and the same
- * together-grant contract: an extra root that is a UNC path of the same distro
- * is granted as-is; a Windows-path extra root cannot be granted inside the
- * distro, and upstream's contract is that every backend grants every extra
- * root together — so it fails closed with {@link SandboxInvalidRootError}
- * rather than silently narrowing what `workspace-write` promised.
+ * Extra directories follow the same world rule as the temp areas. Their
+ * translation, filtering and physical check live in `lib/writable-roots.js`;
+ * this function only adds the effective Linux roots to the fence's UNC
+ * vocabulary. A Windows-folder workspace keeps upstream's grant verbatim —
+ * the plugin's Linux grants only exist in the distro world.
  *
  * @param policy - the per-call file-effect policy.
  * @param distro - the distro a UNC workspace belongs to.
+ * @param linuxExtraRoots - the effective extra roots, in Linux spelling.
  * @returns canonical writable roots; empty exactly under `read-only`.
  */
-function wslWritableRoots(policy: SandboxExecutionPolicy, distro: string): string[] {
+function wslWritableRoots(policy: SandboxExecutionPolicy, distro: string, linuxExtraRoots: readonly string[]): string[] {
   if (policy.mode !== "workspace-write") return [];
   const roots = new Set([canonicalPath(policy.workspaceRoot)]);
   if (isWslUnc(policy.workspaceRoot)) {
     roots.add(canonicalPath(posixToUnc(distro, "/tmp")));
-    for (const root of policy.additionalWritableRoots ?? []) {
-      const parsed = uncToPosix(root);
-      if (parsed === undefined || parsed.distro !== distro) {
-        throw new SandboxInvalidRootError(root, `the workspace is inside distro ${JSON.stringify(distro)}; a Windows-path extra directory cannot be granted there`);
-      }
-      roots.add(canonicalPath(root));
-    }
+    for (const root of linuxExtraRoots) roots.add(canonicalPath(posixToUnc(distro, root)));
   } else {
     for (const root of writableRoots(policy)) roots.add(root);
   }
   return [...roots];
+}
+
+/**
+ * Resolve the plugin rows' `writableRoots` and the shared policy's
+ * `additionalWritableRoots` for one distro, then run the one-time physical
+ * check. The result is the Linux root list every confinement site binds.
+ *
+ * The two sources are granted together: a malformed or cross-world entry
+ * fails the whole call with `SANDBOX_INVALID_ROOT`, matching the peer's
+ * together-grant contract, instead of silently narrowing what `workspace-write`
+ * promised.
+ *
+ * @param input - the two root sources, the distro, its home, `wsl.exe` and the
+ *   optional test runner.
+ * @returns the effective Linux roots; empty when nothing was granted.
+ * @throws {SandboxInvalidRootError} when an entry cannot be granted or fails
+ *   the physical-directory check.
+ */
+async function effectiveWritableRoots(input: {
+  configured?: readonly string[] | undefined;
+  policy?: SandboxExecutionPolicy | undefined;
+  distro: string;
+  home: string;
+  wslPath: string;
+  signal?: AbortSignal | undefined;
+  run?: ((argv: string[]) => Promise<string>) | undefined;
+}): Promise<string[]> {
+  try {
+    const roots = resolveWritableRoots({
+      configured: input.configured,
+      policy: input.policy?.additionalWritableRoots,
+      home: input.home,
+      distro: input.distro,
+      workspaceRoot: toLinuxPath(input.policy?.workspaceRoot ?? input.home),
+    });
+    await ensureWritableRoots({ wslPath: input.wslPath, distro: input.distro, roots, signal: input.signal, ...(input.run === undefined ? {} : { run: input.run }) });
+    return roots;
+  } catch (error) {
+    if (error instanceof WritableRootError) throw new SandboxInvalidRootError(error.root, error.reason);
+    throw error;
+  }
 }
 
 /** The doctor script this package ships, resolved from the compiled module. */
@@ -469,6 +505,8 @@ interface WslShellExecutorConfig {
   sandbox: boolean;
   /** Whether confined profiles mask `/mnt`. */
   maskWindowsDrive: boolean;
+  /** Extra distro directories granted read-write under `workspace-write`. */
+  writableRoots: string[];
   /** The interop stance; set at all, it takes precedence over `maskWindowsDrive`. */
   interopVisibility?: "visible" | "masked" | "disabled";
   /** The volatile default workdir. */
@@ -696,6 +734,19 @@ export class WslShellExecutor
     interopVisibility: z.union(["visible", "masked", "disabled"]),
     maskWindowsDrive: z.boolean().default(false),
     /**
+     * Extra directories under `workspace-write`, in distro spelling. The
+     * plugin grants them together with the workspace, so toolchain caches
+     * (`~/.npm`, pnpm's store, `~/.cargo/registry`) and a linked worktree's
+     * shared Git directory work without escalating the whole command to
+     * `danger-full-access`. `~` and `~/...` expand against the distro user's
+     * home; every entry must be an existing physical directory. Entries
+     * already writable (inside the workspace, `/tmp`, `/dev/shm`) and entries
+     * nested inside another grant are ignored. The same list belongs on
+     * `wsl-fs` so writes and commands see the same mount table. Default empty:
+     * the mode still grants only the workspace and the temp areas.
+     */
+    writableRoots: z.array(z.string()).default([]),
+    /**
      * Default workdir for a request that names none; accepts `/home/andy/proj`,
      * a UNC path, or `C:\...`. Empty — the default — means the distro user's
      * home, resolved inside the distro.
@@ -753,6 +804,8 @@ export class WslShellExecutor
   declare sessionRuntimeOwner: string;
   /** The preflight's host runner; tests substitute it. */
   declare sessionScopeProbe: (argv: string[]) => Promise<string>;
+  /** The one-time writable-root check's runner; tests substitute it. */
+  declare writableRootsProbe: (argv: string[]) => Promise<string>;
   /** Distros whose session-runtime preflight has succeeded. */
   declare sessionRuntimePreflight: Set<string>;
   /** Per-distro `auto` verdicts, re-probed when they were negative and stale. */
@@ -770,6 +823,7 @@ export class WslShellExecutor
    */
   constructor(ctx: Context, config: WslShellExecutorConfig) {
     super(ctx, config);
+    validateWritableRootsConfig(config.writableRoots);
     configureAgentBackend(config.agentBackend ?? "auto");
     installMessagesLocale(ctx);
     this.resolvedDistro = pinnedDistro(config.distro) ?? "";
@@ -786,6 +840,7 @@ export class WslShellExecutor
     this.sessionRuntimeEntries = new Map();
     this.sessionRuntimeOwner = randomUUID();
     this.sessionScopeProbe = (argv) => runCapture(argv);
+    this.writableRootsProbe = (argv) => runCapture(argv);
     this.sessionRuntimePreflight = new Set();
     this.autoSessionScope = new Map();
     // The preset realm disposes when the session ends; the scope must go with
@@ -930,13 +985,14 @@ export class WslShellExecutor
     policy: { mode: string, workspaceRoot: string, sessionId?: string } | undefined,
     resolved: WslExecSpec,
     distro: string,
+    writableRoots: readonly string[] = [],
   ): SessionRuntimeEntry | undefined {
     const config = this.config as unknown as WslShellExecutorConfig;
     if (!config.sessionSandbox) return undefined;
     const mode = policy?.mode ?? "danger-full-access";
     const workspaceRoot = policy?.workspaceRoot ?? (configuredCwd(this.config) || resolved.workdir);
     const sessionId = policy?.sessionId || resolved.dshEnv?.DSH_SESSION_ID || this.sessionRuntimeOwner;
-    const key = SessionRuntimes.key({ sessionId, distro, workspaceRoot, mode, maskWindowsDrive: effectiveMaskWindowsDrive(config) });
+    const key = SessionRuntimes.key({ sessionId, distro, workspaceRoot, mode, maskWindowsDrive: effectiveMaskWindowsDrive(config), writableRoots });
     const held = this.sessionRuntimeEntries.get(key);
     if (held !== undefined) return held;
     const entry = this.sessionRuntimes.acquire({
@@ -946,6 +1002,7 @@ export class WslShellExecutor
       workspaceRoot,
       mode,
       maskWindowsDrive: effectiveMaskWindowsDrive(config),
+      writableRoots,
     });
     this.sessionRuntimeEntries.set(key, entry);
     return entry;
@@ -1239,6 +1296,34 @@ export class WslShellExecutor
   }
 
   /**
+   * The effective extra writable roots for one command: the row's
+   * `writableRoots` plus the shared policy's `additionalWritableRoots`,
+   * resolved to Linux paths and checked once per process. Empty unless the
+   * command is confined under `workspace-write`.
+   *
+   * @param distro - the distro the command runs in.
+   * @param policy - the per-call file-effect policy, when there is one.
+   * @param signal - optional cancellation for the one-time check.
+   * @returns the roots every confinement site binds.
+   * @throws {SandboxInvalidRootError} when an entry cannot be granted or checked.
+   */
+  async writableRootsFor(distro: string, policy: SandboxExecutionPolicy | undefined, signal?: AbortSignal): Promise<string[]> {
+    const config = this.config as unknown as WslShellExecutorConfig;
+    if (!config.sandbox || policy === undefined || policy.mode !== "workspace-write") return [];
+    if ((config.writableRoots?.length ?? 0) === 0 && (policy.additionalWritableRoots?.length ?? 0) === 0) return [];
+    const home = await distroHome(this, distro);
+    return effectiveWritableRoots({
+      configured: config.writableRoots,
+      policy,
+      distro,
+      home,
+      wslPath: config.wslPath,
+      signal,
+      run: this.writableRootsProbe,
+    });
+  }
+
+  /**
    * Execute one resolved spec inside the distro, confined by the per-call policy
    * when there is one.
    *
@@ -1257,16 +1342,17 @@ export class WslShellExecutor
     const distro = await this.distroFor(resolved.workdir, configuredCwd(config));
     const shell = await this.shellFor(distro);
     this.throwIfWorkdirInAnotherDistro(resolved.workdir, distro);
+    const writableRoots = await this.writableRootsFor(distro, resolved.sandboxPolicy, resolved.signal);
     if (config.agent) {
       try {
-        return await this.executeViaAgent(resolved, distro, shell);
+        return await this.executeViaAgent(resolved, distro, shell, writableRoots);
       } catch (error) {
         // Only an out-of-service agent falls back; anything else (a cwd
         // refusal, a sandbox refusal) is the command's own verdict.
         if (!(error instanceof AgentUnavailableError)) throw error;
       }
     }
-    return this.executeOneShot(resolved, distro, shell);
+    return this.executeOneShot(resolved, distro, shell, writableRoots);
   }
 
   /**
@@ -1296,15 +1382,15 @@ export class WslShellExecutor
    * @param shell - the resolved distro shell.
    * @returns the decorated execution result.
    */
-  async executeViaAgent(resolved: WslExecSpec, distro: string, shell: string): Promise<ShellExecution> {
+  async executeViaAgent(resolved: WslExecSpec, distro: string, shell: string, writableRoots: readonly string[] = []): Promise<ShellExecution> {
     const config = this.config as unknown as WslShellExecutorConfig;
     const policy = resolved.sandboxPolicy;
     const confined = this.sandbox !== undefined && policy !== undefined && policy.mode !== "danger-full-access"
-      ? await this.sandbox.confine(this.distroArgv(resolved, shell), { ...policy, mode: policy.mode }, { distro, signal: resolved.signal })
+      ? await this.sandbox.confine(this.distroArgv(resolved, shell), { ...policy, mode: policy.mode }, { distro, signal: resolved.signal, writableRoots })
       : undefined;
     const mode = policy?.mode;
     const useScope = await this.wantsSessionRuntime(distro);
-    const runtime = useScope ? this.sessionRuntimeFor(policy, resolved, distro) : undefined;
+    const runtime = useScope ? this.sessionRuntimeFor(policy, resolved, distro, writableRoots) : undefined;
     const agent = runtime !== undefined ? runtime.agent : await this.executionAgent(distro);
     // A session runtime's own bwrap profile applies the mounts, so the
     // command must NOT be wrapped a second time: the per-command probe still
@@ -1389,7 +1475,7 @@ export class WslShellExecutor
       // warning names the directory — the failure path pays the extra spawn,
       // the hot path does not.
       if (error instanceof SpawnError) {
-        return this.executeOneShot(resolved, distro, shell).then((fallback) => fallback.result() as unknown as AgentSettledResult);
+        return this.executeOneShot(resolved, distro, shell, writableRoots).then((fallback) => fallback.result() as unknown as AgentSettledResult);
       }
       throw error;
     });
@@ -1409,7 +1495,7 @@ export class WslShellExecutor
    * @param shell - the resolved distro shell.
    * @returns the decorated execution result.
    */
-  async executeOneShot(resolved: WslExecSpec, distro: string, shell: string): Promise<ShellExecution> {
+  async executeOneShot(resolved: WslExecSpec, distro: string, shell: string, writableRoots: readonly string[] = []): Promise<ShellExecution> {
     const policy = resolved.sandboxPolicy;
     if (this.sandbox === undefined || policy === undefined || policy.mode === "danger-full-access") {
       // `executeArgv` resolves to the execution handle, so it has to be awaited
@@ -1443,7 +1529,7 @@ export class WslShellExecutor
     const confinement: { profile: ConfinedProfile | undefined } = { profile: undefined };
     const execution = await this.executeArgv(
       resolved,
-      (signal) => this.prepareConfinedArgv(resolved, distro, shell, policy, mode, confinement, signal),
+      (signal) => this.prepareConfinedArgv(resolved, distro, shell, policy, mode, confinement, writableRoots, signal),
       (process) => this.stampConfinedFacts(resolved, mode, confinement, process),
     );
     return WslShellExecutor.decorateResult(execution, (result) => {
@@ -1468,15 +1554,16 @@ export class WslShellExecutor
    * @param shell - the resolved distro shell.
    * @param policy - the confined policy (narrowed in by `executeOneShot`).
    * @param slot - the closure the builder assigns the profile into.
+   * @param writableRoots - the effective extra roots the profile binds.
    * @param signal - the caller's cancellation.
    */
-  private async prepareConfinedArgv(resolved: WslExecSpec, distro: string, shell: string, policy: SandboxExecutionPolicy, mode: ConfinedSandboxMode, slot: { profile: ConfinedProfile | undefined }, signal: AbortSignal): Promise<readonly string[]> {
+  private async prepareConfinedArgv(resolved: WslExecSpec, distro: string, shell: string, policy: SandboxExecutionPolicy, mode: ConfinedSandboxMode, slot: { profile: ConfinedProfile | undefined }, writableRoots: readonly string[], signal: AbortSignal): Promise<readonly string[]> {
     // Preparation is async, so it runs under executeArgv's deadline and
     // cancellation handling rather than before them. A distro without a
     // usable runner throws here, before anything is spawned. The outer
     // guard narrowed the sandbox in, but narrowings do not reach closures —
     // so the confined sandbox is asserted here, type-level only.
-    const profile = await (this.sandbox as InstanceType<typeof WslSandbox>).confine(this.distroArgv(resolved, shell), { ...policy, mode }, { distro, signal });
+    const profile = await (this.sandbox as InstanceType<typeof WslSandbox>).confine(this.distroArgv(resolved, shell), { ...policy, mode }, { distro, signal, writableRoots });
     slot.profile = profile;
     signal.throwIfAborted();
     return this.argv(resolved, distro, shell, profile.argv);
@@ -1592,6 +1679,8 @@ interface WslFileSystemConfig {
   sessionSandbox: boolean | "auto";
   /** Whether confined profiles mask `/mnt`. */
   maskWindowsDrive: boolean;
+  /** Extra distro directories granted read-write under `workspace-write`. */
+  writableRoots?: string[];
   /** Whether paths leaving the distro are refused. */
   restrictToDistro: boolean;
   /** The in-distro watch scan depth bound. */
@@ -1650,6 +1739,13 @@ export class WslFileSystem extends LocalFileSystem {
      * reads and the share substrate are unaffected.
      */
     maskWindowsDrive: z.boolean().default(false),
+    /**
+     * Extra directories under `workspace-write`, in distro spelling — the
+     * same list and same rules as `wsl-shell`'s key. Confined writes bind
+     * them, and the fs fence accepts them; keep the two rows' lists equal so
+     * a command and its write see one mount table.
+     */
+    writableRoots: z.array(z.string()).default([]),
     /**
      * Refuse any path that leaves the pinned distro. A WSL filesystem is a
      * whole-Linux view whose `/mnt/c` also reaches the Windows disk, so without
@@ -1710,6 +1806,8 @@ export class WslFileSystem extends LocalFileSystem {
   declare sessionRuntimeOwner: string;
   /** The preflight's host runner; tests substitute it. */
   declare sessionScopeProbe: (argv: string[]) => Promise<string>;
+  /** The one-time writable-root check's runner; tests substitute it. */
+  declare writableRootsProbe: (argv: string[]) => Promise<string>;
   /** Distros whose session-runtime preflight has succeeded. */
   declare sessionRuntimePreflight: Set<string>;
   /** Per-distro `auto` verdicts, re-probed when they were negative and stale. */
@@ -1726,6 +1824,7 @@ export class WslFileSystem extends LocalFileSystem {
     const refusal = shareSubstrateRefusal(config.substrate);
     if (refusal !== null) throw new Error(refusal.message);
     super(ctx, config);
+    validateWritableRootsConfig(config.writableRoots);
     installMessagesLocale(ctx);
     this.resolvedDistro = pinnedDistro(config.distro) ?? "";
     this.resolvedHome = undefined;
@@ -1740,6 +1839,7 @@ export class WslFileSystem extends LocalFileSystem {
     this.sessionRuntimeEntries = new Map();
     this.sessionRuntimeOwner = randomUUID();
     this.sessionScopeProbe = (argv) => runCapture(argv);
+    this.writableRootsProbe = (argv) => runCapture(argv);
     this.sessionRuntimePreflight = new Set();
     this.autoSessionScope = new Map();
     // The preset's disposer releases the runtime; the shell executor's effect
@@ -1844,6 +1944,32 @@ export class WslFileSystem extends LocalFileSystem {
   }
 
   /**
+   * The effective extra writable roots for one mutation: the row's
+   * `writableRoots` plus the shared policy's `additionalWritableRoots`,
+   * resolved to Linux paths and checked once per process. Empty unless the
+   * mutation is confined under `workspace-write`.
+   *
+   * @param distro - the distro the mutation belongs to.
+   * @param policy - the per-call file-effect policy, when there is one.
+   * @returns the roots every confinement site binds.
+   * @throws {SandboxInvalidRootError} when an entry cannot be granted or checked.
+   */
+  async writableRootsFor(distro: string, policy: { mode: string, workspaceRoot: string, additionalWritableRoots?: readonly string[] } | undefined): Promise<string[]> {
+    const config = this.config as unknown as WslFileSystemConfig;
+    if (!config.sandbox || policy === undefined || policy.mode !== "workspace-write") return [];
+    if ((config.writableRoots?.length ?? 0) === 0 && (policy.additionalWritableRoots?.length ?? 0) === 0) return [];
+    const home = await distroHome(this, distro);
+    return effectiveWritableRoots({
+      configured: config.writableRoots,
+      policy: policy as SandboxExecutionPolicy,
+      distro,
+      home,
+      wslPath: config.wslPath,
+      run: this.writableRootsProbe,
+    });
+  }
+
+  /**
    * The persistent session runtime for one confined mutation, when
    * `sessionSandbox` is on. The key is the shell executor's key for the same
    * session/policy, so the write and the commands share one agent, one mount
@@ -1851,14 +1977,15 @@ export class WslFileSystem extends LocalFileSystem {
    *
    * @param policy - the resolved confined policy.
    * @param distro - the resolved distro name.
+   * @param writableRoots - the effective extra roots the runtime binds.
    * @returns the runtime entry, or undefined when the mode is off.
    */
-  sessionRuntimeFor(policy: { mode: string, workspaceRoot: string, sessionId?: string }, distro: string): SessionRuntimeEntry | undefined {
+  sessionRuntimeFor(policy: { mode: string, workspaceRoot: string, sessionId?: string }, distro: string, writableRoots: readonly string[] = []): SessionRuntimeEntry | undefined {
     const config = this.config as unknown as WslFileSystemConfig;
     if (!config.sessionSandbox) return undefined;
     const workspaceRoot = policy.workspaceRoot || config.cwd;
     const sessionId = policy.sessionId || this.sessionRuntimeOwner;
-    const key = SessionRuntimes.key({ sessionId, distro, workspaceRoot, mode: policy.mode, maskWindowsDrive: config.maskWindowsDrive });
+    const key = SessionRuntimes.key({ sessionId, distro, workspaceRoot, mode: policy.mode, maskWindowsDrive: config.maskWindowsDrive, writableRoots });
     const held = this.sessionRuntimeEntries.get(key);
     if (held !== undefined) return held;
     const entry = this.sessionRuntimes.acquire({
@@ -1868,6 +1995,7 @@ export class WslFileSystem extends LocalFileSystem {
       workspaceRoot,
       mode: policy.mode,
       maskWindowsDrive: config.maskWindowsDrive,
+      writableRoots,
     });
     this.sessionRuntimeEntries.set(key, entry);
     return entry;
@@ -1930,12 +2058,13 @@ export class WslFileSystem extends LocalFileSystem {
    *   policy when the caller does not know it.
    * @returns the agent to publish through.
    */
-  async mutationAgent(policy: { mode: string, workspaceRoot: string, sessionId?: string } | undefined, forDistro?: string): Promise<WslAgent> {
+  async mutationAgent(policy: { mode: string, workspaceRoot: string, sessionId?: string, additionalWritableRoots?: readonly string[] } | undefined, forDistro?: string): Promise<WslAgent> {
     const config = this.config as unknown as WslFileSystemConfig;
     const distro = forDistro ?? await this.distroForPolicy(policy);
     if (!isConfinedMutation({ policy, sandboxEnabled: config.sandbox })) {
       return this.publicationAgentFor(distro);
     }
+    const writableRoots = await this.writableRootsFor(distro, policy);
     // The untyped guard decided this is a confined policy but cannot narrow
     // the parameter, so the confined shape is asserted once here (type-level
     // only; `confinedPolicy` is the same value as `policy`).
@@ -1950,10 +2079,10 @@ export class WslFileSystem extends LocalFileSystem {
       );
     }
     if (await this.wantsSessionRuntime(distro)) {
-      const runtime = this.sessionRuntimeFor(confinedPolicy, distro);
+      const runtime = this.sessionRuntimeFor(confinedPolicy, distro, writableRoots);
       if (runtime !== undefined) return runtime.agent;
     }
-    return confinedAgent({ distro, wslPath: config.wslPath, policy: confinedPolicy, maskWindowsDrive: config.maskWindowsDrive });
+    return confinedAgent({ distro, wslPath: config.wslPath, policy: confinedPolicy, maskWindowsDrive: config.maskWindowsDrive, writableRoots });
   }
 
   /**
@@ -2113,8 +2242,9 @@ export class WslFileSystem extends LocalFileSystem {
     }
     if (policy.mode !== "workspace-write") return target;
     const distro = await this.distroForTarget(target);
+    const extraRoots = await this.writableRootsFor(distro, policy);
     const fresh = await this.resolve(target.targetKey);
-    for (const root of wslWritableRoots(policy, distro)) {
+    for (const root of wslWritableRoots(policy, distro, extraRoots)) {
       if (isWorldPathUnder(fresh.targetKey, root, { distro })) return fresh;
     }
     const denial = workspaceWriteDenial(target.displayPath);

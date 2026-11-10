@@ -18,7 +18,9 @@
 #                           /mnt/c/Windows/System32/cmd.exe, for the interop check)
 #
 # The strict profile (`maskWindowsDrive`) is covered too: /mnt is hidden, the
-# Windows binary is unreachable, and the workspace stays writable.
+# Windows binary is unreachable, and the workspace stays writable. The
+# `writableRoots` grant is measured as well: a directory outside the workspace
+# becomes writable only when the profile binds it, and its sibling stays EROFS.
 #
 # Exit status: 0 when every behavioural expectation holds. The WSL interop
 # escape is reported as INFO, not FAIL — a Linux sandbox cannot govern a
@@ -43,7 +45,7 @@ if [ -d "$HOME/.local/share/fnm" ] && ! command -v node >/dev/null 2>&1; then
   export PATH="$HOME/.local/share/fnm/aliases/default/bin:$PATH"
 fi
 command -v node >/dev/null 2>&1 || { echo "sandbox probe: node not found (fnm env not loaded?)" >&2; exit 1; }
-build_profile() { # build_profile <mode> <workspaceRoot> [mask] — lib/bwrap.js's argv, one per line
+build_profile() { # build_profile <mode> <workspaceRoot> [mask] [roots...] — lib/bwrap.js's argv, one per line
   DSH_WSL_ENV_BWRAP_REPO="$REPO" node --input-type=module -e '
 const { pathToFileURL } = await import("node:url");
 // The runner workspace may sit on any drive: a raw Windows path is not a
@@ -51,8 +53,9 @@ const { pathToFileURL } = await import("node:url");
 const { bwrapProfileArgs } = await import(pathToFileURL(`${process.env.DSH_WSL_ENV_BWRAP_REPO}/lib/bwrap.js`).href);
 const [mode, workspaceRoot] = [process.argv[1], process.argv[2]];
 const maskWindowsDrive = process.argv[3] === "mask";
-console.log(bwrapProfileArgs({ mode, workspaceRoot }, { maskWindowsDrive }).join("\n"));
-' "$1" "$2" "${3:-}"
+const writableRoots = process.argv.slice(4);
+console.log(bwrapProfileArgs({ mode, workspaceRoot }, { maskWindowsDrive, writableRoots }).join("\n"));
+' "$1" "$2" "${3:-}" "${@:4}"
 }
 # The exact profile the plugin ships for each mode: read-only, and the
 # workspace-write grant under this probe's workspace.
@@ -125,6 +128,26 @@ expect_status "workspace-write writes inside the workspace" zero WW sh -c "echo 
 [ -f "$SCRATCH/inside.txt" ] && report PASS "the workspace write reached the real filesystem" || report FAIL "the workspace write reached the real filesystem"
 expect_denied "workspace-write denies a write outside the workspace" WW sh -c "echo x > $OUTSIDE"
 [ -f "$OUTSIDE" ] && { report FAIL "the denied write left no file"; rm -f "$OUTSIDE"; } || report PASS "the denied write left no file"
+
+# 3b. An explicit writable root is bound; an ungranted sibling stays denied.
+# The grant must live outside the workspace, so creating it needs an UNCONFINED
+# shell — the detached suite runs here that way; a maintainer running this by
+# hand from a confined model shell gets an explicit INFO instead of four
+# meaningless failures.
+GRANT="$HOME/dsh-writable-root-probe.$$"
+DENIED_SIBLING="$HOME/dsh-writable-root-denied.$$"
+if mkdir -p "$GRANT" 2>/dev/null; then
+  mapfile -t GRANTED < <(build_profile workspace-write "$WS" "" "$GRANT")
+  mapfile -t GRANTED_RO < <(build_profile read-only / "" "$GRANT")
+  expect_status "an explicitly granted root is writable" zero GRANTED sh -c "echo probe > $GRANT/granted.txt"
+  [ -f "$GRANT/granted.txt" ] && report PASS "the granted-root write reached the real filesystem" || report FAIL "the granted-root write reached the real filesystem"
+  expect_denied "an ungranted sibling of the root stays denied" GRANTED sh -c "echo x > $DENIED_SIBLING"
+  [ -f "$DENIED_SIBLING" ] && { report FAIL "the denied sibling write left a file"; rm -f "$DENIED_SIBLING"; } || report PASS "the denied sibling write left no file"
+  expect_denied "read-only ignores a configured grant" GRANTED_RO sh -c "echo x > $GRANT/read-only.txt"
+  rm -rf "$GRANT"
+else
+  report INFO "writable-root legs skipped" "run this probe from an unconfined shell (the detached suite does)"
+fi
 
 # 4. The temp area is an ephemeral mount, not the distro's /tmp.
 expect_status "workspace-write writes its own /tmp" zero WW sh -c 'echo probe > /tmp/dsh-sandbox-probe.txt'

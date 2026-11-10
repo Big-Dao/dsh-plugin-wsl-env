@@ -162,6 +162,8 @@ interface WslShellExecutorConfig {
     sandbox: boolean;
     /** Whether confined profiles mask `/mnt`. */
     maskWindowsDrive: boolean;
+    /** Extra distro directories granted read-write under `workspace-write`. */
+    writableRoots: string[];
     /** The interop stance; set at all, it takes precedence over `maskWindowsDrive`. */
     interopVisibility?: "visible" | "masked" | "disabled";
     /** The volatile default workdir. */
@@ -308,6 +310,19 @@ export declare class WslShellExecutor extends LocalBashExecutor {
         interopVisibility: z<"masked" | "visible" | "disabled", "masked" | "visible" | "disabled", "plain">;
         maskWindowsDrive: z<boolean, boolean, "defined">;
         /**
+         * Extra directories under `workspace-write`, in distro spelling. The
+         * plugin grants them together with the workspace, so toolchain caches
+         * (`~/.npm`, pnpm's store, `~/.cargo/registry`) and a linked worktree's
+         * shared Git directory work without escalating the whole command to
+         * `danger-full-access`. `~` and `~/...` expand against the distro user's
+         * home; every entry must be an existing physical directory. Entries
+         * already writable (inside the workspace, `/tmp`, `/dev/shm`) and entries
+         * nested inside another grant are ignored. The same list belongs on
+         * `wsl-fs` so writes and commands see the same mount table. Default empty:
+         * the mode still grants only the workspace and the temp areas.
+         */
+        writableRoots: z<string[], string[], "defined">;
+        /**
          * Default workdir for a request that names none; accepts `/home/andy/proj`,
          * a UNC path, or `C:\...`. Empty — the default — means the distro user's
          * home, resolved inside the distro.
@@ -406,6 +421,19 @@ export declare class WslShellExecutor extends LocalBashExecutor {
         interopVisibility: z<"masked" | "visible" | "disabled", "masked" | "visible" | "disabled", "plain">;
         maskWindowsDrive: z<boolean, boolean, "defined">;
         /**
+         * Extra directories under `workspace-write`, in distro spelling. The
+         * plugin grants them together with the workspace, so toolchain caches
+         * (`~/.npm`, pnpm's store, `~/.cargo/registry`) and a linked worktree's
+         * shared Git directory work without escalating the whole command to
+         * `danger-full-access`. `~` and `~/...` expand against the distro user's
+         * home; every entry must be an existing physical directory. Entries
+         * already writable (inside the workspace, `/tmp`, `/dev/shm`) and entries
+         * nested inside another grant are ignored. The same list belongs on
+         * `wsl-fs` so writes and commands see the same mount table. Default empty:
+         * the mode still grants only the workspace and the temp areas.
+         */
+        writableRoots: z<string[], string[], "defined">;
+        /**
          * Default workdir for a request that names none; accepts `/home/andy/proj`,
          * a UNC path, or `C:\...`. Empty — the default — means the distro user's
          * home, resolved inside the distro.
@@ -462,6 +490,8 @@ export declare class WslShellExecutor extends LocalBashExecutor {
     sessionRuntimeOwner: string;
     /** The preflight's host runner; tests substitute it. */
     sessionScopeProbe: (argv: string[]) => Promise<string>;
+    /** The one-time writable-root check's runner; tests substitute it. */
+    writableRootsProbe: (argv: string[]) => Promise<string>;
     /** Distros whose session-runtime preflight has succeeded. */
     sessionRuntimePreflight: Set<string>;
     /** Per-distro `auto` verdicts, re-probed when they were negative and stale. */
@@ -561,7 +591,7 @@ export declare class WslShellExecutor extends LocalBashExecutor {
         mode: string;
         workspaceRoot: string;
         sessionId?: string;
-    } | undefined, resolved: WslExecSpec, distro: string): SessionRuntimeEntry | undefined;
+    } | undefined, resolved: WslExecSpec, distro: string, writableRoots?: readonly string[]): SessionRuntimeEntry | undefined;
     /**
      * Run the session runtime's preflight once per executor. A failure is a
      * configuration verdict, not an agent outage: it is raised as an Error with
@@ -735,6 +765,19 @@ export declare class WslShellExecutor extends LocalBashExecutor {
         };
     } | undefined, workdir: string): void;
     /**
+     * The effective extra writable roots for one command: the row's
+     * `writableRoots` plus the shared policy's `additionalWritableRoots`,
+     * resolved to Linux paths and checked once per process. Empty unless the
+     * command is confined under `workspace-write`.
+     *
+     * @param distro - the distro the command runs in.
+     * @param policy - the per-call file-effect policy, when there is one.
+     * @param signal - optional cancellation for the one-time check.
+     * @returns the roots every confinement site binds.
+     * @throws {SandboxInvalidRootError} when an entry cannot be granted or checked.
+     */
+    writableRootsFor(distro: string, policy: SandboxExecutionPolicy | undefined, signal?: AbortSignal): Promise<string[]>;
+    /**
      * Execute one resolved spec inside the distro, confined by the per-call policy
      * when there is one.
      *
@@ -771,7 +814,7 @@ export declare class WslShellExecutor extends LocalBashExecutor {
      * @param shell - the resolved distro shell.
      * @returns the decorated execution result.
      */
-    executeViaAgent(resolved: WslExecSpec, distro: string, shell: string): Promise<ShellExecution>;
+    executeViaAgent(resolved: WslExecSpec, distro: string, shell: string, writableRoots?: readonly string[]): Promise<ShellExecution>;
     /**
      * The pre-agent execution path, verbatim: one `wsl.exe` per command through
      * the inherited `executeArgv` machinery. Kept as the permanent fallback for
@@ -782,7 +825,7 @@ export declare class WslShellExecutor extends LocalBashExecutor {
      * @param shell - the resolved distro shell.
      * @returns the decorated execution result.
      */
-    executeOneShot(resolved: WslExecSpec, distro: string, shell: string): Promise<ShellExecution>;
+    executeOneShot(resolved: WslExecSpec, distro: string, shell: string, writableRoots?: readonly string[]): Promise<ShellExecution>;
     /**
      * The confined one-shot's argv prepare: confine the distro argv under the
      * policy, keep the resulting profile for the fact-stamper and the settlement
@@ -793,6 +836,7 @@ export declare class WslShellExecutor extends LocalBashExecutor {
      * @param shell - the resolved distro shell.
      * @param policy - the confined policy (narrowed in by `executeOneShot`).
      * @param slot - the closure the builder assigns the profile into.
+     * @param writableRoots - the effective extra roots the profile binds.
      * @param signal - the caller's cancellation.
      */
     private prepareConfinedArgv;
@@ -870,6 +914,8 @@ interface WslFileSystemConfig {
     sessionSandbox: boolean | "auto";
     /** Whether confined profiles mask `/mnt`. */
     maskWindowsDrive: boolean;
+    /** Extra distro directories granted read-write under `workspace-write`. */
+    writableRoots?: string[];
     /** Whether paths leaving the distro are refused. */
     restrictToDistro: boolean;
     /** The in-distro watch scan depth bound. */
@@ -926,6 +972,13 @@ export declare class WslFileSystem extends LocalFileSystem {
          * reads and the share substrate are unaffected.
          */
         maskWindowsDrive: z<boolean, boolean, "defined">;
+        /**
+         * Extra directories under `workspace-write`, in distro spelling — the
+         * same list and same rules as `wsl-shell`'s key. Confined writes bind
+         * them, and the fs fence accepts them; keep the two rows' lists equal so
+         * a command and its write see one mount table.
+         */
+        writableRoots: z<string[], string[], "defined">;
         /**
          * Refuse any path that leaves the pinned distro. A WSL filesystem is a
          * whole-Linux view whose `/mnt/c` also reaches the Windows disk, so without
@@ -1002,6 +1055,13 @@ export declare class WslFileSystem extends LocalFileSystem {
          */
         maskWindowsDrive: z<boolean, boolean, "defined">;
         /**
+         * Extra directories under `workspace-write`, in distro spelling — the
+         * same list and same rules as `wsl-shell`'s key. Confined writes bind
+         * them, and the fs fence accepts them; keep the two rows' lists equal so
+         * a command and its write see one mount table.
+         */
+        writableRoots: z<string[], string[], "defined">;
+        /**
          * Refuse any path that leaves the pinned distro. A WSL filesystem is a
          * whole-Linux view whose `/mnt/c` also reaches the Windows disk, so without
          * this the backend would silently widen the session far beyond the
@@ -1060,6 +1120,8 @@ export declare class WslFileSystem extends LocalFileSystem {
     sessionRuntimeOwner: string;
     /** The preflight's host runner; tests substitute it. */
     sessionScopeProbe: (argv: string[]) => Promise<string>;
+    /** The one-time writable-root check's runner; tests substitute it. */
+    writableRootsProbe: (argv: string[]) => Promise<string>;
     /** Distros whose session-runtime preflight has succeeded. */
     sessionRuntimePreflight: Set<string>;
     /** Per-distro `auto` verdicts, re-probed when they were negative and stale. */
@@ -1122,6 +1184,22 @@ export declare class WslFileSystem extends LocalFileSystem {
      */
     substrateForTarget(target: FsTarget): Promise<AgentSubstrate>;
     /**
+     * The effective extra writable roots for one mutation: the row's
+     * `writableRoots` plus the shared policy's `additionalWritableRoots`,
+     * resolved to Linux paths and checked once per process. Empty unless the
+     * mutation is confined under `workspace-write`.
+     *
+     * @param distro - the distro the mutation belongs to.
+     * @param policy - the per-call file-effect policy, when there is one.
+     * @returns the roots every confinement site binds.
+     * @throws {SandboxInvalidRootError} when an entry cannot be granted or checked.
+     */
+    writableRootsFor(distro: string, policy: {
+        mode: string;
+        workspaceRoot: string;
+        additionalWritableRoots?: readonly string[];
+    } | undefined): Promise<string[]>;
+    /**
      * The persistent session runtime for one confined mutation, when
      * `sessionSandbox` is on. The key is the shell executor's key for the same
      * session/policy, so the write and the commands share one agent, one mount
@@ -1129,13 +1207,14 @@ export declare class WslFileSystem extends LocalFileSystem {
      *
      * @param policy - the resolved confined policy.
      * @param distro - the resolved distro name.
+     * @param writableRoots - the effective extra roots the runtime binds.
      * @returns the runtime entry, or undefined when the mode is off.
      */
     sessionRuntimeFor(policy: {
         mode: string;
         workspaceRoot: string;
         sessionId?: string;
-    }, distro: string): SessionRuntimeEntry | undefined;
+    }, distro: string, writableRoots?: readonly string[]): SessionRuntimeEntry | undefined;
     /**
      * Run the session runtime's preflight once per provider. Only success is
      * cached, so following the remedy does not need an app restart.
@@ -1180,6 +1259,7 @@ export declare class WslFileSystem extends LocalFileSystem {
         mode: string;
         workspaceRoot: string;
         sessionId?: string;
+        additionalWritableRoots?: readonly string[];
     } | undefined, forDistro?: string): Promise<WslAgent>;
     /**
      * Map a substrate error onto the peer's `FsError`, so the tool layer reads

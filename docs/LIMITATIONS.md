@@ -101,6 +101,16 @@ operations never use the 9p share.
   [ARCHITECTURE.md](ARCHITECTURE.md#reported-enforcement).
 - **`bubblewrap` must be installed**, or both providers fail with the install
   command; a session-start preflight surfaces the same text as an advisory warning.
+- **`workspace-write` does not grant the package-manager caches under `$HOME`
+  by default** — npm's `~/.npm`, pnpm's store and cargo's `~/.cargo/registry`
+  live outside the workspace, so installing a dependency that is not already
+  cached fails with `EROFS`. Grant them explicitly with `writableRoots` (see
+  [CONFIGURATION](CONFIGURATION.md#toolchain-caches-and-extra-writable-roots));
+  executable content in a granted directory can be used by a later build, so
+  this narrows the sandbox rather than turning it off, and `enforcement` stays
+  `partial`. Entries must be existing physical directories; entries already
+  covered by the workspace, `/tmp` or `/dev/shm`, or nested inside another
+  grant, are not bound.
 - **Message localization is partial by design** — the preflight verdicts, `bwrap`
   remedies and distro/workdir errors follow the app's Language setting
   ([CONFIGURATION.md](CONFIGURATION.md#message-language)); the `FS_*` refusal texts

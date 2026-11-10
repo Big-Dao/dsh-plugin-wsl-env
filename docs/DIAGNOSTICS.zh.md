@@ -96,6 +96,7 @@ doctor 通过三个入口给出同一份报告；侧边栏的 **WSL 环境** 面
 |---|---|---|---|
 | `SANDBOX_UNAVAILABLE` | environment | `sandbox.bwrap`、`sandbox.bwrap-usable`、`functional.sandbox` | 所请求的隔离无法强制（无可用 bubblewrap） |
 | `FS_SANDBOX_DENIED` | policy | `functional.sandbox`（围栏形状） | 文件效果策略拒绝了写入，或内核在驻留 agent 的 profile 处拒绝 |
+| `SANDBOX_INVALID_ROOT` | configuration | —（`writableRoots` 的逐项检查在首次使用时进行，doctor 不预跑） | 额外可写目录格式错误、指向另一个世界，或未通过物理目录检查 |
 | `FS_OUTSIDE_DISTRO` | policy | `config.effective`（生效的 `distro`） | 围栏钉死时路径指向另一 distro 的共享 |
 | `FS_IO_ERROR` | environment | `distro.reachable`、`distro.disk`、`host.disk`、`agent.handshake`、`agent.home-writable`、`functional.exec`、`functional.fs` | 兜底：agent 失联、distro 僵死、磁盘满、无法映射的路径 |
 | `FS_NOT_FOUND` | data | — | 路径不存在——普通答案 |

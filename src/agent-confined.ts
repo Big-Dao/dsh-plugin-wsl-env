@@ -126,6 +126,12 @@ interface ConfinedAgentRequest {
    * exists to prevent.
    */
   realTmp?: boolean;
+  /**
+   * Extra Linux roots to bind read-write in the resident's profile. The
+   * provider resolved, filtered and checked them; they are part of the cache
+   * key because the mount table is fixed for the resident's lifetime.
+   */
+  writableRoots?: readonly string[];
 }
 
 /**
@@ -136,8 +142,8 @@ interface ConfinedAgentRequest {
  * @param request - the confinement request.
  * @returns the confined resident for this key.
  */
-export function confinedAgent({ distro, wslPath = "wsl.exe", policy, maskWindowsDrive = false, realTmp = true }: ConfinedAgentRequest): WslAgent {
-  const key = `${wslPath}\0${distro}\0${policy.mode}\0${policy.workspaceRoot}\0${maskWindowsDrive ? "masked" : "visible"}\0${realTmp ? "real" : "ephemeral"}`;
+export function confinedAgent({ distro, wslPath = "wsl.exe", policy, maskWindowsDrive = false, realTmp = true, writableRoots = [] }: ConfinedAgentRequest): WslAgent {
+  const key = `${wslPath}\0${distro}\0${policy.mode}\0${policy.workspaceRoot}\0${maskWindowsDrive ? "masked" : "visible"}\0${realTmp ? "real" : "ephemeral"}\0${writableRoots.join("\0")}`;
   let agent = confinedAgents.get(key);
   if (agent === undefined) {
     const linuxRoot = toLinuxPath(policy.workspaceRoot);
@@ -151,7 +157,7 @@ export function confinedAgent({ distro, wslPath = "wsl.exe", policy, maskWindows
       // `wsl.exe --exec` and the `sh <script>` pair (`lib/agent.js`'s
       // `spawnDefault`). Both confinement sites share that assembly in
       // `lib/bwrap.js`, whose module doc records what happened when they did not.
-      argvPrefix: bwrapArgvPrefix({ mode: policy.mode, workspaceRoot: linuxRoot }, { maskWindowsDrive, realTmp }),
+      argvPrefix: bwrapArgvPrefix({ mode: policy.mode, workspaceRoot: linuxRoot }, { maskWindowsDrive, realTmp, writableRoots }),
       // workspace-write is the only mode that binds the workspace root, and
       // bwrap refuses a missing bind source (WSL-305): on a freshly imported
       // distro the first write's workspace may not exist yet, and the resident

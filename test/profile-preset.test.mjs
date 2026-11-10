@@ -94,6 +94,14 @@ check("only the requested keys change", () => {
     assert.ok(changed.every(([, b]) => b === "              distro: Debian"));
   });
 
+  check("--writable-roots writes the same list into both rows", () => {
+    const block = applyEdits(presetBlock(source), { writableRoots: ["~/.npm", "~/.cache"] });
+    const shell = section(block, "wsl-shell", "wsl-fs");
+    const fs = section(block, "wsl-fs", "persona");
+    assert.match(shell, /^ {14}writableRoots: \["~\/.npm","~\/.cache"\]$/m);
+    assert.match(fs, /^ {14}writableRoots: \["~\/.npm","~\/.cache"\]$/m);
+  });
+
   check("nestedRowIds catches a top-level id patch and ignores the full block", () => {
     assert.deepEqual(nestedRowIds("- id: wsl-shell\n  config:\n    distro: Ubuntu\n"), ["wsl-shell"]);
     assert.deepEqual(nestedRowIds("  - id: wsl-fs\n    config: {}\n"), ["wsl-fs"]);

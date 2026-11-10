@@ -96,6 +96,13 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
   [ARCHITECTURE.md](ARCHITECTURE.md#reported-enforcement)。
 - **必须安装 `bubblewrap`**，否则两个提供者都会带着安装命令失败；
   会话启动预检会以建议性警告的形式给出同样的文本。
+- **`workspace-write` 默认不授予 `$HOME` 下的包管理器缓存** —— npm 的
+  `~/.npm`、pnpm 的 store、cargo 的 `~/.cargo/registry` 都在工作区之外，
+  安装一个尚未缓存的依赖会以 `EROFS` 失败。用 `writableRoots` 显式授权
+  （见 [CONFIGURATION](CONFIGURATION.zh.md#工具链缓存与额外可写目录)）；
+  授权目录里的可执行内容可被后续构建使用，这是收窄沙箱，不是关闭它，
+  `enforcement` 仍是 `partial`。条目必须是已存在的物理目录；已被工作区、
+  `/tmp`、`/dev/shm` 覆盖或嵌套在另一条授权内的条目不绑定。
 - **消息本地化按设计只覆盖一部分** —— 预检判定、`bwrap` 修复提示与
   发行版/工作目录错误跟随应用的语言设置
   （[CONFIGURATION.zh.md](CONFIGURATION.zh.md#消息语言)）；`fs-decisions`

@@ -18,6 +18,26 @@ were part of the record.
 
 ### Fixed
 
+- **"Open in app" and "Reveal in file manager" work on WSL files again
+  (issue #37).** The root router answered `processPath` for a distro target in
+  Linux form, while the Host's `verifyDesktopPath` requires
+  `processPath(resolve(processPathFromHostPath(hostPath))) === hostPath` and
+  `processPathFromHostPath` is the inherited host implementation — a Linux
+  answer can never reproduce a UNC host path. Every file gesture routed through
+  `session.openWorkspacePath` / `session.workspacePathApplications` (the
+  preview header's application menu, the file context menu's "Show in folder",
+  the deliverables open route) was refused with `Path has no verified Host
+  path`; with a Windows Host cwd the check passed only by mangling the path to
+  `C:\home\…`, so Explorer opened a path that does not exist and still reported
+  success because its exit-1 handoff is accepted. The router now answers the
+  target's canonical UNC — the same answer the session `WslFileSystem` and the
+  shipped host backend give — and strips the share root's trailing separator so
+  a distro-root workspace closes too. `displayPath` stays Linux and `contains`
+  still compares POSIX coordinates. Known cost: the GUI change feed and
+  `stat.absolutePath` now carry the UNC spelling, and the client's
+  `fileMediaUrl` rejects a `\\`-prefixed path, so relative Markdown images in a
+  WSL preview no longer resolve (chat images already had that gap).
+
 - **`/wsl-doctor` no longer spends minutes "executing" and then dies as an
   opaque "operation was aborted".** The command resolved the session's distro
   through its own app-level context, but the `workingDirectory` service lives in

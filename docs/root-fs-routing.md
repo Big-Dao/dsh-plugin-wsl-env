@@ -57,17 +57,17 @@ home 缓存，所以同一个根平面可以同时服务多个发行版；`distr
 | watch | targetKey 坐标 | distro inotify 或轮询（粗粒度失效） | chokidar |
 | writeText / editText | targetKey 坐标 | distro 写（substrate 守卫 + confined agent 内核强制） | super |
 | patchText / deleteFile / moveFile（v7） | targetKey 坐标；move 任一端为 distro 即整体路由 | distro 写（同一守卫 + confined agent；move 两端版本复核） | super |
-| contains / processPath | parent/targetKey 坐标 | Linux 路径语义（`contains` 按两个目标的 `processPath` 做 POSIX 包含判定） | super |
+| contains / processPath | parent/targetKey 坐标 | `contains` 按两个 UNC 的 POSIX 坐标判定；`processPath` 返回 UNC 宿主拼写 | super |
 
 未覆写的出口：本类覆写的是上表这 16 个方法，`fileUrl` 与
 `processPathFromHostPath` 沿用宿主实现——「按坐标路由」不等于接口全覆盖。
 
 - `fileUrl` 由继承的实现从 `processPath` 派生
   （`pathToFileURL(this.processPath(target)).href`，`dsh-fs-local/lib/index.js:795-796`）：
-  distro 目标的 Linux 路径走的是**宿主平台**的编码路径，在 Windows 上 Node
-  先 `path.win32.resolve` 它，`file:///home/...` 不是可靠的形态。接口把 URI
-  编码留给后端，正是因为执行平台可能与宿主不同
-  （`dsh-fs/lib/types/index.d.ts:117-123`）；真有消费者时需要按 POSIX 语义覆写。
+  `processPath` 现在返回 UNC 宿主拼写，Windows 上得到
+  `file://wsl.localhost/<distro>/<path>`。它仍不是客户端媒体 URL 的形态——
+  客户端 `fileMediaUrl` 拒绝 `\\` 开头的路径（§2.2）——真有消费者时需要
+  按需覆写。
 - `processPathFromHostPath` 也是宿主实现（绝对宿主路径取 `resolve`）。被路由的
   `WslFileSystem` 自己有一份 distro 映射（`src/index.ts:2133`），那份映射不经
   本路由。
@@ -78,15 +78,21 @@ home 缓存，所以同一个根平面可以同时服务多个发行版；`distr
   检查）只护写路径，而根平面当前没有写消费者（tool-fs 的写在 preset）。
   distro 侧写入自带更强的围栏（Linux 前缀包含 + confined agent 内核强制）。
   文档明示：若未来出现根平面写消费者，围栏语义需随行。
-- **UNC 目标的 `processPath` 变为 Linux 形态**：`processPath` 返回 distro
-  路径，而读它的根消费者仍在——正是本路由所服务的 workspace-files change
-  feed：它在每个 `change` 事件里发出 `ctx.fs.processPath(target)`
-  （`@deepseek-ai/dsh-api-workspace-files/lib/index.js:92`），distro 工作区的事件路径因此
-  是 Linux 形态。GUI 文件服务现在也用随包的 `workspace-files` 行，`stat`/读
-  同样经 `ctx.fs.processPath`，两种形态一致；此前的 `workspace-files-wsl`
-  接管把 `stat` 的 `absolutePath` 合成 UNC，已随该行删除。
-  `fileUrl` 不在覆写之列（§2.1 注）：它由 `processPath` 派生，同样不能假定为
-  `file:///home/...`。
+- **UNC 目标的 `processPath` 返回宿主拼写（UNC）**：与随包宿主后端和会话后端
+  `WslFileSystem`（继承 `LocalFileSystem`）一致——它们都回答 `String(targetKey)`。
+  这是宿主路径消费者的硬契约：`session.openWorkspacePath` 与
+  `session.workspacePathApplications` 的 `verifyDesktopPath` 要求
+  `processPath(resolve(processPathFromHostPath(hostPath))) === hostPath`，而
+  `processPathFromHostPath` 是宿主实现（UNC 输入原样返回）。此前返回 Linux
+  形态时该往返永不闭合，WSL 工作区里「在应用中打开 / 在文件管理器中显示」对
+  任何 distro 文件都以 `Path has no verified Host path` 拒绝（issue #37）；
+  `ui-deliverables` 的交付物打开路由（`present-open.ts`）用同一等式，一并失败。
+  workspace-files 的 change feed 与 `stat.absolutePath` 因此同为 UNC 形态，两者
+  一致；Linux 形态保留在目标的 `displayPath`（模型看到的那一面）。共享根
+  （distro 根）的尾分隔符会归一化：substrate 渲染 `\\wsl.localhost\<distro>\`，
+  而宿主 `resolve` 去掉尾部分隔符，`processPath` 以宿主形态为准。
+  **代价**：客户端 `fileMediaUrl` 拒绝 `\\` 开头的路径，WSL 工作区里 Markdown
+  预览的相对图片因此不渲染；聊天侧此前就已如此（其 `cwd` 本就是 UNC）。
 - **watch 的事件粒度**：无限深目录且有 `inotifywait` 时，distro 侧优先使用
   inotify；文件目标、限深目录或缺少工具时回退轮询。回调是粗粒度失效而非
   逐文件事件；轮询的 mtime 盲点见 [LIMITATIONS.md](LIMITATIONS.md)。
@@ -166,9 +172,9 @@ export `./fs-routing`）。config 承载两侧旋钮：宿主侧 `cwd`/`diffBasi
 （`wsl.exe --terminate <distro>`），根级对 UNC 目标的调用应 fail-closed 报
 `FS_IO_ERROR`（§2.3），而不是回落到 9P；同一次验证里宿主盘符路径照常工作。
 
-`changes` 与 `stat` 的 `absolutePath` 现在都来自 `ctx.fs.processPath`，都是
-Linux 形态；客户端归一化后可比对。此前的 `workspace-files-wsl` 接管让
-`stat` 返回 UNC、与 `changes` 不一致；该接管已删除，这一形态差异不再存在。
+`changes` 与 `stat` 的 `absolutePath` 都来自 `ctx.fs.processPath`，现在同为
+UNC 宿主形态；两者一致，客户端归一化后可比对。Linux 形态只保留在目标的
+`displayPath`（模型读到的那一面）。
 
 回退：`fs-routing` 是顶层行，可以在你自己的 profile 层
 （`$DSH_HOME/profiles/<name>/cordis.patch.yml`，按 id 覆盖插件行）里恢复随发的

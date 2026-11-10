@@ -96,7 +96,17 @@ async function run(ctx, config) {
   check("a distro UNC resolves to its own coordinate", distroTarget.targetKey.toLowerCase() === config.distroPath.toLowerCase(), `key=${distroTarget.targetKey}`);
   const distroText = await fs.readText(distroTarget);
   check("a distro UNC reads the planted ext4 file", distroText === config.distroText, `got=${JSON.stringify(distroText)}`);
-  check("a distro target maps to its Linux spelling", fs.processPath(distroTarget) === config.distroLinux, `got=${fs.processPath(distroTarget)}`);
+  // Host-path consumers (open-in-app / reveal) verify
+  // processPath(resolve(processPathFromHostPath(hostPath))) === hostPath, so
+  // this accessor must answer in the Host's UNC spelling, not the Linux one.
+  check("a distro target maps to its UNC host spelling", fs.processPath(distroTarget) === distroTarget.targetKey, `got=${fs.processPath(distroTarget)}`);
+  check("a distro target keeps its Linux display path", distroTarget.displayPath === config.distroLinux, `got=${distroTarget.displayPath}`);
+  const mapped = fs.processPathFromHostPath(distroTarget.targetKey);
+  check("the Host mapping returns the same UNC", mapped === distroTarget.targetKey, `got=${String(mapped)}`);
+  const hostRoundTrip = mapped === undefined ? undefined : await fs.resolve(mapped);
+  check("the Host mapping round trip closes",
+    hostRoundTrip !== undefined && fs.processPath(hostRoundTrip) === distroTarget.targetKey,
+    `got=${hostRoundTrip === undefined ? "no mapping" : fs.processPath(hostRoundTrip)}`);
 
   // 2. The host plane is untouched: drive-letter paths still take the
   // inherited LocalFileSystem path, and their identity stays a drive path.

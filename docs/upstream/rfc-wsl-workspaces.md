@@ -237,12 +237,13 @@ UNC workspaces without per-consumer patches:
    records, which an upstream form would inherit silently: the root write fence
    retires (the root plane has no write consumers today, and distro writes
    carry the distro-side fence instead); `processPath` on a UNC target answers
-   in Linux form, while `fileUrl` is not routed at all — the inherited
-   implementation derives it from `processPath`, and on Windows that derivation
-   runs the host platform's encoding first, so `file:///home/...` is not a
-   shape to rely on; and watch degrades to `find -newer` polling with its known
-   mtime blind spot. A root plane that grows a write consumer would have to
-   bring the fence back with it.)*
+   in host (UNC) spelling — the same answer the session backend gives, because
+   the host-path consumers' verification round trip requires it — while
+   `fileUrl` is not routed at all: the inherited implementation derives a
+   `file://wsl.localhost/...` URI from that spelling, which the browser file
+   helpers do not accept; and watch degrades to `find -newer` polling with its
+   known mtime blind spot. A root plane that grows a write consumer would have
+   to bring the fence back with it.)*
 
 ## Questions for maintainers
 

@@ -243,3 +243,10 @@ the sandbox's security statement: `enforcement: partial` is untouched.
   Host runs with `ELECTRON_RUN_AS_NODE=1`, which the launcher inherits, so
   `Code.exe` starts as Node and exits 1. Not owned by this repository:
   [UPSTREAM-OPEN-IN-APP.md](UPSTREAM-OPEN-IN-APP.md).
+- **WSL files open again, but relative Markdown images no longer render in the
+  WSL preview.** The router's `processPath` now answers in UNC host spelling —
+  the shape `session.openWorkspacePath` / `workspacePathApplications` verify
+  (issue #37) — and the client's `fileMediaUrl` rejects a `\\`-prefixed path, so
+  a Markdown preview's relative image does not resolve. Chat images already had
+  that gap (the Session cwd is UNC). The same spelling is why the GUI change
+  feed, `stat.absolutePath`, and the preview header's path label carry UNC.

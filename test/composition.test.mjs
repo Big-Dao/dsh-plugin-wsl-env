@@ -295,7 +295,15 @@ check("the routed root filesystem actually starts through the Loader, not just c
 
     // The coordinate helpers on the same routed path are pure and need no
     // distro: the distro branch of each must not fall through to the host.
-    assert.equal(router.processPath(directory), "/home/andy", "a distro target maps to its Linux path");
+    // The session-controller's Host-path check requires processPath to answer in
+    // host spelling, exactly like the inherited host backend and the session
+    // `WslFileSystem` do; a Linux answer never closes that round trip.
+    assert.equal(router.processPath(directory), String(directory.targetKey), "a distro target keeps its UNC host spelling");
+    assert.equal(router.processPath(await router.resolve(String(directory.targetKey))), String(directory.targetKey), "resolve → processPath keeps the UNC coordinate");
+    // The substrate renders the share root with a trailing separator; the Host's
+    // path.resolve drops it, so processPath must agree with the Host spelling.
+    const distroRoot = distroTarget("/");
+    assert.equal(router.processPath(distroRoot), "\\\\wsl.localhost\\Ubuntu", "the share root answers without the trailing separator");
     assert.equal(router.contains(directory, target), true, "distro containment uses POSIX semantics");
     assert.equal(router.contains(directory, distroTarget("/etc/hosts")), false);
 

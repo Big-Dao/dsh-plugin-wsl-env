@@ -220,3 +220,9 @@ doctor 只读取和报告，从不改写用户或发行版所有的文件。`.ws
   宿主带着 `ELECTRON_RUN_AS_NODE=1` 运行，启动器会继承它，于是
   `Code.exe` 以 Node 身份启动并以退出码 1 结束。不属于本仓库管：
   [UPSTREAM-OPEN-IN-APP.md](UPSTREAM-OPEN-IN-APP.md)。
+- **WSL 文件可以正常打开，但预览里的相对 Markdown 图片不再渲染** ——
+  路由的 `processPath` 现在返回 UNC 宿主拼写，这是
+  `session.openWorkspacePath` / `workspacePathApplications` 校验所要求的形态
+  （issue #37）；客户端 `fileMediaUrl` 拒绝 `\\` 开头的路径，因此 Markdown
+  预览中的相对图片无法解析。聊天侧因 cwd 本就是 UNC，此前已有同一缺口。
+  GUI change feed、`stat.absolutePath` 与预览头部的路径标签的 UNC 形态也源于同一拼写。

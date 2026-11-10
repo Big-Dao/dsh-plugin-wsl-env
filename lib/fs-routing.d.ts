@@ -265,7 +265,35 @@ export declare class WslRoutingFileSystem extends LocalFileSystem {
      */
     contains(parent: FsTarget, child: FsTarget): boolean;
     /**
+     * The host spelling for a distro target: its canonical UNC identity.
+     *
+     * `processPath` answers "the path in this filesystem's execution world", and
+     * the routed backend's target key already IS the coordinate the Host I/O
+     * stack uses — the same answer the session backend gives, because it inherits
+     * the host implementation (`String(targetKey)`). The root router answered in
+     * Linux form before this change; that broke every consumer that treats
+     * `processPath` as a HOST path. `session.openWorkspacePath` and
+     * `session.workspacePathApplications` verify a path by requiring
+     * `fs.processPath(await fs.resolve(fs.processPathFromHostPath(hostPath)))`
+     * to equal `hostPath` (`packages/api/session-controller`,
+     * `verifyDesktopPath`), and `processPathFromHostPath` is the inherited host
+     * implementation — so with a Linux answer the round trip could never close
+     * and "Open in app" / "Reveal in file manager" refused every distro file
+     * with `Path has no verified Host path`. The same equality drives
+     * `ui-deliverables`' presented-file route.
+     *
+     * The Linux path is still the target's `displayPath` (what the model sees),
+     * and `contains` still compares POSIX coordinates; only this accessor — the
+     * one the Host's path-taking consumers read — speaks host spelling.
+     *
+     * The share root is the one spelling the substrate and the Host disagree on:
+     * `posixToUnc(distro, "/")` renders `\\wsl.localhost\<distro>\` (a trailing
+     * separator), while the Host's `path.resolve` normalizes the same directory
+     * to `\\wsl.localhost\<distro>`. Stripping it keeps the round trip closed for
+     * a distro root chosen as the workspace.
+     *
      * @param target - the resolved target.
+     * @returns the canonical UNC for a distro target, the host path otherwise.
      */
     processPath(target: FsTarget): string;
 }

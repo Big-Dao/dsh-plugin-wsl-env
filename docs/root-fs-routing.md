@@ -89,8 +89,9 @@ home 缓存，所以同一个根平面可以同时服务多个发行版；`distr
   `ui-deliverables` 的交付物打开路由（`present-open.ts`）用同一等式，一并失败。
   workspace-files 的 change feed 与 `stat.absolutePath` 因此同为 UNC 形态，两者
   一致；Linux 形态保留在目标的 `displayPath`（模型看到的那一面）。共享根
-  （distro 根）的尾分隔符会归一化：substrate 渲染 `\\wsl.localhost\<distro>\`，
-  而宿主 `resolve` 去掉尾部分隔符，`processPath` 以宿主形态为准。
+  （distro 根）保留 substrate 的尾分隔符：宿主 `resolve` 会去掉它，因此根目标
+  通不过宿主路径校验；根目录本身不可 open/reveal（Windows 的 opener 也不接受
+  共享根 URL），根下面的路径不受影响。
   **代价**：客户端 `fileMediaUrl` 拒绝 `\\` 开头的路径，WSL 工作区里 Markdown
   预览的相对图片因此不渲染；聊天侧此前就已如此（其 `cwd` 本就是 UNC）。
 - **watch 的事件粒度**：无限深目录且有 `inotifywait` 时，distro 侧优先使用

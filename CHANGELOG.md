@@ -16,6 +16,20 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-11-10
+
+### Fixed
+
+- **The distro root refuses cleanly again instead of reaching the Windows
+  opener.** 0.23.0 stripped the share root's trailing separator so
+  `verifyDesktopPath` would close for `\\wsl.localhost\<distro>`; the check
+  passed, then the Host handed that share root to Explorer as
+  `file://wsl.localhost/<distro>`, which Windows rejects with a network-error
+  dialog. The root keeps the substrate's trailing separator, so the Host-path
+  check refuses it with the documented `Path has no verified Host path`; paths
+  inside the distro are unaffected. Supporting the root itself needs the opener
+  to accept a share root (upstream), and is not claimed here.
+
 ## [0.23.0] - 2026-11-10
 
 One headline: the root filesystem answers host spelling where the Host's path

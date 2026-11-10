@@ -16,6 +16,166 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-11-10
+
+One theme: the diagnosis becomes something to act on — a sidebar panel
+that checks a distro and repairs the plugin-owned state — while the
+doctor's catalog is triaged and answers the effective configuration.
+
+### Added
+
+- **A diagnostic status panel with a safe repair action, and a real choice when
+  a WSL workspace is added.** The navigation column now carries **WSL
+  environment**: the installed distros with an on-demand quick doctor check per
+  distro (bwrap, systemd, Linger and the other prerequisites, through the same
+  standalone CLI as `/wsl-doctor`). A checked row also offers a full run, labeled
+  **修复** when a finding is repairable and **完整检查** otherwise: a `POST` to
+  the same authenticated route runs the doctor with `--fix-owned`, sweeps stale
+  session scopes and purges a broken agent cache, then re-verifies both and
+  answers with the before → after `fix.*` rows. The result names what was
+  fixed, what failed re-verification, and what remains manual, so the button
+  never promises a fix it cannot apply. Each checked row carries its last check
+  time (date and time, with a relative hint), its source (manual or the page-load
+  background refresh), and a result structure — per-status totals and
+  per-section tallies — so the next action is visible at a glance. The last
+  result per distro is persisted under
+  `$DSH_HOME/cache/dsh-plugin-wsl-env/status.json` (falling back to `~/.dsh`),
+  so a page reload or an app restart still shows it; on load, stored results
+  for running distros are re-checked in the background, and a failed
+  background run overwrites the stored result exactly as observed. Results are
+  never labeled expired. The panel opens no workspace, runs no session, and never installs packages or
+  rewrites Windows-owned configuration; a click is the only thing that boots a
+  stopped distro. Adding a workspace through the picker now asks once how a
+  distro folder is opened — **Remote WSL** (the default) or **Windows access**
+  (the folder as a 9p share under the host environment). The choice is
+  persisted in the `auto-preset` row's `windowsWorkspaces` volatile field, which
+  the auto-preset hook reads so later sessions in that workspace keep the host
+  preset; the prompt switches the workspace's blank session before its first
+  turn.
+
+- **A checked distro row expands to every check the run executed.** The row
+  already showed the failures, the warnings and the per-section tallies; a green
+  verdict was still an assertion the user had to trust. **查看检查详情（N 项）**
+  now opens the full list, grouped by the doctor's sections (host / sandbox /
+  session / conf / net / agent), each row with its status mark, id, evidence and
+  (for a non-ok row) its remedy. The catalog rows a quick run never touches are
+  counted in one line — "the full run covers N more" — instead of being listed
+  as fake results, and the list is part of the persisted view, so a reload keeps
+  it. The detail is also carried for `error` rows (empty) and for older stored
+  views (defaulted), so a stale cache cannot break the panel.
+
+- **`--fix` repairs the agent cache too, and `--fix-owned` scopes a run to
+  plugin-owned state.** A non-executable (or non-runnable) entry under
+  `~/.cache/dsh-wsl/agent` is purged and re-inventoried, and a failed handshake
+  is re-probed after the purge. `--fix-owned` narrows the fix loop to the stale-scope sweep and the
+  cache purge (it implies `--fix`, skips the package install and the Windows
+  git whitelist, and refuses `--install`); the sidebar's repair action uses it.
+
+- **Four checks for failure modes the catalog missed.**
+  `functional.native` execs the cached native binary and verifies its HELLO
+  self-digest against the content-addressed cache directory (`skipped` on a
+  fresh machine, `fail` under `agentBackend: native`, `warn` under `auto`);
+  `agent.home-writable` creates and executes a temp file under `$HOME` to catch
+  a read-only home or a `noexec` mount before the native cache is extracted;
+  `host.disk` reads the Windows volume that holds the VHDX (fail < 2 GiB,
+  warn < 5 GiB), which `distro.disk` cannot see; `distro.unc` proves Windows can
+  read `\\wsl.localhost\<distro>`, the path the GUI file service, picker and
+  open-in-app use. `distro.wsl-conf-interop` also probes the WSLInterop binfmt
+  handler when interop is **enabled**, so a stale boot that breaks `git.exe` /
+  `explorer.exe` is named instead of surfacing as command-not-found.
+
+- **The folder picker starts at a category level, not inside one home directory.**
+  It now opens on
+  a category level with **Windows 路径** and **WSL 发行版**; the Windows branch
+  starts at the drive roots (`C:\`, `D:\`, …) instead of at one account's home
+  directory, and the WSL branch lists the installed distros. Every level keeps
+  a **工作区** crumb, so either world is one click away. `includeHostHome` now
+  gates the Windows branch as a whole.
+
+### Changed
+
+- **The doctor's check catalog was triaged row by row.** The merged rows carry
+  their facts together instead of in info-only satellites:
+  `host.platform` replaces `host.windows` + `host.wsl` and now fails below the
+  WSL 2 build floor (19041); `distro.identity` replaces `distro.shell` +
+  `distro.home`; the package family folded into the install remedy (no row) and
+  the architecture into `agent.native`; `config.profiles` folded into
+  `config.deprecated`. `distro.kernel` is gone. A `substrate: share` profile now
+  **fails** the verdict instead of warning: the fs provider throws at
+  construction, so the plugin does not boot that profile.
+
+- **The sandbox checks answer the effective configuration.** With
+  `sandbox: false` on every row *and* `sessionSandbox: false`, nothing is
+  confined, so the doctor no longer blocks on a missing bwrap: `sandbox.bwrap`
+  reports a warning that names the UNCONFINED posture, and the usability and
+  fence-smoke rows skip with that reason. An explicit opt-out is conspicuous,
+  never silent.
+
+- **The agent checks are config-aware too.** `agent.native`, `agent.cache` and
+  the new `agent.home-writable` fail only when `agentBackend: native` makes the
+  backend mandatory; under `auto` they warn (the shell agent still serves the
+  command), and a missing native binary under `shell` is context. A cache entry
+  is now probed for **execution**, not just the mode bit: a `noexec` mount and a
+  binary that cannot start both count as broken.
+
+- **The Windows entry can run the agent chain.** The doctor translates the
+  package root through the distro's automount root (`C:\...` ->
+  `/mnt/c/...`, or the configured root), so `agent.handshake`, `functional.exec`
+  and `functional.fs` run on the real Windows surface instead of being skipped
+  as "the script path is a Windows path"; automount-disabled distros report the
+  honest skip. The digest check still reads the script through the host path.
+
+- **The quick profile no longer probes the optional tools** (`rg`, `git`,
+  `inotifywait`): they are feature-degradation warnings, not first-command
+  prerequisites, and each is a process spawn per distro.
+
+- **The WSL preset reads as a variant of 标准模式 and sits beside it.** The mode
+  picker listed `WSL 模式` as a fifth peer; it is now `标准模式（WSL）` with
+  `order: 1`, so it appears directly under 标准模式 (equal orders sort by id, and
+  `standard` precedes `wsl`). The composition is unchanged.
+
+### Removed
+
+- **The doctor's registry update check is gone.** `update.latest` and its two
+  registry GETs were not a diagnosis: the plugin's delegated update service and
+  the app's Versions page already answer the question, and the doctor's promise
+  is a read-only pass over the machine. `DSH_UPDATE_REGISTRIES` is no longer
+  read anywhere (the env-var escape hatch left with the check).
+
+- **The composer's WSL 诊断 pill is gone.** Its menu duplicated the sidebar
+  panel's per-distro quick check, which now also lists the numbered failing
+  items and the warnings. `/wsl-doctor` itself is unchanged and still runs when
+  typed in the composer.
+
+### Fixed
+
+- **The doctor no longer misreads a top-level `insert:` of the WSL providers as
+  a nested-row id patch.** `config.preset-trap` matched an indented
+  `- id: wsl-shell` / `wsl-fs` line, so probe profiles that deliberately
+  `insert:` those rows at the top level were warned about a patch they do not
+  have. Only a root-level id entry — the one that truly targets a top-level row
+  and matches nothing — is reported now, and the remedy names the `insert:`
+  alternative. Verified against the host's profiles: the probe profiles that
+  insert these rows at the top level now scan clean.
+
+- **A full doctor run on a BusyBox distro no longer blocks on the shell
+  fallback.** The FSB batch failure now decodes its `BAD <op>|<reason>|<base64>`
+  payload instead of printing base64, and names the cause: the shell agent's
+  GNU `find -printf` floor, which BusyBox lacks (`find: unrecognized: -printf`).
+  When `auto`/`native` selects the packaged native agent, the smoke legs over
+  the shell agent warn (it is the fallback) while `functional.native` runs the
+  same HELLO + EXEC + FSB chain over the cached native binary; the verdict
+  stays `ready`. Under `agentBackend: shell`, or when neither backend answers,
+  the leg still blocks — with `findutils` as the remedy, not a restart. The
+  family probe now knows `apk`, so Alpine's install remedies are `apk add`
+  rather than an apt command.
+
+- **A full run with nothing to repair is narrated as a check.** The action is
+  the same `--fix-owned` run either way, but the row used to say **修复中…**
+  even when the button read **完整检查**: the pill, the busy label and the
+  running hint now follow the button's intent (检查中… / 完整检查中… / "正在运行
+  完整检查"), so a plain full diagnosis never claims to be repairing anything.
+
 ## [0.23.1] - 2026-11-10
 
 ### Fixed

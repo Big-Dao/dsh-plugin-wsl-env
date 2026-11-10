@@ -74,27 +74,33 @@ check("ancestryCrumbs names every ancestor without blanks", () => {
   assert.notEqual(head.path, DISTRO_ROOT);
 });
 
-check("breadcrumbs heads a distro chain with the WSL row", () => {
-  const crumbs = breadcrumbs(HOME, UNC_PROVIDER_ROOT);
+/** The virtual roots the picker's breadcrumb trail is built from. */
+const ROOTS = { picker: "\\\\dsh.localhost\\picker", windows: "\\\\dsh.localhost\\windows", wsl: UNC_PROVIDER_ROOT };
+
+check("breadcrumbs heads a distro chain with the category and WSL rows", () => {
+  const crumbs = breadcrumbs(HOME, ROOTS);
   assert.deepEqual(
     crumbs.map((c) => c.name),
-    ["WSL", "ubuntu", "home", "andy"],
+    ["工作区", "WSL 发行版", "ubuntu", "home", "andy"],
   );
-  const [wslRow, distroRow] = crumbs;
-  assert.ok(wslRow !== undefined && distroRow !== undefined, "the chain has the WSL and distro rows");
+  const [pickerRow, wslRow, distroRow] = crumbs;
+  assert.ok(pickerRow !== undefined && wslRow !== undefined && distroRow !== undefined, "the chain has the category, WSL and distro rows");
+  assert.equal(pickerRow.path, ROOTS.picker);
   assert.equal(wslRow.path, UNC_PROVIDER_ROOT);
   assert.equal(distroRow.path, DISTRO_ROOT);
 });
 
-check("breadcrumbs leaves an ordinary Windows chain alone", () => {
-  const crumbs = breadcrumbs("C:\\Users\\andyz", UNC_PROVIDER_ROOT);
+check("breadcrumbs heads a Windows chain with the category and drive rows", () => {
+  const crumbs = breadcrumbs("C:\\Users\\andyz", ROOTS);
   assert.deepEqual(
     crumbs.map((c) => c.name),
-    ["C:\\", "Users", "andyz"],
+    ["工作区", "Windows 路径", "C:\\", "Users", "andyz"],
   );
-  const head = crumbs[0];
-  assert.ok(head !== undefined, "the chain has a head");
-  assert.equal(head.path, "C:\\");
+  const [pickerRow, windowsRow, driveRow] = crumbs;
+  assert.ok(pickerRow !== undefined && windowsRow !== undefined && driveRow !== undefined, "the chain has the category, Windows and drive rows");
+  assert.equal(pickerRow.path, ROOTS.picker);
+  assert.equal(windowsRow.path, ROOTS.windows);
+  assert.equal(driveRow.path, "C:\\");
 });
 
 check("boundedInsert keeps the window name-sorted", () => {

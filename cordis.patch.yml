@@ -163,6 +163,22 @@
     - id: wsl-env-client-host
       name: 'dsh-plugin-wsl-env'
 
+    # Status route for the sidebar panel: `GET /api/wsl-env/status` lists the
+    # installed distros and, for one named distro, runs the quick doctor CLI
+    # and returns its digested verdict; `POST` on the same route runs the full
+    # doctor with `--fix-owned` (stale scopes and a broken agent cache only,
+    # both re-verified) and answers with the fix rows. The route rides the
+    # authenticated /api channel (`ctx.connection.fetch`), so only the owner
+    # browser reads it; a composition without the Web connection leaves this
+    # row inert. Probing a stopped distro boots it, so a check or repair only
+    # ever starts from an explicit click — never from listing.
+    - id: wsl-status
+      name: 'dsh-plugin-wsl-env/status'
+      config:
+        cacheMs: 15000
+        timeoutMs: 90000
+        wslPath: wsl.exe
+
     # The human-facing `/wsl-doctor` command (the composer button's target):
     # registered globally so any session can run the diagnosis, not only WSL
     # preset agents. The handler spawns the standalone doctor CLI — no model
@@ -264,7 +280,7 @@
     #   2. `tool-bash` is enabled and `tool-pwsh` disabled outright, where the
     #      shipped copy derives the choice from `process.platform`;
     #   3. the identity and display metadata: row `preset-wsl`, preset `wsl`,
-    #      `name`/`description` for the mode selector, `order: 2`.
+    #      `name`/`description` for the mode selector, `order: 1`.
     # Regenerate it when an app update changes the preset: take
     # `packages/bundle/web-app/presets/standard.patch.yml` from the harness tree
     # the peer pins track, replace this row to the end of the file with its
@@ -278,9 +294,14 @@
         # selector falls back to the raw id and "no description" unless the
         # declaration carries its own copy (registry policy: user-authored
         # metadata is never localized — write it in the deployment language).
-        name: WSL 模式
+        #
+        # The name says what it is: 标准模式's capabilities in the distro's
+        # world, not a fifth task mode. The order ties with 标准模式 (order 1);
+        # the registry sorts equal orders by id, and "standard" sorts before
+        # "wsl", so the variant sits directly under the mode it extends.
+        name: 标准模式（WSL）
         description: 在 WSL 的 Linux 实例中打开项目工作区：命令执行、shell 脚本和文件访问均在 Linux 空间内完成，以获得全套 Linux shell 工具链，受限命令经 bubblewrap 沙箱隔离。
-        order: 2
+        order: 1
         plugins:
           - id: wsl-env
             name: cordis:group

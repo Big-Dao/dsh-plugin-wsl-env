@@ -69,34 +69,49 @@ export function ancestryCrumbs(target: string): ListingRow[] {
   }
 }
 
+/** The three virtual roots the picker's breadcrumb trail is built from. */
+export interface PickerRoots {
+  /** The two-category level ("工作区"): Windows paths and WSL distros. */
+  picker: string;
+  /** The Windows branch's drive list. */
+  windows: string;
+  /** The WSL branch's distro list (the share root). */
+  wsl: string;
+}
+
 /**
- * Breadcrumb rows for a level, with the WSL share head prepended for anything
- * inside a distro.
+ * Breadcrumb rows for a level: the category root, then the world the path
+ * belongs to, then the path itself.
  *
- * Two Windows path quirks make this more than a relabel. `win32.dirname` treats
+ * The trail is what makes the two top-level categories reachable from anywhere:
+ * every level keeps "工作区" as its first crumb, so a browse into a distro or a
+ * drive never strands the user without a way back to the other world.
+ *
+ * Two Windows path quirks need explicit handling. `win32.dirname` treats
  * `\\server\share` as a volume root and never yields the share itself, so the
- * WSL row has to be synthesized; and `win32.basename` of that same share root is
- * the empty string, so the distro row is named from the parsed distro instead.
- * Without both fixes, browsing into a distro would render a blank breadcrumb and
- * offer no way back to the distro list.
+ * WSL rows are synthesized from the parsed distro instead of the ancestry walk;
+ * and `win32.basename` of a volume root is empty, so {@link ancestryCrumbs}
+ * already falls back to the drive's own path.
  *
  * @param target - the directory being listed.
- * @param providerRoot - the share root acting as the WSL row's jump target.
+ * @param roots - the picker, Windows and WSL jump targets.
  * @returns breadcrumb rows, outermost first.
  */
-export function breadcrumbs(target: string, providerRoot: string): ListingRow[] {
-  const crumbs = ancestryCrumbs(target);
-  const head = crumbs[0];
-  if (head === undefined) return [{ name: "WSL", path: providerRoot, hidden: false }];
-  const parsed = isWslUnc(head.path) ? uncToPosix(head.path) : undefined;
-  if (parsed !== undefined && parsed.linuxPath === "/") {
-    // `win32.dirname` reports the share root with a trailing separator
-    // (`\\wsl.localhost\ubuntu\`); rewrite the row to the canonical distro root
-    // so crumb paths match what distroRoot() and the picker produce elsewhere.
-    crumbs[0] = { name: parsed.distro, path: `${providerRoot}\\${parsed.distro}`, hidden: false };
-    crumbs.unshift({ name: "WSL", path: providerRoot, hidden: false });
+export function breadcrumbs(target: string, roots: PickerRoots): ListingRow[] {
+  const head: ListingRow[] = [{ name: "工作区", path: roots.picker, hidden: false }];
+  const parsed = isWslUnc(target) ? uncToPosix(target) : undefined;
+  if (parsed === undefined) {
+    return [...head, { name: "Windows 路径", path: roots.windows, hidden: false }, ...ancestryCrumbs(target)];
   }
-  return crumbs;
+  const distroRootPath = `${roots.wsl}\\${parsed.distro}`;
+  head.push({ name: "WSL 发行版", path: roots.wsl, hidden: false });
+  head.push({ name: parsed.distro, path: distroRootPath, hidden: false });
+  let current = distroRootPath;
+  for (const segment of parsed.linuxPath.split("/").filter((part) => part.length > 0)) {
+    current = `${current}\\${segment}`;
+    head.push({ name: segment, path: current, hidden: false });
+  }
+  return head;
 }
 
 /**

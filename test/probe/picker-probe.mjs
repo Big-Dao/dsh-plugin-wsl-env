@@ -92,12 +92,42 @@ async function run(ctx, config) {
   const root = await listing(undefined);
   if (root.ok) {
     const names = root.value.entries.map((entry) => entry.name);
-    check("the root level is crumbed", root.value.crumbs?.[0]?.name === "WSL", `crumbs=${JSON.stringify(root.value.crumbs?.map((c) => c.name))}`);
-    check("the Windows home is offered", names.includes(config.hostHome), `want ${config.hostHome}`);
-    check("every installed distro is offered", names.includes(config.distro), `want ${config.distro}; got ${names.join(", ")}`);
+    check("the root level is crumbed", root.value.crumbs?.[0]?.name === "工作区", `crumbs=${JSON.stringify(root.value.crumbs?.map((c) => c.name))}`);
+    check("the Windows branch is offered", names.includes("Windows 路径"), `got ${names.join(", ")}`);
+    check("the WSL branch is offered", names.includes("WSL 发行版"), `got ${names.join(", ")}`);
     check("the root level is not truncated", root.value.truncated === false, `truncated=${root.value.truncated}`);
   } else {
     check("the root level lists", false, `${(/** @type {CodedError} */ (root.error)).code} ${(/** @type {CodedError} */ (root.error)).message}`);
+  }
+
+  // The two branches: drives under Windows, distros under WSL. The literals
+  // mirror PICKER_ROOT / HOST_ROOT in lib/picker.js without importing it.
+  const windows = await listing("\\\\dsh.localhost\\windows");
+  if (windows.ok) {
+    const drives = windows.value.entries.map((entry) => entry.name);
+    check("the Windows branch lists drive roots", drives.length > 0 && drives.every((name) => /^[A-Z]:\\$/.test(name)), drives.join(", "));
+    check("the Windows branch is crumbed", windows.value.crumbs?.map((c) => c.name).join(" / ") === "工作区 / Windows 路径", `crumbs=${JSON.stringify(windows.value.crumbs?.map((c) => c.name))}`);
+    // The drive root spelling must survive as a volume root: trimming its
+    // trailing separator here once made `C:\` fail the qualified-path check.
+    const firstDrive = windows.value.entries[0]?.path;
+    if (firstDrive !== undefined) {
+      const drive = await listing(firstDrive);
+      check("a drive root lists", drive.ok, drive.ok ? drive.value.path : `${(/** @type {CodedError} */ (drive.error)).code} ${(/** @type {CodedError} */ (drive.error)).message}`);
+      if (drive.ok) {
+        check("a drive root is crumbed under the Windows branch", drive.value.crumbs?.map((c) => c.name).join(" / ") === `工作区 / Windows 路径 / ${firstDrive}`, `crumbs=${JSON.stringify(drive.value.crumbs?.map((c) => c.name))}`);
+      }
+    }
+  } else {
+    check("the Windows branch lists", false, `${(/** @type {CodedError} */ (windows.error)).code} ${(/** @type {CodedError} */ (windows.error)).message}`);
+  }
+
+  const wsl = await listing("\\\\wsl.localhost");
+  if (wsl.ok) {
+    const distros = wsl.value.entries.map((entry) => entry.name);
+    check("the WSL branch offers every installed distro", distros.includes(config.distro), `want ${config.distro}; got ${distros.join(", ")}`);
+    check("the WSL branch is crumbed", wsl.value.crumbs?.map((c) => c.name).join(" / ") === "工作区 / WSL 发行版", `crumbs=${JSON.stringify(wsl.value.crumbs?.map((c) => c.name))}`);
+  } else {
+    check("the WSL branch lists", false, `${(/** @type {CodedError} */ (wsl.error)).code} ${(/** @type {CodedError} */ (wsl.error)).message}`);
   }
 
   for (const [label, candidate] of [["a relative path", "relative/thing"], ["a directory that does not exist", "\\\\wsl.localhost\\no-such-distro-probe\\home"]]) {

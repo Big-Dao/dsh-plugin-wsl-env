@@ -83,6 +83,10 @@
       "types": "./lib/shell-env.d.ts",
       "default": "./lib/shell-env.js"
     },
+    "./status": {
+      "types": "./lib/status.d.ts",
+      "default": "./lib/status.js"
+    },
     "./shell-env/locale/en.json": "./locale/shell-env/en.json",
     "./shell-env/locale/zh.json": "./locale/shell-env/zh.json",
     "./subprocess": {
@@ -116,8 +120,11 @@
       "platform": "web",
       "immediately": true,
       "inject": [
+        "@deepseek-ai/dsh-api-remotes",
         "@deepseek-ai/dsh-client-ui-slots",
-        "@deepseek-ai/dsh-client-ui-conversation"
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-workspace"
       ]
     }
   },
@@ -181,9 +188,9 @@
     "lint:types": "tsc --noEmit",
     "build": "node scripts/build.mjs",
     "lint:build": "node test/build-freshness.mjs",
-    "test:coverage": "node scripts/coverage-gate.mjs -- node --test --test-timeout=60000 --experimental-test-coverage --test-coverage-lines=85 --test-coverage-branches=84 --test-coverage-functions=70 --test-coverage-exclude='scripts/**' --test-coverage-exclude='test/**' test/agent-exec.test.mjs test/agent-fs-script.test.mjs test/agent-protocol.test.mjs test/agent.test.mjs test/fs-substrate.test.mjs test/fs.boot.test.mjs test/composition.test.mjs test/provider.test.mjs test/file-reference-wsl.test.mjs test/fsio-agent.test.mjs test/fsio-text.test.mjs test/git-exec.test.mjs test/git-route.test.mjs test/listing.test.mjs test/paths.test.mjs test/ports.test.mjs test/preset-choice.test.mjs test/probe-cache.test.mjs test/preflight.test.mjs test/sandbox.test.mjs test/search-exec.test.mjs test/search-route.test.mjs test/shell.test.mjs test/shell-env.test.mjs test/terminal-activity.test.mjs test/terminal.test.mjs test/watcher.test.mjs test/wsl.test.mjs test/fs-decisions.test.mjs test/session-scope.test.mjs test/session-runtime.test.mjs test/native-agent.test.mjs test/peers.test.mjs test/agent-shared.test.mjs test/distro-route.test.mjs test/fs-routing.test.mjs test/update-check.test.mjs test/doctor.test.mjs test/profile-preset.test.mjs test/packaging.test.mjs test/peer-canary.test.mjs test/probe-runner.test.mjs test/cwd-prompt.test.mjs test/cwd-prompt-tool.test.mjs test/wsl-doctor-tool.test.mjs test/wsl-doctor-command.test.mjs test/client-host.test.mjs test/messages.test.mjs",
+    "test:coverage": "node scripts/coverage-gate.mjs -- node --test --test-timeout=60000 --experimental-test-coverage --test-coverage-lines=85 --test-coverage-branches=84 --test-coverage-functions=70 --test-coverage-exclude='scripts/**' --test-coverage-exclude='test/**' test/agent-exec.test.mjs test/agent-fs-script.test.mjs test/agent-protocol.test.mjs test/agent.test.mjs test/fs-substrate.test.mjs test/fs.boot.test.mjs test/composition.test.mjs test/provider.test.mjs test/file-reference-wsl.test.mjs test/fsio-agent.test.mjs test/fsio-text.test.mjs test/git-exec.test.mjs test/git-route.test.mjs test/listing.test.mjs test/paths.test.mjs test/ports.test.mjs test/preset-choice.test.mjs test/probe-cache.test.mjs test/preflight.test.mjs test/sandbox.test.mjs test/search-exec.test.mjs test/search-route.test.mjs test/shell.test.mjs test/shell-env.test.mjs test/terminal-activity.test.mjs test/terminal.test.mjs test/watcher.test.mjs test/wsl.test.mjs test/fs-decisions.test.mjs test/session-scope.test.mjs test/session-runtime.test.mjs test/native-agent.test.mjs test/peers.test.mjs test/agent-shared.test.mjs test/distro-route.test.mjs test/fs-routing.test.mjs test/update-check.test.mjs test/doctor.test.mjs test/profile-preset.test.mjs test/packaging.test.mjs test/peer-canary.test.mjs test/probe-runner.test.mjs test/cwd-prompt.test.mjs test/cwd-prompt-tool.test.mjs test/wsl-doctor-tool.test.mjs test/wsl-doctor-command.test.mjs test/status.test.mjs test/client-host.test.mjs test/messages.test.mjs",
     "test:syntax": "node test/syntax.mjs",
-    "test:unit": "node scripts/test-watchdog.mjs -- node --test --test-timeout=60000 test/fs.boot.test.mjs test/fsio-text.test.mjs test/composition.test.mjs test/provider.test.mjs test/file-reference-wsl.test.mjs test/paths.test.mjs test/listing.test.mjs test/shell.test.mjs test/shell-env.test.mjs test/terminal.test.mjs test/probe-cache.test.mjs test/preflight.test.mjs test/preset-choice.test.mjs test/sandbox.test.mjs test/agent-protocol.test.mjs test/agent.test.mjs test/agent-fs-script.test.mjs test/fsio-agent.test.mjs test/fs-substrate.test.mjs test/agent-exec.test.mjs test/ports.test.mjs test/watcher.test.mjs test/wsl.test.mjs test/fs-decisions.test.mjs test/git-exec.test.mjs test/git-route.test.mjs test/search-route.test.mjs test/search-exec.test.mjs test/terminal-activity.test.mjs test/session-scope.test.mjs test/session-runtime.test.mjs test/native-agent.test.mjs test/peers.test.mjs test/agent-shared.test.mjs test/distro-route.test.mjs test/fs-routing.test.mjs test/update-check.test.mjs test/doctor.test.mjs test/profile-preset.test.mjs test/packaging.test.mjs test/peer-canary.test.mjs test/probe-runner.test.mjs test/cwd-prompt.test.mjs test/cwd-prompt-tool.test.mjs test/wsl-doctor-tool.test.mjs test/wsl-doctor-command.test.mjs test/client-host.test.mjs test/messages.test.mjs",
+    "test:unit": "node scripts/test-watchdog.mjs -- node --test --test-timeout=60000 test/fs.boot.test.mjs test/fsio-text.test.mjs test/composition.test.mjs test/provider.test.mjs test/file-reference-wsl.test.mjs test/paths.test.mjs test/listing.test.mjs test/shell.test.mjs test/shell-env.test.mjs test/terminal.test.mjs test/probe-cache.test.mjs test/preflight.test.mjs test/preset-choice.test.mjs test/sandbox.test.mjs test/agent-protocol.test.mjs test/agent.test.mjs test/agent-fs-script.test.mjs test/fsio-agent.test.mjs test/fs-substrate.test.mjs test/agent-exec.test.mjs test/ports.test.mjs test/watcher.test.mjs test/wsl.test.mjs test/fs-decisions.test.mjs test/git-exec.test.mjs test/git-route.test.mjs test/search-route.test.mjs test/search-exec.test.mjs test/terminal-activity.test.mjs test/session-scope.test.mjs test/session-runtime.test.mjs test/native-agent.test.mjs test/peers.test.mjs test/agent-shared.test.mjs test/distro-route.test.mjs test/fs-routing.test.mjs test/update-check.test.mjs test/doctor.test.mjs test/profile-preset.test.mjs test/packaging.test.mjs test/peer-canary.test.mjs test/probe-runner.test.mjs test/cwd-prompt.test.mjs test/cwd-prompt-tool.test.mjs test/wsl-doctor-tool.test.mjs test/wsl-doctor-command.test.mjs test/status.test.mjs test/client-host.test.mjs test/messages.test.mjs",
     "lint:style": "node test/style.mjs",
     "lint:links": "node scripts/check-links.mjs",
     "lint:requirements": "node scripts/check-requirements.mjs",

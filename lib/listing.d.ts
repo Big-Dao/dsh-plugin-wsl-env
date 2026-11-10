@@ -49,22 +49,34 @@ export declare function fullyQualified(path: string): boolean;
  * @returns the ancestry, outermost first.
  */
 export declare function ancestryCrumbs(target: string): ListingRow[];
+/** The three virtual roots the picker's breadcrumb trail is built from. */
+export interface PickerRoots {
+    /** The two-category level ("工作区"): Windows paths and WSL distros. */
+    picker: string;
+    /** The Windows branch's drive list. */
+    windows: string;
+    /** The WSL branch's distro list (the share root). */
+    wsl: string;
+}
 /**
- * Breadcrumb rows for a level, with the WSL share head prepended for anything
- * inside a distro.
+ * Breadcrumb rows for a level: the category root, then the world the path
+ * belongs to, then the path itself.
  *
- * Two Windows path quirks make this more than a relabel. `win32.dirname` treats
+ * The trail is what makes the two top-level categories reachable from anywhere:
+ * every level keeps "工作区" as its first crumb, so a browse into a distro or a
+ * drive never strands the user without a way back to the other world.
+ *
+ * Two Windows path quirks need explicit handling. `win32.dirname` treats
  * `\\server\share` as a volume root and never yields the share itself, so the
- * WSL row has to be synthesized; and `win32.basename` of that same share root is
- * the empty string, so the distro row is named from the parsed distro instead.
- * Without both fixes, browsing into a distro would render a blank breadcrumb and
- * offer no way back to the distro list.
+ * WSL rows are synthesized from the parsed distro instead of the ancestry walk;
+ * and `win32.basename` of a volume root is empty, so {@link ancestryCrumbs}
+ * already falls back to the drive's own path.
  *
  * @param target - the directory being listed.
- * @param providerRoot - the share root acting as the WSL row's jump target.
+ * @param roots - the picker, Windows and WSL jump targets.
  * @returns breadcrumb rows, outermost first.
  */
-export declare function breadcrumbs(target: string, providerRoot: string): ListingRow[];
+export declare function breadcrumbs(target: string, roots: PickerRoots): ListingRow[];
 /**
  * Insert a streamed candidate into the name-sorted bounded window, evicting the
  * name-largest candidate when the window exceeds `keep`. Keeps memory O(keep)

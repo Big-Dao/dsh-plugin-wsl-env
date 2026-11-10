@@ -44,6 +44,15 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     attempts: z<number, number, "defined">;
     /** Gap between attempts, in milliseconds. */
     retryMs: z<number, number, "defined">;
+    /**
+     * Workspace directories the operator opened for Windows access (9p) instead
+     * of the distro environment. A session inside one of them keeps the host
+     * preset, so the choice made in the sidebar survives later sessions.
+     *
+     * Volatile: the sidebar's access-mode dialog records the choice through the
+     * Settings service, and this row must observe it without a remount.
+     */
+    windowsWorkspaces: z<NoInfer<string[]>, NoInfer<string[]>, "volatile-defined">;
 }>>, Schemastery.ObjectT<NoInfer<{
     /** Preset to bind for a WSL workspace. */
     preset: z<string, string, "defined">;
@@ -51,6 +60,15 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     attempts: z<number, number, "defined">;
     /** Gap between attempts, in milliseconds. */
     retryMs: z<number, number, "defined">;
+    /**
+     * Workspace directories the operator opened for Windows access (9p) instead
+     * of the distro environment. A session inside one of them keeps the host
+     * preset, so the choice made in the sidebar survives later sessions.
+     *
+     * Volatile: the sidebar's access-mode dialog records the choice through the
+     * Settings service, and this row must observe it without a remount.
+     */
+    windowsWorkspaces: z<NoInfer<string[]>, NoInfer<string[]>, "volatile-defined">;
 }>>, "plain">;
 /** The config schema's validated output. */
 interface AutoPresetConfig {
@@ -60,6 +78,15 @@ interface AutoPresetConfig {
     attempts?: number;
     /** Gap between attempts, in milliseconds. */
     retryMs?: number;
+    /**
+     * Paths reserved for Windows access. The Loader hands a volatile field to
+     * `apply` as a live reference, so both spellings are accepted: a reference
+     * when the row was composed by the Loader, a plain array in hand-built test
+     * contexts.
+     */
+    windowsWorkspaces?: readonly string[] | {
+        get: () => readonly string[];
+    };
 }
 /**
  * The slice of a created agent this plugin inspects; the harness's agent

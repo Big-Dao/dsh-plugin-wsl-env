@@ -60,6 +60,18 @@ export declare function runCapture(argv: string[], signal?: AbortSignal, deadlin
  */
 export declare function listDistros(options?: WslCallOptions): Promise<string[]>;
 /**
+ * List the distros that are running right now (`wsl.exe -l --running -q`).
+ *
+ * The status panel uses this to decide which stored results may be refreshed
+ * in the background: probing a stopped distro boots it, and a page load must
+ * never do that. A failure here is not fatal to the caller — no running list
+ * means no background refresh, which is a prompt to check on demand instead.
+ *
+ * @param options - the `wsl.exe` path and optional cancellation.
+ * @returns running distro names in WSL's own order.
+ */
+export declare function listRunningDistros(options?: WslCallOptions): Promise<string[]>;
+/**
  * Parse `wsl.exe -l -q` output into distro names. A pure seam so the CRLF and
  * blank-line shapes of the real output are unit-testable on hosts without
  * `wsl.exe`.

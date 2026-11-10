@@ -270,6 +270,19 @@ for (const name of modules) {
 
 console.log(`\n${modules.length - failed}/${modules.length} modules parse`);
 
+// The web client half is the one shipped module outside `lib/` (it is written by
+// hand and served as-is by the loader), so the same parse gate covers it: a
+// syntax error there takes the whole client module down, including the surfaces
+// that used to work.
+try {
+  execFileSync(process.execPath, ["--check", join(HERE, "..", "client.js")], { stdio: "pipe" });
+  console.log("PASS  client.js parses");
+} catch (error) {
+  failed += 1;
+  const detail = String((/** @type {{stderr?: unknown}} */ (error)).stderr ?? (/** @type {Error} */ (error)).message).trim().split("\n").slice(0, 6).join("\n      ");
+  console.log(`FAIL  client.js\n      ${detail}`);
+}
+
 /** @type {Map<string, string[]>} */
 const members = new Map();
 for (const name of modules) {

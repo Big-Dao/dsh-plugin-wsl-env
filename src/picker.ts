@@ -66,6 +66,23 @@ import { AgentUnavailableError } from "./agent-errors.js";
 const DEFAULT_DISTRO_CACHE_MS = 5_000;
 
 /**
+ * Virtual root of the picker's category level: the Windows world and the WSL
+ * world. It is a sentinel, never a filesystem path; `list` recognises it and
+ * answers the two-category listing.
+ */
+export const PICKER_ROOT = "\\\\dsh.localhost\\picker";
+
+/**
+ * Virtual root of the Windows branch: the host's drive roots. Start the
+ * Windows walk at the drives rather than at one user's home, so the branch
+ * covers every volume and every account.
+ */
+export const HOST_ROOT = "\\\\dsh.localhost\\windows";
+
+/** The breadcrumb jump targets every listing shares. */
+const PICKER_ROOTS = { picker: PICKER_ROOT, windows: HOST_ROOT, wsl: UNC_PROVIDER_ROOT } as const;
+
+/**
  * The resolved service configuration, as {@link WslDirectoryPicker.Config} yields.
  */
 interface PickerConfig {
@@ -77,7 +94,9 @@ interface PickerConfig {
    */
   preferredDistro: string;
   /**
-   * Whether the Windows home is also offered at the root level.
+   * Whether the picker offers the Windows path branch. That branch starts at
+   * the drive roots, so it covers every volume and account; without it the
+   * category level carries the WSL branch alone.
    */
   includeHostHome: boolean;
   /**
@@ -177,9 +196,10 @@ export class WslDirectoryPicker extends DirectoryPicker {
      */
     preferredDistro: z.string().default(""),
     /**
-     * Also offer the Windows home directory at the root level, so a normal
-     * host folder stays reachable without typing a path. The dialog's editable
-     * path zone accepts any Windows path either way.
+     * Offer the Windows path branch, starting at the drive roots, so every
+     * volume and account stays reachable without typing a path. Without it the
+     * category level carries the WSL branch alone; the dialog's editable path
+     * zone accepts any Windows path either way.
      */
     includeHostHome: z.boolean().default(true),
     /** Bound on the directory rows one `list` call may return; the level is flagged truncated. */
@@ -279,54 +299,118 @@ export class WslDirectoryPicker extends DirectoryPicker {
   }
 
   /**
-   * The root level: one row per installed distro, plus the Windows home when
-   * configured. `path` is the preferred distro's root rather than the share
-   * root, so adopting the level with nothing selected still yields a real
-   * directory; the breadcrumb's "WSL" row carries the share root and returns
-   * here.
+   * The category level: the Windows world and the WSL world.
+   *
+   * `path` is the Windows home — a real directory — so adopting the level with
+   * nothing selected still yields something adoptable; the entries are the two
+   * branches, and the "工作区" crumb returns here from either one.
    *
    * @param signal - optional cancellation.
-   * @returns the root listing.
+   * @returns the category listing.
    */
-  async rootLevel(signal?: AbortSignal): Promise<DirectoryListing> {
-    const distros = await this.distros(signal);
-    const preferred = await this.preferredDistro(signal);
+  async categoryLevel(signal?: AbortSignal): Promise<DirectoryListing> {
     const entries: DirectoryEntry[] = [];
-    if (this.config.includeHostHome) {
-      const hostHome = homedir();
-      entries.push({ name: hostHome, path: hostHome, hidden: false });
-    }
-    for (const distro of distros) entries.push({ name: distro, path: distroRoot(distro), hidden: false });
+    // The key historically meant "also offer Windows paths"; it now gates the
+    // whole Windows branch, whose walk starts at the drives.
+    if (this.config.includeHostHome) entries.push({ name: "Windows 路径", path: HOST_ROOT, hidden: false });
+    entries.push({ name: "WSL 发行版", path: UNC_PROVIDER_ROOT, hidden: false });
+    const preferred = await this.preferredDistro(signal);
     const home = preferred.length > 0 ? await this.homeOf(preferred, signal) : homedir();
     return {
-      path: preferred.length > 0 ? distroRoot(preferred) : homedir(),
+      path: homedir(),
       home,
-      crumbs: [{ name: "WSL", path: UNC_PROVIDER_ROOT, hidden: false }],
+      crumbs: [{ name: "工作区", path: PICKER_ROOT, hidden: false }],
       entries,
       truncated: false,
     };
   }
 
   /**
-   * Breadcrumb rows for a level, headed by the WSL row.
+   * The WSL branch: one row per installed distro. `path` is the preferred
+   * distro's root rather than the share root, so adopting the level with
+   * nothing selected still yields a real directory.
+   *
+   * @param signal - optional cancellation.
+   * @returns the distro listing.
+   */
+  async distroLevel(signal?: AbortSignal): Promise<DirectoryListing> {
+    const distros = await this.distros(signal);
+    const preferred = await this.preferredDistro(signal);
+    const entries: DirectoryEntry[] = distros.map((distro) => ({
+      name: distro,
+      path: distroRoot(distro),
+      hidden: false,
+    }));
+    const home = preferred.length > 0 ? await this.homeOf(preferred, signal) : homedir();
+    return {
+      path: preferred.length > 0 ? distroRoot(preferred) : homedir(),
+      home,
+      crumbs: [
+        { name: "工作区", path: PICKER_ROOT, hidden: false },
+        { name: "WSL 发行版", path: UNC_PROVIDER_ROOT, hidden: false },
+      ],
+      entries,
+      truncated: false,
+    };
+  }
+
+  /**
+   * The Windows branch: the host's drive roots, so the walk starts at every
+   * volume rather than at one account's home.
+   *
+   * @returns the drive listing.
+   */
+  async driveLevel(): Promise<DirectoryListing> {
+    const entries: DirectoryEntry[] = [];
+    for (const letter of "CDEFGHIJKLMNOPQRSTUVWXYZ") {
+      const path = `${letter}:\\`;
+      try {
+        await stat(path);
+      } catch {
+        continue;
+      }
+      entries.push({ name: path, path, hidden: false });
+    }
+    const home = homedir();
+    return {
+      path: home,
+      home,
+      crumbs: [
+        { name: "工作区", path: PICKER_ROOT, hidden: false },
+        { name: "Windows 路径", path: HOST_ROOT, hidden: false },
+      ],
+      entries,
+      truncated: false,
+    };
+  }
+
+  /**
+   * Breadcrumb rows for a level: the category root, its world, then the path.
    *
    * @param target - the directory being listed.
    * @returns breadcrumb rows.
    */
   crumbsFor(target: string): DirectoryEntry[] {
-    return breadcrumbs(target, UNC_PROVIDER_ROOT);
+    return breadcrumbs(target, PICKER_ROOTS);
   }
 
   /**
    * List one directory level.
    *
-   * @param path - absolute directory; absent or the share root lists the distros.
+   * @param path - absent, the picker root or the WSL share root selects a
+   *   virtual level (categories, distros or drives); anything else is a real
+   *   directory.
    * @param signal - caller lifetime.
    * @returns the level's listing with its ancestry.
    * @throws DirectoryPickerError with code `directory-unreadable`.
    */
   async list(path?: string, signal?: AbortSignal): Promise<DirectoryListing> {
-    if (path === void 0 || isProviderRoot(path)) return this.rootLevel(signal);
+    // Sentinel comparison trims trailing separators; the real-path branch keeps
+    // the spelling it was given — `C:\` must stay a volume root, not `C:`.
+    const sentinel = path === undefined ? "" : path.replace(/[\\/]+$/, "");
+    if (path === undefined || sentinel === "" || sentinel === PICKER_ROOT) return this.categoryLevel(signal);
+    if (sentinel === HOST_ROOT) return this.driveLevel();
+    if (isProviderRoot(sentinel)) return this.distroLevel(signal);
     if (!fullyQualified(path)) {
       throw new DirectoryPickerError("directory-unreadable", path, `cannot list "${path}": not a fully qualified path`);
     }

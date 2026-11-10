@@ -38,7 +38,7 @@ import { appendFileSync } from "node:fs";
 import z from "@deepseek-ai/schemastery";
 import type { Context } from "@deepseek-ai/cordis";
 import { isWslUnc } from "./paths.js";
-import { shouldAdoptWslPreset } from "./preset-choice.js";
+import { isWindowsAccessWorkspace, shouldAdoptWslPreset } from "./preset-choice.js";
 
 /**
  * Set `DSH_WSL_TRACE` to a file path to record every decision this plugin makes.
@@ -74,6 +74,15 @@ export const Config = z.object({
   attempts: z.natural().min(1).default(6),
   /** Gap between attempts, in milliseconds. */
   retryMs: z.natural().default(150),
+  /**
+   * Workspace directories the operator opened for Windows access (9p) instead
+   * of the distro environment. A session inside one of them keeps the host
+   * preset, so the choice made in the sidebar survives later sessions.
+   *
+   * Volatile: the sidebar's access-mode dialog records the choice through the
+   * Settings service, and this row must observe it without a remount.
+   */
+  windowsWorkspaces: z.array(z.string()).default([]).volatile(),
 });
 
 /** The config schema's validated output. */
@@ -84,6 +93,32 @@ interface AutoPresetConfig {
   attempts?: number;
   /** Gap between attempts, in milliseconds. */
   retryMs?: number;
+  /**
+   * Paths reserved for Windows access. The Loader hands a volatile field to
+   * `apply` as a live reference, so both spellings are accepted: a reference
+   * when the row was composed by the Loader, a plain array in hand-built test
+   * contexts.
+   */
+  windowsWorkspaces?: readonly string[] | { get: () => readonly string[] };
+}
+
+/**
+ * Read the Windows-access list at consideration time.
+ *
+ * A volatile field arrives as a reference whose `get()` returns the value the
+ * current configuration resolves to; reading it per decision is what makes an
+ * edit in the sidebar apply to the next session instead of the next boot.
+ *
+ * @param value - the configured field, plain or volatile.
+ * @returns the current list, or an empty list when the field is unset.
+ */
+function windowsAccessList(value: AutoPresetConfig["windowsWorkspaces"]): readonly string[] {
+  if (value === undefined) return [];
+  if (typeof (value as { get?: unknown }).get === "function") {
+    const current = (value as { get: () => readonly string[] }).get();
+    return Array.isArray(current) ? current : [];
+  }
+  return Array.isArray(value) ? value : [];
 }
 
 /**
@@ -170,7 +205,13 @@ export async function apply(ctx: AutoPresetContext, config: AutoPresetConfig = {
     } catch {
       fallback = void 0;
     }
-    if (!shouldAdoptWslPreset({ cwd, current, fallback })) return;
+    const windowsAccess = windowsAccessList(config.windowsWorkspaces);
+    if (!shouldAdoptWslPreset({ cwd, current, fallback, windowsAccess })) {
+      if (cwd !== undefined && windowsAccess.length > 0) {
+        trace(`  -> skipped: Windows-access workspace ${JSON.stringify(cwd)}`);
+      }
+      return;
+    }
     trace(`  -> acting: fallback=${String(fallback)} isWsl=${isWslUnc(cwd as string)}`);
 
     // Deferred on purpose — see the module comment.
@@ -225,7 +266,11 @@ export async function apply(ctx: AutoPresetContext, config: AutoPresetConfig = {
     const original = facade.ensureSession;
     facade.ensureSession = async function (this: unknown, sessionId: string, cwd: string | undefined, checkPersistedIdentity: boolean, presetId: string | undefined) {
       // An explicit choice always wins, and only a distro workspace is affected.
-      if (presetId !== void 0 || cwd === undefined || !isWslUnc(cwd)) {
+      // A workspace the operator opened for Windows access keeps the host
+      // preset even here: this is the frame that makes the first mount correct,
+      // so skipping it is what the choice means.
+      if (presetId !== void 0 || cwd === undefined || !isWslUnc(cwd)
+        || isWindowsAccessWorkspace(cwd, windowsAccessList(config.windowsWorkspaces))) {
         return original.call(this, sessionId, cwd, checkPersistedIdentity, presetId);
       }
       try {

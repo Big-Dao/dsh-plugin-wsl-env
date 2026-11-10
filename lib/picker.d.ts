@@ -52,6 +52,18 @@ import { DirectoryPicker } from "@deepseek-ai/dsh-host-directory-picker";
 import type { Context } from "@deepseek-ai/cordis";
 import type { DirectoryEntry, DirectoryListing, DirectoryPickerBrowseCapability } from "@deepseek-ai/dsh-host-directory-picker";
 /**
+ * Virtual root of the picker's category level: the Windows world and the WSL
+ * world. It is a sentinel, never a filesystem path; `list` recognises it and
+ * answers the two-category listing.
+ */
+export declare const PICKER_ROOT = "\\\\dsh.localhost\\picker";
+/**
+ * Virtual root of the Windows branch: the host's drive roots. Start the
+ * Windows walk at the drives rather than at one user's home, so the branch
+ * covers every volume and every account.
+ */
+export declare const HOST_ROOT = "\\\\dsh.localhost\\windows";
+/**
  * The resolved service configuration, as {@link WslDirectoryPicker.Config} yields.
  */
 interface PickerConfig {
@@ -63,7 +75,9 @@ interface PickerConfig {
      */
     preferredDistro: string;
     /**
-     * Whether the Windows home is also offered at the root level.
+     * Whether the picker offers the Windows path branch. That branch starts at
+     * the drive roots, so it covers every volume and account; without it the
+     * category level carries the WSL branch alone.
      */
     includeHostHome: boolean;
     /**
@@ -90,9 +104,10 @@ export declare class WslDirectoryPicker extends DirectoryPicker {
          */
         preferredDistro: z<string, string, "defined">;
         /**
-         * Also offer the Windows home directory at the root level, so a normal
-         * host folder stays reachable without typing a path. The dialog's editable
-         * path zone accepts any Windows path either way.
+         * Offer the Windows path branch, starting at the drive roots, so every
+         * volume and account stays reachable without typing a path. Without it the
+         * category level carries the WSL branch alone; the dialog's editable path
+         * zone accepts any Windows path either way.
          */
         includeHostHome: z<boolean, boolean, "defined">;
         /** Bound on the directory rows one `list` call may return; the level is flagged truncated. */
@@ -108,9 +123,10 @@ export declare class WslDirectoryPicker extends DirectoryPicker {
          */
         preferredDistro: z<string, string, "defined">;
         /**
-         * Also offer the Windows home directory at the root level, so a normal
-         * host folder stays reachable without typing a path. The dialog's editable
-         * path zone accepts any Windows path either way.
+         * Offer the Windows path branch, starting at the drive roots, so every
+         * volume and account stays reachable without typing a path. Without it the
+         * category level carries the WSL branch alone; the dialog's editable path
+         * zone accepts any Windows path either way.
          */
         includeHostHome: z<boolean, boolean, "defined">;
         /** Bound on the directory rows one `list` call may return; the level is flagged truncated. */
@@ -171,18 +187,34 @@ export declare class WslDirectoryPicker extends DirectoryPicker {
      */
     homeOf(distro: string, signal?: AbortSignal): Promise<string>;
     /**
-     * The root level: one row per installed distro, plus the Windows home when
-     * configured. `path` is the preferred distro's root rather than the share
-     * root, so adopting the level with nothing selected still yields a real
-     * directory; the breadcrumb's "WSL" row carries the share root and returns
-     * here.
+     * The category level: the Windows world and the WSL world.
+     *
+     * `path` is the Windows home — a real directory — so adopting the level with
+     * nothing selected still yields something adoptable; the entries are the two
+     * branches, and the "工作区" crumb returns here from either one.
      *
      * @param signal - optional cancellation.
-     * @returns the root listing.
+     * @returns the category listing.
      */
-    rootLevel(signal?: AbortSignal): Promise<DirectoryListing>;
+    categoryLevel(signal?: AbortSignal): Promise<DirectoryListing>;
     /**
-     * Breadcrumb rows for a level, headed by the WSL row.
+     * The WSL branch: one row per installed distro. `path` is the preferred
+     * distro's root rather than the share root, so adopting the level with
+     * nothing selected still yields a real directory.
+     *
+     * @param signal - optional cancellation.
+     * @returns the distro listing.
+     */
+    distroLevel(signal?: AbortSignal): Promise<DirectoryListing>;
+    /**
+     * The Windows branch: the host's drive roots, so the walk starts at every
+     * volume rather than at one account's home.
+     *
+     * @returns the drive listing.
+     */
+    driveLevel(): Promise<DirectoryListing>;
+    /**
+     * Breadcrumb rows for a level: the category root, its world, then the path.
      *
      * @param target - the directory being listed.
      * @returns breadcrumb rows.
@@ -191,7 +223,9 @@ export declare class WslDirectoryPicker extends DirectoryPicker {
     /**
      * List one directory level.
      *
-     * @param path - absolute directory; absent or the share root lists the distros.
+     * @param path - absent, the picker root or the WSL share root selects a
+     *   virtual level (categories, distros or drives); anything else is a real
+     *   directory.
      * @param signal - caller lifetime.
      * @returns the level's listing with its ancestry.
      * @throws DirectoryPickerError with code `directory-unreadable`.

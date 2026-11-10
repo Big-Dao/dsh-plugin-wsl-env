@@ -59,7 +59,7 @@ finish() {
   exit "$summary_status"
 }
 
-echo "waiting for the harness application to close..." >&2
+echo "waiting for the harness application to close (quit it from the tray; a closed window can leave it running)..." >&2
 
 # Poll the Windows process list through interop until the app is gone.
 # Three failure modes are kept apart on purpose:
@@ -70,12 +70,24 @@ echo "waiting for the harness application to close..." >&2
 #     be read as "no app" either: it is retried, then aborts the run —
 #     through finish(), so the summary shows every probe as not run;
 #   * only a successful read with no matching process ends the wait.
+#
+# A closed window is not a closed app: the desktop build keeps running in the
+# tray, and a leftover probe instance from an interrupted run is the same image
+# name. The wait therefore prints what it is waiting for — once, then about once
+# a minute — instead of looking hung with no evidence.
 if [ "${WSL_PROBE_SKIP_WAIT:-}" != "1" ]; then
   FAILED=0
+  TICKS=0
   while true; do
     if listing="$(tasklist.exe 2>/dev/null | tr -d '\0')"; then
       FAILED=0
-      printf '%s\n' "$listing" | grep -qi "DeepSeek Harness.exe" || break
+      MATCHES="$(printf '%s\n' "$listing" | grep -i "DeepSeek Harness.exe" || true)"
+      if [ -z "$MATCHES" ]; then break; fi
+      if [ "$TICKS" -eq 0 ] || [ $((TICKS % 12)) -eq 0 ]; then
+        echo "still running — quit it from the tray (or kill these PIDs):" >&2
+        printf '%s\n' "$MATCHES" >&2
+      fi
+      TICKS=$((TICKS + 1))
     else
       FAILED=$((FAILED + 1))
       if [ "$FAILED" -ge 12 ]; then

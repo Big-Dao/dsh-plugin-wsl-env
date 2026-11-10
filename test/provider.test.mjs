@@ -477,6 +477,19 @@ check("a configured cache root is fenced and bound for confined mutations", asyn
   assert.ok(agent.argvPrefix.includes("/home/andy/.npm"), "the confined resident binds the same root the fence accepted");
 });
 
+check("the fence check resolves the roots without running the physical probe", async () => {
+  const { fs } = makeFs({ writableRoots: ["/home/andy/.npm"] });
+  fs.sandbox = coreStub(true);
+  fs.resolvedDistro = DISTRO;
+  fs.resolvedHome = "/home/andy";
+  fs.writableRootsProbe = async () => {
+    throw new Error("the fence check must not spawn wsl.exe");
+  };
+  const target = { displayPath: "/home/andy/.npm/a.tgz", targetKey: FsTargetKey("\\\\wsl.localhost\\ubuntu\\home\\andy\\.npm\\a.tgz") };
+  const fresh = await fs.checkedTarget(target, { mode: "workspace-write", workspaceRoot: WORKSPACE });
+  assert.equal(fresh.displayPath, "/home/andy/.npm/a.tgz", "the fence accepts the grant; the probe belongs to the write that binds it");
+});
+
 check("peerError preserves the coded dialect and downgrades agent loss to I/O", () => {
   const { fs } = makeFs();
   const coded = fs.peerError(new FsCodedError("cannot write \"/x\": stale", "FS_STALE_VERSION"));

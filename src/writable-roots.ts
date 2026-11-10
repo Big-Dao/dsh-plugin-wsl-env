@@ -115,8 +115,10 @@ function configuredRoot(value: string, home: string): string {
   if (typeof value !== "string" || value.length === 0 || value.includes("\u0000")) {
     throw new WritableRootError(String(value), "must be a non-empty Linux path");
   }
-  if (value === "~") return normalizeLinux(home);
-  if (value.startsWith("~/")) return normalizeLinux(`${home}/${value.slice(2)}`);
+  if (value === "~" || value.startsWith("~/")) {
+    if (home.length === 0) throw new WritableRootError(value, "cannot expand ~ without the distro home");
+    return normalizeLinux(value === "~" ? home : `${home}/${value.slice(2)}`);
+  }
   if (value.startsWith("~")) throw new WritableRootError(value, "use ~/... or an absolute Linux path; ~user grants are not supported");
   if (!isPosixAbsolute(value)) throw new WritableRootError(value, "must be an absolute Linux path or start with ~/");
   return normalizeLinux(value);

@@ -1198,7 +1198,7 @@ export declare class WslFileSystem extends LocalFileSystem {
         mode: string;
         workspaceRoot: string;
         additionalWritableRoots?: readonly string[];
-    } | undefined): Promise<string[]>;
+    } | undefined, check?: boolean): Promise<string[]>;
     /**
      * The persistent session runtime for one confined mutation, when
      * `sessionSandbox` is on. The key is the shell executor's key for the same

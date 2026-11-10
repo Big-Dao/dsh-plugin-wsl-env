@@ -245,6 +245,8 @@ async function effectiveWritableRoots(input: {
   wslPath: string;
   signal?: AbortSignal | undefined;
   run?: ((argv: string[]) => Promise<string>) | undefined;
+  /** Whether to run the one-time physical check; the fence-only caller sets false. */
+  check?: boolean;
 }): Promise<string[]> {
   try {
     const roots = resolveWritableRoots({
@@ -254,7 +256,9 @@ async function effectiveWritableRoots(input: {
       distro: input.distro,
       workspaceRoot: toLinuxPath(input.policy?.workspaceRoot ?? input.home),
     });
-    await ensureWritableRoots({ wslPath: input.wslPath, distro: input.distro, roots, signal: input.signal, ...(input.run === undefined ? {} : { run: input.run }) });
+    if (input.check !== false) {
+      await ensureWritableRoots({ wslPath: input.wslPath, distro: input.distro, roots, signal: input.signal, ...(input.run === undefined ? {} : { run: input.run }) });
+    }
     return roots;
   } catch (error) {
     if (error instanceof WritableRootError) throw new SandboxInvalidRootError(error.root, error.reason);
@@ -1311,7 +1315,12 @@ export class WslShellExecutor
     const config = this.config as unknown as WslShellExecutorConfig;
     if (!config.sandbox || policy === undefined || policy.mode !== "workspace-write") return [];
     if ((config.writableRoots?.length ?? 0) === 0 && (policy.additionalWritableRoots?.length ?? 0) === 0) return [];
-    const home = await distroHome(this, distro);
+    // Only a `~` entry needs the distro home. Policy entries are absolute
+    // execution-world paths, and absolute row entries need no probe — which
+    // keeps a policy-only grant (the composition tests' case) from spawning
+    // `wsl.exe` on a machine that has none.
+    const needsHome = (config.writableRoots ?? []).some((root) => root === "~" || root.startsWith("~/"));
+    const home = needsHome ? await distroHome(this, distro) : "";
     return effectiveWritableRoots({
       configured: config.writableRoots,
       policy,
@@ -1954,11 +1963,16 @@ export class WslFileSystem extends LocalFileSystem {
    * @returns the roots every confinement site binds.
    * @throws {SandboxInvalidRootError} when an entry cannot be granted or checked.
    */
-  async writableRootsFor(distro: string, policy: { mode: string, workspaceRoot: string, additionalWritableRoots?: readonly string[] } | undefined): Promise<string[]> {
+  async writableRootsFor(distro: string, policy: { mode: string, workspaceRoot: string, additionalWritableRoots?: readonly string[] } | undefined, check = true): Promise<string[]> {
     const config = this.config as unknown as WslFileSystemConfig;
     if (!config.sandbox || policy === undefined || policy.mode !== "workspace-write") return [];
     if ((config.writableRoots?.length ?? 0) === 0 && (policy.additionalWritableRoots?.length ?? 0) === 0) return [];
-    const home = await distroHome(this, distro);
+    // Only a `~` entry needs the distro home. Policy entries are absolute
+    // execution-world paths, and absolute row entries need no probe — which
+    // keeps a policy-only grant (the composition tests' case) from spawning
+    // `wsl.exe` on a machine that has none.
+    const needsHome = (config.writableRoots ?? []).some((root) => root === "~" || root.startsWith("~/"));
+    const home = needsHome ? await distroHome(this, distro) : "";
     return effectiveWritableRoots({
       configured: config.writableRoots,
       policy: policy as SandboxExecutionPolicy,
@@ -1966,6 +1980,7 @@ export class WslFileSystem extends LocalFileSystem {
       home,
       wslPath: config.wslPath,
       run: this.writableRootsProbe,
+      check,
     });
   }
 
@@ -2242,7 +2257,10 @@ export class WslFileSystem extends LocalFileSystem {
     }
     if (policy.mode !== "workspace-write") return target;
     const distro = await this.distroForTarget(target);
-    const extraRoots = await this.writableRootsFor(distro, policy);
+    // The fence decision needs the roots' spelling, not the one-time physical
+    // check: that check belongs to the agent that will actually bind them, and
+    // running it here would spawn `wsl.exe` for a decision that may never write.
+    const extraRoots = await this.writableRootsFor(distro, policy, false);
     const fresh = await this.resolve(target.targetKey);
     for (const root of wslWritableRoots(policy, distro, extraRoots)) {
       if (isWorldPathUnder(fresh.targetKey, root, { distro })) return fresh;

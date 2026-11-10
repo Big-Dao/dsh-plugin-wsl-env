@@ -59,6 +59,15 @@ finish() {
   exit "$summary_status"
 }
 
+# The suite's own throwaway instances run under the same image name. A leftover
+# from an interrupted run never exits on its own, so the wait below would spin
+# forever waiting for a process that is not the app. Name it and abort instead.
+stale_probe_pids() {
+  powershell.exe -NoProfile -Command \
+    "Get-CimInstance Win32_Process -Filter \"Name='DeepSeek Harness.exe'\" | Where-Object CommandLine -like '*--profile wslfs*' | Select-Object -ExpandProperty ProcessId" \
+    2>/dev/null | tr -d '\0\r' || true
+}
+
 echo "waiting for the harness application to close (quit it from the tray; a closed window can leave it running)..." >&2
 
 # Poll the Windows process list through interop until the app is gone.
@@ -72,9 +81,9 @@ echo "waiting for the harness application to close (quit it from the tray; a clo
 #   * only a successful read with no matching process ends the wait.
 #
 # A closed window is not a closed app: the desktop build keeps running in the
-# tray, and a leftover probe instance from an interrupted run is the same image
-# name. The wait therefore prints what it is waiting for — once, then about once
-# a minute — instead of looking hung with no evidence.
+# tray. A stale probe instance is NOT the app either, but it is fatal — the
+# wait prints what it is waiting for, and aborts when a probe instance is one
+# of the matches.
 if [ "${WSL_PROBE_SKIP_WAIT:-}" != "1" ]; then
   FAILED=0
   TICKS=0
@@ -84,6 +93,13 @@ if [ "${WSL_PROBE_SKIP_WAIT:-}" != "1" ]; then
       MATCHES="$(printf '%s\n' "$listing" | grep -i "DeepSeek Harness.exe" || true)"
       if [ -z "$MATCHES" ]; then break; fi
       if [ "$TICKS" -eq 0 ] || [ $((TICKS % 12)) -eq 0 ]; then
+        STALE="$(stale_probe_pids)"
+        if [ -n "$STALE" ]; then
+          echo "stale probe instance(s) from an earlier run are still up — they never exit on their own:" >&2
+          printf '  taskkill.exe /PID %s /F\n' $STALE >&2
+          echo "kill them, then rerun; this run is abandoned (nothing below will be reported as run)." >&2
+          finish
+        fi
         echo "still running — quit it from the tray (or kill these PIDs):" >&2
         printf '%s\n' "$MATCHES" >&2
       fi

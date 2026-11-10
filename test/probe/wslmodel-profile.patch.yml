@@ -44,7 +44,7 @@
 
 - insert:
     - id: wsl-shell
-      name: 'dsh-plugin-wsl-env'
+      name: 'dsh-plugin-wsl-env/shell'
       config:
         distro: ''   # empty: WSL's default distro
         cwd: ''   # empty: the distro user's home

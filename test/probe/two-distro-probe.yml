@@ -25,7 +25,7 @@
 
 - insert:
     - id: wsl-shell
-      name: 'dsh-plugin-wsl-env'
+      name: 'dsh-plugin-wsl-env/shell'
       config:
         # AUTO: the request workdir's UNC names the distro, which is the whole
         # point of this probe.

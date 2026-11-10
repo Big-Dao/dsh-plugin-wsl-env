@@ -23,7 +23,7 @@
 
 - insert:
     - id: wsl-shell
-      name: 'dsh-plugin-wsl-env'
+      name: 'dsh-plugin-wsl-env/shell'
       config:
         distro: '@DISTRO@'
         loginShell: true

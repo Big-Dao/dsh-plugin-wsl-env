@@ -16,6 +16,12 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-11-10
+
+One headline: the root filesystem answers host spelling where the Host's path
+consumers read it, so "Open in app" and "Reveal in file manager" work on WSL
+files again.
+
 ### Fixed
 
 - **"Open in app" and "Reveal in file manager" work on WSL files again
@@ -27,10 +33,8 @@ were part of the record.
   `session.openWorkspacePath` / `session.workspacePathApplications` (the
   preview header's application menu, the file context menu's "Show in folder",
   the deliverables open route) was refused with `Path has no verified Host
-  path`; with a Windows Host cwd the check passed only by mangling the path to
-  `C:\home\…`, so Explorer opened a path that does not exist and still reported
-  success because its exit-1 handoff is accepted. The router now answers the
-  target's canonical UNC — the same answer the session `WslFileSystem` and the
+  path`. The router now answers the target's canonical UNC — the same answer the
+  session `WslFileSystem` and the
   shipped host backend give — and strips the share root's trailing separator so
   a distro-root workspace closes too. `displayPath` stays Linux and `contains`
   still compares POSIX coordinates. Known cost: the GUI change feed and

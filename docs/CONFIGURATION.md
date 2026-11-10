@@ -12,10 +12,16 @@ rows and values shipped by this plugin.
 A profile layer can target a top-level row by `id`. Plugin rows at that level
 include `fs-routing`, `directory-picker-wsl`, `subprocess-wsl`, `wsl-shell-env`,
 `wsl-preflight`, `auto-preset`, `wsl-cwd-prompt`, `wsl-cwd-prompt-tool`,
-`wsl-update-check`, `wsl-doctor-command`, `wsl-env-client-host`, and
+`wsl-update-check`, `wsl-doctor-command`, `wsl-status`, `wsl-env-client-host`, and
 `preset-wsl`. The `wsl-shell`, `wsl-fs` and `wsl-doctor-tool` rows are nested
 inside `preset-wsl.config.plugins`; a profile entry targeting those ids directly
 is ignored with a `patch: entry <id> not found` warning.
+
+A root-level `- id: wsl-shell` / `wsl-fs` entry patches a top-level row that
+does not exist in the shipped composition, so it is ignored with a warning.
+An entry indented under `- insert:` is a different thing: it adds a real
+top-level row, which is how a probe profile can mount these providers without
+the preset. The doctor's `config.preset-trap` check only reports the former.
 
 A row's `config` is replaced as a whole. Include any non-default values from
 the bundled row that you want to retain. This matters most for `preset-wsl`,
@@ -112,7 +118,7 @@ The root router is app-level, not session-owned, so it does not use
 | Row | Key | Default / shipped value | Description |
 |---|---|---|---|
 | `directory-picker-wsl` | `preferredDistro` | `''` (shipped) | Distro shown first and used for the Home location. |
-| | `includeHostHome` | `true` (shipped) | Include the Windows home directory. |
+| | `includeHostHome` | `true` (shipped) | Offer the Windows path branch; its walk starts at the drive roots. |
 | | `maxEntries` | `1000` (shipped) | Maximum entries returned for one directory. |
 | | `wslPath` | `wsl.exe` | Path to `wsl.exe`. |
 | | `distroCacheMs` | `5000` | Cache lifetime for the distro list. |
@@ -133,6 +139,10 @@ The root router is app-level, not session-owned, so it does not use
 | `auto-preset` | `preset` | `wsl` | Preset to bind when a session workspace is inside a distro. An explicit operator selection is preserved. |
 | | `attempts` | `6` | Number of attempts to bind the preset. |
 | | `retryMs` | `150` | Delay between attempts, in milliseconds. |
+| | `windowsWorkspaces` | `[]` | Distro directories opened for Windows access (UNC paths). Sessions under them keep the host preset; the add-workspace prompt writes here, and Settings can change it back. |
+| `wsl-status` | `cacheMs` | `15000` | How long one distro's verdict stays fresh in memory, in milliseconds (the last result is persisted separately). |
+| | `timeoutMs` | `90000` | Deadline for one check or repair run, in milliseconds. |
+| | `wslPath` | `wsl.exe` | `wsl.exe` used to list the distros. |
 | `wsl-preflight` | `distro` | `''` | Distro to check. Empty or `auto` follows the session workspace. |
 | | `wslPath` | `wsl.exe` | Path to `wsl.exe`. |
 | | `sandbox` | `true` | Run the session-start `bwrap` check. |
@@ -300,13 +310,17 @@ It also checks
 the session-runtime prerequisites when `sessionSandbox: true`. The warning is
 advisory: it does not install packages or change the providers' fail-closed
 behavior. Set `sandbox: false` on this row or remove it to silence the
-sandbox warning. Set `sessionSandbox: false` when the profile does not use a
+preflight warning. Set `sessionSandbox: false` when the profile does not use a
 session runtime.
 
 Setting `sandbox: false` on `wsl-shell` or `wsl-fs` runs commands or writes
 without confinement; their `sandboxMode` becomes `undefined`. The tool layer
 reports that no sandbox is active. On `fs-routing`, the setting disables the
-mutation fence; that row reports `sandboxMode: undefined` either way.
+mutation fence; that row reports `sandboxMode: undefined` either way. When
+every surface opts out — `sandbox: false` on all three rows *and*
+`sessionSandbox: false` — the doctor still reports it, as a **warning** that
+names the unconfined posture and skips the fence smoke; the opt-out never
+blocks the verdict.
 
 ### Message language
 
@@ -359,20 +373,34 @@ the peer floor, a fresh agent handshake, stale session scopes, the known
 profile-patch and deprecated-key traps — each failure with a copyable remedy.
 The run ends in a verdict (`ready` or `blocked`) computed under the effective
 configuration: `--json` is the machine contract (schemaVersion 2), `--fix`
-re-verifies what it fixed (packages need `--fix --install` and an explicit
-confirmation), `--all` checks every installed distro, `--bundle
+re-verifies what it fixed (the plugin-owned stale-scope sweep and agent-cache
+purge are automatic; packages need `--fix --install` and an explicit
+confirmation; `--fix-owned` restricts a run to the plugin-owned two), `--all`
+checks every installed distro, `--bundle
 <path>` writes the attachable diagnostic file (`--redact` strips the paths),
 and `--locale <tag>` (or `DSH_WSL_DOCTOR_LOCALE`) selects the skeleton
 language without re-probing. `--yes` skips the confirmation prompt (not the
 confirmation gate itself), and `--read-only` refuses to run together with
-`--fix` or `--install`. `DSH_UPDATE_REGISTRIES` overrides the
-registries the on-demand update check asks (comma-separated; empty skips
-it — for air-gapped machines).
+`--fix` or `--install`.
 See [DIAGNOSTICS.md](DIAGNOSTICS.md) for the verdict contract and the
 error-code map. With the CLI distribution, `dsh --profile <name> --dump-config` inspects
 the composed profile without booting it and shows whether a row override
 applied; the desktop app has no `dsh` command, so read `cordis.patch.yml` and
 the Plugins page there.
+The sidebar's **WSL environment** panel renders the same quick digest over
+`GET /api/wsl-env/status` and posts the full-run action to the same route: a
+doctor run with `--fix-owned`, which sweeps stale session scopes and purges a
+broken agent cache, then re-verifies both. Each row states when the check ran, its source (manual or background) and its
+result structure (per-status totals and per-section tallies). The last result
+per distro is stored at `$DSH_HOME/cache/dsh-plugin-wsl-env/status.json`
+(`~/.dsh/...` when the host names no home), so a page reload or app restart
+still shows it. On load, a stored result for a distro that is currently
+running is re-checked in the background; a failed background run overwrites
+the stored result. Nothing is labeled expired — delete the file to reset the
+panel's history. The label follows the report: **修复** when
+such a repairable finding is present, **完整检查** otherwise; every other
+warning keeps its manual remedy. It never installs packages or rewrites
+Windows-owned or user configuration.
 Use `scripts/bootstrap.sh <distro>` to inspect distro prerequisites.
 
 | Symptom | Result | Action |

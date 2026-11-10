@@ -22,18 +22,21 @@ _本页是权威版本；英文译本见 [QUICKSTART](QUICKSTART.md)。_
 | systemd + Linger（会话 runtime 需要） | `node <plugin>/scripts/doctor.mjs`（已安装）或 `pnpm run doctor`（检出目录） | 在 `/etc/wsl.conf` 设置 `[boot] systemd=true`，`wsl --shutdown`，然后 `loginctl enable-linger "$USER"`；或设置 `sessionSandbox: auto`/`false` |
 | Node `^22.19.0` 或 `>=24.0.0` | 仅源码/开发工作需要 | 使用已发布的插件时，发行版内不需要 Node |
 
-手边没有终端？有三条不依赖终端的路：composer 里的 **WSL 诊断** 按钮打开菜单
-（quick、full 或单个分区），投下一条 `/wsl-doctor` 命令——宿主侧执行、直接在
-UI 渲染，不进模型对话、零 token；在会话里请求诊断，模型会运行本插件挂载的
-`wsl_doctor` 工具，判定落在对话里；会话启动预检在每次会话打开时通报同样的
-判定。`DSH_WSL_DOCTOR` 还携带一条现成命令，可在发行版内执行 doctor 脚本本身
+手边没有终端？有几条不依赖终端的路：侧边栏的 **WSL 环境** 面板按发行版运行
+doctor 快速检查，结果以状态徽标、编号的待修项与告警列出，并在存在相应可修复项时把对插件自有状态
+（残留 scope、损坏的 agent 缓存）的完整运行标为 **修复**，否则标为 **完整检查**；在输入框里输入
+`/wsl-doctor [quick|full|<分区>]` 同样在宿主侧执行、直接渲染在 UI，不进模型
+对话、零 token；在会话里请求诊断，模型会运行本插件挂载的 `wsl_doctor` 工具，
+判定落在对话里；会话启动预检在每次会话打开时通报同样的判定。`DSH_WSL_DOCTOR` 还携带一条现成命令，可在发行版内执行 doctor 脚本本身
 （`sh -c "$DSH_WSL_DOCTOR --json"`）。
 
 doctor（`scripts/doctor.mjs`，或在检出目录中运行 `pnpm run doctor`）会检查
 环境并以裁决收尾：`ready` 表示首条命令应能成功；`blocked` 会列明待修项，
 每项附可复制的处理办法。发行版的 WSL 模式由 doctor 自己从 `wsl.exe -l -v`
-读取，无需单独确认。doctor 默认只读，除非传入 `--fix`（清理过期 scope，以及
-确认后的 Windows git 信任）或 `--fix --install`（安装软件包，需确认）；
+读取，无需单独确认。doctor 默认只读，除非传入 `--fix`（清理过期 scope、清理损坏的
+agent 缓存，两者都会复检；以及确认后的 Windows git 信任）或
+`--fix --install`（安装软件包，需确认）；`--fix-owned` 把修复限定在
+插件自有状态（面板的“修复”动作）；
 `--bundle <路径>` 写出可附加到问题报告的诊断文件（`--redact`
 将其中的路径脱敏）。运行可以收窄范围——`--quick` 只探首条命令的前置项
 （约 10 秒），`--sections <分区清单>`（逗号分隔）只运行指定分区——
@@ -70,6 +73,18 @@ dsh --profile <profile> --dump-config      # 输出中必须包含插件的行
 或直接打开 UNC 路径。会话的命令、文件工具、终端和预览
 都在该发行版中运行；打开 Windows 文件夹则保留正常的 Windows 环境。
 两个发行版可以同时打开，各自拥有自己的环境。
+
+侧边栏的 **WSL 环境** 面板是诊断页：它列出已安装的发行版，可对单个发行版运行
+一次 doctor 快速检查，显示 bwrap、systemd、Linger 等前置项是否正常；已检查的行提供一次完整 doctor（`--fix-owned`）：存在可自动修复项（残留 session
+scope 或损坏的 agent 缓存）时标为 **修复**，否则标为 **完整检查**；行内还显示上次
+检查时间、来源（手动，或页面加载时的后台复核）与结果结构（通过/告警/失败/
+信息/跳过，以及分区分布）；最后一次结果会从本地存档恢复，正在运行的发行版会在
+页面加载时后台复核；运行时按需清扫
+残留 scope、清理缓存并逐一复检，其余告警保留各自的手动处理办法，不安装软件包、
+不改写 Windows 配置（检查会让停止的发行版启动，所以两种动作都只在点击时执行）。工作区仍在 **添加工作区** 里打开；选中发行版内的文件夹时，应用会问一次打开方式：**Remote WSL**（默认，命令、
+文件与终端都在发行版内）或 **Windows 访问**（把该文件夹当作普通 Windows 共享，经 9p
+读写，没有 Linux 工具链）。选择记录在 `auto-preset` 行的 `windowsWorkspaces` 里，
+对该工作区之后新建的会话同样生效。
 
 ### 在 VS Code 中打开工作区（Remote-WSL）
 

@@ -26,6 +26,12 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
   rename 之后所在目录也会尽力 fsync（shell agent）。native agent 目前只有
   文件级 `sync_all` —— 见 peer 对齐文档的分歧注记。拒绝目录 fsync 的
   文件系统保持与对端相同的承诺。
+- **shell agent 的工具下限是 GNU 套件。** 它需要 coreutils、GNU `find`
+  （`-printf`）、`realpath` 与 `od`；最小化 BusyBox 镜像（未装 `findutils`
+  的 Alpine）会在 FSB stat/list 上失败并报 `find: unrecognized: -printf`。
+  `auto` 优先使用的打包 native agent 不需要这些工具——只有在钉死
+  `agentBackend: shell` 时才需要安装 `findutils`。
+
 - **含反斜杠的 Linux 文件名无法被寻址** —— 反斜杠是 UNC 分隔符，
   `a\b.ts` 会往返成 `a/b.ts`。请把文件名改掉，不要用反斜杠；
   这是坐标系自身的限制。
@@ -146,11 +152,16 @@ doctor 的 `verdict` 在生效配置（应用加载的 profile 层叠加在随�
 的运行设 60 秒时限（已解析出发行版时 120 秒），让它带着收窄提示收尾，而不是
 一直显示「执行中」直到命令面的整个预算耗尽。
 
-doctor 只读取和报告，从不改写用户或发行版所有的文件。`.wslconfig`、
+侧边栏保存的是上一次运行的结果，不是实时裁决：时间戳与来源标明它是哪次运行，
+后台也不会为已停止的发行版启动探测。doctor 只读取和报告，从不改写用户或发行版
+所有的文件。`.wslconfig`、
 `/etc/wsl.conf`、WSL1 转换和发行版安装只以补救命令的形式出现——补救文本
-携带确切的命令；可自动修复的集合仅限安全且可逆的部分（过期 scope、
-`--install` 加确认后的可选软件包、以及同一道确认门后的 Windows git
-`safe.directory` 白名单）。裁决从不升级沙箱的安全声明：
+携带确切的命令；可自动修复的集合仅限安全且可逆的部分（过期 scope、插件自有的
+agent 缓存、`--install` 加确认后的可选软件包、以及同一道确认门后的
+Windows git `safe.directory` 白名单）。`--fix-owned` 把运行收窄到插件自有
+的两类（过期 scope 与缓存）；侧边栏面板的“修复”动作正是这次运行，存在这两类
+可修复项时标为“修复”，否则标为“完整检查”，因此它永远不会安装软件包或
+改写 Windows 所有的配置，也不会暗示仅能手动处理的告警可被自动修复。裁决从不升级沙箱的安全声明：
 `enforcement: partial` 不受影响。
 
 ## 会话启动建议

@@ -9,7 +9,7 @@ this page is the quick tour.
 |---|---|---|
 | `.` | — | the no-op root host half: a deliberate no-op plugin mounted at the bare package name, anchoring the browser client below (before 0.21.0 this resolved to the executor itself — see `./shell`) |
 | `./shell` | `WslShellExecutor` | the model-facing shell executor (`ctx.shell`), mounted inside the WSL preset's isolate realm |
-| `./client` | — (no importable surface) | the browser half the harness's web client loader serves for the bare-name row: the composer doctor button |
+| `./client` | — (no importable surface) | the browser half the harness's web client loader serves for the bare-name row: the sidebar status panel and the access-mode prompt |
 | `./fs` | `WslFileSystem` | the filesystem provider over the distro (`ctx.fs`) |
 | `./index` | `WslShellExecutor`, `WslFileSystem`, `doctorReport`, `effectiveMaskWindowsDrive`, … | the composition root's full named surface — the integration API (`doctorReport` for tooling that wants the doctor's versioned report) |
 | `./fs-routing` | `WslRoutingFileSystem` | the root-plane coordinate router |
@@ -22,6 +22,7 @@ this page is the quick tour.
 | `./file-reference-wsl` | `traversalArgv`, `parseTraversalListing`, `FileReferenceTraversal`, … | the distro-side traversal strategy for `@` completion (pure library — built and tested, not yet wired to a row; see ARCHITECTURE) |
 | `./wsl-doctor-tool` | the `wsl-doctor-tool` row | the `wsl_doctor` model tool: in-process diagnosis with scoping (`depth`, `section`) |
 | `./wsl-doctor-command` | the `wsl-doctor-command` row | the `/wsl-doctor` UI command: spawns the standalone doctor CLI, renders detached from model history |
+| `./status` | the `wsl-status` row | the sidebar panel's route over `/api`: installed distros, one distro's quick doctor, and the `--fix-owned` full run (repair when repairable, full check otherwise); the last result persists across reloads and running distros' stored results refresh in the background |
 | `./paths` | `uncToPosix`, `toLinuxPath`, `toWorldPath`, … | the coordinate mappers |
 | `./picker` | `WslDirectoryPicker` | the distro-aware directory picker |
 | `./auto-preset` | the `auto-preset` row | first-run profile bootstrap |

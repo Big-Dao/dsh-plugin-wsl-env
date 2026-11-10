@@ -29,6 +29,12 @@ operations never use the 9p share.
   after the rename (shell agent). The native agent keeps its file-level
   `sync_all` only — see the peer-parity divergence note. A filesystem that
   refuses a directory fsync keeps the peer's own promise.
+- **The shell agent's tool floor is GNU.** It needs coreutils, GNU `find`
+  (`-printf`), `realpath` and `od`; a minimal BusyBox image (Alpine without
+  `findutils`) fails its FSB stat/list with `find: unrecognized: -printf`. The
+  packaged native agent, which `auto` prefers, does not need those tools —
+  install `findutils` only when pinning `agentBackend: shell`.
+
 - **A Linux filename containing a backslash cannot be addressed** — the backslash is
   the UNC separator, so `a\b.ts` round-trips to `a/b.ts`. Rename away from backslash
   names; this is the coordinate system's own limit.
@@ -160,13 +166,21 @@ CLI's `--all` says the same thing explicitly). The handler bounds an unresolved
 run at 60 s (a resolved one at 120 s) so it settles with the narrowing hint
 instead of leaving the card "executing" for the dispatcher's whole budget.
 
-The doctor reads and reports; it never rewrites user- or distro-owned files.
+The sidebar's stored result is a record of the last run, not a live verdict:
+its timestamp and source say which run it is, and a probe is never started for
+a stopped distro in the background. The doctor reads and reports; it never
+rewrites user- or distro-owned files.
 `.wslconfig`, `/etc/wsl.conf`, a WSL1 conversion and distro installation are
 remedy-only — the remedy text carries the exact command — and the fixable set
-is limited to what is safe and reversible (stale scopes, the optional
-packages behind `--install` plus a confirmation, and the Windows git
-safe.directory whitelist behind the same gate). The verdict never upgrades
-the sandbox's security statement: `enforcement: partial` is untouched.
+is limited to what is safe and reversible (stale scopes, the plugin-owned
+agent cache, the optional packages behind `--install` plus a confirmation, and
+the Windows git safe.directory whitelist behind the same gate). `--fix-owned`
+narrows a run to the plugin-owned two (stale scopes and the cache); the
+sidebar panel's full-run action is exactly that run, labeled **修复** only when
+one of those findings is present and **完整检查** otherwise, so it can never
+install a package or write Windows-owned configuration, and it never implies
+that a remedy-only warning is auto-fixable. The verdict never upgrades the
+sandbox's security statement: `enforcement: partial` is untouched.
 
 ## Session-start advisories
 

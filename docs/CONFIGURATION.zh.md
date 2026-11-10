@@ -12,10 +12,15 @@ profile 设置存放在 `$DSH_HOME/profiles/<name>/cordis.patch.yml`。可以用
 profile 层可以按 `id` 指向顶层行。这一层的插件行包括 `fs-routing`、
 `directory-picker-wsl`、`subprocess-wsl`、`wsl-shell-env`、`wsl-preflight`、
 `auto-preset`、`wsl-cwd-prompt`、`wsl-cwd-prompt-tool`、`wsl-update-check`、
-`wsl-doctor-command`、`wsl-env-client-host` 和 `preset-wsl`。
+`wsl-doctor-command`、`wsl-status`、`wsl-env-client-host` 和 `preset-wsl`。
 `wsl-shell`、`wsl-fs` 与 `wsl-doctor-tool` 嵌套在
 `preset-wsl.config.plugins` 内；直接按这些 id 配置的 profile 条目会被忽略，
 并产生 `patch: entry <id> not found` 警告。
+
+根级的 `- id: wsl-shell` / `wsl-fs` 条目会去 patch 一个在随包组合里并不存在的
+顶层行，因此被忽略并给出告警；缩进在 `- insert:` 下的条目是另一回事——它会新增
+一个真实的顶层行，探针 profile 正是用这种方式在不启用 preset 的情况下挂载这两个
+provider。doctor 的 `config.preset-trap` 只报告前者。
 
 一行的 `config` 是整体替换。如果你想保留随包行中的非默认值，
 必须把它们一并写入。这对 `preset-wsl` 尤其重要：
@@ -110,7 +115,7 @@ Loader 在挂载该行之前会校验宿主和发行版设置；
 | 行 | 键 | 默认 / shipped 值 | 说明 |
 |---|---|---|---|
 | `directory-picker-wsl` | `preferredDistro` | `''`（shipped） | 首位展示的发行版，也是 Home 位置使用的发行版。 |
-| | `includeHostHome` | `true`（shipped） | 包含 Windows 家目录。 |
+| | `includeHostHome` | `true`（shipped） | 提供 Windows 路径分支；该分支从驱动器根开始。 |
 | | `maxEntries` | `1000`（shipped） | 单个目录返回的最大条目数。 |
 | | `wslPath` | `wsl.exe` | `wsl.exe` 的路径。 |
 | | `distroCacheMs` | `5000` | 发行版列表的缓存时长。 |
@@ -131,6 +136,10 @@ Loader 在挂载该行之前会校验宿主和发行版设置；
 | `auto-preset` | `preset` | `wsl` | 会话工作区位于发行版内时绑定的 preset。操作者的显式选择会被保留。 |
 | | `attempts` | `6` | 绑定 preset 的尝试次数。 |
 | | `retryMs` | `150` | 两次尝试之间的延迟，单位毫秒。 |
+| | `windowsWorkspaces` | `[]` | 以 Windows 访问方式打开的发行版目录（UNC 路径）。这些路径下的会话保留宿主 preset；添加工作区时的访问方式选择会写入这里，设置页可改回。 |
+| `wsl-status` | `cacheMs` | `15000` | 单个发行版判定在内存中的新鲜时间，单位毫秒（最后一次结果另行持久化）。 |
+| | `timeoutMs` | `90000` | 单次检查或修复运行的死线，单位毫秒。 |
+| | `wslPath` | `wsl.exe` | 列出发行版用的 `wsl.exe`。 |
 | `wsl-preflight` | `distro` | `''` | 要检查的发行版。空或 `auto` 跟随会话工作区。 |
 | | `wslPath` | `wsl.exe` | `wsl.exe` 的路径。 |
 | | `sandbox` | `true` | 运行会话启动时的 `bwrap` 检查。 |
@@ -287,13 +296,15 @@ wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap
 重启之后判定就已经出现在日志里，该发行版上的会话只会重复注入运行时上下文条目。
 `sessionSandbox: true` 时，它还会检查会话 runtime 的前置条件。
 该警告仅供参考：它不会安装软件包，也不会改变提供者关闭（fail-closed）
-的行为。在该行设置 `sandbox: false` 或移除该行可让沙箱警告静音。
+的行为。在该行设置 `sandbox: false` 或移除该行可让预检警告静音。
 profile 不使用会话 runtime 时，设置 `sessionSandbox: false`。
 
 在 `wsl-shell` 或 `wsl-fs` 上设置 `sandbox: false` 后，命令或写入
 将无约束地运行；其 `sandboxMode` 变为 `undefined`。工具层
 会报告没有沙箱生效。在 `fs-routing` 上，该设置会禁用变更围栏；
-无论开关如何，该行都报告 `sandboxMode: undefined`。
+无论开关如何，该行都报告 `sandboxMode: undefined`。当所有表面都选择
+退出——三行均为 `sandbox: false` 且 `sessionSandbox: false`——doctor
+仍会以**警告**点名无约束状态并跳过围栏冒烟；该选择退出永不阻断裁决。
 
 ### 消息语言
 
@@ -332,16 +343,25 @@ profile 不使用会话 runtime 时，设置 `sessionSandbox: false`。
 bubblewrap、systemd/Linger、peer 下限、新 agent 握手、残留会话 scope、已知的
 profile 补丁与废弃键陷阱——每个失败附可复制的修复。运行以生效配置下计算的
 裁决（`ready` 或 `blocked`）收尾：`--json` 是机器契约（schemaVersion 2），
-`--fix` 复核它修过的项（安装软件包需要 `--fix --install` 并显式确认），
-`--all` 检查每个已装发行版，`--bundle <路径>` 写出可附加的诊断文件
+`--fix` 复核它修过的项（插件自有的残留 scope 清扫与 agent 缓存清理是
+自动的；安装软件包需要 `--fix --install` 并显式确认；`--fix-owned` 把运行
+限定在插件自有的这两类），`--all` 检查每个已装发行版，`--bundle <路径>` 写出可附加的诊断文件
 （`--redact` 脱敏路径），`--locale <标签>`（或 `DSH_WSL_DOCTOR_LOCALE`）
 无需重新探测即可选择骨架语言。`--yes` 跳过确认提示（不跳过确认门本身），
-`--read-only` 拒绝与 `--fix` 或 `--install` 同用。按需的 registry 更新
-查询可用 `DSH_UPDATE_REGISTRIES` 覆盖（逗号分隔；置空即跳过，气隙机器适用）。
+`--read-only` 拒绝与 `--fix` 或 `--install` 同用。
 判定契约与错误码地图见 [DIAGNOSTICS.zh.md](DIAGNOSTICS.zh.md)。
 CLI 发行版可用 `dsh --profile <name> --dump-config` 检查合成后的 profile，
 无需真正启动；输出会显示某行的覆盖是否生效。桌面应用没有 `dsh` 命令，
 请直接查看 `cordis.patch.yml` 与 Plugins 页面。
+侧边栏的 **WSL 环境** 面板经 `GET /api/wsl-env/status` 渲染同一份快速摘要，
+并把完整运行动作提交到同一路由：以 `--fix-owned` 运行 doctor，清扫残留
+session scope、清理损坏的 agent 缓存并逐一复检。行内显示上次检查时间、来源（手动或后台）与结果结构（各状态计数与分区分布）。
+每个发行版的最后一次结果存放在 `$DSH_HOME/cache/dsh-plugin-wsl-env/status.json`
+（宿主未指定 home 时为 `~/.dsh/...`），页面刷新或应用重启后仍可见。加载时会对
+正在运行的发行版在后台复核；后台失败会覆盖已存结果。不标记“已过期”——删除该
+文件即可重置面板历史。按钮标签随报告切换：
+存在这类可自动修复项时显示“修复”，否则显示“完整检查”；其余告警保留各自的
+手动处理办法。它不会安装软件包，也不会改写 Windows 或用户所有的配置。
 使用 `scripts/bootstrap.sh <distro>` 检查发行版前置依赖。
 
 | 现象 | 结果 | 处理 |

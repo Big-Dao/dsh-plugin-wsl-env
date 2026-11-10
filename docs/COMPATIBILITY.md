@@ -76,6 +76,11 @@ Alpine (musl).
 | Alpine | Import the **minirootfs** tarball (`wsl --import`), not the standard/cloud images. Create a normal user and set `[user] default=…` in `/etc/wsl.conf` — the imported default is root, and a root agent writes 0600 files the probe user cannot read. Install `coreutils util-linux` (busybox `mktemp`/`ps` lack the used options) and `shadow` for `useradd`. |
 | Fedora / openSUSE / Arch | systemd PID 1 out of the box. openSUSE: `zypper --non-interactive` (the plain `-y` still prompts); Arch: `pacman -Sy --needed`. |
 
+On a minimal Alpine image the **shell** agent's FSB enumeration needs GNU
+`findutils` (BusyBox `find` lacks `-printf`); the packaged native agent does
+not, and `auto` prefers it. Install `findutils` only when pinning
+`agentBackend: shell` — the doctor decodes the failure and names that package.
+
 Dependencies used everywhere: `bash bubblewrap git nodejs` (node 20–26 all
 pass; the plugin's `engines` floor applies to the harness host, not to probe
 nodes). The probe runner per distro, from inside the distro:

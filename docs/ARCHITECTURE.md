@@ -65,7 +65,7 @@ functions.
 
 | Subpath | Class or name | File | What it does |
 |---|---|---|---|
-| `dsh-plugin-wsl-env/picker` | `WslDirectoryPicker` | [`lib/picker.js`](../lib/picker.js) | Adds the installed distros to the folder picker, next to the Windows home directory, and lists distro levels from inside the distro (the resident's `find`, one-shot `wsl.exe` when it is out). |
+| `dsh-plugin-wsl-env/picker` | `WslDirectoryPicker` | [`lib/picker.js`](../lib/picker.js) | The folder picker's two worlds: a category root with a Windows branch (starting at the drives) and a WSL branch (one row per installed distro); distro levels list from inside the distro (the resident's `find`, one-shot `wsl.exe` when it is out). |
 | `dsh-plugin-wsl-env/auto-preset` | `auto-preset` | [`lib/auto-preset.js`](../lib/auto-preset.js) | Binds the `wsl` agent preset when a new session's workspace is inside a distro. |
 | `dsh-plugin-wsl-env/shell-env` | `wsl-shell-env` | [`lib/shell-env.js`](../lib/shell-env.js) | Contributes `DSH_WSL_DISTRO`, `DSH_WSL_SHELL`, `DSH_WSL_HOME` and `DSH_WSL_PORTS` to the managed `DSH_*` namespace, choosing the session workspace's distro (default/pinned facts are probed at mount; other distros are warmed when their session appears). The port list is a snapshot per active distro, refreshed every `portsRefreshMs` (10000 by default), so a server started moments ago may not be listed yet. |
 | `dsh-plugin-wsl-env/preflight` | `wsl-preflight` | [`lib/preflight.js`](../lib/preflight.js) | Runs the environment advisory at session start — and, with `startup: true` (the default), once at plugin load — surfacing the doctor-style verdict as a non-gating warning. |
@@ -74,7 +74,8 @@ functions.
 | `dsh-plugin-wsl-env/cwd-prompt-tool` | `wsl-cwd-prompt-tool` | [`lib/cwd-prompt-tool.js`](../lib/cwd-prompt-tool.js) | Serves the model's read/`cd` tool with the same semantics the harness ships, rewriting the returned `cwd` to the distro's POSIX form. |
 | `dsh-plugin-wsl-env/wsl-doctor-tool` | `wsl-doctor-tool` | [`lib/wsl-doctor-tool.js`](../lib/wsl-doctor-tool.js) | The `wsl_doctor` model tool: the doctor in-process (merging the live resident's state), scoped by `depth`/`section`, rendered as the itemized digest. |
 | `dsh-plugin-wsl-env/wsl-doctor-command` | `wsl-doctor-command` | [`lib/wsl-doctor-command.js`](../lib/wsl-doctor-command.js) | The `/wsl-doctor` UI command: spawns the standalone doctor CLI as a host subprocess and renders the same digest detached from model history. |
-| `dsh-plugin-wsl-env` (bare name) | `wsl-env-client-host` | [`lib/client-host.js`](../lib/client-host.js) | The deliberate no-op host half whose bare-name mount lets the web client roster serve the composer button (`./client`). |
+| `dsh-plugin-wsl-env/status` | `wsl-status` | [`lib/status.js`](../lib/status.js) | The sidebar panel's route (`GET /api/wsl-env/status`): lists the installed distros and runs one distro's quick doctor; `POST` on the same route runs the full doctor with `--fix-owned` (labeled repair when stale scopes or a broken agent cache are repairable, a full check otherwise; both re-verified). Answered over the Host connection's authenticated exact-Fetch channel; the last result per distro is persisted under `$DSH_HOME/cache/dsh-plugin-wsl-env/status.json` and stored results for running distros are refreshed in the background. |
+| `dsh-plugin-wsl-env` (bare name) | `wsl-env-client-host` | [`lib/client-host.js`](../lib/client-host.js) | The deliberate no-op host half whose bare-name mount lets the web client roster serve `./client`: the sidebar's WSL environment panel and the post-add access-mode prompt. |
 
 Three modules support them and import no DSH package.
 [`lib/paths.js`](../lib/paths.js) translates paths.
@@ -97,7 +98,7 @@ The environment is per session, not per process:
 | `subprocess-wsl` | at the app level, called the composition; the shipped `subprocess` row is disabled | because no session identity reaches the terminal controller, see below |
 | `workspace-files` | shipped, not replaced | its client half is the browser `file` resource provider the Sidebar previews need; it reads WSL paths through the routed root filesystem |
 | `fs-routing` | at the app level; the shipped `fs-sandbox` row is disabled | the root `ctx.fs` is session-less, and its write fence has no root-plane consumers |
-| `directory-picker-wsl`, `wsl-shell-env`, `auto-preset`, `wsl-preflight`, `wsl-update-check`, `wsl-cwd-prompt`, `wsl-cwd-prompt-tool`, `wsl-doctor-command`, `wsl-env-client-host` | at the app level | they answer questions that are not scoped to a single preset; `shell-env` resolves its facts per session workspace, and the advisory/diagnosis rows must answer even when a session never opens |
+| `directory-picker-wsl`, `wsl-shell-env`, `auto-preset`, `wsl-preflight`, `wsl-update-check`, `wsl-cwd-prompt`, `wsl-cwd-prompt-tool`, `wsl-doctor-command`, `wsl-status`, `wsl-env-client-host` | at the app level | they answer questions that are not scoped to a single preset; `shell-env` resolves its facts per session workspace, and the advisory/diagnosis rows must answer even when a session never opens |
 | `wsl-doctor-tool` | inside `preset-wsl` (model-facing) | the tool surface follows the preset: a session on a Windows folder keeps the shipped tools |
 
 The preset mount requires the isolate realms. Without them the registry rejects the
@@ -495,6 +496,8 @@ src/terminal-route.ts        which execution world a terminal launch belongs to 
 src/update-check.ts          the once-a-day update notice (fact store +
                              host-delegated check)
 src/watcher.ts               in-distro file watching for WslFileSystem.watch
+src/status.ts                the panel's route (distro list, one distro's
+                             quick doctor, and the --fix-owned repair over /api)
 src/wsl-doctor-command.ts    the `/wsl-doctor` UI command row (spawns the
                              standalone doctor CLI)
 src/wsl-doctor-tool.ts       the `wsl_doctor` model tool row (in-process diagnosis)
@@ -535,7 +538,8 @@ standalone CLI (peer-free by design, so it starts when the plugin's own
 runtime is broken), the `/wsl-doctor` UI command (spawns the CLI host-side,
 renders detached from model history), and the `wsl_doctor` model tool
 (in-process, merging the live resident's state through `lib/doctor-live.js`).
-A run can be scoped (`--quick`, `--sections <csv>` on the CLI; `depth` /
+The sidebar panel renders the quick digest and posts the repair action the
+same way (`--fix-owned`: plugin-owned state only). A run can be scoped (`--quick`, `--sections <csv>` on the CLI; `depth` /
 `section` on the tool), and the report itemizes every check grouped by
 distro. See [DIAGNOSTICS.md](DIAGNOSTICS.md) for the surfaces and the
 verdict contract.

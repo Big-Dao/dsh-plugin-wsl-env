@@ -79,15 +79,62 @@ type WslDoctorCommandContext = {
   /** The commands registry, when the deployment has a command adapter. */
   commands?: CommandsRegistrySlice;
   /** The harness's cwd service, used to name the session's distro. */
-  workingDirectory?: { ensure: (agent: unknown, signal?: unknown) => Promise<string> };
+  workingDirectory?: WorkingDirectorySlice;
   /** Optional cordis-style lookup: how production resolves both without an inject. */
   get?: (name: string) => unknown;
   /** The test seam: a provided CLI runner replaces the real subprocess. */
   doctorCli?: DoctorCliRunner;
 };
 
+/** The harness's `workingDirectory` service slice. */
+interface WorkingDirectorySlice {
+  /** The Session's current directory, recorded synchronously when available. */
+  get?: (session: unknown) => string | null | undefined;
+  /** Resolve (and repair) the Session's current directory. */
+  ensure?: (agent: unknown, signal?: unknown) => Promise<string>;
+}
+
+/**
+ * The agent face a command invocation carries: its Session (whose header
+ * records the cwd the session opened with) and its own cordis context.
+ *
+ * The `workingDirectory` service is agent-scoped — the tool row injects it
+ * inside the agent's preset, and `wsl-cwd-prompt` reads it from `agent.ctx` —
+ * so the app-level command row must reach it through the agent, not through
+ * its own `ctx.get`. Reading it from the row's context alone silently missed
+ * it and left the distro unresolved, which made the doctor fall back to the
+ * configuration's `auto` and probe every installed distro (minutes on a
+ * machine with several).
+ */
+interface WslDoctorAgentSlice {
+  session?: { header?: { cwd?: string } };
+  ctx?: { get?: (name: string) => unknown };
+}
+
+/** How long the cwd service may take before the command gives up on it. */
+const CWD_SERVICE_TIMEOUT_MS = 5_000;
+
+/**
+ * How long a distro-scoped doctor CLI run may take. A scoped quick run takes
+ * seconds and a scoped full run ~15 s, so only a stall reaches this; it sits
+ * below the command dispatcher's own deadline so the run settles with a
+ * message naming what happened instead of the dispatcher's opaque "operation
+ * was aborted".
+ */
+export const DOCTOR_CLI_TIMEOUT_MS = 120_000;
+
+/**
+ * How long an UNRESOLVED-target run may take. Without a distro the CLI's
+ * effective configuration decides, and the shipped `auto` probes every
+ * installed distro — minutes on a machine with several, with no progress to
+ * show in the UI. Failing fast with the narrowing hint beats a card that sits
+ * "executing" for the dispatcher's whole budget.
+ */
+export const DOCTOR_CLI_SWEEP_TIMEOUT_MS = 60_000;
+
+
 /** The CLI runner seam: argv in (node-less — the runner owns the runtime), JSON text out. */
-type DoctorCliRunner = (argv: string[], signal?: AbortSignal) => Promise<string>;
+type DoctorCliRunner = (argv: string[], signal?: AbortSignal, timeoutMs?: number) => Promise<string>;
 
 /** The parsed `/wsl-doctor` line. */
 interface ParsedDoctorInput {
@@ -160,11 +207,17 @@ export function parseDoctorInput(rawInput: string): ParsedDoctorInput {
  * verdict*, which is a successful diagnosis — the JSON on stdout still parses;
  * only a spawn failure or unparseable output is an infrastructure error.
  *
+ * The run is bounded by {@link DOCTOR_CLI_TIMEOUT_MS}. Without a deadline a
+ * doctor that never reports keeps the command "executing" until the command
+ * dispatcher aborts it, and that abort surfaces as an opaque "operation was
+ * aborted" that names neither what ran nor how to narrow it.
+ *
  * @param argv - flags after the script path (no node, no script — added here).
  * @param signal - the dispatcher's abort signal; abort kills the child.
+ * @param timeoutMs - the deadline; tests shrink it to exercise the timeout.
  * @returns the CLI's stdout (one JSON report).
  */
-export function runDoctorCli(argv: string[], signal?: AbortSignal): Promise<string> {
+export function runDoctorCli(argv: string[], signal?: AbortSignal, timeoutMs: number = DOCTOR_CLI_TIMEOUT_MS): Promise<string> {
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(process.execPath, [DOCTOR_SCRIPT, ...argv], {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
@@ -174,19 +227,69 @@ export function runDoctorCli(argv: string[], signal?: AbortSignal): Promise<stri
     });
     let stdout = "";
     let stderr = "";
+    let settled = false;
+    let timedOut = false;
+    const settle = (finish: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      finish();
+    };
+    const deadline = setTimeout(() => {
+      timedOut = true;
+      try {
+        child.kill();
+      } catch {
+        // Already exited: the close handler settles the run.
+      }
+    }, timeoutMs);
     child.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
     child.stderr?.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); });
-    child.on("error", (error) => rejectPromise(error));
-    child.on("close", (code) => {
+    child.on("error", (error) => {
+      // An abort arrives here as an AbortError; normalize it so the settled
+      // message names the run rather than the DOMException.
+      settle(() => rejectPromise((error as NodeJS.ErrnoException).name === "AbortError" ? new Error("doctor CLI 已取消") : error));
+    });
+    child.on("close", (code, signalName) => {
       const text = stdout.trim();
       if (text.startsWith("{")) {
-        resolvePromise(text);
+        settle(() => resolvePromise(text));
         return;
       }
-      rejectPromise(new Error(`doctor CLI 未能给出报告（exit ${code ?? "signal"}）${stderr.trim().length > 0 ? `：${stderr.trim().slice(0, 400)}` : ""}`));
+      if (timedOut) {
+        settle(() => rejectPromise(new Error(
+          `doctor CLI 在 ${timeoutMs / 1000} 秒内没有给出报告；用 --distro <名称> 收窄到单个发行版，或改用 quick / <分区> 重试`,
+        )));
+        return;
+      }
+      settle(() => rejectPromise(new Error(`doctor CLI 未能给出报告（exit ${code ?? signalName ?? "signal"}）${stderr.trim().length > 0 ? `：${stderr.trim().slice(0, 400)}` : ""}`)));
     });
   });
 }
+
+/**
+ * Await a promise for at most `ms` milliseconds, returning undefined when the
+ * budget runs out. Used for the cwd service: naming the distro is a
+ * convenience, and a stalled resolution must never delay the diagnosis.
+ *
+ * @param promise - the pending resolution.
+ * @param ms - the budget.
+ * @returns the value, or undefined when the budget ran out.
+ */
+async function within<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), ms); }),
+    ]);
+  } catch {
+    return undefined;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 
 /**
  * Resolve the commands registry: the provided `commands` service through the
@@ -208,32 +311,73 @@ function resolveCommands(ctx: WslDoctorCommandContext): CommandsRegistrySlice | 
 
 /**
  * Resolve the distro an invocation targets: the explicit `--distro` wins;
- * otherwise the receiving agent's working directory names a distro when it is
- * a WSL UNC path; otherwise empty — the CLI's effective configuration decides
+ * otherwise the Session's own working directory names a distro when it is a
+ * WSL UNC path; otherwise empty — the CLI's effective configuration decides
  * (the shipped preset's `auto` probes every installed distro).
  *
- * @param ctx - the cordis context (for the cwd service).
+ * The `workingDirectory` service is agent-scoped: the preset's tool row
+ * injects it, and `wsl-cwd-prompt` reads it from `agent.ctx`. The app-level
+ * command row therefore reaches it through the invocation's agent, not through
+ * its own `ctx.get` — reading only the row's context silently missed the
+ * service, left the distro unresolved, and turned the run into the
+ * configuration's `auto` sweep over every installed distro. The Session
+ * header's `cwd` is the service-free fallback: it names the distro the
+ * session opened in even when the live value is unreachable.
+ *
+ * @param ctx - the cordis context (the row's own scope, the last resort).
  * @param invocation - the registry's invocation face.
  * @param distro - the explicitly requested distro, possibly empty.
  * @returns the distro name, possibly empty.
  */
 async function resolveDistro(ctx: WslDoctorCommandContext, invocation: WslDoctorCommandInvocation, distro: string): Promise<string> {
   if (distro.length > 0) return distro;
-  if (invocation.agent === undefined) return "";
-  // The cwd service resolves through `ctx.get` in production (no inject, no
-  // proxy throw); the plain property is the test seam's face.
-  const cwdService = typeof ctx.get === "function"
-    ? (ctx.get("workingDirectory") as WslDoctorCommandContext["workingDirectory"]) // the service's contract is this module's `ensure` slice; narrowed below
-    : ctx.workingDirectory;
-  if (cwdService === undefined || typeof cwdService.ensure !== "function") return "";
+  const agent = invocation.agent as WslDoctorAgentSlice | undefined;
+  if (agent === undefined) return "";
+  const session = agent.session;
+  /** Every candidate service, in the order the resolution tries them. */
+  const services: Array<WorkingDirectorySlice | undefined> = [];
   try {
-    const cwd = await cwdService.ensure(invocation.agent, invocation.signal);
-    return distroOfUnc(cwd) ?? "";
+    const scoped = agent.ctx?.get?.("workingDirectory");
+    if (scoped !== undefined && scoped !== null) services.push(scoped as WorkingDirectorySlice); // the service's contract is this module's slice
   } catch {
-    // A cwd that cannot resolve (no session, unreadable directory) must not
-    // fail the diagnosis: the CLI's own target selection is the fallback.
-    return "";
+    // A context that refuses the read contributes no service; the header cwd
+    // below still names the distro.
   }
+  try {
+    const rowScoped = typeof ctx.get === "function"
+      ? (ctx.get("workingDirectory") as WslDoctorCommandContext["workingDirectory"]) // absent at app scope in production; harmless when present
+      : ctx.workingDirectory;
+    if (rowScoped !== undefined && rowScoped !== null) services.push(rowScoped);
+  } catch {
+    // Same reason: the row's context is not where the service lives.
+  }
+  // The live value first (a mid-session `cd` can move the session to another
+  // distro), then the header's own cwd, then the async resolution.
+  for (const service of services) {
+    try {
+      const current = service?.get?.(session);
+      const fromCurrent = distroOfUnc(current ?? undefined);
+      if (fromCurrent !== undefined) return fromCurrent;
+    } catch {
+      // A throwing get contributes nothing.
+    }
+  }
+  const fromHeader = distroOfUnc(session?.header?.cwd);
+  if (fromHeader !== undefined) return fromHeader;
+  for (const service of services) {
+    if (typeof service?.ensure !== "function") continue;
+    let pending: Promise<string> | undefined;
+    try {
+      pending = service.ensure(agent, invocation.signal);
+    } catch {
+      // A synchronous throw is a failed resolution, never a failed command.
+      continue;
+    }
+    const resolved = await within(pending, CWD_SERVICE_TIMEOUT_MS);
+    const fromService = distroOfUnc(resolved);
+    if (fromService !== undefined) return fromService;
+  }
+  return "";
 }
 
 /**
@@ -262,11 +406,18 @@ export async function apply(ctx: WslDoctorCommandContext): Promise<void> {
   // No command adapter: nothing to register, nothing to fail. The doctor CLI
   // (`pnpm run doctor`) stays the surface for headless deployments.
   if (commands === undefined) return;
-  // The test seam is a plain object: read `doctorCli` only when the cordis
-  // property proxy is absent, or the read itself throws ("cannot get property
-  // ... without inject") — the same guard the tool module uses for `doctor`.
-  const runCli: DoctorCliRunner =
-    typeof ctx.get !== "function" && typeof ctx.doctorCli === "function" ? ctx.doctorCli : runDoctorCli;
+  // The test seam is a plain object: `doctorCli`, when the context carries it,
+  // replaces the subprocess. Reading it may throw under the cordis property
+  // proxy ("cannot get property ... without inject"), so the read is guarded —
+  // the same shape the tool module uses for its optional `doctor`.
+  const runCli: DoctorCliRunner = (() => {
+    try {
+      if (typeof ctx.doctorCli === "function") return ctx.doctorCli;
+    } catch {
+      // Production: the row's context has no such property.
+    }
+    return runDoctorCli;
+  })();
   commands.register({
     name: "wsl-doctor",
     description: "运行 WSL 环境诊断（独立 doctor CLI）：结果直接显示在此，不进入模型对话。省略参数为快速诊断。",
@@ -283,11 +434,18 @@ export async function apply(ctx: WslDoctorCommandContext): Promise<void> {
       if (parsed.mode === "quick") argv.push("--quick");
       if (parsed.mode === "section" && parsed.section !== undefined) argv.push("--sections", parsed.section);
       if (distro.length > 0) argv.push("--distro", distro);
+      // A resolved target is one distro and finishes in seconds; an unresolved
+      // one hands the choice to the configuration, whose `auto` sweeps every
+      // installed distro — bounded tightly so it cannot sit "executing".
+      const budget = distro.length > 0 ? DOCTOR_CLI_TIMEOUT_MS : DOCTOR_CLI_SWEEP_TIMEOUT_MS;
       try {
-        const json = await runCli(argv, invocation.signal);
+        const json = await runCli(argv, invocation.signal, budget);
         return { kind: "success", text: formatDoctorReport(json, distro) };
       } catch (error) {
-        return { kind: "error", text: `doctor 运行失败：${error instanceof Error ? error.message : String(error)}` };
+        const target = distro.length > 0
+          ? `发行版 ${distro}`
+          : "配置指定的目标（未从会话工作目录解析出发行版，auto 会逐个检查所有已安装发行版）";
+        return { kind: "error", text: `doctor 运行失败（${target}）：${error instanceof Error ? error.message : String(error)}` };
       }
     },
   });

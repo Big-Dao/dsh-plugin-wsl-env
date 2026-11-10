@@ -65,7 +65,7 @@ export interface DoctorReportLike {
 }
 
 /** The doctor report collector: distro plus run scope in, report out. */
-type DoctorCollector = (distro: string, options?: { quick?: boolean, sections?: readonly string[] }) => Promise<DoctorReportLike>;
+type DoctorCollector = (distro: string, options?: { quick?: boolean, sections?: readonly string[], signal?: AbortSignal }) => Promise<DoctorReportLike>;
 
 /** The context slice this service consumes. */
 type WslDoctorToolContext = {
@@ -447,7 +447,7 @@ async function doctorCollector(
 export async function apply(ctx: WslDoctorToolContext): Promise<void> {
   ctx.tools.register(defineTool({
     name: "wsl_doctor",
-    description: "Run the WSL environment doctor for this session's distro and return the verdict: ready (the first command should succeed), or blocked with per-failure copy-paste remedies. Interactive by design: start with depth \"quick\" (prerequisites only, ~10 s) and narrate the result, then narrow with \"section\" (one of host/sandbox/session/conf/net/agent) or run depth \"full\" only when the user asked for a complete diagnosis — each call probes its scope and itemizes every check it tested with an explicit status marker, grouped by distro.",
+    description: "Run the WSL environment doctor for this session's distro and return the verdict: ready (the first command should succeed), or blocked with per-failure copy-paste remedies. Interactive by design: start with depth \"quick\" (prerequisites only, ~10 s for the session's own distro) and narrate the result, then narrow with \"section\" (one of host/sandbox/session/conf/net/agent) or run depth \"full\" only when the user asked for a complete diagnosis — each call probes its scope and itemizes every check it tested with an explicit status marker, grouped by distro.",
     parameters: {
       distro: {
         type: "string",
@@ -491,7 +491,13 @@ export async function apply(ctx: WslDoctorToolContext): Promise<void> {
       const sections = argv.section !== undefined && argv.section.length > 0 ? [argv.section] : undefined;
       const doctor = await doctorCollector(ctx);
       const digest = digestReport(
-        await doctor(distro, { ...(quick ? { quick: true } : {}), ...(sections !== undefined ? { sections } : {}) }),
+        await doctor(distro, {
+          ...(quick ? { quick: true } : {}),
+          ...(sections !== undefined ? { sections } : {}),
+          // The run is a subprocess: the caller's cancellation (Esc on the
+          // tool call) kills it instead of leaving it to finish unwatched.
+          ...(exec.signal === undefined ? {} : { signal: exec.signal }),
+        }),
         distro,
       );
       return { verdict: digest.verdict, blockers: digest.blockers.join(", "), report: renderDigest(digest) };

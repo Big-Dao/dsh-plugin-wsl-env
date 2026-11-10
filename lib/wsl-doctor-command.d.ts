@@ -40,16 +40,37 @@ type WslDoctorCommandContext = {
     /** The commands registry, when the deployment has a command adapter. */
     commands?: CommandsRegistrySlice;
     /** The harness's cwd service, used to name the session's distro. */
-    workingDirectory?: {
-        ensure: (agent: unknown, signal?: unknown) => Promise<string>;
-    };
+    workingDirectory?: WorkingDirectorySlice;
     /** Optional cordis-style lookup: how production resolves both without an inject. */
     get?: (name: string) => unknown;
     /** The test seam: a provided CLI runner replaces the real subprocess. */
     doctorCli?: DoctorCliRunner;
 };
+/** The harness's `workingDirectory` service slice. */
+interface WorkingDirectorySlice {
+    /** The Session's current directory, recorded synchronously when available. */
+    get?: (session: unknown) => string | null | undefined;
+    /** Resolve (and repair) the Session's current directory. */
+    ensure?: (agent: unknown, signal?: unknown) => Promise<string>;
+}
+/**
+ * How long a distro-scoped doctor CLI run may take. A scoped quick run takes
+ * seconds and a scoped full run ~15 s, so only a stall reaches this; it sits
+ * below the command dispatcher's own deadline so the run settles with a
+ * message naming what happened instead of the dispatcher's opaque "operation
+ * was aborted".
+ */
+export declare const DOCTOR_CLI_TIMEOUT_MS = 120000;
+/**
+ * How long an UNRESOLVED-target run may take. Without a distro the CLI's
+ * effective configuration decides, and the shipped `auto` probes every
+ * installed distro — minutes on a machine with several, with no progress to
+ * show in the UI. Failing fast with the narrowing hint beats a card that sits
+ * "executing" for the dispatcher's whole budget.
+ */
+export declare const DOCTOR_CLI_SWEEP_TIMEOUT_MS = 60000;
 /** The CLI runner seam: argv in (node-less — the runner owns the runtime), JSON text out. */
-type DoctorCliRunner = (argv: string[], signal?: AbortSignal) => Promise<string>;
+type DoctorCliRunner = (argv: string[], signal?: AbortSignal, timeoutMs?: number) => Promise<string>;
 /** The parsed `/wsl-doctor` line. */
 interface ParsedDoctorInput {
     /** quick → `--quick`; full → no flag; section → `--sections <name>`. */
@@ -81,11 +102,17 @@ export declare function parseDoctorInput(rawInput: string): ParsedDoctorInput;
  * verdict*, which is a successful diagnosis — the JSON on stdout still parses;
  * only a spawn failure or unparseable output is an infrastructure error.
  *
+ * The run is bounded by {@link DOCTOR_CLI_TIMEOUT_MS}. Without a deadline a
+ * doctor that never reports keeps the command "executing" until the command
+ * dispatcher aborts it, and that abort surfaces as an opaque "operation was
+ * aborted" that names neither what ran nor how to narrow it.
+ *
  * @param argv - flags after the script path (no node, no script — added here).
  * @param signal - the dispatcher's abort signal; abort kills the child.
+ * @param timeoutMs - the deadline; tests shrink it to exercise the timeout.
  * @returns the CLI's stdout (one JSON report).
  */
-export declare function runDoctorCli(argv: string[], signal?: AbortSignal): Promise<string>;
+export declare function runDoctorCli(argv: string[], signal?: AbortSignal, timeoutMs?: number): Promise<string>;
 /**
  * Format the CLI's JSON report into the itemized text the UI renders — the
  * same digest the `wsl_doctor` tool returns, so both surfaces itemize every

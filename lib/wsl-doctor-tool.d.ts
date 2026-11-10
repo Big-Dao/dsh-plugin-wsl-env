@@ -71,6 +71,7 @@ export interface DoctorReportLike {
 type DoctorCollector = (distro: string, options?: {
     quick?: boolean;
     sections?: readonly string[];
+    signal?: AbortSignal;
 }) => Promise<DoctorReportLike>;
 /** The context slice this service consumes. */
 type WslDoctorToolContext = {

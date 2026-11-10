@@ -150,6 +150,16 @@ about the machine and the configuration, not about a session: the
 [DIAGNOSTICS.md](DIAGNOSTICS.md#the-map)) are per-call decisions the doctor
 cannot predict, and `ready` does not promise them away.
 
+**`/wsl-doctor` without a resolvable distro still sweeps the configuration.**
+The command names the distro from the session's working directory; a session on
+a Windows folder, or one whose cwd cannot resolve, leaves the target to the
+effective configuration, and the shipped `auto` probes every installed distro —
+measured at ~4 minutes for eight on the development machine, against seconds
+for a scoped run. Pass `--distro <name>` when that is not what you want (the
+CLI's `--all` says the same thing explicitly). The handler bounds an unresolved
+run at 60 s (a resolved one at 120 s) so it settles with the narrowing hint
+instead of leaving the card "executing" for the dispatcher's whole budget.
+
 The doctor reads and reports; it never rewrites user- or distro-owned files.
 `.wslconfig`, `/etc/wsl.conf`, a WSL1 conversion and distro installation are
 remedy-only — the remedy text carries the exact command — and the fixable set

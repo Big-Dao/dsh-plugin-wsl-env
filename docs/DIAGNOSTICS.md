@@ -61,11 +61,22 @@ The doctor answers through three surfaces with one report:
   registry executes it host-side, the handler spawns the standalone CLI, and
   the itemized report renders detached from model history (no model turn, no
   tokens). Without a command adapter (headless, ACP) the row is a no-op and
-  the CLI is the surface.
+  the CLI is the surface. Without `--distro` the handler names the distro from
+  the session's live working directory (the agent-scoped `workingDirectory`
+  service first, then the Session header's `cwd`); when neither yields a WSL
+  UNC path the CLI's effective configuration decides, and the shipped `auto`
+  probes **every** installed distro — a sweep that costs minutes on a machine
+  with several (a scoped quick run is seconds). The handler therefore bounds
+  the subprocess (120 s when it has a distro, 60 s when the configuration has
+  to choose, both below the command dispatcher's own deadline) so a stalled or
+  unscoped run settles with a message naming the target it examined and how to
+  narrow it.
 - **The `wsl_doctor` model tool** — in-process via `doctorReport()`, so the
-  live resident's state merges in. This is the only surface that depends on
-  the model path; use the command or the CLI when the plugin's runtime itself
-  is under suspicion.
+  live resident's state merges in. The collection is asynchronous: the doctor
+  subprocess never blocks the Host, the tool call's cancellation kills it, and
+  a two-minute deadline plus a bounded drain window settle a run whose child
+  never reports. This is the only surface that depends on the model path; use
+  the command or the CLI when the plugin's runtime itself is under suspicion.
 
 ## The map
 

@@ -725,6 +725,44 @@ try {
     );
   });
 
+  await check("doctorReport kills a run that outlives its deadline", async () => {
+    // The collector used to spawn the doctor synchronously, so a doctor that
+    // never reports blocked the Host's event loop until the spawn deadline and
+    // could not be cancelled. The deadline now settles the promise with a
+    // message naming the timeout.
+    const slow = join(bin, "slow-doctor.mjs");
+    writeFileSync(slow, "setInterval(() => {}, 1000);\n");
+    await assert.rejects(
+      doctorReport("ubuntu", { doctorPath: slow, timeoutMs: 150 }),
+      /** @param {Error} error */ (error) => /doctor run failed: timed out after 150ms/.test(error.message),
+      "the deadline settles the run instead of blocking the caller",
+    );
+  });
+
+  await check("doctorReport honours the caller's abort signal", async () => {
+    const slow = join(bin, "abort-doctor.mjs");
+    writeFileSync(slow, "setInterval(() => {}, 1000);\n");
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 50);
+    await assert.rejects(
+      doctorReport("ubuntu", { doctorPath: slow, signal: controller.signal }),
+      /** @param {Error} error */ (error) => /doctor run failed: doctor run aborted/.test(error.message),
+      "an aborted run settles as an aborted diagnosis",
+    );
+  });
+
+  await check("doctorReport caps a runaway doctor's output", async () => {
+    // The synchronous collector capped the pipe with `maxBuffer`; the async one
+    // must keep the same promise or a runaway child grows the Host unbounded.
+    const flood = join(bin, "flood-doctor.mjs");
+    writeFileSync(flood, "process.stdout.write('x'.repeat(5 * 1024 * 1024));\nsetInterval(() => {}, 1000);\n");
+    await assert.rejects(
+      doctorReport("ubuntu", { doctorPath: flood, timeoutMs: 30_000 }),
+      /** @param {Error} error */ (error) => /produced more than \d+ bytes/.test(error.message),
+      "the output cap settles the run",
+    );
+  });
+
   await check("the Windows git trust check reports the whitelist and a missing-git info", () => {
     writeFileSync(join(stateDir, "git-whitelisted"), "");
     const report = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));

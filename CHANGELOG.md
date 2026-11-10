@@ -14,6 +14,36 @@ document: the 0.1.0 entry's `design-history §` references are to
 keeps the superseded designs under the section numbers they had while they
 were part of the record.
 
+## [Unreleased]
+
+### Fixed
+
+- **`/wsl-doctor` no longer spends minutes "executing" and then dies as an
+  opaque "operation was aborted".** The command resolved the session's distro
+  through its own app-level context, but the `workingDirectory` service lives in
+  the *agent's* scope, so the lookup missed: the handler fell back to the
+  shipped `auto` configuration, which probes **every** installed distro
+  (measured 234 s for the eight on this machine, against ~9 s scoped), and the
+  command dispatcher's deadline cut the run off with `This operation was
+  aborted` — naming neither the target nor a next step. The handler now reads
+  the live cwd from the agent-scoped service, falls back to the Session header's
+  `cwd`, and bounds the CLI subprocess — 120 s with a resolved distro, 60 s when
+  the configuration has to choose, both below the dispatcher's deadline — so a
+  stalled or unscoped run settles with a message naming the target it examined
+  and how to narrow it (`--distro <name>`, `quick`, or a section). Three concurrent `/wsl-doctor` sweeps had also saturated `wsl.exe`
+  enough that every new WSL agent handshake timed out at 15 s; the scoped run
+  removes that load.
+
+- **The `wsl_doctor` tool no longer blocks the Host process while the doctor
+  runs.** `doctorReport()` collected the report with `spawnSync`, freezing the
+  Host's event loop for up to the two-minute deadline: the tool card sat
+  "executing", every other tool stalled behind it, and the call could not be
+  cancelled. The collector now spawns the CLI asynchronously, forwards the tool
+  call's abort signal (cancellation kills the child), enforces a deadline with
+  a bounded post-exit drain window so a grandchild holding the pipes cannot
+  stall it, and caps the captured output at 4 MiB. The rejection text now names
+  which of those ended the run.
+
 ## [0.22.0] - 2026-11-08
 
 One theme: the doctor's report becomes something a human can read and act on —

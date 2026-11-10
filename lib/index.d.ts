@@ -95,6 +95,7 @@ type WslExecSpec = ShellExecSpec & {
  *
  * @param distro - the distro the doctor examines.
  * @param options - `doctorPath` overrides the shipped script (tests);
+ *   `timeoutMs` bounds the run; `signal` lets the caller cancel it;
  *   `liveStatus` overrides the in-process status snapshot (tests).
  * @returns the merged report.
  */
@@ -120,6 +121,10 @@ export declare function doctorReport(distro: string, options?: {
      * the ambiguity this option removes.
      */
     envPath?: string;
+    /** Hard deadline for the subprocess; defaults to two minutes. */
+    timeoutMs?: number;
+    /** The caller's cancellation (the tool's `exec.signal`); aborts the child. */
+    signal?: AbortSignal;
     liveStatus?: AgentStatus;
 }): Promise<DoctorReport>;
 /**

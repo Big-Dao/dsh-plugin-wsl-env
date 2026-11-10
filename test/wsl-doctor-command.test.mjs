@@ -12,6 +12,8 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import {
+  DOCTOR_CLI_SWEEP_TIMEOUT_MS,
+  DOCTOR_CLI_TIMEOUT_MS,
   DOCTOR_SCRIPT,
   USAGE,
   apply,
@@ -161,6 +163,122 @@ await check("a broken cwd read falls back to the CLI's own selection instead of 
   assert.deepEqual(seen, [["--json", "--quick"]]);
 });
 
+await check("a cwd service that throws synchronously falls back instead of failing", async () => {
+  const fake = fakeRegistry();
+  /** @type {string[][]} */
+  const seen = [];
+  await apply({
+    commands: fake.commands,
+    workingDirectory: { ensure: () => { throw new Error("boom"); } },
+    doctorCli: async (argv) => {
+      seen.push(argv);
+      return FIXTURE_REPORT;
+    },
+  });
+  const run = await soleDefinition(fake).handler({ rawInput: "", agent: { id: "agent-1" } });
+  assert.equal(run.kind, "success");
+  assert.deepEqual(seen, [["--json", "--quick"]]);
+});
+
+await check("the agent-scoped cwd service names the distro (the production shape)", async () => {
+  // The service lives in the agent's scope, not the app-level row's: this is
+  // the shape that used to go unnoticed and leave every /wsl-doctor running
+  // the configuration's `auto` sweep over each installed distro.
+  const fake = fakeRegistry();
+  /** @type {string[][]} */
+  const seen = [];
+  await apply({
+    commands: fake.commands,
+    get: (name) => (name === "commands" ? fake.commands : undefined),
+    doctorCli: async (argv) => {
+      seen.push(argv);
+      return FIXTURE_REPORT;
+    },
+  });
+  const agent = {
+    id: "agent-1",
+    session: { header: { cwd: "\\\\wsl.localhost\\ubuntu\\home\\andy" } },
+    ctx: { get: /** @param {string} name */ (name) => (name === "workingDirectory" ? { get: () => "\\\\wsl.localhost\\debian\\home\\andy" } : undefined) },
+  };
+  const run = await soleDefinition(fake).handler({ rawInput: "quick", agent });
+  assert.equal(run.kind, "success");
+  assert.deepEqual(seen, [["--json", "--quick", "--distro", "debian"]], "the live cd wins over the header cwd");
+});
+
+await check("the session header's cwd names the distro when no service is reachable", async () => {
+  const fake = fakeRegistry();
+  /** @type {string[][]} */
+  const seen = [];
+  await apply({
+    commands: fake.commands,
+    get: (name) => (name === "commands" ? fake.commands : undefined),
+    doctorCli: async (argv) => {
+      seen.push(argv);
+      return FIXTURE_REPORT;
+    },
+  });
+  const agent = { id: "agent-1", session: { header: { cwd: "\\\\wsl.localhost\\ubuntu\\home\\andy" } } };
+  const run = await soleDefinition(fake).handler({ rawInput: "quick", agent });
+  assert.equal(run.kind, "success");
+  assert.deepEqual(seen, [["--json", "--quick", "--distro", "ubuntu"]]);
+});
+
+await check("an unreadable agent scope still falls through to the header cwd", async () => {
+  const fake = fakeRegistry();
+  /** @type {string[][]} */
+  const seen = [];
+  await apply({
+    commands: fake.commands,
+    get: (name) => (name === "commands" ? fake.commands : undefined),
+    doctorCli: async (argv) => {
+      seen.push(argv);
+      return FIXTURE_REPORT;
+    },
+  });
+  const agent = {
+    id: "agent-1",
+    session: { header: { cwd: "\\\\wsl.localhost\\FedoraLinux-44\\home\\andy" } },
+    ctx: { get: () => { throw new Error("cannot read without inject"); } },
+  };
+  const run = await soleDefinition(fake).handler({ rawInput: "", agent });
+  assert.equal(run.kind, "success");
+  assert.deepEqual(seen, [["--json", "--quick", "--distro", "FedoraLinux-44"]]);
+});
+
+await check("a resolved target gets the long budget, an unresolved one the sweep budget", async () => {
+  // A scoped run finishes in seconds; an unresolved one hands the choice to
+  // the configuration, whose `auto` sweeps every installed distro. The second
+  // case is bounded tightly so the card cannot sit "executing" for minutes.
+  const fake = fakeRegistry();
+  /** @type {Array<number | undefined>} */
+  const budgets = [];
+  await apply({
+    commands: fake.commands,
+    doctorCli: async (_argv, _signal, timeoutMs) => {
+      budgets.push(timeoutMs);
+      return FIXTURE_REPORT;
+    },
+  });
+  const handler = soleDefinition(fake).handler;
+  await handler({ rawInput: "quick --distro ubuntu" });
+  await handler({ rawInput: "quick" });
+  assert.deepEqual(budgets, [DOCTOR_CLI_TIMEOUT_MS, DOCTOR_CLI_SWEEP_TIMEOUT_MS]);
+});
+
+await check("the settled error names the target the run examined", async () => {
+  const scoped = fakeRegistry();
+  await apply({ commands: scoped.commands, doctorCli: async () => { throw new Error("spawn failed"); } });
+  const named = await soleDefinition(scoped).handler({ rawInput: "quick --distro ubuntu" });
+  assert.equal(named.kind, "error");
+  assert.match(named.text, /发行版 ubuntu/);
+
+  const unscoped = fakeRegistry();
+  await apply({ commands: unscoped.commands, doctorCli: async () => { throw new Error("spawn failed"); } });
+  const fallback = await soleDefinition(unscoped).handler({ rawInput: "quick" });
+  assert.equal(fallback.kind, "error");
+  assert.match(fallback.text, /配置指定的目标/);
+});
+
 await check("grammar violations settle as direct errors with usage text", async () => {
   const fake = fakeRegistry();
   await apply({ commands: fake.commands, doctorCli: async () => { throw new Error("unreachable"); } });
@@ -220,6 +338,18 @@ await check("the real runner rejects stdout that is not a JSON report", async ()
     () => runDoctorCli(["--help"]),
     /未能给出报告/,
     "--help prints usage, never a JSON report",
+  );
+});
+
+await check("the real runner settles a run that outlives its deadline", async () => {
+  // A doctor that never reports must not leave the command "executing": the
+  // deadline kills the child and the rejection names the timeout and the way
+  // to narrow the next run. The 1 ms budget makes it deterministic — the
+  // doctor cannot boot, probe, and report inside it.
+  await assert.rejects(
+    () => runDoctorCli(["--json", "--quick"], undefined, 1),
+    /秒内没有给出报告[\s\S]*--distro/,
+    "the deadline settles with the narrowing hint",
   );
 });
 

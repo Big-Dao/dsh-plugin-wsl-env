@@ -16,6 +16,12 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-11
+
+One theme: the model reads its prompt facts in the distro's own terms, and
+`workspace-write` can grant the toolchain caches the policy had always
+advertised.
+
 ### Added
 
 - **`writableRoots` on `wsl-shell` and `wsl-fs`.** `workspace-write` still grants

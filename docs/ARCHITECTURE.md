@@ -19,8 +19,8 @@ smaller integrations listed below.
 
 | Service | Class | File | What it does |
 |---|---|---|---|
-| `ctx.shell` | `WslShellExecutor` | [`lib/index.js`](../lib/index.js) | Runs each command in the distro's login shell over the resident in-distro agent (the default), wrapped in a distro-side `bwrap` sandbox; while the agent is out, or with `agent: false`, the same command falls back to one `wsl.exe -d <distro> --cd <linux dir> --exec <login shell> -lc <cmd>` process. |
-| `ctx.fs` | `WslFileSystem` | [`lib/index.js`](../lib/index.js) | Serves WSL-routed file operations through the resident in-distro agent; the former Windows-side share substrate is retired (see below). |
+| `ctx.shell` | `WslShellExecutor` | [`lib/wsl-shell.js`](../lib/wsl-shell.js) | Runs each command in the distro's login shell over the resident in-distro agent (the default), wrapped in a distro-side `bwrap` sandbox; while the agent is out, or with `agent: false`, the same command falls back to one `wsl.exe -d <distro> --cd <linux dir> --exec <login shell> -lc <cmd>` process. |
+| `ctx.fs` | `WslFileSystem` | [`lib/wsl-filesystem.js`](../lib/wsl-filesystem.js) | Serves WSL-routed file operations through the resident in-distro agent; the former Windows-side share substrate is retired (see below). |
 | `ctx.subprocess` | `WslSubprocessRuntime` | [`lib/subprocess.js`](../lib/subprocess.js) | Opens the GUI terminal inside the distro, in the session workspace, and rewrites the file-search and git-snapshot spawns into the distro (see below). |
 
 `WslShellExecutor` extends the shipped `LocalBashExecutor`, and `WslFileSystem`
@@ -77,10 +77,15 @@ functions.
 | `dsh-plugin-wsl-env/status` | `wsl-status` | [`lib/status.js`](../lib/status.js) | The sidebar panel's route (`GET /api/wsl-env/status`): lists the installed distros and runs one distro's quick doctor; `POST` on the same route runs the full doctor with `--fix-owned` (labeled repair when stale scopes or a broken agent cache are repairable, a full check otherwise; both re-verified). Answered over the Host connection's authenticated exact-Fetch channel; the last result per distro is persisted under `$DSH_HOME/cache/dsh-plugin-wsl-env/status.json` and stored results for running distros are refreshed in the background. |
 | `dsh-plugin-wsl-env` (bare name) | `wsl-env-client-host` | [`lib/client-host.js`](../lib/client-host.js) | The deliberate no-op host half whose bare-name mount lets the web client roster serve `./client`: the sidebar's WSL environment panel and the post-add access-mode prompt. |
 
-Three modules support them and import no DSH package.
+Three path and interop helpers import no DSH package.
 [`lib/paths.js`](../lib/paths.js) translates paths.
 [`lib/listing.js`](../lib/listing.js) builds directory listings and breadcrumbs.
 [`lib/wsl.js`](../lib/wsl.js) holds the `wsl.exe` interop primitives.
+
+[`lib/provider-common.js`](../lib/provider-common.js) is provider glue rather
+than a peer-free helper: it imports `@deepseek-ai/dsh-sandbox` and shares distro
+resolution, home caching, runtime selection and writable-root translation
+between the shell and filesystem providers.
 
 ## How the pieces are mounted
 
@@ -334,7 +339,7 @@ own dialect, described after the table.
 | `FS_OUTSIDE_DISTRO` | `WslFileSystem.worldPath` | `distro` is fixed (`default` or a name), `restrictToDistro` is on, and the path names **another distro**'s share — a configuration fence, not a sandbox decision. With `distro: ''`/`auto` a UNC target is served by its own distro, so the fence has nothing foreign to refuse | set `distro` to `''`/`auto` (the default), or open a session in that distro. A wider permission does **not** lift it |
 | `FS_NOT_OBSERVED` | `lib/fs-substrate.js` (`writeText`; the agent's `exists` conclusion, mapped in `lib/fsio-agent.js`) | a guarded create (`createIfAbsent`) targeted a file that exists and had not been read first | read the file, then overwrite with the version guard or edit it |
 | `FS_STALE_VERSION` | `lib/fs-substrate.js` (`writeText`, `editText`; the agent's `stale` conclusion, mapped in `lib/fsio-agent.js`) | the version the caller holds no longer matches: the file changed, or is gone | read it again and retry with the fresh version |
-| `FS_IO_ERROR` | the filesystem stack: `lib/fs-decisions.js` (the substrate is unavailable), `lib/fsio-agent.js` (a `perm`/`loop`/`io` reason or a malformed record), `lib/index.js` (a path that cannot be mapped, or a `SandboxUnavailableError`), and `WslFileSystem.watch` | the catch-all I/O failure — most often the resident agent is out or the distro returned an I/O error, the "agent outage fails closed" case above. A watch target outside the selected distro is the narrow one | get the resident back (check `wsl.exe -l -v`, then restart the session); for a watch, aim it at a distro path — the watch itself runs where the files live (`lib/watcher.js`) |
+| `FS_IO_ERROR` | the filesystem stack: `lib/fs-decisions.js` (the substrate is unavailable), `lib/fsio-agent.js` (a `perm`/`loop`/`io` reason or a malformed record), `lib/wsl-filesystem.js` (a path that cannot be mapped, or a `SandboxUnavailableError`), and `WslFileSystem.watch` | the catch-all I/O failure — most often the resident agent is out or the distro returned an I/O error, the "agent outage fails closed" case above. A watch target outside the selected distro is the narrow one | get the resident back (check `wsl.exe -l -v`, then restart the session); for a watch, aim it at a distro path — the watch itself runs where the files live (`lib/watcher.js`) |
 | `FS_NOT_FOUND` | `lib/fsio-agent.js` and `lib/fs-substrate.js` (the agent's `notfound`/`notdir` conclusion, an empty path, or a missing edit target), and the host filesystem stack behind a drive path | the path does not exist — the ordinary answer | — |
 | `FS_NOT_REGULAR_FILE` | `lib/fsio-agent.js`, `lib/fs-substrate.js` | the target is not a regular file where one is required: a directory, symlink or device on a read, or a non-file target on a write | point the call at a regular file |
 | `FS_NOT_DIRECTORY` | `lib/fsio-agent.js` (`listChildren`) | the target is not a directory, so there are no children to list | list a directory |
@@ -479,7 +484,11 @@ src/fsio-text.ts             the peer's pure text mechanics, replicated pending
 src/git-exec.ts              the agent-backed execution handle for the
                              git-snapshot spawn
 src/git-route.ts             which git spawns belong inside the distro (pure)
-src/index.ts                 WslShellExecutor (ctx.shell) and WslFileSystem (ctx.fs)
+src/index.ts                 public provider exports
+src/wsl-shell.ts             WslShellExecutor (ctx.shell)
+src/wsl-filesystem.ts        WslFileSystem (ctx.fs)
+src/doctor-report.ts         in-process doctor collector used by the tool
+src/provider-common.ts       distro, home, runtime and writable-root helpers
 src/listing.ts               pure directory listing and breadcrumb helpers
 src/messages.ts              the en/zh message catalogs and the host-locale wiring
 src/native-agent.ts          native binary selection and preparation

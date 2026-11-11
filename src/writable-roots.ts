@@ -23,7 +23,7 @@
  * check below sufficient for the model threat model.
  *
  * This module is peer-free so the rules are unit-testable in a bare checkout;
- * `lib/index.js` converts {@link WritableRootError} into the peer's
+ * `lib/provider-common.js` converts {@link WritableRootError} into the peer's
  * `SandboxInvalidRootError` at the call sites.
  *
  * This is a TypeScript source built to `lib/writable-roots.js`; edit THIS file

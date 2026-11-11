@@ -57,7 +57,7 @@ The implementation behind it is `lib/index.js:107`
 (`(spec, argv, stdoutMaxBytes, signal)`), and the source at the
 `dsh-v0.2.1-rc.2` tag declares `argv: readonly string[]`
 (`src/index.ts:151-156`). This plugin's bridge declares `argv: string[]`
-instead (`src/index.ts:267-276`); method parameters are checked bivariantly,
+instead (`src/wsl-shell.ts:116-124`); method parameters are checked bivariantly,
 so the widening compiles.
 
 A subclass that must override it therefore faces a closed door:
@@ -73,8 +73,8 @@ A subclass that must override it therefore faces a closed door:
 
 ## The workaround this repository carries
 
-`src/index.ts` bridges the gap at the type level, without touching the
-runtime class (`lib/index.js` is its compiled artifact, the copy that ships):
+`src/wsl-shell.ts` bridges the gap at the type level, without touching the
+runtime class (`lib/wsl-shell.js` is its compiled artifact, the copy that ships):
 
 - The `extends` clause carries a `@ts-expect-error` naming this file, so the
   one deliberate contract break is visible in review instead of hidden.

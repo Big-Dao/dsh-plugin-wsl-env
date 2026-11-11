@@ -31,10 +31,10 @@ file records the verification against the real peers.
   the package's exports, so `lib/fsio-text.js` reimplements it and imports
   nothing from it (the export is proposed in `docs/UPSTREAM-FSIO-EXPORT.md`).
   The peer **packages** are ordinary build-time imports that stay in the
-  shipped artifact — `lib/fs-routing.js` and `lib/index.js` both import
-  `LocalFileSystem` from `@deepseek-ai/dsh-fs-local`, and `lib/index.js` also
-  imports `FsError` from `@deepseek-ai/dsh-fs`. Neither dependency is
-  removable.
+  shipped artifact — `lib/fs-routing.js` and `lib/wsl-filesystem.js` both
+  import `LocalFileSystem` from `@deepseek-ai/dsh-fs-local`, and
+  `lib/wsl-filesystem.js` also imports `FsError` from `@deepseek-ai/dsh-fs`.
+  Neither dependency is removable.
 - Method: `npm pack` both pins, confirm the bytes, extract, and compare the
   shipped `lib/index.js` (unminified ESM) function-by-function and
   string-by-string against this repository.

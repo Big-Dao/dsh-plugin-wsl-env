@@ -116,12 +116,13 @@ The rest of the module stays. `BINARY_SAMPLE_BYTES`, `FsCodedError`,
 (`src/fsio-text.ts:23`, `:30`, `:53`, `:67`, `:86`, `:179`) have no counterpart
 in the fsio declarations, and the module's other consumers keep importing them
 locally (`src/fsio-agent.ts:27-34`, `src/fs-substrate.ts:37`,
-`src/index.ts:57`). `lib/fsio-text.js` is not deleted; four of its ten exports
+`src/wsl-filesystem.ts:15`). `lib/fsio-text.js` is not deleted; four of its ten exports
 are.
 
-Importing from the entry costs this consumer nothing new: it already imports
-`LocalFileSystem` from the same entry (`src/index.ts:46`,
-`src/fs-routing.ts:36`) and `@deepseek-ai/dsh-fs` (`src/index.ts:47`). The
+Importing from the entry costs this consumer nothing new: the filesystem
+provider imports `LocalFileSystem` from the same entry
+(`src/wsl-filesystem.ts:3`, `src/fs-routing.ts:36`) and the `@deepseek-ai/dsh-fs`
+types (`src/wsl-filesystem.ts:24`). The
 entry's non-builtin static imports are `chokidar` (`lib/index.js:3`),
 `@deepseek-ai/schemastery` (`:6`) and the `@deepseek-ai/dsh-fs` peer (`:7`) —
 all three already in this consumer's graph; `koffi` loads lazily (`await

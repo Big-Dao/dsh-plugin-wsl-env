@@ -179,7 +179,7 @@ export interface WslTerminalOptions {
 /**
  * The `wsl.exe` argv that opens one interactive shell inside a distro.
  *
- * This is the terminal twin of the command form built in `lib/index.js`, with
+ * This is the terminal twin of the command form built in `lib/wsl-shell.js`, with
  * three deliberate differences:
  *
  *   - There is no command string. With no pinned shell the launch ends here and

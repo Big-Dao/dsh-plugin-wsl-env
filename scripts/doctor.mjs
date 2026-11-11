@@ -84,7 +84,7 @@ import { parseListeningPorts, procNetScript } from "../lib/ports.js";
 // `test/doctor.test.mjs` compares the copy against the lib export to pin it
 // against drift.
 //
-// Inlined from `src/index.ts` `effectiveMaskWindowsDrive`:
+// Inlined from `src/provider-common.ts` `effectiveMaskWindowsDrive`:
 /**
  * Whether confined profiles shadow `/mnt` under this config.
  *

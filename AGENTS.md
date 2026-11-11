@@ -37,7 +37,7 @@ DeepSeek Harness 的 WSL 服务插件：将会话的 shell、文件系统、子�
 - 类型收窄使用 `assert.ok` 或附注释的 `as`；禁止 `any` 和 `!` 非空断言。`.ts` 中 JSDoc `@type` 不能替代类型断言。
 - 类型检查分工：`tsc --noEmit`（`checkJs`）覆盖 `test/**` 与 `types/*.d.ts`；`src/` 由构建程序以 `strict`、`noUncheckedIndexedAccess`、`noUnusedLocals` 和 `noEmitOnError` 检查；`lib/**` 不参与该检查。
 - 单测直接运行发布产物 `lib/*.js`，由 `node --test` 驱动。新增或调整测试时，保持这一边界。
-- 仅在记录上游接口缺口时使用 `@ts-expect-error`：同一行说明原因，并在 `docs/UPSTREAM-*.md` 或源码注释中记录。当前例外位于 `src/index.ts`，详见 `docs/UPSTREAM-SPAWN-SEAM.md`。
+- 仅在记录上游接口缺口时使用 `@ts-expect-error`：同一行说明原因，并在 `docs/UPSTREAM-*.md` 或源码注释中记录。当前例外位于 `src/wsl-shell.ts`，详见 `docs/UPSTREAM-SPAWN-SEAM.md`。
 
 ## 架构边界
 
@@ -45,7 +45,7 @@ DeepSeek Harness 的 WSL 服务插件：将会话的 shell、文件系统、子�
 - 默认命令执行和受限写入使用 session runtime agent：`agentBackend: auto` 按 distro 的 `uname -m` 选择 `agent/native/linux-<arch>/dsh-wsl-agent`；shell agent（`agent/wsl-agent.sh`、`src/agent.ts`，构建产物为 `lib/agent.js`）用于回退及 `agentBackend: shell`。两者共用 v7 协议（宿主接受 v6–v7）；shell agent 依赖 GNU findutils（BusyBox 的 `find` 缺 `-printf`），native 不依赖；变更 stderr 侧信道（旧式 `dsh-fs|reason|base64`、v7 的 `FSERR` 帧）、退出码或帧格式时，须同步核对 `src/agent-protocol.ts` 与两种 agent 的实现，并重建相关产物。
 - 无约束文件读取使用 `src/agent-shared.ts`（构建产物 `lib/agent-shared.js`）中的共享 agent：默认 native，配置为 shell 或 native 不可用时回退 shell。agent 按 distro 缓存为全局单例，不注册为 ctx 服务，以便根上下文与会话隔离上下文共享进程。
 - 升级检查服务（`src/update-check.ts`，构建产物 `lib/update-check.js`）按 TTL 经 `ctx.get("pluginManager")` 委托宿主查询新版本，经 `shellEnv` 以 `DSH_WSL_PLUGIN_UPDATE` 提示。只提示不安装（宿主无 HMR）；`lib/` 运行时代码不直连 npm，doctor 也不再做 registry GET——更新提示只走这条委托路径。
-- 命令执行还有一次性 `wsl.exe` 路径：agent 不可用（`AgentUnavailableError`）或设置 `agent: false` 时使用 `src/index.ts` 的 `executeOneShot`。维护命令执行时，须保持驻留和一次性路径的隔离、输出预算及结果装饰一致，并同步验证两条路径。
+- 命令执行还有一次性 `wsl.exe` 路径：agent 不可用（`AgentUnavailableError`）或设置 `agent: false` 时使用 `src/wsl-shell.ts` 的 `executeOneShot`。维护命令执行时，须保持驻留和一次性路径的隔离、输出预算及结果装饰一致，并同步验证两条路径。
 - 文件操作没有 agent 回退；agent 不可用时以 `FS_IO_ERROR` 失败关闭。沙箱在 distro 内由 `bwrap` 执行；`enforcement: "partial"` 和实际 `sandboxMode` 是对外契约，禁止声称未执行的隔离。
 
 ## 提交、发布与排障

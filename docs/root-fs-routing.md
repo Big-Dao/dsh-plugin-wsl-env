@@ -69,7 +69,7 @@ home 缓存，所以同一个根平面可以同时服务多个发行版；`distr
   客户端 `fileMediaUrl` 拒绝 `\\` 开头的路径（§2.2）——真有消费者时需要
   按需覆写。
 - `processPathFromHostPath` 也是宿主实现（绝对宿主路径取 `resolve`）。被路由的
-  `WslFileSystem` 自己有一份 distro 映射（`src/index.ts:2133`），那份映射不经
+  `WslFileSystem` 自己有一份 distro 映射（`src/wsl-filesystem.ts:530`），那份映射不经
   本路由。
 
 ### 2.2 有意的行为差异（对照原根 fs-sandbox）

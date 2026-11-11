@@ -7,4 +7,4 @@
  *
  * @module dsh-plugin-wsl-env/fs
  */
-export { WslFileSystem as default, WslFileSystem } from "./index.js";
+export { WslFileSystem as default, WslFileSystem } from "./wsl-filesystem.js";

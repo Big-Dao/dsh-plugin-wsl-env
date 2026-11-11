@@ -27,7 +27,7 @@
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { distroOfUnc } from "./distro-route.js";
 import { t } from "./messages.js";
-import { doctorReport } from "./index.js";
+import { doctorReport } from "./doctor-report.js";
 
 export const name = "wsl-doctor-tool";
 

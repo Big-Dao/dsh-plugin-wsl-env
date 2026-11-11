@@ -34,7 +34,7 @@
 import { isWslUnc, uncToPosix } from "./paths.js";
 import z from "@deepseek-ai/schemastery";
 import { LocalFileSystem } from "@deepseek-ai/dsh-fs-local";
-import { WslFileSystem } from "./index.js";
+import { WslFileSystem } from "./wsl-filesystem.js";
 import type { Context } from "@deepseek-ai/cordis";
 import type { FileSystem, FsEditRequest, FsTarget, FsVersion, FsWriteIntent } from "@deepseek-ai/dsh-fs";
 import type { SandboxExecutionPolicy } from "@deepseek-ai/dsh-sandbox";

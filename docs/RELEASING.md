@@ -43,14 +43,14 @@ build step at pack time.
 The coverage thresholds are 85 lines / 84 branches / 70 functions. The
 branch threshold is one point under the others deliberately: the
 integration layer is now measured, and part of what it leaves uncovered
-needs a live `wsl.exe` — the distro-bound paths in `lib/index.js` (the
-resolved home, the distro home, arming the watcher), the `wsl.exe` calls
+needs a live `wsl.exe` — the distro-bound paths in `lib/wsl-filesystem.js` and
+`lib/wsl-shell.js` (the resolved home, the distro home, arming the watcher), the `wsl.exe` calls
 in `lib/wsl.js` (`defaultDistro`'s no-distro throw, `linuxHomePath`,
 and the other distro calls), and the real spawn internals
 in `lib/watcher.js`. The real-machine probes cover that tail, not CI.
 The rest of the uncovered branches — the host-path arm of
-`wslWritableRoots`, the sandbox-error and rethrow arms, the
-unrestricted-path result, all in `lib/index.js` — is ordinary
+`wslWritableRoots` in `lib/provider-common.js`, the sandbox-error and rethrow
+arms, and the unrestricted-path result in `lib/wsl-filesystem.js` — are ordinary
 CI-coverable code. Do not raise the branch number without either covering
 the `wsl.exe` tail on the Windows CI legs or moving the coverage job
 (currently `runs-on: ubuntu-latest` in `.github/workflows/ci.yml`) to

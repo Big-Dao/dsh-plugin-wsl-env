@@ -1,7 +1,12 @@
 /**
- * Distro-native working directory in the model's runtime context: rewrite the
- * `working-directory:current` entry so a distro session reads its directory as
- * the POSIX path its own commands use, not the host UNC spelling.
+ * Distro-native model context: rewrite the `working-directory:current` entry so
+ * a distro session reads its directory as the POSIX path its own commands use,
+ * and adapt the host prompt facts that are wrong or unnecessarily Windows-shaped
+ * in a WSL session. The adaptations are deliberately narrow and replaceable:
+ * a one-sentence shell note, a POSIX-only replacement for `sandbox:policy`, and
+ * suppression of the host's `harness:source` value (its `app.asar`/Windows path
+ * is not a readable source checkout from the distro). See
+ * docs/UPSTREAM-PROMPT-ADAPTERS.md for the upstream issues that remove them.
  *
  * The harness's `working-directory` service prints the session cwd verbatim,
  * which on this deployment is `\\wsl.localhost\<distro>\...` — the coordinate
@@ -84,8 +89,17 @@ interface CwdPromptScope {
             interpolate: boolean;
             text: (context: AssembleRequestContext) => string;
         }) => unknown;
+        /** Register one system-prompt section in this scope's layer, when the harness has the seam. */
+        section?: (entry: {
+            name: string;
+            order: number;
+            interpolate: boolean;
+            text: string;
+        }) => unknown;
         /** The order constant the harness assigned to a named context family. */
         getContextOrder?: (family: string) => number | undefined;
+        /** The order constant the harness assigned to a named system-prompt section family. */
+        getSectionOrder?: (family: string) => number | undefined;
     };
 }
 /** The assembly request context: what a provider's `text` receives. */
@@ -156,6 +170,30 @@ export declare function rewriteQuotedUnc(text: string): string;
  * @returns the entry text.
  */
 export declare function entryText(agent: AssembleRequestContext["agent"], workingDirectory: WorkingDirectorySlice | undefined): string;
+/**
+ * One path in the only spelling a WSL model should see. A WSL UNC becomes its
+ * POSIX path; an already-POSIX path passes; every Windows spelling returns
+ * undefined, so a caller can omit it rather than leak it.
+ *
+ * @param value - a path from the host policy service or a session header.
+ * @returns the POSIX path, or undefined when no POSIX spelling is available.
+ */
+export declare function posixPath(value: string | undefined): string | undefined;
+/**
+ * The POSIX-only replacement for the host's `sandbox:policy` context. It keeps
+ * the host's mode and root (resolved through `ctx.sandboxPolicy`) but never
+ * prints a UNC or Windows path. The partial qualifier is conditional because
+ * the plugin can be configured with the sandbox off or in danger-full-access.
+ *
+ * @param policy - the host policy resolution, when the service is available.
+ * @param cwd - the session's workspace, used when the policy root is not POSIX.
+ * @returns the model-facing policy text.
+ */
+export declare function policyText(policy: {
+    mode?: string;
+    workspaceRoot?: string;
+    additionalWritableRoots?: readonly string[];
+} | undefined, cwd: string): string;
 /**
  * Mount the rewrite.
  *

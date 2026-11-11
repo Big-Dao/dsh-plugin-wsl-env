@@ -13,12 +13,16 @@
  * service registers nothing; and an unexpected shape can never fail the
  * waterfall.
  *
+ * The prompt adapters are checked too: the one-sentence shell note, the
+ * POSIX-only `sandbox:policy` replacement (no UNC/Windows path), and the
+ * suppression of the host's `harness:source` value.
+ *
  * The checks run against `lib/cwd-prompt.js` with stand-in cordis contexts.
  *
  *   node test/cwd-prompt.test.mjs
  */
 import assert from "node:assert/strict";
-import { apply, entryText, rewriteQuotedUnc } from "../lib/cwd-prompt.js";
+import { apply, entryText, policyText, posixPath, rewriteQuotedUnc } from "../lib/cwd-prompt.js";
 
 const UNC = "\\\\wsl.localhost\\ubuntu\\home\\you\\proj";
 const POSIX = "/home/you/proj";
@@ -50,11 +54,19 @@ const fakeCtx = (events, agents) => ({
  * A stand-in agent whose context records the injected context entry.
  * @param {string} [cwd] - the session header's cwd.
  * @param {unknown} [workingDirectory] - what ctx.get("workingDirectory") answers.
- * @returns {{ agent: Record<string, unknown>, entry: () => Record<string, unknown> | undefined }} the agent and accessors.
+ * @param {boolean} [withSection] - whether the fake scope exposes the system-prompt section seam.
+ * @param {unknown} [sandboxPolicy] - what ctx.get("sandboxPolicy") answers.
+ * @returns {{ agent: Record<string, unknown>, entry: () => Record<string, unknown> | undefined, entries: () => Array<Record<string, unknown>>, sections: () => Array<Record<string, unknown>>, section: (name: string) => Record<string, unknown> | undefined, policy: () => Record<string, unknown> | undefined, sourceContext: () => Record<string, unknown> | undefined }} the agent and accessors.
  */
-const fakeAgent = (cwd = UNC, workingDirectory = { get: () => UNC }) => {
-  /** @type {Record<string, unknown> | undefined} */
-  let entry;
+const fakeAgent = (cwd = UNC, workingDirectory = { get: () => UNC }, withSection = true, sandboxPolicy = undefined) => {
+  /** @type {Array<Record<string, unknown>>} */
+  const entries = [];
+  /** @type {Array<Record<string, unknown>>} */
+  const sections = [];
+  /** @type {Record<string, number>} */
+  const contextOrders = { WORKING_DIRECTORY: 42, SANDBOX_POLICY: 110, HARNESS_SOURCE: 200 };
+  /** @type {Record<string, number>} */
+  const sectionOrders = { TOOL_BASH: 1000, HARNESS_SOURCE: 10000 };
   const agent = {
     session: { header: { cwd } },
     ctx: {
@@ -63,19 +75,37 @@ const fakeAgent = (cwd = UNC, workingDirectory = { get: () => UNC }) => {
         install({
           systemPrompt: {
             context: (/** @type {Record<string, unknown>} */ registered) => {
-              entry = registered;
+              entries.push(registered);
             },
-            getContextOrder: () => 42,
+            ...withSection ? {
+              section: (/** @type {Record<string, unknown>} */ registered) => {
+                sections.push(registered);
+              },
+              getSectionOrder: (/** @type {string} */ family) => sectionOrders[family],
+            } : {},
+            getContextOrder: (/** @type {string} */ family) => contextOrders[family],
           },
         });
       },
       get: (/** @type {string} */ name) => {
         if (name === "workingDirectory") return workingDirectory;
+        if (name === "sandboxPolicy") return sandboxPolicy;
         throw new Error(`undeclared service: ${name}`);
       },
     },
   };
-  return { agent, entry: () => entry };
+  /** @param {string} name - the context name. */
+  const byName = (name) => entries.find((entry) => entry.name === name);
+  return {
+    agent,
+    entry: () => byName("working-directory:current"),
+    entries: () => entries,
+    sections: () => sections,
+    /** @param {string} name - the section name. */
+    section: (name) => sections.find((candidate) => candidate.name === name),
+    policy: () => byName("sandbox:policy"),
+    sourceContext: () => byName("harness:source"),
+  };
 };
 
 /** @type {Array<[string, () => void | Promise<void>]>} */
@@ -106,6 +136,94 @@ check("a distro agent installs a same-name scoped entry", () => {
   assert.equal(registered?.name, "working-directory:current");
   assert.equal(registered?.required, true, "the shadow entry must survive runtime-context suppression");
   assert.equal(registered?.order, 42, "the order follows the harness's WORKING_DIRECTORY constant");
+});
+
+check("a distro agent adds the one-sentence shell note", () => {
+  /** @type {Array<[string, unknown]>} */
+  const events = [];
+  apply(/** @type {any} */ (fakeCtx(events)));
+  const hook = /** @type {(payload: unknown) => void} */ (events[0]?.[1]);
+  const { agent, section } = fakeAgent();
+  hook({ agent });
+  const registered = section("wsl:shell");
+  assert.equal(registered?.name, "wsl:shell");
+  assert.equal(registered?.order, 1000, "the section follows the harness's TOOL_BASH order");
+  assert.equal(registered?.interpolate, false, "the note keeps its literal text");
+  const text = /** @type {string} */ (registered?.text);
+  assert.match(text, /commands run in the distro's login shell/);
+  assert.match(text, /not necessarily bash/);
+  assert.match(text, /\.bashrc/);
+  assert.match(text, /is not read/);
+  assert.match(text, /DSH_WSL_SHELL/);
+  assert.doesNotMatch(text, /wsl\.localhost|C:\\/u, "the note carries no Windows or UNC path");
+});
+
+check("the policy context replaces the host line with a POSIX-only rendering", () => {
+  /** @type {Array<[string, unknown]>} */
+  const events = [];
+  apply(/** @type {any} */ (fakeCtx(events)));
+  const hook = /** @type {(payload: unknown) => void} */ (events[0]?.[1]);
+  const policy = {
+    resolve: () => ({
+      mode: "workspace-write",
+      workspaceRoot: UNC,
+      additionalWritableRoots: ["\\\\wsl.localhost\\ubuntu\\home\\you\\.cache", "C:\\Users\\you\\cache"],
+    }),
+  };
+  const { agent, policy: entry } = fakeAgent(UNC, { get: () => UNC }, true, policy);
+  hook({ agent });
+  const registered = entry();
+  assert.equal(registered?.name, "sandbox:policy");
+  assert.equal(registered?.order, 110, "the replacement follows the harness's SANDBOX_POLICY order");
+  assert.equal(registered?.required, false, "the host policy is optional; the replacement keeps that");
+  const text = /** @type {(context: unknown) => string} */ (registered?.text)({ agent });
+  assert.match(text, /Current DSH file policy: workspace-write/);
+  assert.match(text, /WSL workspace: "\/home\/you\/proj"/);
+  assert.match(text, /Additional WSL writable roots: "\/home\/you\/\.cache"/);
+  assert.match(text, /enforcement is "partial"/);
+  assert.ok(!text.includes("wsl.localhost"), "no UNC spelling reaches the model");
+  assert.ok(!text.includes("C:\\"), "no Windows path reaches the model");
+});
+
+check("the harness source context and section are suppressed", () => {
+  /** @type {Array<[string, unknown]>} */
+  const events = [];
+  apply(/** @type {any} */ (fakeCtx(events)));
+  const hook = /** @type {(payload: unknown) => void} */ (events[0]?.[1]);
+  const { agent, section, sourceContext } = fakeAgent();
+  hook({ agent });
+  const source = sourceContext();
+  assert.equal(source?.name, "harness:source");
+  assert.equal(typeof source?.text, "function");
+  assert.equal(/** @type {(context: unknown) => string} */ (source?.text)({ agent }), "", "the host path is removed from the snapshot");
+  assert.equal(section("harness:source")?.text, "", "the host checkout guidance is removed from the system prompt");
+});
+
+check("policyText covers the modes and never falls back to a Windows spelling", () => {
+  const workspaceWrite = policyText({ mode: "workspace-write", workspaceRoot: UNC }, UNC);
+  assert.match(workspaceWrite, /Current DSH file policy: workspace-write/);
+  assert.match(workspaceWrite, /"\/home\/you\/proj"/);
+  assert.match(workspaceWrite, /enforcement is "partial"/);
+  assert.doesNotMatch(workspaceWrite, /wsl\.localhost|C:\\/u);
+
+  const readOnly = policyText({ mode: "read-only", workspaceRoot: UNC }, UNC);
+  assert.match(readOnly, /mutations are refused/);
+
+  const danger = policyText({ mode: "danger-full-access", workspaceRoot: UNC }, UNC);
+  assert.match(danger, /No WSL file fence is applied/);
+  assert.doesNotMatch(danger, /wsl\.localhost|C:\\/u);
+
+  const unknown = policyText(undefined, UNC);
+  assert.match(unknown, /Current DSH file policy: unknown/);
+  assert.match(unknown, /"\/home\/you\/proj"/);
+  assert.doesNotMatch(unknown, /wsl\.localhost|C:\\/u);
+});
+
+check("posixPath translates UNC and refuses Windows spellings", () => {
+  assert.equal(posixPath(UNC), POSIX);
+  assert.equal(posixPath(POSIX), POSIX);
+  assert.equal(posixPath("C:\\Users\\you"), undefined);
+  assert.equal(posixPath(undefined), undefined);
 });
 
 check("the provider reads the live service and rewrites", () => {
@@ -154,9 +272,11 @@ check("a host workspace installs nothing", () => {
   const events = [];
   apply(/** @type {any} */ (fakeCtx(events)));
   const hook = /** @type {(payload: unknown) => void} */ (events[0]?.[1]);
-  const { agent, entry } = fakeAgent("C:\\Users\\you\\proj");
+  const { agent, entry, section } = fakeAgent("C:\\Users\\you\\proj");
   hook({ agent });
   assert.equal(entry(), undefined, "no shadow entry for a drive-path workspace");
+  assert.equal(section("wsl:shell"), undefined, "no shell note for a drive-path workspace");
+  assert.equal(section("harness:source"), undefined, "no source suppression for a drive-path workspace");
 });
 
 check("an agent without a context installs nothing", () => {

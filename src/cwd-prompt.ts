@@ -1,7 +1,12 @@
 /**
- * Distro-native working directory in the model's runtime context: rewrite the
- * `working-directory:current` entry so a distro session reads its directory as
- * the POSIX path its own commands use, not the host UNC spelling.
+ * Distro-native model context: rewrite the `working-directory:current` entry so
+ * a distro session reads its directory as the POSIX path its own commands use,
+ * and adapt the host prompt facts that are wrong or unnecessarily Windows-shaped
+ * in a WSL session. The adaptations are deliberately narrow and replaceable:
+ * a one-sentence shell note, a POSIX-only replacement for `sandbox:policy`, and
+ * suppression of the host's `harness:source` value (its `app.asar`/Windows path
+ * is not a readable source checkout from the distro). See
+ * docs/UPSTREAM-PROMPT-ADAPTERS.md for the upstream issues that remove them.
  *
  * The harness's `working-directory` service prints the session cwd verbatim,
  * which on this deployment is `\\wsl.localhost\<distro>\...` — the coordinate
@@ -43,7 +48,7 @@
  */
 
 import z from "@deepseek-ai/schemastery";
-import { isWslUnc, uncToPosix } from "./paths.js";
+import { isPosixAbsolute, isWslUnc, uncToPosix } from "./paths.js";
 
 export const name = "wsl-cwd-prompt";
 
@@ -95,8 +100,17 @@ interface CwdPromptScope {
       interpolate: boolean,
       text: (context: AssembleRequestContext) => string,
     }) => unknown;
+    /** Register one system-prompt section in this scope's layer, when the harness has the seam. */
+    section?: (entry: {
+      name: string,
+      order: number,
+      interpolate: boolean,
+      text: string,
+    }) => unknown;
     /** The order constant the harness assigned to a named context family. */
     getContextOrder?: (family: string) => number | undefined;
+    /** The order constant the harness assigned to a named system-prompt section family. */
+    getSectionOrder?: (family: string) => number | undefined;
   };
 }
 
@@ -125,6 +139,19 @@ interface WorkingDirectorySlice {
   get?: (session: unknown) => string | undefined;
 }
 
+/**
+ * The harness's `sandbox-policy` service, read structurally: only `resolve` is
+ * consumed. The plugin uses it as the source of truth for mode and workspace
+ * and only changes the WSL presentation (POSIX path, partial enforcement).
+ */
+interface SandboxPolicySlice {
+  resolve?: (request: { session?: unknown }) => {
+    mode?: string,
+    workspaceRoot?: string,
+    additionalWritableRoots?: readonly string[],
+  } | undefined;
+}
+
 /** The cordis context slice this service consumes. */
 type CwdPromptContext = {
   logger?: {
@@ -141,6 +168,21 @@ type CwdPromptContext = {
  * (`assemble` and `refreshContext` merge scoped layers over the global one).
  */
 const ENTRY_NAME = "working-directory:current";
+
+/** The model-facing shell note; the host's bash tool name cannot be changed here. */
+const SHELL_SECTION = "wsl:shell";
+
+/** The shell note's literal text; no path, no session-specific value. */
+const SHELL_NOTE = "The shell tool may be named `bash`, but commands run in the distro's login shell with `-lc` by default; it is not necessarily bash, and `~/.bashrc` is not read. Check `$DSH_WSL_SHELL` for the exact shell.";
+
+/** The host policy context this plugin replaces with a POSIX-only rendering. */
+const POLICY_CONTEXT = "sandbox:policy";
+
+/** The host source context and section this plugin suppresses in a WSL session. */
+const SOURCE_CONTEXT = "harness:source";
+
+/** The qualification that keeps a WSL policy line from claiming full isolation. */
+const PARTIAL_NOTE = "bwrap enforcement is \"partial\": WSL interop to Windows is outside it.";
 
 /**
  * Rewrite every JSON-string-quoted WSL UNC path in one text to its POSIX form.
@@ -193,6 +235,56 @@ export function entryText(agent: AssembleRequestContext["agent"], workingDirecto
 }
 
 /**
+ * One path in the only spelling a WSL model should see. A WSL UNC becomes its
+ * POSIX path; an already-POSIX path passes; every Windows spelling returns
+ * undefined, so a caller can omit it rather than leak it.
+ *
+ * @param value - a path from the host policy service or a session header.
+ * @returns the POSIX path, or undefined when no POSIX spelling is available.
+ */
+export function posixPath(value: string | undefined): string | undefined {
+  if (value === undefined || value.length === 0) return undefined;
+  const parsed = uncToPosix(value);
+  if (parsed !== undefined) return parsed.linuxPath;
+  return isPosixAbsolute(value) ? value : undefined;
+}
+
+/**
+ * The POSIX-only replacement for the host's `sandbox:policy` context. It keeps
+ * the host's mode and root (resolved through `ctx.sandboxPolicy`) but never
+ * prints a UNC or Windows path. The partial qualifier is conditional because
+ * the plugin can be configured with the sandbox off or in danger-full-access.
+ *
+ * @param policy - the host policy resolution, when the service is available.
+ * @param cwd - the session's workspace, used when the policy root is not POSIX.
+ * @returns the model-facing policy text.
+ */
+export function policyText(policy: { mode?: string, workspaceRoot?: string, additionalWritableRoots?: readonly string[] } | undefined, cwd: string): string {
+  const mode = policy?.mode ?? "unknown";
+  const workspace = posixPath(policy?.workspaceRoot) ?? posixPath(cwd);
+  const roots = (policy?.additionalWritableRoots ?? [])
+    .map((root) => posixPath(root))
+    .filter((root): root is string => root !== undefined);
+  const parts = [`Current DSH file policy: ${mode}.`];
+  if (mode === "danger-full-access") {
+    parts.push("No WSL file fence is applied.");
+    return parts.join(" ");
+  }
+  if (workspace !== undefined) parts.push(`WSL workspace: ${JSON.stringify(workspace)}.`);
+  if (roots.length > 0) parts.push(`Additional WSL writable roots: ${roots.map((root) => JSON.stringify(root)).join(", ")}.`);
+  if (mode === "read-only") {
+    parts.push(`When the WSL sandbox is enabled, mutations are refused; ${PARTIAL_NOTE}`);
+  } else if (mode === "workspace-write") {
+    parts.push(roots.length > 0
+      ? `When the WSL sandbox is enabled, mutations are limited to the WSL workspace and the listed roots; ${PARTIAL_NOTE}`
+      : `When the WSL sandbox is enabled, mutations are limited to the WSL workspace; ${PARTIAL_NOTE}`);
+  } else {
+    parts.push(`When the WSL sandbox enforces a mode, ${PARTIAL_NOTE}`);
+  }
+  return parts.join(" ");
+}
+
+/**
  * Mount the rewrite.
  *
  * @param ctx - the cordis context (the composition root, where the harness's
@@ -218,6 +310,7 @@ export function apply(ctx: CwdPromptContext, config: CwdPromptConfig = {}): void
     const agentCtx = agent.ctx;
     if (agentCtx === undefined || typeof agentCtx.inject !== "function") return;
     let workingDirectory: WorkingDirectorySlice | undefined;
+    let sandboxPolicy: SandboxPolicySlice | undefined;
     try {
       const resolved = agentCtx.get?.("workingDirectory");
       if (resolved !== undefined && resolved !== null) workingDirectory = /** @type {WorkingDirectorySlice} */ (resolved);
@@ -225,18 +318,62 @@ export function apply(ctx: CwdPromptContext, config: CwdPromptConfig = {}): void
       debug(`wsl-cwd-prompt: could not read the workingDirectory service (${(error as Error)?.message ?? error})`);
     }
     try {
+      const resolved = agentCtx.get?.("sandboxPolicy");
+      if (resolved !== undefined && resolved !== null) sandboxPolicy = /** @type {SandboxPolicySlice} */ (resolved);
+    } catch (error) {
+      debug(`wsl-cwd-prompt: could not read the sandboxPolicy service (${(error as Error)?.message ?? error})`);
+    }
+    const resolvePolicy = () => {
+      try {
+        return sandboxPolicy?.resolve?.({ session: agent.session });
+      } catch {
+        return undefined;
+      }
+    };
+    try {
       agentCtx.inject(["systemPrompt"], (scope) => {
-        const order = scope.systemPrompt.getContextOrder?.("WORKING_DIRECTORY") ?? 200;
-        scope.systemPrompt.context({
+        const systemPrompt = scope.systemPrompt;
+        systemPrompt.context({
           name: ENTRY_NAME,
-          order,
+          order: systemPrompt.getContextOrder?.("WORKING_DIRECTORY") ?? 200,
           required: true,
           interpolate: false,
           text: (context) => entryText(context?.agent, workingDirectory),
         });
+        systemPrompt.context({
+          name: POLICY_CONTEXT,
+          order: systemPrompt.getContextOrder?.("SANDBOX_POLICY") ?? 110,
+          required: false,
+          interpolate: false,
+          text: () => policyText(resolvePolicy(), cwd),
+        });
+        // The host source value is a Windows/app.asar path in this deployment.
+        // An empty scoped contribution removes it from the snapshot; a WSL
+        // session has no readable use for the host spelling.
+        systemPrompt.context({
+          name: SOURCE_CONTEXT,
+          order: systemPrompt.getContextOrder?.("HARNESS_SOURCE") ?? 200,
+          required: false,
+          interpolate: false,
+          text: () => "",
+        });
+        if (typeof systemPrompt.section === "function") {
+          systemPrompt.section({
+            name: SHELL_SECTION,
+            order: systemPrompt.getSectionOrder?.("TOOL_BASH") ?? 1000,
+            interpolate: false,
+            text: SHELL_NOTE,
+          });
+          systemPrompt.section({
+            name: SOURCE_CONTEXT,
+            order: systemPrompt.getSectionOrder?.("HARNESS_SOURCE") ?? 10000,
+            interpolate: false,
+            text: "",
+          });
+        }
       });
     } catch (error) {
-      debug(`wsl-cwd-prompt: could not install the shadow entry (${(error as Error)?.message ?? error})`);
+      debug(`wsl-cwd-prompt: could not install the prompt adapters (${(error as Error)?.message ?? error})`);
     }
   };
 

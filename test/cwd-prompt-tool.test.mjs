@@ -72,6 +72,7 @@ check("it registers the shipped tool's name, contract, and render", async () => 
   const { tool } = mounted();
   assert.equal(tool.name, "working_directory", "same name, so the model's contract is unchanged");
   assert.match(/** @type {string} */ (tool.description), /change it with cd/);
+  assert.doesNotMatch(/** @type {string} */ (tool.description), /sandbox boundary stays/, "the tool description stays the shipped contract");
   assert.deepEqual((/** @type {Record<string, any>} */ (tool.parameters)).properties?.cd?.type, "string", "defineTool normalizes the property map into an object schema");
   const render = /** @type {(args: unknown, value: {cwd: string}) => Array<{type: string, text: string}>} */ (/** @type {Record<string, unknown>} */ (tool.output).render);
   assert.deepEqual(render({}, { cwd: POSIX }), [{ type: "text", text: POSIX }]);

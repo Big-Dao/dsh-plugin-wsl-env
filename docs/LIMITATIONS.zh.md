@@ -173,12 +173,13 @@ Windows git `safe.directory` 白名单）。`--fix-owned` 把运行收窄到插�
 
 ## 会话启动建议
 
-- **DSH 0.2.1 没有会话 UI 通知接缝。** `wsl-preflight` 的失败进入宿主日志
+- **DSH 0.2.1 没有会话 UI 通知接缝。** `wsl-preflight` 的阻塞裁决进入宿主日志
   和会话的 runtime context（下次组装时对模型可见）——仅供参考，从不安装、
-  从不取消。对上游的请求见：
+  从不取消。ready 裁决只写日志：“前置项可用”不是模型的动作。对上游的请求见：
   [UPSTREAM-SESSION-NOTICE.md](UPSTREAM-SESSION-NOTICE.md)。
 - **runtime context 条目是重复的快照，不是可关闭的通知。**
-  移除 `wsl-preflight` 行即可让该探针完全静音。
+  移除 `wsl-preflight` 行即可让该探针完全静音。阻塞消息把修复标记为用户操作；
+  ready 裁决不再发送。
 
 ## 端口
 

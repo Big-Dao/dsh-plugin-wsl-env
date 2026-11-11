@@ -27,11 +27,12 @@ doctor 快速检查，结果以状态徽标、编号的待修项与告警列出�
 （残留 scope、损坏的 agent 缓存）的完整运行标为 **修复**，否则标为 **完整检查**；在输入框里输入
 `/wsl-doctor [quick|full|<分区>]` 同样在宿主侧执行、直接渲染在 UI，不进模型
 对话、零 token；在会话里请求诊断，模型会运行本插件挂载的 `wsl_doctor` 工具，
-判定落在对话里；会话启动预检在每次会话打开时通报同样的判定。`DSH_WSL_DOCTOR` 还携带一条现成命令，可在发行版内执行 doctor 脚本本身
+判定落在对话里；会话启动预检在每次会话打开时把同样的判定写进日志，只有 blocked
+判定同时进入会话上下文。`DSH_WSL_DOCTOR` 还携带一条现成命令，可在发行版内执行 doctor 脚本本身
 （`sh -c "$DSH_WSL_DOCTOR --json"`）。
 
 doctor（`scripts/doctor.mjs`，或在检出目录中运行 `pnpm run doctor`）会检查
-环境并以裁决收尾：`ready` 表示首条命令应能成功；`blocked` 会列明待修项，
+环境并以裁决收尾：`ready` 表示本次运行覆盖的检查全部通过，不保证每条命令都成功；`blocked` 会列明待修项，
 每项附可复制的处理办法。发行版的 WSL 模式由 doctor 自己从 `wsl.exe -l -v`
 读取，无需单独确认。doctor 默认只读，除非传入 `--fix`（清理过期 scope、清理损坏的
 agent 缓存，两者都会复检；以及确认后的 Windows git 信任）或

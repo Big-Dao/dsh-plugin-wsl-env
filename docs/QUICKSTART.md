@@ -30,15 +30,17 @@ finding exists (stale scopes and a broken agent cache), **完整检查** otherwi
 in the composer also runs host-side and renders in the UI — no model turn, no
 tokens; in a session, ask for a diagnosis and the model runs the `wsl_doctor`
 tool (mounted by this plugin), the verdict landing in the transcript; and the
-session-start preflight announces the same verdict on every session start.
+session-start preflight logs the same verdict on every session start, and adds
+it to the session's context only when blocked.
 `DSH_WSL_DOCTOR` additionally carries a ready-to-run command for the doctor
 script itself (`sh -c "$DSH_WSL_DOCTOR --json"`).
 
 The doctor (`scripts/doctor.mjs`, or `pnpm run doctor` from a checkout) checks
-the environment and ends in a verdict: `ready` means the first command should
-succeed; `blocked` names the exact checks to fix, each with a copy-paste
-remedy. It reads the distro's WSL mode from `wsl.exe -l -v` itself, so no
-separate version check is needed. Doctor is read-only unless you pass `--fix`
+the environment and ends in a verdict: `ready` means every check that run
+covered passed — not a promise about a later command; `blocked` names the exact
+checks to fix, each with a copy-paste remedy. It reads the distro's WSL mode
+from `wsl.exe -l -v` itself, so no separate version check is needed. Doctor is
+read-only unless you pass `--fix`
 (the stale-scope sweep and a broken agent cache, both re-verified; the Windows
 git trust after a confirmation) or `--fix --install` (packages, after a
 confirmation); `--fix-owned` restricts a fix run to the plugin-owned state

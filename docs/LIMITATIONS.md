@@ -194,12 +194,15 @@ sandbox's security statement: `enforcement: partial` is untouched.
 
 ## Session-start advisories
 
-- **There is no session-UI notice seam in DSH 0.2.1.** `wsl-preflight` failures go
-  to the host log and the session's runtime context (model-visible next assembly) —
-  advisory only, never installing or cancelling. The upstream ask:
-  [UPSTREAM-SESSION-NOTICE.md](UPSTREAM-SESSION-NOTICE.md).
+- **There is no session-UI notice seam in DSH 0.2.1.** A blocked `wsl-preflight`
+  verdict goes to the host log and the session's runtime context (model-visible
+  next assembly) — advisory only, never installing or cancelling. A ready
+  verdict is log-only: "the prerequisite is usable" is not a model action. The
+  upstream ask: [UPSTREAM-SESSION-NOTICE.md](UPSTREAM-SESSION-NOTICE.md).
 - **The runtime-context entry is a repeated snapshot, not a dismissible
   notification.** Removing the `wsl-preflight` row silences the probe entirely.
+  A blocked message marks its remedy as operator action to ask the user about;
+  ready verdicts are not sent.
 
 ## Ports
 

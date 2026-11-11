@@ -70,7 +70,7 @@ functions.
 | `dsh-plugin-wsl-env/shell-env` | `wsl-shell-env` | [`lib/shell-env.js`](../lib/shell-env.js) | Contributes `DSH_WSL_DISTRO`, `DSH_WSL_SHELL`, `DSH_WSL_HOME` and `DSH_WSL_PORTS` to the managed `DSH_*` namespace, choosing the session workspace's distro (default/pinned facts are probed at mount; other distros are warmed when their session appears). The port list is a snapshot per active distro, refreshed every `portsRefreshMs` (10000 by default), so a server started moments ago may not be listed yet. |
 | `dsh-plugin-wsl-env/preflight` | `wsl-preflight` | [`lib/preflight.js`](../lib/preflight.js) | Runs the environment advisory at session start — and, with `startup: true` (the default), once at plugin load — surfacing the doctor-style verdict as a non-gating warning. |
 | `dsh-plugin-wsl-env/update-check` | `wsl-update-check` | [`lib/update-check.js`](../lib/update-check.js) | Asks the app's plugin manager about a newer stable release about once a day and carries the fact in `DSH_WSL_PLUGIN_UPDATE`; never fetches on its own. |
-| `dsh-plugin-wsl-env/cwd-prompt` | `wsl-cwd-prompt` | [`lib/cwd-prompt.js`](../lib/cwd-prompt.js) | Rewrites the runtime context's working-directory entry to the distro's POSIX form. |
+| `dsh-plugin-wsl-env/cwd-prompt` | `wsl-cwd-prompt` | [`lib/cwd-prompt.js`](../lib/cwd-prompt.js) | Rewrites the runtime context's working-directory entry to the distro's POSIX form; adds the one-sentence `wsl:shell` note; replaces `sandbox:policy` with a POSIX-only rendering; and suppresses the host `harness:source` value in WSL sessions. The last three are temporary adapters tracked in [UPSTREAM-PROMPT-ADAPTERS.md](UPSTREAM-PROMPT-ADAPTERS.md). |
 | `dsh-plugin-wsl-env/cwd-prompt-tool` | `wsl-cwd-prompt-tool` | [`lib/cwd-prompt-tool.js`](../lib/cwd-prompt-tool.js) | Serves the model's read/`cd` tool with the same semantics the harness ships, rewriting the returned `cwd` to the distro's POSIX form. |
 | `dsh-plugin-wsl-env/wsl-doctor-tool` | `wsl-doctor-tool` | [`lib/wsl-doctor-tool.js`](../lib/wsl-doctor-tool.js) | The `wsl_doctor` model tool: the doctor in-process (merging the live resident's state), scoped by `depth`/`section`, rendered as the itemized digest. |
 | `dsh-plugin-wsl-env/wsl-doctor-command` | `wsl-doctor-command` | [`lib/wsl-doctor-command.js`](../lib/wsl-doctor-command.js) | The `/wsl-doctor` UI command: spawns the standalone doctor CLI as a host subprocess and renders the same digest detached from model history. |
@@ -463,7 +463,7 @@ src/bwrap.ts                 the bwrap command line every confinement site
                              assert it)
 src/client-host.ts           the bare-name host half — a deliberate no-op that
                              anchors the browser client
-src/cwd-prompt.ts            rewrites the runtime context's working directory
+src/cwd-prompt.ts            rewrites the working directory; applies the temporary prompt adapters
                              to the distro's POSIX form
 src/cwd-prompt-tool.ts       serves the model's read/cd tool with distro-POSIX
                              cwd output

@@ -84,6 +84,7 @@
   [Open in app](UPSTREAM-OPEN-IN-APP.md)、
   [会话后台任务被杀](UPSTREAM-SESSION-BACKGROUND-KILL.md)、
   [会话通知](UPSTREAM-SESSION-NOTICE.md)、
+  [提示适配](UPSTREAM-PROMPT-ADAPTERS.md)、
   [同名服务热替换](UPSTREAM-SERVICE-SWAP.md)、
   [spawnSpec](UPSTREAM-SPAWN-SEAM.md)、[终端字体](UPSTREAM-TERMINAL-FONT.md)、
   [终端标题](UPSTREAM-TERMINAL-TITLE.md)。每篇的检查版本和状态应单独核对。

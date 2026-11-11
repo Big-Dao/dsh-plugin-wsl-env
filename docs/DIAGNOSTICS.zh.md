@@ -18,7 +18,8 @@
 关闭隔离（`sandbox: false` 且 `sessionSandbox: false`），沙箱检查发出
 **警告**点名 UNCONFINED 状态，并跳过围栏冒烟——醒目，但不阻断。
 
-`verdict: ready` 表示首条命令应在目标 distro、预期 scope 下成功；smoke 腿
+`verdict: ready` 表示本次运行覆盖的检查在目标 distro、预期 scope 下全部通过，
+不保证之后每条命令都成功；smoke 腿
 （`functional.exec`、`functional.sandbox`、`functional.fs`）证明链路本身——
 帧 I/O、受限围栏、批量 substrate——而不只是前置条件。`functional.exec` /
 `functional.fs` 运行 shell agent；当 `auto` 或 `native` 选中 native 二进制时，

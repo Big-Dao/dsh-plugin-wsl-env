@@ -154,6 +154,7 @@
     "docs/root-fs-routing.md",
     "docs/VALUE.zh.md",
     "docs/UPSTREAM-OPEN-IN-APP.md",
+    "docs/UPSTREAM-PROMPT-ADAPTERS.md",
     "docs/adr/0002-native-agent.md",
     "docs/PARITY.md",
     "docs/PEER-PARITY.md",

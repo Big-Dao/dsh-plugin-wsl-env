@@ -29,6 +29,28 @@ were part of the record.
   '~/.npm,~/.cache'` writes it into both nested rows of the printed block.
   CONFIGURATION documents the cache recipes and the security trade-off.
 
+- **Prompt adapters for the Windows-shaped prompt facts.** A WSL session now
+  carries a one-sentence `wsl:shell` note (the shell tool is named `bash` but
+  runs the distro's login shell with `-lc`), a POSIX-only `sandbox:policy` line
+  built from `ctx.sandboxPolicy` (mode, workspace and `additionalWritableRoots`,
+  no UNC path, plus the conditional `partial` enforcement note), and no
+  `harness:source` value — the host's `app.asar` Windows path is not a readable
+  checkout from the distro. The adapters are temporary and each names the
+  upstream change that retires it in
+  [docs/UPSTREAM-PROMPT-ADAPTERS.md](docs/UPSTREAM-PROMPT-ADAPTERS.md).
+
+### Changed
+
+- **A ready preflight verdict is log-only.** Only a blocked `wsl-preflight`
+  verdict reaches the session's runtime context, and its remedy is marked as
+  operator action (ask the user before running anything). "The prerequisite is
+  usable" is not a model action; it stays in the host log, which still carries
+  the verdict on every session.
+- **`ready` no longer promises the next command.** The `wsl_doctor` tool
+  description and its ready note say ready covers the checks in that run; the
+  older "the first command should succeed" was a step past what the probes
+  prove. The doctor and quickstart docs, and both READMEs, state the same.
+
 ### Fixed
 
 - **Confined WSL operations now honor the policy's `additionalWritableRoots`.**

@@ -19,8 +19,9 @@ names the opt-out, both as warnings), so the verdict answers under the
 the shipped preset — not the shipped defaults. The `config.effective` check
 reports what was read and from where.
 
-`verdict: ready` means the first command should succeed in the target
-distro(s) under the expected scope; the smoke legs (`functional.exec`,
+`verdict: ready` means every check this run covered passed in the target
+distro(s) under the expected scope; it is not a promise about a later
+command. The smoke legs (`functional.exec`,
 `functional.sandbox`, `functional.fs`) prove the chain itself — frame I/O,
 the confined fence, the batched substrate — not just the prerequisites.
 `functional.exec` / `functional.fs` run the shell agent; when `auto` or

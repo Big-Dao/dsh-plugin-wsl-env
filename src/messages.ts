@@ -126,9 +126,9 @@ const en = {
   /** `wsl_doctor` digest: the remedy prefix under a failed check. */
   doctorDigestFixPrefix: ({ remedy }: { remedy: string }): string =>
     `        fix: ${remedy}`,
-  /** `wsl_doctor` digest: the ready note (how to attach the full report). */
+  /** `wsl_doctor` digest: the ready note; the report is not a promise about a call. */
   doctorDigestNoteReady: (): string =>
-    "the first command should succeed; run the CLI (pnpm run doctor --bundle <path>) for the attachable file",
+    "ready covers the checks in this run; it does not promise every command will succeed",
   /** `wsl_doctor` digest: the blocked note (the rerun is the re-verification). */
   doctorDigestNoteBlocked: (): string =>
     "apply each remedy above, then call this tool again — the re-run is the re-verification",
@@ -202,7 +202,7 @@ const zh: typeof en = {
   doctorDigestFixPrefix: ({ remedy }) =>
     `        修复: ${remedy}`,
   doctorDigestNoteReady: () =>
-    "首条命令应能成功；如需可附加的报告文件，运行 CLI（pnpm run doctor --bundle <path>）",
+    "ready 只覆盖本次检查，不保证每条命令都能成功",
   doctorDigestNoteBlocked: () =>
     "应用上方每条修复，然后再次调用本工具——重跑即复核",
   doctorDigestBlockedTail: ({ blockers, warnings, skipped, note }) =>

@@ -146,7 +146,7 @@ declare const en: {
     doctorDigestFixPrefix: ({ remedy }: {
         remedy: string;
     }) => string;
-    /** `wsl_doctor` digest: the ready note (how to attach the full report). */
+    /** `wsl_doctor` digest: the ready note; the report is not a promise about a call. */
     doctorDigestNoteReady: () => string;
     /** `wsl_doctor` digest: the blocked note (the rerun is the re-verification). */
     doctorDigestNoteBlocked: () => string;

@@ -454,7 +454,7 @@ async function doctorCollector(
 export async function apply(ctx: WslDoctorToolContext): Promise<void> {
   ctx.tools.register(defineTool({
     name: "wsl_doctor",
-    description: "Run the WSL environment doctor for this session's distro and return the verdict: ready (the first command should succeed), or blocked with per-failure copy-paste remedies. Interactive by design: start with depth \"quick\" (prerequisites only, ~10 s for the session's own distro) and narrate the result, then narrow with \"section\" (one of host/sandbox/session/conf/net/agent) or run depth \"full\" only when the user asked for a complete diagnosis — each call probes its scope and itemizes every check it tested with an explicit status marker, grouped by distro.",
+    description: "Run the WSL environment doctor for this session's distro. Default depth \"quick\" (~10 s); use \"full\" only when the user asks for a complete diagnosis. Returns the verdict, blockers, and report.",
     parameters: {
       distro: {
         type: "string",

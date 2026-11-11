@@ -69,7 +69,8 @@ await check("digestReport lists every failing check with its remedy and counts t
   const ready = digestReport(READY);
   assert.deepEqual(ready.failing, []);
   assert.equal(ready.verdict, "ready", "a ready report digests to an empty failing list");
-  assert.match(ready.note, /the first command should succeed/);
+  assert.match(ready.note, /ready covers the checks in this run/);
+  assert.match(ready.note, /does not promise/);
 });
 
 await check("renderDigest speaks verdict, per-failure remedies, and the ready note", () => {
@@ -85,7 +86,7 @@ await check("renderDigest speaks verdict, per-failure remedies, and the ready no
   const ready = renderDigest(digestReport(READY));
   assert.match(ready, /^wsl doctor verdict: READY/);
   assert.match(ready, /\[ OK \] sandbox\.bwrap/);
-  assert.match(ready, /the first command should succeed/);
+  assert.match(ready, /ready covers the checks in this run/);
 });
 
 await check("a multi-distro report groups the tallies by distro and names the session", () => {
@@ -152,6 +153,8 @@ const mount = async ({ cwd = DISTRO_UNC, agentless = false, report = READY, call
 await check("execute resolves the session distro and returns the digest", async () => {
   const { tool, calls } = await mount();
   assert.equal(tool.name, "wsl_doctor");
+  assert.match(/** @type {any} */ (tool).description, /Default depth "quick"/);
+  assert.doesNotMatch(/** @type {any} */ (tool).description, /first command should succeed/);
   const result = await tool.execute({}, { agent: { id: "a1" } });
   assert.deepEqual(calls, ["ubuntu"], "the session's distro resolves from the workingDirectory service");
   assert.equal(result.verdict, "ready");
@@ -337,7 +340,7 @@ await check("the skip summary names the scope profile that left checks unrun", (
     assert.match(rendered, /\[SKIP\] functional\.exec——被前置阻断：blocked by agent\.handshake/u, "the gated skip names its blocker in Chinese");
     const ready = renderDigest(digestReport(READY));
     assert.match(ready, /wsl doctor 裁决：READY/u);
-    assert.match(ready, /首条命令应能成功/u);
+    assert.match(ready, /ready 只覆盖本次检查/u);
   } finally {
     resetMessagesLocaleForTests();
   }

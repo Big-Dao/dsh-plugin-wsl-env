@@ -103,6 +103,16 @@ A report is still welcome if you find an escape that does not depend on interop,
 if the masked profile is bypassable from `/mnt`, or if the plugin ever reports
 `full` while interop is reachable.
 
+One escape of that kind is known and unfixed: a confined command can ask the
+distro user's own service manager to start a unit, and that unit runs outside the
+mount profile — a write to the distro user's home succeeds where the same write
+from inside the fence is refused. Masking `/mnt` does not narrow this path
+because it never involves interop. The socket paths and the reproduction steps are
+withheld until a fix ships; the finding, its verification and the deferred
+decision are recorded in
+[docs/superpowers/value-discovery-2026-11-10.md](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/superpowers/value-discovery-2026-11-10.md)
+(E4). Report new instances through the private channel above, as with any escape.
+
 ## Credentials
 
 No credential, token, or private key belongs in this repository. That includes npm

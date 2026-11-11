@@ -14,8 +14,9 @@
  * The same probes also run once at plugin load (`startup`, on by default) so an
  * install-plus-restart already carries the verdict in the log — the pinned or
  * WSL-default distro — before the first session opens. A session on that distro
- * repeats only the runtime-context entry; other distros keep the session-open
- * check unchanged.
+ * repeats only a failing verdict as the runtime-context entry; a ready verdict
+ * stays in the log, because "the prerequisite is usable" is not an action the
+ * model needs to take. Other distros keep the session-open check unchanged.
  *
  * Advisory by construction. A preflight that cannot run (no WSL, a wedged
  * `wsl.exe`) degrades to a log line; it must never fail a session that has not
@@ -64,7 +65,8 @@ export const Config = z.object({
    * against the pinned or WSL-default distro, so the verdict is in the log
    * before any session opens. Sessions on other distros are still checked at
    * open, and a session announcement for a message the load pass already
-   * logged skips the duplicate log line but keeps its runtime-context entry.
+   * logged skips the duplicate log line; a failing verdict still lands as the
+   * session's runtime-context entry.
    */
   startup: z.boolean().default(true),
 });
@@ -85,6 +87,18 @@ interface PreflightConfig {
 
 /** Distros whose stale-scope sweep has already run in this process. */
 const sweptDistros = new Set<string>();
+
+/** The one instruction a blocked remedy needs; the model must not install packages unasked. */
+const OPERATOR = "operator action: ask the user before running a remedy";
+
+/**
+ * Mark a blocked verdict's remedy as user-owned action.
+ *
+ * @param message - the composed problem and remedy.
+ * @returns the model-facing sentence.
+ */
+const blocked = (message: string): string =>
+  `${message.replace(/[.\s]+$/u, "")} (${OPERATOR}).`;
 
 /**
  * Stop `dsh-wsl-*.scope` units a crashed app left behind. A scope is stale
@@ -161,18 +175,19 @@ export async function apply(ctx: PreflightContext, config: PreflightConfig = {})
   const warn = (message: string) => ctx.logger?.warn?.(message);
 
   /**
-   * Publish one advisory: the log line always, plus — when the harness exposes
-   * the agent's `systemPrompt` — a session-scoped runtime-context entry, so the
-   * warning is visible to the session instead of only in the app log. DSH
-   * 0.2.1 has no toast/notice seam; docs/UPSTREAM-SESSION-NOTICE.md records the
-   * ask, and the runtime context is the available visible channel today.
+   * Publish one advisory: the log line always, plus — when the verdict is
+   * blocked and the harness exposes the agent's `systemPrompt` — a
+   * session-scoped runtime-context entry, so the failure is visible to the
+   * session instead of only in the app log. A ready verdict is log-only: it is
+   * not an action and does not belong in the model's context.
    *
    * @param agent - the session that just opened.
    * @param message - the advisory, remedy included.
-   * @param level - `warn` for a blocked environment (the historical shape); `info` for the ready line, which is confirmation, not a complaint.
+   * @param level - `warn` for a blocked environment; `info` for the ready line, which is confirmation, not a complaint.
    */
   const announce = (agent: PreflightAgent, message: string, level: "warn" | "info" = "warn"): void => {
     announceLog(message, level);
+    if (level !== "warn") return;
     const agentCtx = agent.ctx;
     if (agentCtx === undefined || typeof agentCtx.inject !== "function") return;
     try {
@@ -184,7 +199,7 @@ export async function apply(ctx: PreflightContext, config: PreflightConfig = {})
     }
   };
 
-  /** Messages the load pass already logged; a session announcement repeats only the entry. */
+  /** Messages the load pass already logged; a session announcement repeats only a blocked entry. */
   const startupLogged = new Set<string>();
 
   /**
@@ -242,14 +257,14 @@ export async function apply(ctx: PreflightContext, config: PreflightConfig = {})
     const flight = (async (): Promise<{ message: string, level: "warn" | "info" }> => {
     const usable = await bwrapUsable({ wslPath, distro });
     if (!usable) {
-      return { message: `wsl-preflight: ${bwrapFailure(wslPath, distro) ?? missingBwrapRemedy(distro)}`, level: "warn" };
+      return { message: blocked(`wsl-preflight: ${bwrapFailure(wslPath, distro) ?? missingBwrapRemedy(distro)}`), level: "warn" };
     }
     if (!(config.sessionSandbox ?? true)) {
       return { message: `wsl-preflight: ready — bwrap is usable inside "${distro}" (the session scope is not checked: sessionSandbox: false)`, level: "info" };
     }
     const sessionProblem = await probeSession(distro);
     if (sessionProblem !== undefined) {
-      return { message: `wsl-preflight: ${sessionProblem}`, level: "warn" };
+      return { message: blocked(`wsl-preflight: ${sessionProblem}`), level: "warn" };
     }
     return { message: `wsl-preflight: ready — bwrap and the session scope are usable inside "${distro}"`, level: "info" };
     })();
@@ -299,7 +314,8 @@ export async function apply(ctx: PreflightContext, config: PreflightConfig = {})
    * The load pass: run the same probes once at mount — install + restart,
    * before any session — against the pinned or WSL-default distro, and log the
    * verdict. A session announcement for the same message then skips the
-   * duplicate log line but keeps its runtime-context entry. Advisory like every
+   * duplicate log line; a blocked verdict still lands as the runtime-context
+   * entry. Advisory like every
    * other arm: an unreachable distro degrades to a debug line.
    */
   const startupCheck = async (): Promise<void> => {

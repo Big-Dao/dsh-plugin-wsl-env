@@ -14,8 +14,9 @@
  * The same probes also run once at plugin load (`startup`, on by default) so an
  * install-plus-restart already carries the verdict in the log — the pinned or
  * WSL-default distro — before the first session opens. A session on that distro
- * repeats only the runtime-context entry; other distros keep the session-open
- * check unchanged.
+ * repeats only a failing verdict as the runtime-context entry; a ready verdict
+ * stays in the log, because "the prerequisite is usable" is not an action the
+ * model needs to take. Other distros keep the session-open check unchanged.
  *
  * Advisory by construction. A preflight that cannot run (no WSL, a wedged
  * `wsl.exe`) degrades to a log line; it must never fail a session that has not
@@ -55,7 +56,8 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
      * against the pinned or WSL-default distro, so the verdict is in the log
      * before any session opens. Sessions on other distros are still checked at
      * open, and a session announcement for a message the load pass already
-     * logged skips the duplicate log line but keeps its runtime-context entry.
+     * logged skips the duplicate log line; a failing verdict still lands as the
+     * session's runtime-context entry.
      */
     startup: z<boolean, boolean, "defined">;
 }>>, Schemastery.ObjectT<NoInfer<{
@@ -81,7 +83,8 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
      * against the pinned or WSL-default distro, so the verdict is in the log
      * before any session opens. Sessions on other distros are still checked at
      * open, and a session announcement for a message the load pass already
-     * logged skips the duplicate log line but keeps its runtime-context entry.
+     * logged skips the duplicate log line; a failing verdict still lands as the
+     * session's runtime-context entry.
      */
     startup: z<boolean, boolean, "defined">;
 }>>, "plain">;

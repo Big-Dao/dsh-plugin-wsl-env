@@ -142,6 +142,8 @@ await check("a distro session with unusable bwrap warns with the shared remedy",
   const warning = f.warns[0] ?? "";
   assert.match(warning, /wsl-preflight: /, "the warning names its source");
   assert.match(warning, /scripts\/bootstrap\.sh ubuntu --install/, "the warning carries the remedy");
+  assert.match(warning, /operator action: ask the user before running a remedy/, "the remedy is operator action, not the model's");
+  assert.doesNotMatch(warning, /observed at session open|re-check with wsl_doctor/u, "the blocked message has no stale-observation tail");
   assert.equal(bwrapFailure(wslPath, "ubuntu") !== undefined, true, "the shared cache holds the same failure");
 });
 
@@ -386,7 +388,7 @@ await check("sessionSandbox: false leaves the session prerequisites alone", asyn
   assert.deepEqual(f.warns, [], "an opted-out session runtime is not preflighted");
 });
 
-await check("a healthy session publishes the ready line into the transcript", async () => {
+await check("a healthy session keeps the ready line in the log, not the transcript", async () => {
   const wslPath = await scriptedWsl("wsl-preready.exe", "ok");
   const f = fakeCtx();
   /** @type {Array<{name: string, order: number, text: () => string}>} */
@@ -401,12 +403,11 @@ await check("a healthy session publishes the ready line into the transcript", as
   await apply(/** @type {never} */ (wireCtx(f)), { distro: "ubuntu", wslPath, sandbox: true });
   await f.fire({ agent });
   assert.deepEqual(f.warns, [], "ready is confirmation, never a complaint");
-  assert.equal(contexts.length, 1, "one runtime-context entry");
-  assert.equal(contexts[0]?.name, "wsl-preflight");
-  assert.match(contexts[0]?.text() ?? "", /ready — bwrap and the session scope are usable/);
+  assert.equal(contexts.length, 0, "a ready verdict is not an action, so it is log-only");
+  assert.equal(f.debugs.length > 0, true, "the ready verdict stays observable at debug level");
 });
 
-await check("sessionSandbox: false publishes the scoped ready line", async () => {
+await check("sessionSandbox: false keeps the scoped ready line log-only", async () => {
   const wslPath = await fakeWsl("wsl-preready2.exe", join(dir, "present-ready2"));
   await writeFile(join(dir, "present-ready2"), "");
   const f = fakeCtx();
@@ -422,7 +423,7 @@ await check("sessionSandbox: false publishes the scoped ready line", async () =>
   await apply(/** @type {never} */ (wireCtx(f)), { distro: "ubuntu", wslPath, sandbox: true, sessionSandbox: false });
   await f.fire({ agent });
   assert.deepEqual(f.warns, []);
-  assert.match(contexts[0]?.text() ?? "", /ready — bwrap is usable inside "ubuntu" \(the session scope is not checked/);
+  assert.equal(contexts.length, 0, "the scoped ready line does not enter model context either");
 });
 
 await check("the advisory also lands in the session runtime context", async () => {
@@ -443,6 +444,8 @@ await check("the advisory also lands in the session runtime context", async () =
   assert.equal(contexts.length, 1, "one runtime-context entry");
   assert.equal(contexts[0]?.name, "wsl-preflight");
   assert.match(contexts[0]?.text() ?? "", /loginctl enable-linger/, "the entry carries the remedy");
+  assert.match(contexts[0]?.text() ?? "", /operator action: ask the user before running a remedy/);
+  assert.doesNotMatch(contexts[0]?.text() ?? "", /observed at session open|re-check with wsl_doctor/u);
 });
 
 await check("the mount sweep reads agents without an inject violation", async () => {

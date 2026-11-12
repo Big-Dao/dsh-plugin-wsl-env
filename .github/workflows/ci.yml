@@ -122,6 +122,30 @@ jobs:
       # (scripts/coverage-gate.mjs), so the report is readable on the run page
       # without opening the logs.
 
+  # The web bundle needs a real DOM, computed layout and effect timing that the
+  # Node suite cannot provide. This job is separate from `test` so a checkout
+  # without a downloaded browser still runs the ordinary gate; the plugin's
+  # Desktop integration remains the real-machine probe's job.
+  browser:
+    if: github.event_name != 'schedule'
+    name: browser (chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: corepack enable pnpm
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile --config.minimum-release-age=0
+      # --with-deps installs Chromium's shared libraries on the hosted runner;
+      # a local checkout only needs `pnpm exec playwright install chromium`.
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm run test:browser
+
   # The native agent is a separate codebase (std-only Rust) with its own wire
   # behaviour; the plugin's Node suite never compiles it. This job builds the
   # spike from source, runs its manual suite against that build, then runs the

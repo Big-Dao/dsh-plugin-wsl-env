@@ -189,6 +189,7 @@ terminal if you would rather not see the prompt.
 | `pnpm test` | style checks, relative links, requirement citations, doc consistency, syntax pass, build consistency, type check, and unit tests | no |
 | `pnpm run lint:links` | relative Markdown links in README, CONTRIBUTING, AGENTS and `docs/**` | no |
 | `pnpm run test:coverage` | unit tests with coverage, then the per-module gate: every `lib/*.js` measured or allowlisted, per-module floors 85/70/60 | no |
+| `pnpm run test:browser` | the web client rendered in headless Chromium: layout, visibility, clicks, badge effect timing, panel list | no; `pnpm exec playwright install chromium` once |
 | `pnpm run lint:style` | style and lint rules | no |
 | `pnpm run lint:build` | the build-freshness check: every source has its artifacts and the committed bytes match a real build | no |
 | `pnpm run lint:types` | the TypeScript check over `test/**` and the ambient types (`tsc --noEmit`) | no |
@@ -218,7 +219,8 @@ Every script above is wired in `package.json`. `pnpm test` runs `lint:style`,
 release before the upload.
 
 CI runs `pnpm test` on Node 22 and 24, on both `ubuntu-latest` and
-`windows-latest`, and `pnpm run test:coverage` on Node 24. The Windows runners are
+`windows-latest`, `pnpm run test:coverage` on Node 24, and `pnpm run test:browser`
+on one Ubuntu runner after installing Chromium. The Windows runners are
 there because the plugin targets Windows; the coverage thresholds need Node 22.8 or
 newer, which is why that job runs on one version.
 
@@ -299,6 +301,18 @@ line is covered by the harness probes, which boot the plugin and so reach
 the argument builder out of `lib/bwrap.js`. A test that cannot run everywhere
 must skip itself — print a `SKIP` line and exit 0 — the way that file does on
 `win32`, where its fake `wsl.exe` (a POSIX script) cannot execute.
+
+### Browser E2E
+
+`test/browser/e2e.test.mjs` bundles `client.js` with React and mounts the real
+slot components in headless Chromium. It owns what the Node suite cannot see:
+computed layout, visibility, real clicks, and effect timing across two mounted
+components (the “收起” handoff from banner to header badge). It does not boot the
+Desktop shell; a failure names the plugin's web bundle, not the host.
+
+Run `pnpm exec playwright install chromium` once, then run the suite: `pnpm run test:browser`
+The CI `browser` job does the same on `ubuntu-latest`; `pnpm test` stays
+browser-free so a checkout without a browser still runs the ordinary gate.
 
 Probes are shell scripts, plus the small plugin files they load: the `*-probe.mjs`
 and `*-probe.yml` files in the same directory. Harness probes including `run.sh`,

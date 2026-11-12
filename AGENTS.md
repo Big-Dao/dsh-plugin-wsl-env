@@ -24,6 +24,7 @@ DeepSeek Harness 的 WSL 服务插件：将会话的 shell、文件系统、子�
 | `pnpm test` | 完整检查链：风格、链接、需求引用、文档一致性、语法、构建一致性、类型和单测；提交前必须通过。 |
 | `pnpm run build` | 将 `src/*.ts` 编译到 `lib/`；修改源码后运行。 |
 | `pnpm run test:coverage` | 覆盖率门槛：行 85%、分支 84%、函数 70%。 |
+| `pnpm run test:browser` | 真实 Chromium 渲染 web 客户端（布局、可见性、点击、badge 时序）；首次需 `pnpm exec playwright install chromium`。 |
 | `pnpm run sync:windows` | 修改 `lib/` 后同步 Windows 运行副本；使用新代码前重启 DSH。 |
 | `test/probe/run-all-when-closed.sh --include-fs` | Windows + WSL 真机全套 17 项探针；须在 Harness 关闭后运行。 |
 

@@ -1,5 +1,7 @@
 # Contributing
 
+*The Chinese version ([CONTRIBUTING.zh.md](CONTRIBUTING.zh.md)) is authoritative; this page is its English translation.*
+
 This document covers the development loop, the gates a pull request must pass, and
 the conventions this repository uses.
 
@@ -374,7 +376,7 @@ the tested environment and are not a substitute for rerunning the applicable gat
 
 The repository labels self-contained changes `good first issue`. Typical shapes:
 
-- a recipe or troubleshooting row in `README.md` or `docs/QUICKSTART.md`
+- a recipe or troubleshooting row in the README pair or the QUICKSTART pair
   (the link check gates it; one commit);
 - a probe report fixture under `test/probe/` that follows an existing
   `*-report.txt` shape;
@@ -396,7 +398,7 @@ Windows + WSL machine; unit tests, docs and packaging changes do not.
 - Keep one topic per commit.
 - In the pull request, say how you tested it. Paste probe output where a probe is
   relevant.
-- Update `README.md` and `docs/README.zh.md` together when a change affects usage.
+- Community-facing docs are bilingual and Chinese is authoritative: edit the `.zh.md` side first, then bring the English translation into line. The scope is README, QUICKSTART, CONFIGURATION, LIMITATIONS, DIAGNOSTICS, COMPATIBILITY, PERFORMANCE, MIGRATION, API, ARCHITECTURE, CONTRIBUTING, SECURITY, SUPPORT, CODE_OF_CONDUCT and VALUE. When a change affects usage, update the Chinese README and the affected Chinese doc first, then its English translation; the two sides stay section-for-section.
   The two files match section for section.
 
 ## Reporting bugs and security issues

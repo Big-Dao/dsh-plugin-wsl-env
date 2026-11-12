@@ -33,8 +33,8 @@ DeepSeek Harness 的 WSL 服务插件：将会话的 shell、文件系统、子�
 ## 硬性规则
 
 - `src/` 是源码，`lib/` 是提交进仓的构建产物；禁止手改 `lib/`。源码变更后运行 `pnpm run build`。`lint:build` 会检查产物逐字节一致，以及 `src/` 与 `lib/` 一一对应。
-- 代码风格：双引号、2 空格、LF；禁止 tab 和 BOM。包根目录只保留一个 README，中文版放在 `docs/`。
-- peer 版本分层：`devDependencies` 使用精确版本；`peerDependencies` 对 `@deepseek-ai/dsh-*` 声明 `>=0.2.2-rc.1`，对 `@deepseek-ai/cordis` 声明 `^4.1.0`，对 `@deepseek-ai/schemastery` 声明 `^3.19.0`。仅在匹配 Harness 发版的提交中抬高下限，并重跑对拍和完整检查；周度 `peer-canary` 用于发现 `next` 线变化。
+- 代码风格：双引号、2 空格、LF；禁止 tab 和 BOM。包根目录只保留一个 README（`README.md`），中文 README 放在 `docs/README.zh.md`。社区常用文档成对存在：中文版（`*.zh.md`）是权威版本，英文是译本；修改先落中文，再对齐英文。范围：README、QUICKSTART、CONFIGURATION、LIMITATIONS、DIAGNOSTICS、COMPATIBILITY、PERFORMANCE、MIGRATION、API、ARCHITECTURE、CONTRIBUTING、SECURITY、SUPPORT、CODE_OF_CONDUCT、VALUE。
+- peer 版本分层：`devDependencies` 使用精确版本；`peerDependencies` 对 `@deepseek-ai/dsh-*` 声明 `>=0.2.2-rc.2`，对 `@deepseek-ai/cordis` 声明 `^4.1.0`，对 `@deepseek-ai/schemastery` 声明 `^3.19.0`。仅在匹配 Harness 发版的提交中抬高下限，并重跑对拍和完整检查；周度 `peer-canary` 用于发现 `next` 线变化。
 - 类型收窄使用 `assert.ok` 或附注释的 `as`；禁止 `any` 和 `!` 非空断言。`.ts` 中 JSDoc `@type` 不能替代类型断言。
 - 类型检查分工：`tsc --noEmit`（`checkJs`）覆盖 `test/**` 与 `types/*.d.ts`；`src/` 由构建程序以 `strict`、`noUncheckedIndexedAccess`、`noUnusedLocals` 和 `noEmitOnError` 检查；`lib/**` 不参与该检查。
 - 单测直接运行发布产物 `lib/*.js`，由 `node --test` 驱动。新增或调整测试时，保持这一边界。

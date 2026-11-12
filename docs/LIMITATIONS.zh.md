@@ -1,4 +1,4 @@
-# Limitations
+# 限制与不承诺
 
 _本页是权威版本；英文译本见 [LIMITATIONS](LIMITATIONS.md)。_
 

@@ -189,7 +189,18 @@
     "scripts/diagnose.sh",
     "scripts/doctor.mjs",
     "scripts/open-wsl-vscode.ps1",
-    "scripts/profile-preset.mjs"
+    "scripts/profile-preset.mjs",
+    "docs/ARCHITECTURE.zh.md",
+    "docs/API.zh.md",
+    "docs/COMPATIBILITY.zh.md",
+    "docs/MIGRATION.zh.md",
+    "docs/PERFORMANCE.zh.md",
+    "docs/VALUE.md",
+    "CONTRIBUTING.zh.md",
+    "SECURITY.zh.md",
+    "SUPPORT.zh.md",
+    "CODE_OF_CONDUCT.md",
+    "CODE_OF_CONDUCT.zh.md"
   ],
   "scripts": {
     "test": "pnpm run lint:style && pnpm run lint:links && pnpm run lint:requirements && pnpm run lint:docs && pnpm run test:syntax && pnpm run lint:build && pnpm run lint:types && pnpm run test:unit",

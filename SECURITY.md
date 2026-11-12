@@ -1,5 +1,7 @@
 # Security policy
 
+*The Chinese version ([SECURITY.zh.md](SECURITY.zh.md)) is authoritative; this page is its English translation.*
+
 ## Supported versions
 
 Only the latest published version receives security fixes.

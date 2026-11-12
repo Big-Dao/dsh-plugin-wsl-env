@@ -1,5 +1,7 @@
 # Support
 
+*The Chinese version ([SUPPORT.zh.md](SUPPORT.zh.md)) is authoritative; this page is its English translation.*
+
 ## What is supported
 
 | Area | Supported |

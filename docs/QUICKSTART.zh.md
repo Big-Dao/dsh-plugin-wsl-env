@@ -1,4 +1,4 @@
-# Quickstart
+# 快速开始
 
 _本页是权威版本；英文译本见 [QUICKSTART](QUICKSTART.md)。_
 

@@ -49,6 +49,16 @@ const PAIRS = [
   ["docs/CONFIGURATION.md", "docs/CONFIGURATION.zh.md"],
   ["docs/LIMITATIONS.md", "docs/LIMITATIONS.zh.md"],
   ["docs/DIAGNOSTICS.md", "docs/DIAGNOSTICS.zh.md"],
+  ["docs/COMPATIBILITY.md", "docs/COMPATIBILITY.zh.md"],
+  ["docs/PERFORMANCE.md", "docs/PERFORMANCE.zh.md"],
+  ["docs/MIGRATION.md", "docs/MIGRATION.zh.md"],
+  ["docs/API.md", "docs/API.zh.md"],
+  ["docs/ARCHITECTURE.md", "docs/ARCHITECTURE.zh.md"],
+  ["docs/VALUE.md", "docs/VALUE.zh.md"],
+  ["CONTRIBUTING.md", "CONTRIBUTING.zh.md"],
+  ["SECURITY.md", "SECURITY.zh.md"],
+  ["SUPPORT.md", "SUPPORT.zh.md"],
+  ["CODE_OF_CONDUCT.md", "CODE_OF_CONDUCT.zh.md"],
 ];
 const SCOPE_FILES = [...PAIRS.flat(), "CONTRIBUTING.md"];
 
@@ -113,6 +123,8 @@ for (const name of SCOPE_FILES) {
   const text = read(join(ROOT, name));
   for (const match of text.matchAll(mdLiteral)) {
     const [key, value] = [match[1], match[2]];
+    // `sandbox:policy` is the runtime-context entry name, not a config value.
+    if (key === "sandbox" && value === "policy") continue;
     if (!CONFIG_VALUE_SETS[key].includes(value)) {
       report("R1", `${name}: \`${key}: ${value}\` is not a value CONFIGURATION.zh.md defines`);
     }
@@ -202,8 +214,10 @@ const pkgScripts = Object.keys(JSON.parse(read(join(ROOT, "package.json"))).scri
 for (const name of SCOPE_FILES) {
   const text = read(join(ROOT, name)).replace(/`/g, "");
   for (const m of text.matchAll(/(?:pnpm|npm) run ([a-z0-9:._-]+)/g)) {
-    if (!pkgScripts.includes(m[1])) {
-      report("R4", `${name}: \`pnpm run ${m[1]}\` is not a package.json script`);
+    // Sentence punctuation can follow a command; a package script never ends in a dot.
+    const target = m[1].replace(/\.+$/, "");
+    if (!pkgScripts.includes(target)) {
+      report("R4", `${name}: \`pnpm run ${target}\` is not a package.json script`);
     }
   }
   for (const m of text.matchAll(/scripts\/[A-Za-z0-9._/-]+\.(?:mjs|sh|ps1)/g)) {
@@ -230,7 +244,9 @@ const sectionRows = (text, header) => {
   const start = text.indexOf(header);
   if (start === -1) return null;
   const section = text.slice(start).split("\n## ", 1)[0];
-  return [...section.matchAll(/\]\(([^)]+)\)/g)].map((m) => m[1].split("/").pop());
+  // A bilingual pair names the same document in the reader's language; compare
+  // the logical target so `X.zh.md` and `X.md` count as the same row.
+  return [...section.matchAll(/\]\(([^)]+)\)/g)].map((m) => m[1].split("/").pop().replace(/\.zh\.md$/, ".md"));
 };
 const readmeDocRows = (file) => {
   const text = stripFences(read(join(ROOT, file)));

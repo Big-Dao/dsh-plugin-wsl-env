@@ -1,5 +1,7 @@
 # Configuration stability and migration
 
+*The Chinese version ([MIGRATION.zh.md](MIGRATION.zh.md)) is authoritative; this page is its English translation.*
+
 What a release may change, how a breaking configuration change is announced and
 carried, and which gates a release must clear. The version table in
 [RELEASING.md](RELEASING.md#1-decide-the-version) is the source for the bump; this

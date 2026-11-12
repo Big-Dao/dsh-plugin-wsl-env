@@ -72,7 +72,7 @@ for (const line of broken) console.log(`BROKEN  ${line}`);
 // and the English side follows it — so a missing pair means a half-shipped
 // doc. Chinese-only maintainer documents are exempt on purpose; the docs map
 // names them as Chinese-only and outside the shipped `files` list.
-const CHINESE_ONLY = ["docs/REQUIREMENTS.zh.md", "docs/VALUE.zh.md"];
+const CHINESE_ONLY = ["docs/REQUIREMENTS.zh.md"];
 // The repo rule keeps one README at the package root and its Chinese
 // translation under `docs/`, so that pair maps across directories.
 const ENGLISH_COUNTERPART = (name) =>

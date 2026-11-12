@@ -1,6 +1,6 @@
 # dsh-plugin-wsl-env
 
-**English** · [中文](docs/README.zh.md)
+**English translation** · [中文（权威）](docs/README.zh.md)
 
 [![CI](https://github.com/Big-Dao/dsh-plugin-wsl-env/actions/workflows/ci.yml/badge.svg)](https://github.com/Big-Dao/dsh-plugin-wsl-env/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/dsh-plugin-wsl-env)](https://www.npmjs.com/package/dsh-plugin-wsl-env)
@@ -37,7 +37,7 @@ Use this plugin when the harness has to stay on Windows:
 
 Mixing the two has one trap: the `desktop` profile name is owned by the Electron
 app, and the npm CLI refuses to manage that profile's plugins — use the app's
-Plugins page for it. [docs/VALUE.zh.md](docs/VALUE.zh.md) has the full
+Plugins page for it. [docs/VALUE.md](docs/VALUE.md) has the full
 comparison and the cases this plugin is not for.
 
 ## Why this plugin
@@ -234,6 +234,10 @@ The toolchain follows the harness host: Node `^22.19.0 || >=24.0.0`. `src/` is T
 
 Real-machine probes run on Windows + WSL only. See [CONTRIBUTING.md](CONTRIBUTING.md) and `test/probe/`.
 
+Community-facing documents are bilingual: the Chinese version is authoritative and
+the English page is its translation. The Chinese README is
+[docs/README.zh.md](docs/README.zh.md).
+
 ## Documentation
 
 | Document | Content |
@@ -248,7 +252,7 @@ Real-machine probes run on Windows + WSL only. See [CONTRIBUTING.md](CONTRIBUTIN
 | [docs/LIMITATIONS.md](docs/LIMITATIONS.md) | what the plugin does not do |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | current plan and deferred work |
 | [docs/ROADMAP-1.0.md](docs/ROADMAP-1.0.md) | the 1.0 and ecosystem plan |
-| [docs/VALUE.zh.md](docs/VALUE.zh.md) | value and trade-offs in Chinese |
+| [docs/VALUE.md](docs/VALUE.md) | value and trade-offs |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | development loop, gates, probes |
 | [SECURITY.md](SECURITY.md) | private vulnerability reporting |
 | [SUPPORT.md](SUPPORT.md) | supported versions and support channels |

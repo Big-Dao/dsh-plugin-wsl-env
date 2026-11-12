@@ -1,5 +1,7 @@
 # 诊断：doctor 与错误码地图
 
+_本页是权威版本；英文译本见 [Diagnostics](DIAGNOSTICS.md)。_
+
 本插件产生的每一个拒绝都有名字。本页是这些名字与 doctor 的对照表：
 对每个错误码，说明 `doctor`（`pnpm run doctor`，或
 `node scripts/doctor.mjs --json`）是否覆盖其前置条件、由哪个检查 id 应答。

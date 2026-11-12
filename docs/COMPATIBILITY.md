@@ -1,5 +1,7 @@
 # Compatibility matrix
 
+*The Chinese version ([COMPATIBILITY.zh.md](COMPATIBILITY.zh.md)) is authoritative; this page is its English translation.*
+
 Measured evidence for the support tiers in [`ROADMAP-1.0.md`](ROADMAP-1.0.md)
 (WSL-202). Every row below was executed on real WSL2 distros on one machine
 (x86_64, Windows 11, WSL 2, kernel 6.18) on **2026-10-26**, with the probe

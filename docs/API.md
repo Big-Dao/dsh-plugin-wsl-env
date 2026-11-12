@@ -1,5 +1,7 @@
 # API surface
 
+*The Chinese version ([API.zh.md](API.zh.md)) is authoritative; this page is its English translation.*
+
 The published API is the generated `lib/*.d.ts` next to each compiled module
 (`pnpm run build` keeps them byte-fresh; `lint:build` fails on drift). The
 `exports` map in `package.json` is the authority on what a consumer can import;

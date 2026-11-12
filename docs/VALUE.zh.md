@@ -1,7 +1,9 @@
 # dsh-plugin-wsl-env 价值说明
 
+_本页是权威版本；英文译本见 [Value](VALUE.md)。_
+
 本文只回答一个问题：**在 Windows 上用 DeepSeek Harness 做 WSL 项目，为什么值得装这个插件。**
-功能、安装与逐项行为见 [README](../README.md) 和 [ARCHITECTURE.md](ARCHITECTURE.md)，这里谈收益、代价与适用边界。
+功能、安装与逐项行为见 [README](README.zh.md) 和 [ARCHITECTURE.zh.md](ARCHITECTURE.zh.md)，这里谈收益、代价与适用边界。
 文中每条主张都指向仓库内可复核的证据；基线为 v0.22.0（2026-11-08）。早期条目在 v0.9.0 基线上引入，2026-11-09 对版本、工具面与门禁链做了复核。
 
 > **一句话**：它把 WSL 发行版变成 DSH 会话真正的执行环境——命令、文件、终端、目录选择器都在发行版内完成，
@@ -28,7 +30,7 @@ DSH 是 Windows 桌面应用，项目在 WSL 的 ext4 里。不做集成，三�
 
 **可感知的差别。** 不需要先 `source` 什么，也不需要把 `nvm`/`pyenv` 的路径手工告诉模型。模型说「跑一下测试」，用的就是你在那个终端里会用的 `node`、`pnpm`、`cargo`。第一条命令已经是对的，不存在「先热身一条命令把环境带起来」。
 
-**证据。** [README「Using it」](../README.md#using-it)；`test/shell.test.mjs`、`test/preset-choice.test.mjs`；`pnpm run probe:sandbox-shell`。
+**证据。** [README「使用」](README.zh.md#使用)；`test/shell.test.mjs`、`test/preset-choice.test.mjs`；`pnpm run probe:sandbox-shell`。
 
 ### 价值二：文件是发行版的真实文件
 
@@ -36,7 +38,7 @@ DSH 是 Windows 桌面应用，项目在 WSL 的 ext4 里。不做集成，三�
 
 **可感知的差别。** `chmod +x`、`ln -s`、git hook、按内容分发的工具，行为与 Linux 主机一致；`glob`/`grep` 不再跨 9p 慢桥，也不再用 Windows 侧那份 rg 去读 Linux 目录。文件夹里的 `/home/you/x` 与 GUI 里的 `\\wsl.localhost\ubuntu\home\you\x` 是同一个文件，不是副本。
 
-**证据。** [ARCHITECTURE「The filesystem substrate」](ARCHITECTURE.md#the-filesystem-substrate)、[LIMITATIONS](LIMITATIONS.md)；`test/search-route.test.mjs`、`test/search-exec.test.mjs`、`test/fs-substrate.test.mjs`；`pnpm run probe:substrate`（8/8）。已知极限见第 4 节：新文件 0600、含反斜杠的文件名、watch 为轮询。
+**证据。** [ARCHITECTURE「文件系统 substrate」](ARCHITECTURE.zh.md#文件系统-substrate)、[LIMITATIONS](LIMITATIONS.zh.md)；`test/search-route.test.mjs`、`test/search-exec.test.mjs`、`test/fs-substrate.test.mjs`；`pnpm run probe:substrate`（8/8）。已知极限见第 4 节：新文件 0600、含反斜杠的文件名、watch 为轮询。
 
 ### 价值三：沙箱是默认，失败是响亮的
 
@@ -46,7 +48,7 @@ DSH 是 Windows 桌面应用，项目在 WSL 的 ext4 里。不做集成，三�
 
 **诚实边界。** 上报是 `enforcement: partial`，因为发行版内的进程仍可通过 interop 启动 Windows 程序；`maskWindowsDrive` 收窄这个洞（`/mnt` 在受限视图里消失），但 binfmt 按内容分发，所以它仍不是闭合；完全关闭要在发行版层面设 `[interop] enabled=false`。插件不把 partial 说成 full。
 
-**证据。** [ARCHITECTURE「Sandbox」](ARCHITECTURE.md#sandbox)、[SECURITY](../SECURITY.md)；`test/sandbox.test.mjs`、`test/fs-decisions.test.mjs`；`pnpm run probe:sandbox`、`pnpm run probe:sandbox-off`。
+**证据。** [ARCHITECTURE「沙箱」](ARCHITECTURE.zh.md#沙箱)、[SECURITY](../SECURITY.zh.md)；`test/sandbox.test.mjs`、`test/fs-decisions.test.mjs`；`pnpm run probe:sandbox`、`pnpm run probe:sandbox-off`。
 
 ### 价值四：一个进程，两种会话，工具箱不变
 
@@ -54,17 +56,17 @@ DSH 是 Windows 桌面应用，项目在 WSL 的 ext4 里。不做集成，三�
 
 **可感知的差别。** 不需要为 WSL 单开一个应用或 profile，也不需要把整个应用切成「WSL 模式」。同一个窗口里，开 Windows 文件夹的会话不受影响，开 `\\wsl.localhost\...` 的会话自动进入发行版。换项目只是换一个打开的文件夹。模型侧尤其重要：插件只新增 `wsl_doctor` 一个模型工具（另有 `/wsl-doctor` 命令）；其余现有工具的名字、参数、返回语义不变，变的只是它们实际作用的世界。
 
-**证据。** [README「Architecture」](../README.md#architecture)、[docs/root-fs-routing.md](root-fs-routing.md)；`test/composition.test.mjs`、`test/terminal.test.mjs`、`test/fs.boot.test.mjs`。
+**证据。** [README「架构」](README.zh.md#架构)、[docs/root-fs-routing.md](root-fs-routing.md)；`test/composition.test.mjs`、`test/terminal.test.mjs`、`test/fs.boot.test.mjs`。
 
 ### 价值五：不装服务、不开端口、没有残留
 
 **机制。** 发行版里没有安装任何服务，也没有监听端口；插件替换 DSH 的服务实现，并新增 `wsl_doctor` 工具与 `/wsl-doctor` 命令。文件操作与命令走发行版内按 distro 缓存的常驻 agent——它是传输层，不注册系统服务，agent 脚本在握手时校验 sha256。
 
-**可感知的差别。** 不会多出 `~/.vscode-server` 这类目录，不会和本机端口冲突，卸载后发行版里没有需要手动清理的服务端目录。WSL 升级或发行版重启后，下一次调用重建传输；只有 agent 在「有请求在飞」时死亡才可能耗尽它的一次重建额度（见 [LIMITATIONS](LIMITATIONS.md)），这是已声明的边界，不是日常路径。
+**可感知的差别。** 不会多出 `~/.vscode-server` 这类目录，不会和本机端口冲突，卸载后发行版里没有需要手动清理的服务端目录。WSL 升级或发行版重启后，下一次调用重建传输；只有 agent 在「有请求在飞」时死亡才可能耗尽它的一次重建额度（见 [LIMITATIONS](LIMITATIONS.zh.md)），这是已声明的边界，不是日常路径。
 
 **注意区分。** 「不装服务」不等于「零依赖」：bubblewrap 是默认路径的硬依赖；会话 runtime 还需要 systemd 为 PID 1 且 user manager 已 `enable-linger`（临时 scope，不是安装的常驻服务）。ripgrep、git、inotify-tools 由 `pnpm run bootstrap` 体检。插件不把这些工具打包进来，也不在发行版里安装常驻服务。
 
-**证据。** [README「How it compares」](../README.md#how-it-compares)；`agent/wsl-agent.sh`、`test/agent.test.mjs`；`scripts/bootstrap.sh`。
+**证据。** [README「方案对比」](README.zh.md#方案对比)；`agent/wsl-agent.sh`、`test/agent.test.mjs`；`scripts/bootstrap.sh`。
 
 ### 价值六：模型拿到事实，不用猜
 
@@ -72,7 +74,7 @@ DSH 是 Windows 桌面应用，项目在 WSL 的 ext4 里。不做集成，三�
 
 **可感知的差别。** 模型能说出它启动的 dev server 的确切地址（WSL2 把 localhost 转发给 Windows，浏览器可直接打开）；路径拒绝、沙箱缺失、文件过期各有各的码，排错不用从「命令失败了」开始猜。这减少的是往返次数，不只是错误信息的好看程度。
 
-**证据。** [ARCHITECTURE「Error codes」](ARCHITECTURE.md#error-codes)、[README「Troubleshooting」](../README.md#troubleshooting)；`test/ports.test.mjs`、`test/preflight.test.mjs`、`test/terminal.test.mjs`。
+**证据。** [ARCHITECTURE「错误码」](ARCHITECTURE.zh.md#错误码)、[README「常见问题」](README.zh.md#常见问题)；`test/ports.test.mjs`、`test/preflight.test.mjs`、`test/terminal.test.mjs`。
 
 ## 3. 和替代方案的价值对照
 
@@ -101,7 +103,7 @@ DSH 是 Windows 桌面应用，项目在 WSL 的 ext4 里。不做集成，三�
 - **平台与版本。** 仅 Windows + WSL2；Node `^22.19.0 || >=24.0.0`；DSH peer 声明版本下限，开发依赖精确钉版，升级须重新验证。
 - **不适合的情况。** 工作流本来就能整个装进 WSL 的 CLI；需要 VS Code 远程的编辑器能力（IntelliSense、调试器、扩展）；需要企业级强隔离或多租户；项目主要在 Windows 盘上（插件能用，但价值不在这里）。
 
-这些不是「以后会修」的清单，而是设计边界：每一条都在 [LIMITATIONS.md](LIMITATIONS.md) 里写明原因。**把边界写清楚本身也是价值**——它让「没做到」不被误读成「已经做到」。
+这些不是「以后会修」的清单，而是设计边界：每一条都在 [LIMITATIONS.zh.md](LIMITATIONS.zh.md) 里写明原因。**把边界写清楚本身也是价值**——它让「没做到」不被误读成「已经做到」。
 
 ## 5. 价值如何被证明
 
@@ -135,10 +137,10 @@ DSH 是 Windows 桌面应用，项目在 WSL 的 ext4 里。不做集成，三�
 
 | 想知道 | 看 |
 |---|---|
-| 功能、安装、配置 | [README](../README.md) / [中文 README](README.zh.md) |
-| 部件如何挂载、路径坐标、沙箱设计 | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| 不做什么、为什么 | [LIMITATIONS.md](LIMITATIONS.md) |
+| 功能、安装、配置 | [中文 README](README.zh.md) / [English](../README.md) |
+| 部件如何挂载、路径坐标、沙箱设计 | [ARCHITECTURE.zh.md](ARCHITECTURE.zh.md) |
+| 不做什么、为什么 | [LIMITATIONS.zh.md](LIMITATIONS.zh.md) |
 | 每个配置键 | [CONFIGURATION.md](CONFIGURATION.md) |
 | 与 VS Code Remote-WSL 的 parity 审计 | [PARITY.md](PARITY.md) |
 | 与上游 fsio 的逐字节合同 | [PEER-PARITY.md](PEER-PARITY.md) |
-| 安全边界与上报渠道 | [SECURITY.md](../SECURITY.md) |
+| 安全边界与上报渠道 | [SECURITY.zh.md](../SECURITY.zh.md) |

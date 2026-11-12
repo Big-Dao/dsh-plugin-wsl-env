@@ -1,4 +1,4 @@
-# Configuration
+# 配置
 
 _本页是权威版本；英文译本见 [CONFIGURATION](CONFIGURATION.md)。_
 

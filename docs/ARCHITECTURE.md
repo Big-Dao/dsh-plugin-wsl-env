@@ -1,5 +1,7 @@
 # Architecture
 
+*The Chinese version ([ARCHITECTURE.zh](ARCHITECTURE.zh.md)) is authoritative; this page is its English translation.*
+
 This file describes the plugin as it is today. It covers what the code does and
 where each piece lives. The reasoning behind the design, including the designs that
 were rejected, is recorded in [`CHANGELOG.md`](../CHANGELOG.md) and in

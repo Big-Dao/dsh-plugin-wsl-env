@@ -1,6 +1,6 @@
 # dsh-plugin-wsl-env
 
-[English](../README.md) · **中文**
+[English translation](../README.md) · **中文（权威）**
 
 [![CI](https://github.com/Big-Dao/dsh-plugin-wsl-env/actions/workflows/ci.yml/badge.svg)](https://github.com/Big-Dao/dsh-plugin-wsl-env/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/dsh-plugin-wsl-env)](https://www.npmjs.com/package/dsh-plugin-wsl-env)
@@ -157,7 +157,7 @@ wsl.exe -d <发行版> -u root -- apt-get install -y bubblewrap
 | `wsl-preflight` | `distro` | `''` | 环境检查探测的发行版；空/`auto` 跟随会话工作区 |
 | | `startup` | `true` | 插件加载时预先运行同一组检查，让判定在任何会话打开之前就出现在日志里 |
 
-`fs-routing` 是根级 `ctx.fs` 调用的顶层路由：它的发行版设置独立于 `wsl-fs`，也是按 id 在顶层补丁中覆盖的行。`wsl-shell` 和 `wsl-fs` 位于随包的 `wsl` preset 中，按 id 覆盖无效。要改就覆盖整个 `preset-wsl` 行；配方和其余键见 [docs/CONFIGURATION.md](CONFIGURATION.md)。[`cordis.patch.yml`](../cordis.patch.yml) 是随包值的注释参考。
+`fs-routing` 是根级 `ctx.fs` 调用的顶层路由：它的发行版设置独立于 `wsl-fs`，也是按 id 在顶层补丁中覆盖的行。`wsl-shell` 和 `wsl-fs` 位于随包的 `wsl` preset 中，按 id 覆盖无效。要改就覆盖整个 `preset-wsl` 行；配方和其余键见 [CONFIGURATION.zh.md](CONFIGURATION.zh.md)。[`cordis.patch.yml`](../cordis.patch.yml) 是随包值的注释参考。
 
 ## 架构
 
@@ -191,7 +191,7 @@ wsl preset（每个会话）
 
 `bubblewrap` 是必需项。缺失或损坏时，受限命令报 `SANDBOX_UNAVAILABLE`，不会运行。在对应的行设置 `sandbox: false` 可关闭沙箱；模型会收到"该操作无沙箱"的说明。
 
-隔离上报为 `partial`。发行版内的命令仍可通过 `/mnt/c` 启动 Windows 程序，`bubblewrap` 无法控制 Windows 进程。`maskWindowsDrive: true` 让受限视图看不到 `/mnt`，但会被 `interopVisibility: visible` 覆盖；遮罩只能收窄这个洞，不能关死。关闭 WSL interop 需要另行在发行版的 `/etc/wsl.conf` 中设置 `[interop] enabled=false`。见 [docs/ARCHITECTURE.md](ARCHITECTURE.md#sandbox) 和 [SECURITY.md](../SECURITY.md)。
+隔离上报为 `partial`。发行版内的命令仍可通过 `/mnt/c` 启动 Windows 程序，`bubblewrap` 无法控制 Windows 进程。`maskWindowsDrive: true` 让受限视图看不到 `/mnt`，但会被 `interopVisibility: visible` 覆盖；遮罩只能收窄这个洞，不能关死。关闭 WSL interop 需要另行在发行版的 `/etc/wsl.conf` 中设置 `[interop] enabled=false`。见 [ARCHITECTURE.zh.md](ARCHITECTURE.zh.md#沙箱) 和 [SECURITY.zh.md](../SECURITY.zh.md)。
 
 ## 常见问题
 
@@ -205,7 +205,7 @@ wsl preset（每个会话）
 | 对 `wsl-shell`/`wsl-fs` 的 profile 补丁不生效 | 这些行嵌套在 `preset-wsl` 里。运行 `pnpm run preset --check <补丁>`；它会失败并输出需要粘贴的完整块 |
 | 改了 `lib/` 但不生效 | 运行 `pnpm run sync:windows`，然后重启应用 |
 
-更多错误码和拒绝原因见 [docs/ARCHITECTURE.md](ARCHITECTURE.md#error-codes)，插件不做的事见 [docs/LIMITATIONS.md](LIMITATIONS.md)。
+更多错误码和拒绝原因见 [ARCHITECTURE.zh.md](ARCHITECTURE.zh.md#错误码)，插件不做的事见 [LIMITATIONS.zh.md](LIMITATIONS.zh.md)。
 
 ## 开发
 
@@ -219,26 +219,26 @@ pnpm run sync:windows  # 更新应用加载的 Windows 侧副本
 
 工具链跟随 harness 宿主：Node `^22.19.0 || >=24.0.0`。`src/` 是 TypeScript，`lib/` 是生成并提交的产物，必须保持同步。应用加载的是 Windows 侧的 `lib/` 副本，所以构建后要运行 `sync:windows` 并重启应用。
 
-真机探针仅在 Windows + WSL 下运行。见 [CONTRIBUTING.md](../CONTRIBUTING.md) 和 `test/probe/`。
+真机探针仅在 Windows + WSL 下运行。见 [CONTRIBUTING.zh.md](../CONTRIBUTING.zh.md) 和 `test/probe/`。
 
 ## 文档
 
 | 文档 | 内容 |
 |---|---|
-| [docs/QUICKSTART.md](QUICKSTART.md) | 首次运行、常用配方、兼容性 |
-| [docs/PERFORMANCE.md](PERFORMANCE.md) | ext4 agent 对比 9p 的实测延迟与复现方法 |
-| [docs/MIGRATION.md](MIGRATION.md) | 从早期版本升级、发布门槛 |
-| [docs/COMPATIBILITY.md](COMPATIBILITY.md) | 已测的 Windows/WSL/发行版矩阵与范围决定 |
-| [docs/API.md](API.md) | 包的子路径导出一览 |
-| [docs/CONFIGURATION.md](CONFIGURATION.md) | 所有配置键及覆盖方法 |
-| [docs/ARCHITECTURE.md](ARCHITECTURE.md) | 服务、路径路由、沙箱、错误码 |
-| [docs/LIMITATIONS.md](LIMITATIONS.md) | 插件不做的事 |
+| [QUICKSTART.zh.md](QUICKSTART.zh.md) | 首次运行、常用配方、兼容性 |
+| [PERFORMANCE.zh.md](PERFORMANCE.zh.md) | ext4 agent 对比 9p 的实测延迟与复现方法 |
+| [MIGRATION.zh.md](MIGRATION.zh.md) | 从早期版本升级、发布门槛 |
+| [COMPATIBILITY.zh.md](COMPATIBILITY.zh.md) | 已测的 Windows/WSL/发行版矩阵与范围决定 |
+| [API.zh.md](API.zh.md) | 包的子路径导出一览 |
+| [CONFIGURATION.zh.md](CONFIGURATION.zh.md) | 所有配置键及覆盖方法 |
+| [ARCHITECTURE.zh.md](ARCHITECTURE.zh.md) | 服务、路径路由、沙箱、错误码 |
+| [LIMITATIONS.zh.md](LIMITATIONS.zh.md) | 插件不做的事 |
 | [docs/ROADMAP.md](ROADMAP.md) | 当前计划和推迟项 |
 | [docs/ROADMAP-1.0.md](ROADMAP-1.0.md) | 1.0 与生态优化计划 |
 | [docs/VALUE.zh.md](VALUE.zh.md) | 价值与取舍 |
-| [CONTRIBUTING.md](../CONTRIBUTING.md) | 开发循环、质量门、探针 |
-| [SECURITY.md](../SECURITY.md) | 私下上报漏洞 |
-| [SUPPORT.md](../SUPPORT.md) | 支持范围与提问渠道 |
+| [CONTRIBUTING.zh.md](../CONTRIBUTING.zh.md) | 开发循环、质量门、探针 |
+| [SECURITY.zh.md](../SECURITY.zh.md) | 私下上报漏洞 |
+| [SUPPORT.zh.md](../SUPPORT.zh.md) | 支持范围与提问渠道 |
 | [docs/RELEASING.md](RELEASING.md) | 发布检查单 |
 
 ## 许可

@@ -126,13 +126,15 @@ jobs:
           # docs/RELEASING.md "Operational facts"). Poll instead of checking
           # once, or a healthy publish fails this step and skips the Release.
           served_count=""
-          for attempt in 1 2 3 4 5 6 7 8; do
+          # Registry propagation has taken ~6 minutes (0.26.0); 10 minutes
+          # leaves room before the release is declared failed.
+          for attempt in $(seq 1 20); do
             served_count="$(npm view "dsh-plugin-wsl-env@$version" dist.fileCount --registry=https://registry.npmjs.org/ 2>/dev/null || true)"
             [ -n "$served_count" ] && break
             echo "attempt $attempt: version not resolvable yet; waiting 30s"
             sleep 30
           done
-          [ -n "$served_count" ] || { echo "registry never served $version within 4 minutes" >&2; exit 1; }
+          [ -n "$served_count" ] || { echo "registry never served $version within 10 minutes" >&2; exit 1; }
           served_readme="$(npm view "dsh-plugin-wsl-env@$version" readmeFilename --registry=https://registry.npmjs.org/)"
           echo "tarball files: $local_count; registry serves: $served_count; readme: $served_readme"
           [ "$local_count" = "$served_count" ] || { echo "file-count mismatch — the tarball on the registry is not what npm pack built" >&2; exit 1; }

@@ -146,7 +146,7 @@ A manual publish does not create the GitHub Release, so do step 7 by hand.
 
 `npm publish` prints `+ dsh-plugin-wsl-env@x.y.z` when the upload is accepted. That
 is not the same as the version being visible. The version and the `dist-tags`
-appear in the registry a minute or two later, so poll instead of checking once:
+appear in the registry several minutes later (0.26.0 took about six), so poll instead of checking once — the release workflow waits up to ten minutes:
 
 ```bash
 # expect 200, not 404
@@ -261,7 +261,7 @@ npm does not let a published version be replaced, so the fix goes forward:
 
 | Fact | What it means in practice |
 |---|---|
-| `npm publish` prints success at upload time | The version may still return 404 for a minute or two. Poll the registry, and do not conclude that the publish failed. |
+| `npm publish` prints success at upload time | The version may still return 404 for several minutes (0.26.0 took about six). Poll the registry for up to ten minutes, and do not conclude that the publish failed. |
 | A repeated publish of the same version is refused | npm checks the registry first and stops with `You cannot publish over the previously published versions: x.y.z.`; a registry-side conflict surfaces as `EPUBLISHCONFLICT` ("Cannot publish over existing version."). Either one means the first publish landed. Verify it instead of publishing again — the release workflow's already-published check exists for the same reason. |
 | The npm readme is chosen from the candidate files at the package root, and the rule is not fully explained. With `README.md` and `README.zh.md` side by side, version 0.1.1 published as `readmeFilename: README.zh.md`, so its npm page rendered Chinese — even though the tarball listed `README.md` first. Both names match the npm CLI's own selection code (`@npmcli/package-json/lib/normalize.js` globs `{README,README.*}` and accepts `/\.m?a?r?k?d?o?w?n?$/i`, which does match `.md`), so neither name is screened out. | Do not rely on the rule. Keep exactly one readme candidate at the package root, which `pnpm run lint:style` checks. The Chinese README lives in `docs/` for this reason. |
 | A local `~/.npmrc` may point at a mirror | Pass `--registry=https://registry.npmjs.org/` on every publish and every verification. |

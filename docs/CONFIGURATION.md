@@ -182,7 +182,7 @@ The root router is app-level, not session-owned, so it does not use
 | `auto-preset` | `preset` | `wsl` | Preset to bind when a session workspace is inside a distro. An explicit operator selection is preserved. |
 | | `attempts` | `6` | Number of attempts to bind the preset. |
 | | `retryMs` | `150` | Delay between attempts, in milliseconds. |
-| | `windowsWorkspaces` | `[]` | Distro directories opened for Windows access (UNC paths). Sessions under them keep the host preset; the add-workspace prompt writes here, and Settings can change it back. |
+| | `windowsWorkspaces` | `[]` | Distro directories opened for Windows access (UNC paths). Sessions under them keep the host preset; the add-workspace prompt writes here, and Settings can change it back. A session in one of them is called out above the composer and in the **WSL environment** panel, with the way back to the distro environment. |
 | `wsl-status` | `cacheMs` | `15000` | How long one distro's verdict stays fresh in memory, in milliseconds (the last result is persisted separately). |
 | | `timeoutMs` | `90000` | Deadline for one check or repair run, in milliseconds. |
 | | `wslPath` | `wsl.exe` | `wsl.exe` used to list the distros. |

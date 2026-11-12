@@ -203,6 +203,24 @@ sandbox's security statement: `enforcement: partial` is untouched.
   notification.** Removing the `wsl-preflight` row silences the probe entirely.
   A blocked message marks its remedy as operator action to ask the user about;
   ready verdicts are not sent.
+- **The access-mode reminder is plugin-owned UI, not a notice seam.** It renders
+  in the composer dock when the client's session list carries the `agentPreset`
+  projection; the `auto-preset` settings row supplies the target preset and the
+  recorded directories, and an unreadable or throwing row falls back to `wsl`
+  with no recorded directories — a visible warning, never silence. It never
+  infers an environment from the path alone. Without the web client (CLI,
+  headless) the same state reaches the operator only through the log, and the
+  model through the runtime-context entry.
+- **The creation-time preset binding depends on the host's private controller
+  shape.** `auto-preset` wraps `sessionController.agents.createSession` so a
+  distro workspace's first mount is already the WSL preset; 0.2.1 replaced the
+  older `ensureSession(sessionId, cwd, …, presetId)` frame with that request
+  object. If a future host changes it again, the wrapper goes inactive: sessions
+  still adopt the WSL preset after creation through `agent/created`, but a first
+  turn that starts inside that window can run on the host environment (the
+  Windows ACL sandbox cannot carry a `\\wsl.localhost` path). The mount warns,
+  and the doctor's `session.preset-seam` row reports active/inactive — in the
+  in-app surfaces only, because the standalone CLI cannot see host-process state.
 
 ## Ports
 
@@ -266,10 +284,16 @@ sandbox's security statement: `enforcement: partial` is untouched.
 
 ## Host "Open in app"
 
-- **Opening VS Code from "Open in app" can fail independently of this plugin** — the
-  Host runs with `ELECTRON_RUN_AS_NODE=1`, which the launcher inherits, so
-  `Code.exe` starts as Node and exits 1. Not owned by this repository:
-  [UPSTREAM-OPEN-IN-APP.md](UPSTREAM-OPEN-IN-APP.md).
+- **The plugin's "Open in VS Code (WSL)" menu item works; the shipped "Open in
+  app" item still does not.** The `wsl-open-in-app` row scrubs
+  `ELECTRON_RUN_AS_NODE` from the **editor child's** environment, so VS Code
+  starts as an application; the route converts a WSL UNC workspace to its
+  `vscode-remote` URI and the editor lands in Remote-WSL. The scrub is
+  deliberately child-scoped: deleting the name from the Host process
+  environment breaks Node-mode helpers such as the Windows Job runner. The
+  shipped item keeps inheriting the flag and still fails; that half belongs
+  upstream: [UPSTREAM-OPEN-IN-APP.md](UPSTREAM-OPEN-IN-APP.md). Nothing patches
+  `app.asar`, so an app upgrade cannot drop the plugin's half.
 - **WSL files open again, but relative Markdown images no longer render in the
   WSL preview.** The router's `processPath` now answers in UNC host spelling —
   the shape `session.openWorkspacePath` / `workspacePathApplications` verify
@@ -277,3 +301,17 @@ sandbox's security statement: `enforcement: partial` is untouched.
   a Markdown preview's relative image does not resolve. Chat images already had
   that gap (the Session cwd is UNC). The same spelling is why the GUI change
   feed, `stat.absolutePath`, and the preview header's path label carry UNC.
+
+## Sidebar terminal font
+
+- **The terminal font is a DSH user setting, not a plugin setting.** On
+  `0.2.2-rc.2` the sidebar terminal renders `ui-theme.terminalFontFamily` (an
+  empty value falls back to the built-in `ui-monospace`/Consolas stack), and
+  that field lives in the profile's `cordis.patch.yml`. Set it once in
+  **Settings → General → Fonts → terminal font** rather than hand-editing the
+  profile; a hand-added row is lost when Desktop's fatal recovery renames the
+  profile patch to a `.bak-*` sibling. If the choice must survive that recovery,
+  mirror the complete `ui-theme` row in `$DSH_HOME/cordis.patch.yml` — the
+  home-level layer is not renamed, and a patch replaces the row's whole config,
+  so restate every field you keep. The plugin does not own renderer typography
+  and never writes this setting.

@@ -105,6 +105,12 @@ posts the full-run action (`--fix-owned`, labeled 修复 or 完整检查):
   never reports. This is the only surface that depends on the model path; use
   the command or the CLI when the plugin's runtime itself is under suspicion.
 
+One check is surface-dependent by construction: `session.preset-seam` reports
+whether `auto-preset` could wrap the host's `agents.createSession` in this
+process. That is host-process state, so the standalone CLI cannot see it; the
+command, the panel and the model tool merge the row in. A missing row in a CLI
+report means "not observable from a subprocess", not "the seam is fine".
+
 ## The map
 
 Class legend:

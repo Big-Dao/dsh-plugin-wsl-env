@@ -86,6 +86,8 @@ scope 或损坏的 agent 缓存）时标为 **修复**，否则标为 **完整�
 文件与终端都在发行版内）或 **Windows 访问**（把该文件夹当作普通 Windows 共享，经 9p
 读写，没有 Linux 工具链）。选择记录在 `auto-preset` 行的 `windowsWorkspaces` 里，
 对该工作区之后新建的会话同样生效。
+Windows 访问目录也会在会话内被点明：运行非 WSL preset 的发行版工作区在输入框上方
+常驻一条警示；会话尚未开始时一键切换，已开始后修正访问记录。
 
 ### 在 VS Code 中打开工作区（Remote-WSL）
 
@@ -103,6 +105,10 @@ code --folder-uri "vscode-remote://wsl+ubuntu/home/me/proj"
 
 要求 PATH 上有 `code` shim（VS Code 安装器会添加），以及
 Remote-WSL 扩展。
+
+桌面 GUI 的会话头部菜单还提供 **在 VS Code 中打开（WSL）**：它把会话工作区
+转换成同一个 URI，并在清理过的环境里启动编辑器，因此不依赖打过补丁的
+`app.asar`。
 
 ![The directory picker listing a WSL distro's folders](screenshots/picker.png)
 

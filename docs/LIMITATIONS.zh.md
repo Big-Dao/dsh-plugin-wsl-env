@@ -180,6 +180,19 @@ Windows git `safe.directory` 白名单）。`--fix-owned` 把运行收窄到插�
 - **runtime context 条目是重复的快照，不是可关闭的通知。**
   移除 `wsl-preflight` 行即可让该探针完全静音。阻塞消息把修复标记为用户操作；
   ready 裁决不再发送。
+- **访问方式提醒是插件自有 UI，不是通知接缝。** 只要客户端的会话列表带有
+  `agentPreset` 投影，它就渲染在输入框上方；`auto-preset` 设置行提供目标 preset
+  与已记录目录，读取失败或抛错时回退到 `wsl` 且视为无记录——显示警示，绝不静默。
+  它绝不只凭路径猜测环境。没有 Web 客户端时（CLI、headless），同一状态只通过
+  日志到达操作者，通过 runtime context 条目到达模型。
+- **创建期环境绑定依赖宿主私有的 controller 形状。** `auto-preset` 包装
+  `sessionController.agents.createSession`，使发行版工作区的首次挂载就是 WSL
+  preset；0.2.1 用这个请求对象替换了更早的
+  `ensureSession(sessionId, cwd, …, presetId)` 帧。宿主将来再改形状时包装会
+  失效：会话仍会经 `agent/created` 在创建后切换到 WSL preset，但落在这个窗口内
+  开始的首轮可能在宿主环境里运行（Windows ACL 沙箱无法承载
+  `\\wsl.localhost` 路径）。挂载时会告警，doctor 的 `session.preset-seam`
+  行报告 active/inactive——只在应用内界面可见，独立 CLI 看不到宿主进程状态。
 
 ## 端口
 
@@ -235,13 +248,28 @@ Windows git `safe.directory` 白名单）。`--fix-owned` 把运行收窄到插�
 
 ## 宿主的"在应用中打开"
 
-- **从"在应用中打开"启动 VS Code 可能独立于本插件而失败** ——
-  宿主带着 `ELECTRON_RUN_AS_NODE=1` 运行，启动器会继承它，于是
-  `Code.exe` 以 Node 身份启动并以退出码 1 结束。不属于本仓库管：
-  [UPSTREAM-OPEN-IN-APP.md](UPSTREAM-OPEN-IN-APP.md)。
+- **插件的"在 VS Code 中打开（WSL）"菜单项可用；随包的"在应用中打开"仍然
+  失败。** `wsl-open-in-app` 行只从**编辑器子进程**的环境里删除
+  `ELECTRON_RUN_AS_NODE`，VS Code 因此按应用启动；路由把 WSL UNC 工作区转换为
+  `vscode-remote` URI，编辑器直接进入 Remote-WSL。这个清理刻意只作用于子进程：
+  从 Host 进程环境删除会破坏 Windows Job runner 这类需要继承该变量的
+  Node 模式辅助进程。随包入口仍继承该变量，所以仍然失败；那一半属于上游：
+  [UPSTREAM-OPEN-IN-APP.md](UPSTREAM-OPEN-IN-APP.md)。两半都不修改
+  `app.asar`，应用升级不会丢掉插件这一半。
 - **WSL 文件可以正常打开，但预览里的相对 Markdown 图片不再渲染** ——
   路由的 `processPath` 现在返回 UNC 宿主拼写，这是
   `session.openWorkspacePath` / `workspacePathApplications` 校验所要求的形态
   （issue #37）；客户端 `fileMediaUrl` 拒绝 `\\` 开头的路径，因此 Markdown
   预览中的相对图片无法解析。聊天侧因 cwd 本就是 UNC，此前已有同一缺口。
   GUI change feed、`stat.absolutePath` 与预览头部的路径标签的 UNC 形态也源于同一拼写。
+
+## 侧栏终端字体
+
+- **终端字体是 DSH 用户设置，不是插件设置。** 在 `0.2.2-rc.2` 上，侧栏终端渲染
+  `ui-theme.terminalFontFamily`（空值回退到内置 `ui-monospace`/Consolas 栈），
+  该字段存放在 profile 的 `cordis.patch.yml`。请在
+  **设置 → 通用 → 字体 → 终端字体** 里设置一次，不要手改 profile；Desktop 的
+  致命错误恢复会把 profile patch 改名为 `.bak-*` 兄弟文件，手加的行随之丢失。
+  若该选择必须熬过这次恢复，请把完整的 `ui-theme` 行镜像到
+  `$DSH_HOME/cordis.patch.yml`：home 层不会被改名，但 patch 会替换该行的整个
+  config，因此要重述所有保留字段。插件不拥有渲染层字体，也从不写这项设置。

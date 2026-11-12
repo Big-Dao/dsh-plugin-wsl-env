@@ -235,5 +235,29 @@ check("a describe failure keeps the previous language", () => {
   resetMessagesLocaleForTests();
 });
 
+check("the host-mode advisories name the real environment in both languages", () => {
+  resetMessagesLocaleForTests();
+  const cwd = "\\\\wsl.localhost\\Ubuntu\\home\\you\\proj";
+  const windowsAccess = t("hostModeWindowsAccess", { cwd, distro: "Ubuntu" });
+  assert.match(windowsAccess, /Windows PowerShell/, "the command surface is named");
+  assert.match(windowsAccess, /9p/, "the file share is named");
+  assert.match(windowsAccess, /Ubuntu/);
+  assert.match(windowsAccess, /WSL preset/, "the fix is named");
+  assert.match(t("hostModeLocked", { cwd, distro: "Ubuntu" }), /became interactive/);
+  assert.match(t("hostModePresetUnavailable", { cwd, distro: "Ubuntu" }), /no WSL preset/);
+  configureMessagesLocale("zh");
+  try {
+    const zh = t("hostModeWindowsAccess", { cwd, distro: "Ubuntu" });
+    assert.match(zh, /PowerShell/);
+    assert.match(zh, /9p/);
+    assert.match(zh, /Linux 工具链/);
+    assert.match(zh, /Ubuntu/);
+    assert.match(t("hostModeLocked", { cwd, distro: "Ubuntu" }), /新开的会话/);
+    assert.match(t("hostModePresetUnavailable", { cwd, distro: "Ubuntu" }), /wsl-doctor/);
+  } finally {
+    resetMessagesLocaleForTests();
+  }
+});
+
 for (const [name, fn] of checks) await runCheck(name, fn);
 console.log(`\n${passed}/${checks.length} checks passed`);

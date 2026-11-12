@@ -4,9 +4,10 @@
  *
  * Why an event hook and not configuration: the environment is chosen in
  * `dsh-api-session-controller`'s `composeAgent(presetId)`, whose signature has no
- * working directory — the cwd only exists one frame up in
- * `ensureSession(sessionId, cwd, ...)`. So the path-aware decision has to be made
- * where the path IS available. `agent/created` carries it:
+ * working directory. The creation API above it — `createSession({ cwd,
+ * agentPreset, ... })` — holds both, so this row wraps that frame to fill the
+ * preset before the first mount; the `agent/created` event below is the
+ * fallback for flows that do not pass through it:
  *
  *     ctx.serial(carrier, "agent/created", { agent, source, signal })
  *
@@ -16,9 +17,10 @@
  *
  *  1. **Respect an explicit choice.** By the time the event fires, the resolved
  *     preset is already mounted (`composeAgent` mounts request-or-default in
- *     `setup`). We cannot tell which of the two it was — so we only ever rewrite
- *     when the mounted preset equals the registry default, which means the client
- *     omitted it. An operator's pick is never overridden.
+ *     `setup`). A non-default preset id is an operator's pick and is never
+ *     overridden. The default id (or no id at all) is not a pick of another
+ *     environment: the client may send it explicitly, so the creation-time hook
+ *     treats it as automatic for a distro workspace.
  *
  *  2. **Switch after creation, not during.** Switching inside the listener
  *     collides with the previous generation's tools:
@@ -99,10 +101,33 @@ interface CreatedAgentView {
     session?: {
         header?: {
             cwd?: string | undefined;
-        };
+            /** A subagent session inherits its parent's environment; it gets no advisory of its own. */
+            origin?: string | undefined;
+            parentSession?: string | undefined;
+        } | undefined;
     } | undefined;
     /** The agent's own context. */
     ctx: Context;
+}
+/**
+ * The create request the host's session-agent controller accepts (0.2.2+).
+ * Only the fields this row reads are spelled here; the wrapper forwards the
+ * whole object, so a newer host field survives untouched.
+ */
+interface SessionCreateRequestLike {
+    /** The blank session to reuse, when the caller named one. */
+    readonly sessionId?: string;
+    /** The workspace the session owns. */
+    readonly cwd: string;
+    /** The preset the caller requested, or undefined for the default. */
+    readonly agentPreset?: string;
+    /** The caller's reuse policy, forwarded untouched. */
+    readonly reusable: (sessionId: string) => boolean;
+}
+/** The controller slice this row wraps. */
+interface SessionAgentFacade {
+    /** Create or reuse the session for one request; the creation-time seam. */
+    createSession?: (request: SessionCreateRequestLike) => Promise<unknown>;
 }
 /**
  * The cordis context extended with the agent-service slices this plugin
@@ -123,9 +148,7 @@ type AutoPresetContext = Context & {
         agent?: CreatedAgentView;
     } | undefined) => void) => () => boolean;
     sessionController?: {
-        agents?: {
-            ensureSession: (this: unknown, sessionId: string, cwd: string | undefined, checkPersistedIdentity: boolean, presetId: string | undefined) => Promise<unknown>;
-        };
+        agents?: SessionAgentFacade;
     };
 };
 /**

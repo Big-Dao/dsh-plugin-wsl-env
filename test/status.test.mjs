@@ -165,7 +165,8 @@ await check("a quick check runs the scoped doctor and answers the digested verdi
   assert.deepEqual(body.warnings, [
     { id: "session.user-manager", detail: "unreachable", remedy: "log in once" },
   ]);
-  assert.deepEqual(body.counts, { ok: 1, warn: 1, fail: 0, info: 0, skipped: 0, unknown: 0 });
+  // The in-process `session.preset-seam` row is the extra `info` (unknown here).
+  assert.deepEqual(body.counts, { ok: 1, warn: 1, fail: 0, info: 1, skipped: 0, unknown: 0 });
   assert.deepEqual(body.sections, [
     { section: "host", ok: 1, warn: 0, fail: 0, unknown: 0 },
     { section: "session", ok: 0, warn: 1, fail: 0, unknown: 0 },
@@ -174,6 +175,7 @@ await check("a quick check runs the scoped doctor and answers the digested verdi
   assert.deepEqual(detail.map((entry) => [entry.id, entry.status, entry.section]), [
     ["host.wsl-version", "ok", "host"],
     ["session.user-manager", "warn", "session"],
+    ["session.preset-seam", "info", "session"],
   ], "the expandable detail carries every executed check, not just the findings");
   assert.ok(body.notRun > 0, "the catalog rows this quick run never executed are counted, not listed as fake results");
   assert.deepEqual(calls[0], ["--json", "--quick", "--distro", "Ubuntu"]);
@@ -182,7 +184,9 @@ await check("a quick check runs the scoped doctor and answers the digested verdi
 await check("the structure counts every status the run answered and skips the catalog rows", async () => {
   const { handler } = handlerFor({ runCli: async () => JSON.stringify(BLOCKED) });
   const { body } = await get(handler, "?distro=Debian");
-  assert.deepEqual(body.counts, { ok: 1, warn: 1, fail: 1, info: 0, skipped: 0, unknown: 0 });
+  // The extra `info` row is the in-process `session.preset-seam` check: the
+  // test process never mounts auto-preset, so the seam state is `unknown`.
+  assert.deepEqual(body.counts, { ok: 1, warn: 1, fail: 1, info: 1, skipped: 0, unknown: 0 });
 });
 
 await check("a blocked report carries the failures and their remedies", async () => {

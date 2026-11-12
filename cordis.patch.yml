@@ -188,6 +188,19 @@
     - id: wsl-doctor-command
       name: 'dsh-plugin-wsl-env/wsl-doctor-command'
 
+    # Durable replacement for the local app.asar open-in-app patch. The row
+    # registers an authenticated route that scrubs ELECTRON_RUN_AS_NODE from
+    # the editor child's environment (never the Host's: a Host-wide deletion
+    # breaks Node-mode helpers such as the Windows Job runner) and launches VS
+    # Code with the WSL workspace's `vscode-remote` URI, so it lands in
+    # Remote-WSL instead of a 9p folder. The shipped "Open in app" item still
+    # inherits the flag and remains broken until upstream scrubs its own child.
+    - id: wsl-open-in-app
+      name: 'dsh-plugin-wsl-env/open-in-app'
+      config:
+        executable: ''
+        watchMs: 1500
+
     - id: fs-routing
       name: 'dsh-plugin-wsl-env/fs-routing'
       config:

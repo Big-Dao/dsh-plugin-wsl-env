@@ -55,4 +55,34 @@ export interface DoctorReport {
  * there is nothing to merge.
  */
 export declare function mergeLiveResidentStatus(report: DoctorReport, status: AgentStatus | undefined): DoctorReport;
+/** The report fields {@link mergeAutoPresetSeam} needs; the strict and loose report types both fit. */
+interface SeamMergeReport {
+    /** The report's check rows. */
+    checks?: Array<{
+        id: string;
+        status: string;
+        title?: string;
+        detail?: string;
+        remedy?: string;
+        distro?: string;
+        blocksFirstCommand?: boolean;
+    }>;
+    /** The per-status tally. */
+    summary?: Record<string, number>;
+}
+/**
+ * Fold auto-preset's creation-time seam state into a doctor report.
+ *
+ * The seam is host-process state — whether the running session controller
+ * exposes `agents.createSession` — so the standalone CLI cannot see it, just as
+ * it cannot see a live resident's lifecycle (see {@link mergeLiveResidentStatus}).
+ * The in-app surfaces (the `wsl_doctor` tool, the `/wsl-doctor` command and the
+ * sidebar panel) call this merge, so the silent-degradation case that motivated
+ * the check appears as a warning instead of a log line only. A `warn` does not
+ * block the first command: adoption after creation still runs.
+ *
+ * @param report - the collected doctor report (not mutated).
+ * @returns the report with the `session.preset-seam` row appended.
+ */
+export declare function mergeAutoPresetSeam<T extends SeamMergeReport>(report: T): T;
 export {};

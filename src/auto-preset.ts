@@ -4,9 +4,10 @@
  *
  * Why an event hook and not configuration: the environment is chosen in
  * `dsh-api-session-controller`'s `composeAgent(presetId)`, whose signature has no
- * working directory — the cwd only exists one frame up in
- * `ensureSession(sessionId, cwd, ...)`. So the path-aware decision has to be made
- * where the path IS available. `agent/created` carries it:
+ * working directory. The creation API above it — `createSession({ cwd,
+ * agentPreset, ... })` — holds both, so this row wraps that frame to fill the
+ * preset before the first mount; the `agent/created` event below is the
+ * fallback for flows that do not pass through it:
  *
  *     ctx.serial(carrier, "agent/created", { agent, source, signal })
  *
@@ -16,9 +17,10 @@
  *
  *  1. **Respect an explicit choice.** By the time the event fires, the resolved
  *     preset is already mounted (`composeAgent` mounts request-or-default in
- *     `setup`). We cannot tell which of the two it was — so we only ever rewrite
- *     when the mounted preset equals the registry default, which means the client
- *     omitted it. An operator's pick is never overridden.
+ *     `setup`). A non-default preset id is an operator's pick and is never
+ *     overridden. The default id (or no id at all) is not a pick of another
+ *     environment: the client may send it explicitly, so the creation-time hook
+ *     treats it as automatic for a distro workspace.
  *
  *  2. **Switch after creation, not during.** Switching inside the listener
  *     collides with the previous generation's tools:
@@ -37,8 +39,11 @@
 import { appendFileSync } from "node:fs";
 import z from "@deepseek-ai/schemastery";
 import type { Context } from "@deepseek-ai/cordis";
+import { distroOfUnc } from "./distro-route.js";
+import { installMessagesLocale, t } from "./messages.js";
 import { isWslUnc } from "./paths.js";
-import { isWindowsAccessWorkspace, shouldAdoptWslPreset } from "./preset-choice.js";
+import { publishAutoPresetSeam } from "./auto-preset-seam.js";
+import { isDefaultPresetChoice, isWindowsAccessWorkspace, shouldAdoptWslPreset } from "./preset-choice.js";
 
 /**
  * Set `DSH_WSL_TRACE` to a file path to record every decision this plugin makes.
@@ -61,6 +66,35 @@ function trace(message: string): void {
   } catch {
     /* a trace is never worth failing a session over */
   }
+}
+
+/**
+ * Read the registry's default preset id, tolerating a service without one.
+ *
+ * @param ctx - the plugin context.
+ * @returns the default id, or undefined when the registry cannot name one.
+ */
+function defaultPresetId(ctx: AutoPresetContext): string | undefined {
+  try {
+    return ctx.agentPresets.defaultId;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether a create failure is the preset registry refusing the target — the
+ * one error class adoption may fall back on. A failed adoption must not turn
+ * into a failed session creation; anything else still propagates.
+ *
+ * @param error - the rejection from the host's create call.
+ * @returns true when the caller may retry with the recorded preset.
+ */
+function isPresetAdoptionError(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  if (typeof code === "string" && code.startsWith("agent-preset/")) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return message.toLowerCase().includes("agent preset");
 }
 
 export const name = "auto-preset";
@@ -115,8 +149,15 @@ interface AutoPresetConfig {
 function windowsAccessList(value: AutoPresetConfig["windowsWorkspaces"]): readonly string[] {
   if (value === undefined) return [];
   if (typeof (value as { get?: unknown }).get === "function") {
-    const current = (value as { get: () => readonly string[] }).get();
-    return Array.isArray(current) ? current : [];
+    try {
+      const current = (value as { get: () => readonly string[] }).get();
+      return Array.isArray(current) ? current : [];
+    } catch {
+      // A volatile read is config, not session state: a throwing field must not
+      // fail a session creation or an adoption decision. An unreadable record
+      // means "no recorded Windows-access directory".
+      return [];
+    }
   }
   return Array.isArray(value) ? value : [];
 }
@@ -129,9 +170,38 @@ interface CreatedAgentView {
   /** The agent's id. */
   id: string;
   /** The session stub, when mounted. */
-  session?: { header?: { cwd?: string | undefined } } | undefined;
+  session?: {
+    header?: {
+      cwd?: string | undefined,
+      /** A subagent session inherits its parent's environment; it gets no advisory of its own. */
+      origin?: string | undefined,
+      parentSession?: string | undefined,
+    } | undefined,
+  } | undefined;
   /** The agent's own context. */
   ctx: Context;
+}
+
+/**
+ * The create request the host's session-agent controller accepts (0.2.2+).
+ * Only the fields this row reads are spelled here; the wrapper forwards the
+ * whole object, so a newer host field survives untouched.
+ */
+interface SessionCreateRequestLike {
+  /** The blank session to reuse, when the caller named one. */
+  readonly sessionId?: string;
+  /** The workspace the session owns. */
+  readonly cwd: string;
+  /** The preset the caller requested, or undefined for the default. */
+  readonly agentPreset?: string;
+  /** The caller's reuse policy, forwarded untouched. */
+  readonly reusable: (sessionId: string) => boolean;
+}
+
+/** The controller slice this row wraps. */
+interface SessionAgentFacade {
+  /** Create or reuse the session for one request; the creation-time seam. */
+  createSession?: (request: SessionCreateRequestLike) => Promise<unknown>;
 }
 
 /**
@@ -148,7 +218,7 @@ type AutoPresetContext = Context & {
     select: (agent: CreatedAgentView, presetId: string) => Promise<string>,
   },
   on: (event: "agent/created", listener: (payload: { agent?: CreatedAgentView } | undefined) => void) => () => boolean,
-  sessionController?: { agents?: { ensureSession: (this: unknown, sessionId: string, cwd: string | undefined, checkPersistedIdentity: boolean, presetId: string | undefined) => Promise<unknown> } },
+  sessionController?: { agents?: SessionAgentFacade },
 };
 
 /**
@@ -161,6 +231,9 @@ export async function apply(ctx: AutoPresetContext, config: AutoPresetConfig = {
   const target = config.preset ?? "wsl";
   const attempts = config.attempts ?? 6;
   const retryMs = config.retryMs ?? 150;
+  // The advisory below is model-facing text; follow the app's language like the
+  // other rows do (a profile without `settings` keeps English).
+  installMessagesLocale(ctx);
   const warn = (message: string) => {
     trace(`WARN ${message}`);
     // `logger` is not injectable here, so an unavailable or throwing logger must
@@ -178,6 +251,48 @@ export async function apply(ctx: AutoPresetContext, config: AutoPresetConfig = {
       } catch {
         /* logging is never worth failing a session over */
       }
+    }
+  };
+
+  /**
+   * Say, once, that a distro workspace is running the host environment.
+   *
+   * The model gets a runtime-context entry because otherwise it believes its
+   * commands run in the distro (they run in Windows PowerShell, and file access
+   * crosses the 9p share). The operator gets the log line; the web client's
+   * banner is the human-facing half of the same fact. Nothing here can fail a
+   * session: the whole plugin is advisory at this point.
+   *
+   * @param agent - the session that just opened.
+   * @param cwd - its workspace, a `\\wsl.localhost\…` path.
+   * @param message - the already-localized advisory.
+   */
+  const advised = new Set<string>();
+  const adviseHostMode = (agent: CreatedAgentView, cwd: string, message: string): void => {
+    if (advised.has(agent.id) || !isWslUnc(cwd)) return;
+    // A subagent inherits the environment its parent was told about; repeating
+    // the advisory in every child context is noise, not information.
+    const header = agent.session?.header;
+    if (header?.origin === "subagent" || header?.parentSession !== undefined) return;
+    advised.add(agent.id);
+    warn(`"${cwd}" runs the host (Windows) environment: commands use PowerShell and file access crosses the 9p share`);
+    // The harness's agent context carries `systemPrompt`; the service is not in
+    // this plugin's typings, so the injection is spelled structurally. A host
+    // payload without a context still gets the log line, not a crash.
+    const context = agent.ctx as unknown as {
+      inject?: (names: string[], install: (scope: {
+        systemPrompt: { context: (entry: { name: string, order: number, text: () => string }) => unknown },
+      }) => void) => unknown,
+    } | undefined;
+    const inject = context?.inject;
+    if (typeof inject !== "function" || context === undefined) return;
+    try {
+      inject.call(context, ["systemPrompt"], (scope) => {
+        scope.systemPrompt.context({ name: "wsl-access-mode", order: 200, text: () => message });
+      });
+    } catch (error) {
+      // A missing seam degrades to the log line above, never to a failed session.
+      trace(`  -> could not publish the host-mode advisory: ${(error as Error)?.message ?? error}`);
     }
   };
 
@@ -199,42 +314,42 @@ export async function apply(ctx: AutoPresetContext, config: AutoPresetConfig = {
     // registry default (i.e. the operator did not ask for one). `undefined` means
     // the creating caller mounted nothing at all — the headless runner does this
     // — which is likewise "no explicit choice".
-    let fallback;
-    try {
-      fallback = ctx.agentPresets.defaultId;
-    } catch {
-      fallback = void 0;
-    }
+    const fallback = defaultPresetId(ctx);
     const windowsAccess = windowsAccessList(config.windowsWorkspaces);
     if (!shouldAdoptWslPreset({ cwd, current, fallback, windowsAccess })) {
-      if (cwd !== undefined && windowsAccess.length > 0) {
+      if (cwd !== undefined && isWindowsAccessWorkspace(cwd, windowsAccess)) {
         trace(`  -> skipped: Windows-access workspace ${JSON.stringify(cwd)}`);
+        adviseHostMode(agent, cwd, t("hostModeWindowsAccess", { cwd, distro: distroOfUnc(cwd) ?? "WSL" }));
       }
       return;
     }
-    trace(`  -> acting: fallback=${String(fallback)} isWsl=${isWslUnc(cwd as string)}`);
+    if (cwd === undefined) return;
+    const workspace = cwd;
+    trace(`  -> acting: fallback=${String(fallback)} isWsl=${isWslUnc(workspace)}`);
 
     // Deferred on purpose — see the module comment.
     void (async () => {
       for (let attempt = 1; attempt <= attempts; attempt += 1) {
         try {
           const chosen = await ctx.agentPresets.select(agent, target);
-          ctx.logger?.debug?.(`auto-preset: "${cwd}" -> preset "${chosen}"`);
+          ctx.logger?.debug?.(`auto-preset: "${workspace}" -> preset "${chosen}"`);
           return;
         } catch (error) {
           const code = (error as { code?: unknown })?.code;
           // The session already started a turn: its preset is fixed, and that is
           // a legitimate outcome (the operator drove it before we got here).
           if (code === "agent-preset/locked") {
-            warn(`"${cwd}" already began its first turn; leaving the preset as "${String(current)}"`);
+            warn(`"${workspace}" already began its first turn; leaving the preset as "${String(current)}"`);
+            adviseHostMode(agent, workspace, t("hostModeLocked", { cwd: workspace, distro: distroOfUnc(workspace) ?? "WSL" }));
             return;
           }
           if (code === "agent-preset/not-found") {
-            warn(`preset "${target}" is not composed in this profile; skipping "${cwd}"`);
+            warn(`preset "${target}" is not composed in this profile; skipping "${workspace}"`);
+            adviseHostMode(agent, workspace, t("hostModePresetUnavailable", { cwd: workspace, distro: distroOfUnc(workspace) ?? "WSL" }));
             return;
           }
           if (attempt === attempts) {
-            warn(`could not bind preset "${target}" for "${cwd}": ${code ?? (error as Error)?.name}: ${(error as Error)?.message}`);
+            warn(`could not bind preset "${target}" for "${workspace}": ${code ?? (error as Error)?.name}: ${(error as Error)?.message}`);
             return;
           }
           await new Promise((resolve) => setTimeout(resolve, retryMs));
@@ -253,39 +368,57 @@ export async function apply(ctx: AutoPresetContext, config: AutoPresetConfig = {
   // failed (Win32 1)`) and the workspace is unusable — not merely mis-labelled.
   // Correcting the preset after creation loses whenever the first turn does not
   // wait, so the choice is made where the cwd still exists: the controller
-  // resolves the preset in `composeAgent(presetId)`, which has no cwd, but it
-  // calls `agents.ensureSession(sessionId, cwd, …, presetId)` — and that frame
-  // holds both. Filling the preset there makes the very first mount already
-  // correct, so the host sandbox never meets the distro path at all.
+  // resolves the preset in `composeAgent(presetId)`, which has no cwd, but its
+  // caller `createSession({ cwd, agentPreset, … })` holds both. Filling the
+  // preset there makes the very first mount already correct, so the host sandbox
+  // never meets the distro path at all.
+  //
+  // The host renamed this frame: 0.2.0-rc.2 exposed
+  // `ensureSession(sessionId, cwd, …, presetId)`; 0.2.1 replaced it with the
+  // request object below. Wrapping the request keeps any field a newer host adds
+  // intact, and a missing method is reported through the warning and the
+  // doctor's `session.preset-seam` check instead of failing silently.
   ctx.inject(["sessionController"], (controllerCtx) => {
     const facade = (controllerCtx as AutoPresetContext).sessionController?.agents;
-    if (facade === void 0 || typeof facade.ensureSession !== "function") {
-      warn("sessionController exposes no agents.ensureSession(); the creation-time preset fix is inactive");
+    if (facade === void 0 || typeof facade.createSession !== "function") {
+      publishAutoPresetSeam("inactive", "the host's sessionController exposes no agents.createSession()");
+      warn("sessionController exposes no agents.createSession(); the creation-time preset fix is inactive");
       return;
     }
-    const original = facade.ensureSession;
-    facade.ensureSession = async function (this: unknown, sessionId: string, cwd: string | undefined, checkPersistedIdentity: boolean, presetId: string | undefined) {
-      // An explicit choice always wins, and only a distro workspace is affected.
-      // A workspace the operator opened for Windows access keeps the host
-      // preset even here: this is the frame that makes the first mount correct,
-      // so skipping it is what the choice means.
-      if (presetId !== void 0 || cwd === undefined || !isWslUnc(cwd)
-        || isWindowsAccessWorkspace(cwd, windowsAccessList(config.windowsWorkspaces))) {
-        return original.call(this, sessionId, cwd, checkPersistedIdentity, presetId);
+    const original = facade.createSession;
+    facade.createSession = async function (this: unknown, request: SessionCreateRequestLike) {
+      // A non-default preset id always wins; the default id (or no id) is
+      // automatic. Only a distro workspace is affected. A workspace the operator
+      // opened for Windows access keeps the host preset even here: this is the
+      // frame that makes the first mount correct, so skipping it is what the
+      // choice means.
+      const candidate = request as unknown as { cwd?: unknown, agentPreset?: unknown, sessionId?: unknown } | null;
+      if (candidate === null || typeof candidate !== "object" || typeof candidate.cwd !== "string") {
+        return original.call(this, request);
+      }
+      const requested = typeof candidate.agentPreset === "string" ? candidate.agentPreset : undefined;
+      const fallback = defaultPresetId(ctx);
+      if (!isDefaultPresetChoice(requested, fallback) || !isWslUnc(candidate.cwd)
+        || isWindowsAccessWorkspace(candidate.cwd, windowsAccessList(config.windowsWorkspaces))) {
+        return original.call(this, request);
       }
       try {
-        return await original.call(this, sessionId, cwd, checkPersistedIdentity, target);
+        return await original.call(this, { ...request, agentPreset: target });
       } catch (error) {
-        // A session already stored under another preset rejects a different one.
-        // Fall back rather than turn adoption into a new failure mode.
-        if (!String((error as Error)?.message ?? "").includes("agent preset")) throw error;
-        trace(`creation-time preset "${target}" refused for ${sessionId}; falling back to the recorded one`);
-        return original.call(this, sessionId, cwd, checkPersistedIdentity, presetId);
+        // A session already stored under another preset, or a profile without
+        // the WSL preset, must not turn adoption into a failed creation: retry
+        // with the caller's own choice and let the event path report the state.
+        if (!isPresetAdoptionError(error)) throw error;
+        const named = typeof candidate.sessionId === "string" ? candidate.sessionId : "(new session)";
+        trace(`creation-time preset "${target}" refused for ${named}; falling back to the recorded one`);
+        return original.call(this, request);
       }
     };
+    publishAutoPresetSeam("active", "agents.createSession is wrapped; distro sessions mount the WSL preset first", "createSession");
     trace("creation-time preset fix installed");
     controllerCtx.effect(() => () => {
-      facade.ensureSession = original;
+      facade.createSession = original;
+      publishAutoPresetSeam("inactive", "the auto-preset row was disposed");
     });
   });
   // Mount order is not a guarantee: a runner that creates its session during

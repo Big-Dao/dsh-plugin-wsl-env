@@ -16,6 +16,56 @@ were part of the record.
 
 ## [Unreleased]
 
+### Added
+
+- **A durable open-in-app bridge, replacing the local `app.asar` patch.** The
+  `wsl-open-in-app` row registers `POST /api/wsl-env/open-in-app` on the
+  authenticated `/api` channel, and the Session header menu gains
+  **在 VS Code 中打开（WSL）**: it converts a WSL UNC workspace to its
+  `vscode-remote` URI and launches VS Code with `--folder-uri`, landing in
+  Remote-WSL instead of the 9p share. The route scrubs `ELECTRON_RUN_AS_NODE`
+  from the editor child's environment only; deleting it from the Host process
+  environment breaks Node-mode helpers such as the Windows Job runner. The
+  shipped "Open in app" item remains broken until upstream scrubs its own child
+  environment. The route refuses every non-WSL path.
+  `docs/UPSTREAM-OPEN-IN-APP.md` records the remaining upstream fix.
+- **A distro workspace opened without the distro environment is now called out.**
+  When a workspace inside a WSL distro runs a non-WSL preset — recorded Windows
+  access (9p), a session that became interactive before adoption, or a profile
+  without the WSL preset — the session shows a persistent warning above the
+  composer naming the consequence (PowerShell commands, 9p file access, no Linux
+  toolchain) and the fix that applies: a one-click switch while the session is
+  blank, and the `windowsWorkspaces` correction once a turn has started. The
+  session header keeps a small **Windows 模式** marker after the warning is
+  collapsed, the **WSL environment** panel lists the recorded directories, and
+  `auto-preset` logs the state and publishes it as a runtime-context entry so the
+  model does not assume a Linux toolchain. The reminder is plugin-owned client UI;
+  `docs/UPSTREAM-SESSION-NOTICE.md` still records the general upstream gap.
+
+### Fixed
+
+- **The open-in-app route classifies a rejected launcher.** A launcher that
+  throws or rejects now answers the same `502` as a failed spawn instead of
+  letting an unhandled rejection escape the request handler.
+
+- **The host-mode advisory and adoption fail open.** A settings read that
+  throws is treated like an unavailable record: the web reminder falls back to
+  the `wsl` target and warns instead of disappearing. `auto-preset` treats a
+  throwing volatile `windowsWorkspaces` getter as an empty record, so a config
+  read can neither silence the warning nor fail session creation, and a host
+  payload without an agent context still logs the advisory.
+
+- **The creation-time preset binding calls the host's current API again.** The
+  host replaced `sessionController.agents.ensureSession(sessionId, cwd, …,
+  presetId)` with `agents.createSession({ cwd, agentPreset, … })` in 0.2.1; the
+  old wrapper had been silently inactive since, so a distro workspace's first
+  mount could still be the host preset until the deferred adoption ran. The row
+  now fills `agentPreset` in the create request (forwarding `sessionId` and
+  `reusable` untouched), retries with the caller's choice when the preset
+  registry refuses the target, and reports its state as the doctor's
+  `session.preset-seam` check — a warning instead of a log line when a future
+  host changes the shape again.
+
 ## [0.25.0] - 2026-11-11
 
 One theme: the model reads its prompt facts in the distro's own terms, and

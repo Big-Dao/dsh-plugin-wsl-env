@@ -1,6 +1,6 @@
 import type { AgentStatus } from "./agent.js";
 import { sharedAgent } from "./agent-shared.js";
-import { mergeLiveResidentStatus, type DoctorReport } from "./doctor-live.js";
+import { mergeAutoPresetSeam, mergeLiveResidentStatus, type DoctorReport } from "./doctor-live.js";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -209,5 +209,5 @@ export async function doctorReport(distro: string, options?: {
     throw new Error(`doctor run failed: ${cause}${run.stderr.length > 0 ? ` — ${run.stderr.trim().slice(-400)}` : ""}`);
   }
   const status = options?.liveStatus ?? sharedAgent(distro).status();
-  return mergeLiveResidentStatus(report, status);
+  return mergeAutoPresetSeam(mergeLiveResidentStatus(report, status));
 }

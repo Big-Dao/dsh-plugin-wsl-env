@@ -394,3 +394,93 @@ shellTest("a prereq-bearing probe that satisfies its prerequisite still runs and
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stderr, /pass 1, fail 0, skipped 0, not run 0/);
 });
+
+/**
+ * Run the open-in-app probe against a simulated runtime mirror and app archive.
+ * @param {{bridge?: "full" | "module" | "patch" | "none", archive?: "upstream" | "patched" | "partial" | "broken" | "unknown" | "missing"}} [options] - bridge completeness and archive state.
+ */
+function runOpenInAppProbe({ bridge = "full", archive = "broken" } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), "wsl-open-in-app-probe-"));
+  try {
+    copyFileSync(join(root, "test", "probe", "open-in-app-patch.sh"), join(dir, "open-in-app-patch.sh"));
+    writeFileSync(join(dir, "env.sh"), 'APP="$HERE/app"\nDST="$HERE/runtime"\n');
+    if (bridge !== "none") {
+      mkdirSync(join(dir, "runtime", "lib"), { recursive: true });
+      writeFileSync(
+        join(dir, "runtime", "lib", "open-in-app.js"),
+        bridge === "patch" ? "" : "export function launchEnvironment() { return {}; }\n",
+      );
+      writeFileSync(
+        join(dir, "runtime", "cordis.patch.yml"),
+        bridge === "module" ? "" : "- id: wsl-open-in-app\n",
+      );
+    }
+    if (archive !== "missing") {
+      mkdirSync(join(dir, "app", "resources"), { recursive: true });
+      const bodies = {
+        upstream: "delete env.ELECTRON_RUN_AS_NODE\n",
+        patched: "clearedElectronFlag\neditorRemoteUri\n",
+        partial: "clearedElectronFlag\n",
+        broken: "launchDetachedApp\n",
+        unknown: "some future launcher\n",
+      };
+      writeFileSync(join(dir, "app", "resources", "app.asar"), bodies[archive]);
+    }
+    return spawnSync("bash", [join(dir, "open-in-app-patch.sh")], { encoding: "utf8" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+shellTest("open-in-app probe passes on the plugin bridge even when the archive is unpatched", () => {
+  const broken = runOpenInAppProbe({ archive: "broken" });
+  assert.equal(broken.status, 0, broken.stderr);
+  assert.match(broken.stdout, /plugin bridge installed/);
+  assert.match(broken.stdout, /shipped "Open in app" item still fails/);
+
+  const upstream = runOpenInAppProbe({ archive: "upstream" });
+  assert.equal(upstream.status, 0, upstream.stderr);
+  assert.match(upstream.stdout, /also clears the flag upstream/);
+
+  const patched = runOpenInAppProbe({ archive: "patched" });
+  assert.equal(patched.status, 0, patched.stderr);
+  assert.match(patched.stdout, /optional local archive patch/);
+});
+
+shellTest("open-in-app probe does not accept half a bridge", () => {
+  for (const bridge of /** @type {Array<"module" | "patch">} */ (["module", "patch"])) {
+    const result = runOpenInAppProbe({ bridge, archive: "broken" });
+    assert.equal(result.status, 1, `${bridge} alone must not count as the bridge: ${result.stdout}`);
+    assert.match(result.stdout, /no plugin bridge/);
+  }
+});
+
+shellTest("open-in-app probe accepts an upstream fix or a complete historical patch without the bridge", () => {
+  const upstream = runOpenInAppProbe({ bridge: "none", archive: "upstream" });
+  assert.equal(upstream.status, 0, upstream.stderr);
+  assert.match(upstream.stdout, /clears the flag upstream \(plugin bridge not found\)/);
+
+  const patched = runOpenInAppProbe({ bridge: "none", archive: "patched" });
+  assert.equal(patched.status, 0, patched.stderr);
+  assert.match(patched.stdout, /historical local archive patch present/);
+});
+
+shellTest("open-in-app probe fails closed on a partial patch, a broken launcher, or an unknown layout", () => {
+  const partial = runOpenInAppProbe({ bridge: "none", archive: "partial" });
+  assert.equal(partial.status, 1, partial.stdout);
+  assert.match(partial.stdout, /partial historical archive patch/);
+  assert.match(partial.stdout, /update\/sync the plugin/);
+
+  const broken = runOpenInAppProbe({ bridge: "none", archive: "broken" });
+  assert.equal(broken.status, 1, broken.stdout);
+  assert.match(broken.stdout, /no plugin bridge and the shipped launcher does not clear/);
+  assert.match(broken.stdout, /do not patch app\.asar/);
+
+  const unknown = runOpenInAppProbe({ bridge: "none", archive: "unknown" });
+  assert.equal(unknown.status, 2, unknown.stdout);
+  assert.match(unknown.stdout, /layout changed/);
+
+  const missing = runOpenInAppProbe({ bridge: "none", archive: "missing" });
+  assert.equal(missing.status, 2, missing.stderr);
+  assert.match(missing.stderr, /no app archive/);
+});

@@ -52,6 +52,7 @@ import { dirname, join } from "node:path";
 import { listDistros, listRunningDistros } from "./wsl.js";
 import { digestReport, sectionOf, type DoctorDigest, type DoctorReportLike } from "./wsl-doctor-tool.js";
 import { runDoctorCli } from "./wsl-doctor-command.js";
+import { mergeAutoPresetSeam } from "./doctor-live.js";
 
 export const name = "wsl-status";
 
@@ -497,7 +498,7 @@ export function createStatusHandler(options: StatusHandlerOptions): StatusHandle
         : ["--json", "--quick", "--distro", distro];
       const raw = await options.runCli(argv, undefined, options.timeoutMs);
       const report = JSON.parse(raw) as DoctorReportLike;
-      view = viewOf(digestReport(report, distro), distro, at, repair, source);
+      view = viewOf(digestReport(mergeAutoPresetSeam(report), distro), distro, at, repair, source);
     } catch (error) {
       view = {
         distro,

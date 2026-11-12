@@ -32,6 +32,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { distroOfUnc } from "./distro-route.js";
 import { digestReport, renderDigest, SECTIONS, type DoctorDigest, type DoctorReportLike } from "./wsl-doctor-tool.js";
+import { mergeAutoPresetSeam } from "./doctor-live.js";
 
 export const name = "wsl-doctor-command";
 
@@ -391,7 +392,7 @@ async function resolveDistro(ctx: WslDoctorCommandContext, invocation: WslDoctor
  */
 export function formatDoctorReport(json: string, distro: string): string {
   const report = JSON.parse(json) as DoctorReportLike;
-  const digest: DoctorDigest = digestReport(report, distro.length > 0 ? distro : undefined);
+  const digest: DoctorDigest = digestReport(mergeAutoPresetSeam(report), distro.length > 0 ? distro : undefined);
   return renderDigest(digest);
 }
 

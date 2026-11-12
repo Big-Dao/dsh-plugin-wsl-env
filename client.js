@@ -48,6 +48,8 @@ window.__ModuleLoader__.load({
 
     /** The plugin's status route (checks on GET, repair on POST); the row registers this exact path. */
     const STATUS_PATH = "/api/wsl-env/status";
+    /** The launch route for opening a distro workspace in VS Code through Remote-WSL. */
+    const OPEN_IN_APP_PATH = "/api/wsl-env/open-in-app";
     /** Sidebar panel id and order: below the shipped plugin/schedule entries. */
     const PANEL_ID = "wsl-env";
     const PANEL_ORDER = 25;
@@ -107,13 +109,16 @@ window.__ModuleLoader__.load({
         && (row.ns === AUTO_PRESET_ENTRY || row.ns.endsWith("/" + AUTO_PRESET_ENTRY)));
       if (entry === undefined) return undefined;
       const configured = entry.value && Array.isArray(entry.value[WINDOWS_FIELD]) ? entry.value[WINDOWS_FIELD] : [];
-      return { entry, paths: configured.filter((path) => typeof path === "string") };
+      // The row's `preset` field is the preset auto-preset adopts for distro
+      // workspaces; the reminder compares the session's projection against it.
+      const preset = entry.value && typeof entry.value.preset === "string" ? entry.value.preset : "";
+      return { entry, paths: configured.filter((path) => typeof path === "string"), preset };
     };
 
     /**
-     * Read the current Windows-access paths.
+     * Read the current Windows-access paths and the target preset.
      * @param ctx - client root context.
-     * @returns `{ ok: true, paths }`, or the reason the record is unavailable.
+     * @returns `{ ok: true, paths, preset }`, or the reason the record is unavailable.
      */
     const readAccess = async (ctx) => {
       const settings = service(ctx, "remote.settings");
@@ -121,7 +126,7 @@ window.__ModuleLoader__.load({
       const describe = await settings.describe();
       const view = accessViewOf(describe);
       if (view === undefined) return { ok: false, message: "auto-preset 配置不可写（或未装配）" };
-      return { ok: true, paths: view.paths };
+      return { ok: true, paths: view.paths, preset: view.preset };
     };
 
     /**
@@ -141,6 +146,265 @@ window.__ModuleLoader__.load({
       if (answer.ok !== true) return answer.error?.message ?? "设置写入被拒绝";
       return undefined;
     };
+
+    // ── The host-mode reminder ─────────────────────────────────────────────
+    // A distro workspace can run the host preset without the operator meaning
+    // to: it was recorded as Windows access (9p), the session began before
+    // auto-preset could switch it, or the profile composes no WSL preset. In
+    // each case the session runs PowerShell with 9p file access while its path
+    // still says "WSL"; the composer dock carries a persistent warning with the
+    // fix that actually applies, and the session header keeps a quiet badge after
+    // the warning is collapsed.
+
+    /** The preset auto-preset adopts when the row does not name one. */
+    const PRESET_FALLBACK = "wsl";
+
+    /**
+     * Whether a workspace is one of the recorded Windows-access directories or
+     * below one (whole-segment, case-insensitive, like the host's comparison).
+     * @param cwd - the session workspace.
+     * @param paths - the configured directories.
+     * @returns true when the workspace opted out of the distro environment.
+     */
+    const isWindowsAccessPath = (cwd, paths) => {
+      const target = normalize(cwd);
+      return paths.some((entry) => {
+        if (typeof entry !== "string" || entry.trim() === "") return false;
+        const base = normalize(entry);
+        return target === base || target.startsWith(base + "\\");
+      });
+    };
+
+    /**
+     * The distro a UNC workspace names.
+     * @param cwd - the session workspace.
+     * @returns the distro name, or undefined for a non-UNC path.
+     */
+    const distroOf = (cwd) => {
+      const match = typeof cwd === "string" ? UNC_RE.exec(cwd) : null;
+      return match === null ? undefined : match[1];
+    };
+
+    /**
+     * The reminder state for one session, or null when its environment is right.
+     * A missing projection and a matching preset both mean "nothing to say": the
+     * banner never guesses an environment.
+     * @param input - the session workspace, its projected preset, the configured
+     *   target preset, the Windows-access list, and subagent membership.
+     * @returns `{ target, windowsAccess }` for a distro workspace on a non-WSL preset.
+     */
+    const hostModeOf = ({ cwd, preset, target, paths, subagent }) => {
+      if (subagent === true || !isWslUnc(cwd)) return null;
+      if (typeof preset !== "string" || preset === "" || preset === target) return null;
+      return { target, windowsAccess: isWindowsAccessPath(cwd, paths ?? []) };
+    };
+
+    /** The sessionStorage key that collapses the warning for one session. */
+    const dismissedKey = (sessionId) => "wsl-env.access-mode.dismissed:" + String(sessionId);
+
+    /**
+     * Whether the operator collapsed the reminder for this session.
+     * @param sessionId - the session to ask about.
+     * @returns true when the warning was dismissed in this browser session.
+     */
+    const readDismissed = (sessionId) => {
+      try {
+        return window.sessionStorage.getItem(dismissedKey(sessionId)) === "1";
+      } catch {
+        return false;
+      }
+    };
+
+    /**
+     * Collapse the reminder for this session only; a new session asks again.
+     * @param sessionId - the session to collapse.
+     */
+    const rememberDismissed = (sessionId) => {
+      try {
+        window.sessionStorage.setItem(dismissedKey(sessionId), "1");
+      } catch {
+        /* a browser without storage keeps the reminder visible */
+      }
+    };
+
+    /**
+     * Follow one session's host-mode state.
+     * @param ctx - client root context.
+     * @param sessionId - the active session.
+     * @param useSessions - the slot's session-list hook.
+     * @param useProjection - the slot's projection hook.
+     * @returns the session summary and the reminder state (null while loading or correct).
+     */
+    const useHostMode = (ctx, sessionId, useSessions, useProjection) => {
+      const summary = useSessions((state) => state.byId[sessionId]);
+      const preset = useProjection("agentPreset");
+      const cwd = summary?.cwd;
+      const [access, setAccess] = useState(null);
+
+      useEffect(() => {
+        let live = true;
+        // Read the record only when the projection already says "not the WSL
+        // preset": a normal distro session never pays the settings round trip.
+        if (!isWslUnc(cwd) || typeof preset !== "string" || preset === "" || preset === PRESET_FALLBACK) {
+          setAccess(null);
+          return () => { live = false; };
+        }
+        void (async () => {
+          let answer;
+          try {
+            answer = await readAccess(ctx);
+          } catch {
+            // A settings read that throws is the same "record unavailable"
+            // state as one that answers `ok: false`: warn visibly with the
+            // fallback target instead of leaving the session silent.
+            answer = { ok: false };
+          }
+          if (!live) return;
+          setAccess(answer.ok === true
+            ? {
+              target: typeof answer.preset === "string" && answer.preset !== "" ? answer.preset : PRESET_FALLBACK,
+              paths: answer.paths,
+            }
+            : { target: PRESET_FALLBACK, paths: [] });
+        })();
+        return () => { live = false; };
+      }, [cwd, preset]);
+
+      const subagent = summary?.parentId !== undefined || summary?.origin === "subagent";
+      return {
+        summary,
+        state: access === null
+          ? null
+          : hostModeOf({ cwd, preset, target: access.target, paths: access.paths, subagent }),
+      };
+    };
+
+    /**
+     * The persistent composer-dock warning for a distro workspace running the
+     * host environment. The primary action is the one that works for this
+     * session: a blank session can be switched in place; a session that already
+     * started a turn keeps its history, so the durable fix is the access record.
+     * @param props - slot standard props plus the client root context.
+     * @returns the warning bar, or null when the environment is right or collapsed.
+     */
+    function AccessModeBanner({ ctx, sessionId, useSessions, useProjection }) {
+      const { summary, state } = useHostMode(ctx, sessionId, useSessions, useProjection);
+      const [dismissed, setDismissed] = useState(() => readDismissed(sessionId));
+      const [removed, setRemoved] = useState(false);
+      const [busy, setBusy] = useState(false);
+      const [notice, setNotice] = useState(null);
+
+      useEffect(() => {
+        setDismissed(readDismissed(sessionId));
+        setRemoved(false);
+        setNotice(null);
+      }, [sessionId]);
+
+      if (state === null || dismissed) return null;
+      const blank = summary?.blank === true;
+
+      /** Switch this blank session to the configured WSL preset, in place. */
+      const switchToWsl = async () => {
+        setBusy(true);
+        setNotice(null);
+        try {
+          const presets = service(ctx, "remote.agentPresets");
+          if (presets === undefined) throw new Error("会话服务不可用");
+          const answer = await presets.select(sessionId, state.target);
+          if (answer.ok !== true) throw new Error(answer.error?.message ?? "preset 切换失败");
+          // The projection flips to the WSL preset and the banner unmounts; also
+          // drop the recorded Windows-access path so later sessions start right.
+          if (state.windowsAccess && summary?.cwd !== undefined) {
+            const current = await readAccess(ctx);
+            if (current.ok === true) {
+              const failure = await writeAccess(ctx, current.paths.filter((entry) => !samePath(entry, summary.cwd)));
+              if (failure !== undefined) setNotice({ kind: "warn", text: `已切换，但写入访问方式失败：${failure}` });
+            }
+          }
+        } catch (error) {
+          setNotice({ kind: "error", text: `切换失败：${messageOf(error)}（若 WSL preset 未装配，请运行 /wsl-doctor 检查）` });
+        } finally {
+          setBusy(false);
+        }
+      };
+
+      /** Drop the recorded Windows-access directory; this session keeps its history. */
+      const forgetWindowsAccess = async () => {
+        setBusy(true);
+        setNotice(null);
+        try {
+          const cwd = summary?.cwd;
+          if (typeof cwd !== "string") throw new Error("工作目录未知");
+          const current = await readAccess(ctx);
+          if (current.ok !== true) throw new Error(current.message);
+          const failure = await writeAccess(ctx, current.paths.filter((entry) => !samePath(entry, cwd)));
+          if (failure !== undefined) throw new Error(failure);
+          setRemoved(true);
+          setNotice({ kind: "ok", text: "已记录：本工作区新开的会话将使用 WSL 模式；本会话仍保持宿主模式。" });
+        } catch (error) {
+          setNotice({ kind: "error", text: `写入失败：${messageOf(error)}` });
+        } finally {
+          setBusy(false);
+        }
+      };
+
+      const collapse = () => {
+        rememberDismissed(sessionId);
+        setDismissed(true);
+      };
+
+      return h(
+        "div",
+        { role: "status", style: styles.accessBanner },
+        h(
+          "div",
+          { style: styles.accessBannerBody },
+          h("div", { style: styles.accessBannerTitle }, "当前会话运行在 Windows 宿主模式"),
+          h("div", { style: styles.accessBannerText },
+            `此工作区在 WSL 发行版 ${distroOf(summary?.cwd) ?? "WSL"} 内，但没有使用 WSL 环境：命令走 Windows PowerShell，文件访问经 9p 共享，没有 Linux 工具链。`,
+            state.windowsAccess ? "该目录记录为“Windows 访问”。" : null),
+          notice === null ? null : h(
+            "div",
+            { style: notice.kind === "ok" ? styles.noticeOk : styles.notice },
+            notice.text,
+          ),
+        ),
+        h(
+          "div",
+          { style: styles.accessBannerActions },
+          blank && !busy
+            ? h(Btn, { label: "切换为 WSL 模式", primary: true, onClick: () => { void switchToWsl(); } })
+            : null,
+          !blank && state.windowsAccess && !removed && !busy
+            ? h(Btn, { label: "以后用 WSL 打开", onClick: () => { void forgetWindowsAccess(); } })
+            : null,
+          !blank && !state.windowsAccess
+            ? h("span", { style: styles.hint }, "本会话已固定为宿主模式；新建会话时选择 WSL 模式。")
+            : null,
+          h(Btn, { label: "收起", small: true, onClick: collapse }),
+        ),
+      );
+    }
+
+    /**
+     * The quiet session-header marker that survives collapsing the banner.
+     * @param props - slot standard props plus the client root context.
+     * @returns the badge, or null when the environment is right or the banner shows.
+     */
+    function AccessModeBadge({ ctx, sessionId, useSessions, useProjection }) {
+      const { summary, state } = useHostMode(ctx, sessionId, useSessions, useProjection);
+      const [dismissed, setDismissed] = useState(() => readDismissed(sessionId));
+      useEffect(() => { setDismissed(readDismissed(sessionId)); }, [sessionId]);
+      if (state === null || !dismissed) return null;
+      return h(
+        "span",
+        {
+          style: styles.accessBadge,
+          title: `此工作区在 WSL 发行版 ${distroOf(summary?.cwd) ?? "WSL"} 内，但当前会话运行在 Windows 宿主模式（PowerShell、9p 共享，没有 Linux 工具链）。`,
+        },
+        "Windows 模式",
+      );
+    }
 
     /**
      * Switch one workspace's still-blank sessions to the host default preset.
@@ -226,6 +490,35 @@ window.__ModuleLoader__.load({
       repair: { fontSize: 12, wordBreak: "break-word" },
       failure: { fontSize: 12, opacity: 0.85, wordBreak: "break-word" },
       warning: { fontSize: 12, opacity: 0.75, wordBreak: "break-word" },
+      accessBanner: {
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 10,
+        margin: "0 12px 8px",
+        padding: "8px 12px",
+        borderRadius: 8,
+        border: "1px solid rgba(224, 176, 74, 0.55)",
+        background: "rgba(224, 176, 74, 0.12)",
+        fontSize: 12,
+        lineHeight: 1.45,
+        pointerEvents: "auto",
+      },
+      accessBannerBody: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 3 },
+      accessBannerTitle: { fontWeight: 600 },
+      accessBannerText: { opacity: 0.85, wordBreak: "break-word" },
+      accessBannerActions: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" },
+      accessBadge: {
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "1px 8px",
+        borderRadius: 999,
+        fontSize: 11,
+        border: "1px solid rgba(224, 176, 74, 0.55)",
+        background: "rgba(224, 176, 74, 0.12)",
+        color: "#e0b04a",
+        whiteSpace: "nowrap",
+        cursor: "default",
+      },
       code: { fontFamily: "var(--dsh-font-family-code, ui-monospace, monospace)", opacity: 0.9 },
       fixableTag: { fontSize: 11, color: "#5ecf86", marginLeft: 4, marginRight: 4 },
       summary: { display: "flex", flexDirection: "column", gap: 3, fontSize: 12 },
@@ -588,14 +881,27 @@ window.__ModuleLoader__.load({
     // ── The panel ──────────────────────────────────────────────────────────
 
     /**
-     * The WSL environment page: the installed distros and their quick verdicts.
+     * The WSL environment page: the installed distros, their quick verdicts, and
+     * the directories recorded for Windows access.
+     * @param props - the client root context.
      * @returns the page element.
      */
-    function WslPanel() {
+    function WslPanel({ ctx }) {
       const [phase, setPhase] = useState("loading");
       const [distros, setDistros] = useState([]);
       const [checks, setChecks] = useState({});
       const [notice, setNotice] = useState(null);
+      const [accessPaths, setAccessPaths] = useState(null);
+
+      /** Re-read the Windows-access record (best effort; the panel still works without it). */
+      const loadAccessPaths = async () => {
+        try {
+          const current = await readAccess(ctx);
+          setAccessPaths(current.ok === true ? current.paths : []);
+        } catch {
+          setAccessPaths([]);
+        }
+      };
 
       /**
        * Re-check one already-running distro without the user asking. The row
@@ -656,6 +962,7 @@ window.__ModuleLoader__.load({
         // The first load may refresh stored results for running distros; the
         // manual 刷新 button only re-reads the list.
         void loadDistros(true);
+        void loadAccessPaths();
       }, []);
 
       const check = async (distro) => {
@@ -722,7 +1029,7 @@ window.__ModuleLoader__.load({
               actions: h(Btn, {
                 label: "刷新",
                 small: true,
-                onClick: () => { void loadDistros(false); },
+                onClick: () => { void loadDistros(false); void loadAccessPaths(); },
               }),
             },
             h(
@@ -812,6 +1119,31 @@ window.__ModuleLoader__.load({
                               ),
                     );
                   }),
+          ),
+          // The audit half of the reminder: the directories whose sessions keep
+          // the host preset. The composer banner is the moment-of-use warning;
+          // this list is how the choice stays visible after it is collapsed.
+          h(
+            Card,
+            { title: "Windows 访问工作区" },
+            accessPaths === null
+              ? h("div", { style: styles.empty }, "加载中…")
+              : accessPaths.length === 0
+                ? h("div", { style: styles.empty }, "没有以 Windows 访问方式打开的发行版目录。")
+                : accessPaths.map((path) => h(
+                  "div",
+                  { key: path, style: styles.row },
+                  h(
+                    "div",
+                    { style: styles.rowHead },
+                    h("span", { style: styles.rowName, title: path }, path),
+                  ),
+                )),
+            h(
+              "div",
+              { style: styles.hint },
+              "这些发行版目录按 Windows 共享（9p）打开：其中的会话保留宿主 preset，命令走 PowerShell，没有 Linux 工具链；会话内的常驻警示条可一键切回 WSL 模式。此列表存放在 auto-preset 的 windowsWorkspaces 中，也可在设置里修改。",
+            ),
           ),
         ),
       );
@@ -1003,7 +1335,23 @@ window.__ModuleLoader__.load({
         ctx.slots.inject("main", function* () {
           yield ctx.slots.register(
             { name: "main", key: PANEL_ID },
-            () => h(WslPanel),
+            () => h(WslPanel, { ctx }),
+          );
+        });
+        // The host-mode reminder rides the composer dock (a list slot above the
+        // composer, alongside the shipped queue/todo/goal docks), so it is
+        // visible for the whole conversation without shadowing shipped UI; the
+        // session header keeps a quiet badge after it is collapsed.
+        ctx.slots.inject("conversation.input.dock", function* () {
+          yield ctx.slots.register(
+            { name: "conversation.input.dock", id: "wsl-env.access-mode", order: 90 },
+            (props) => h(AccessModeBanner, Object.assign({}, props, { ctx })),
+          );
+        });
+        ctx.slots.inject("conversation.session.header.utilities", function* () {
+          yield ctx.slots.register(
+            { name: "conversation.session.header.utilities", id: "wsl-env.access-mode-badge", order: 90 },
+            (props) => h(AccessModeBadge, Object.assign({}, props, { ctx })),
           );
         });
         // The post-add prompt rides the frame-wide overlay seat.
@@ -1012,6 +1360,38 @@ window.__ModuleLoader__.load({
             { name: "shell.overlay", id: "wsl-access-choice", order: 100 },
             () => h(AccessPrompt, { ctx }),
           );
+        });
+        // Session-header menu: open a distro workspace in VS Code through
+        // Remote-WSL. The shipped "Open in app" item launches the same editor,
+        // but a WSL UNC workspace opens there as a plain 9p folder; this route
+        // builds the `vscode-remote` URI instead. The Host row also clears
+        // ELECTRON_RUN_AS_NODE, so the shipped item stops failing.
+        ctx.inject(["contextMenus", "sessions"], (scope) => {
+          scope.effect(() => scope.contextMenus.register({
+            id: "wsl-env.openInVSCode",
+            target: "sessionHeader",
+            order: 505,
+            observe: () => [scope.sessions.list],
+            resolve: ({ sessionId }) => {
+              const snapshot = scope.sessions.list.getSnapshot();
+              const cwd = snapshot && snapshot.byId ? snapshot.byId[sessionId]?.cwd : undefined;
+              if (!isWslUnc(cwd)) return [];
+              return [{
+                id: "vscode",
+                label: "在 VS Code 中打开（WSL）",
+                failureLabel: "在 VS Code 中打开失败",
+                run: async () => {
+                  const answer = await fetch(OPEN_IN_APP_PATH, {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ path: cwd }),
+                  });
+                  const body = await answer.json().catch(() => ({}));
+                  if (!answer.ok) throw new Error(body.error ?? ("打开失败（HTTP " + answer.status + "）"));
+                },
+              }];
+            },
+          }), "wsl-env: open workspace in VS Code");
         });
         // The workspace catalog activates independently of this module; the
         // prompt watcher waits for it instead of sampling a missing service.

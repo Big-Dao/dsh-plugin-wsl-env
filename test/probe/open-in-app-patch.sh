@@ -1,24 +1,25 @@
 #!/usr/bin/env bash
-# Detect whether the installed DeepSeek Harness still carries the open-in-app
-# ELECTRON_RUN_AS_NODE regression: the desktop Host starts with
-# ELECTRON_RUN_AS_NODE=1, and a Host that does not drop the variable before
-# spawning a launched app sends every Electron editor (VS Code, Cursor) into
-# Node mode — the "打开失败" toast. 0.2.1-rc.5 cleared the flag in
-# `launchDetachedApp` (`clearedElectronFlag`); 0.2.2-rc.1 lost it. This probe
-# reads the same bytes a patched archive would carry (see
-# docs/UPSTREAM-OPEN-IN-APP.md and docs/upstream/app.asar.*.open-in-app.index.js)
-# and says which of the three states the install is in:
+# Report the open-in-app state of this machine.
 #
-#   upstream-fixed  — the bundle clears the flag itself; no local patch needed
-#   locally-patched — the local patch is present (re-apply after app upgrades)
-#   broken          — neither; VS Code launches will fail until patched
+# The plugin no longer patches the installed app.asar. Its `wsl-open-in-app`
+# row registers an authenticated launch route and scrubs
+# ELECTRON_RUN_AS_NODE from the editor child's environment, so the plugin's
+# "在 VS Code 中打开（WSL）" menu item works on an unpatched archive. The shipped
+# "Open in app" item still inherits the flag and still fails; that remains an
+# upstream fix.
 #
-# Read-only on the install; safe to run any time. Exit 0 on fixed or patched,
-# 1 on broken, 2 on "cannot check" (app not found / search tool missing).
+# This probe is diagnostic: it reports
+#   - whether the plugin bridge is installed in the runtime mirror, and
+#   - which state the shipped launcher's archive is in
+#     (upstream-fixed / locally-patched / broken).
+# A `broken` archive is not a failure while the bridge is installed; it only
+# means the shipped item is still upstream-broken.
+#
+# Read-only on the install; safe any time. Exit 0 when the bridge is installed
+# (or the archive is upstream-fixed), 1 when neither the bridge nor an upstream
+# fix is present, 2 on "cannot check".
 #
 #   test/probe/open-in-app-patch.sh
-#
-# Paths come from test/probe/env.sh, which this script sources.
 
 set -uo pipefail
 
@@ -28,38 +29,56 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ASAR="$APP/resources/app.asar"
 [ -f "$ASAR" ] || { echo "open-in-app-patch: no app archive at $ASAR (set DSH_WSL_ENV_APP)" >&2; exit 2; }
 
-# The asar stores file contents verbatim, so a byte string search over the
-# archive finds the module code without extracting it. Two local patches ride
-# on the archive (see docs/UPSTREAM-OPEN-IN-APP.md):
-#   patch 1 — `clearedElectronFlag`: drop ELECTRON_RUN_AS_NODE before the
-#             spawn, so Electron editors do not start as Node;
-#   patch 2 — `editorRemoteUri` + `folder-uri`: a WSL UNC workspace opens
-#             through `--folder-uri=vscode-remote://wsl%2B<distro>/...`,
-#             landing in Remote-WSL instead of a plain-folder window.
+# The plugin bridge: the row must be in the runtime mirror's patch and its
+# module must carry the child-scoped scrub helper.
+BRIDGE_MODULE="$DST/lib/open-in-app.js"
+BRIDGE_PATCH="$DST/cordis.patch.yml"
+bridge=0
+if [ -f "$BRIDGE_MODULE" ] && [ -f "$BRIDGE_PATCH" ] \
+  && grep -aq 'launchEnvironment' "$BRIDGE_MODULE" 2>/dev/null \
+  && grep -aq 'wsl-open-in-app' "$BRIDGE_PATCH" 2>/dev/null; then
+  bridge=1
+fi
+
+# The archive states, by byte-string search (the archive stores file contents
+# verbatim). `clearedElectronFlag` and `editorRemoteUri` are the historical
+# local patches; their absence is expected now.
 upstream_fixed=0; patched1=0; patched2=0
-if grep -aq 'delete env.ELECTRON_RUN_AS_NODE' "$ASAR" 2>/dev/null && ! grep -aq "clearedElectronFlag" "$ASAR" 2>/dev/null; then
+if grep -aq 'delete env.ELECTRON_RUN_AS_NODE' "$ASAR" 2>/dev/null && ! grep -aq 'clearedElectronFlag' "$ASAR" 2>/dev/null; then
   upstream_fixed=1
 fi
-grep -aq "clearedElectronFlag" "$ASAR" 2>/dev/null && patched1=1
-grep -aq "editorRemoteUri" "$ASAR" 2>/dev/null && patched2=1
+grep -aq 'clearedElectronFlag' "$ASAR" 2>/dev/null && patched1=1
+grep -aq 'editorRemoteUri' "$ASAR" 2>/dev/null && patched2=1
+
+if [ "$bridge" = 1 ]; then
+  echo "PASS  open-in-app-patch — plugin bridge installed; no host patch is needed"
+  if [ "$upstream_fixed" = 1 ]; then
+    echo "PASS  open-in-app-patch — the shipped launcher also clears the flag upstream"
+  elif [ "$patched1" = 1 ] && [ "$patched2" = 1 ]; then
+    echo "INFO  open-in-app-patch — an optional local archive patch is also present"
+  else
+    echo "INFO  open-in-app-patch — the shipped \"Open in app\" item still fails (inherits ELECTRON_RUN_AS_NODE); use the plugin's \"在 VS Code 中打开（WSL）\" menu"
+  fi
+  exit 0
+fi
 
 if [ "$upstream_fixed" = 1 ]; then
-  echo "PASS  open-in-app-patch — upstream clears the flag itself"
-  [ "$patched2" = 1 ] && echo "PASS  open-in-app-patch — remote-WSL folder-uri patch present"
+  echo "PASS  open-in-app-patch — the shipped launcher clears the flag upstream (plugin bridge not found)"
   exit 0
 fi
 if [ "$patched1" = 1 ] && [ "$patched2" = 1 ]; then
-  echo "PASS  open-in-app-patch — both local patches present (flag clear + remote-WSL folder-uri)"
+  echo "PASS  open-in-app-patch — historical local archive patch present (plugin bridge not found)"
   exit 0
 fi
 if [ "$patched1" = 1 ] || [ "$patched2" = 1 ]; then
-  echo "FAIL  open-in-app-patch — partial local patch: flag-clear=$patched1 remote-uri=$patched2 (re-apply from docs/UPSTREAM-OPEN-IN-APP.md)"
+  echo "INFO  open-in-app-patch — partial historical archive patch: flag-clear=$patched1 remote-uri=$patched2"
+  echo "      the plugin bridge is missing; update/sync the plugin instead of finishing the archive patch"
   exit 1
 fi
 if grep -aq 'launchDetachedApp' "$ASAR" 2>/dev/null; then
-  echo "FAIL  open-in-app-patch — launchDetachedApp spawns without clearing ELECTRON_RUN_AS_NODE; Electron apps will fail to open"
-  echo "      remedy: re-apply the local patches (docs/UPSTREAM-OPEN-IN-APP.md)"
+  echo "FAIL  open-in-app-patch — no plugin bridge and the shipped launcher does not clear ELECTRON_RUN_AS_NODE"
+  echo "      remedy: update the plugin (it owns the bridge) and run pnpm run sync:windows; do not patch app.asar"
   exit 1
 fi
-echo "SKIP  open-in-app-patch — launchDetachedApp not found in the archive; layout changed, re-check the patch design"
+echo "SKIP  open-in-app-patch — launchDetachedApp not found in the archive; layout changed, re-check the bridge design"
 exit 2

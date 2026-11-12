@@ -875,6 +875,10 @@ try {
       assert.equal(handshake.status, "fail", "the dead live resident fails the merged check");
       assert.match(String(handshake?.detail), /probed: the live resident/);
       assert.match(String(handshake?.detail), /fresh-probe facts: probed: a fresh resident, pid 4242/);
+      assert.ok(
+        merged.checks.some((entry) => entry.id === "session.preset-seam"),
+        "the collector merges the in-process creation-time seam row",
+      );
 
       // Outside the app (no resident this process holds), the report is the
       // fresh probe verbatim — the merge never invents facts. The same

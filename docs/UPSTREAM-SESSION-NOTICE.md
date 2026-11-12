@@ -29,6 +29,13 @@ client slot for one. The plugin's `wsl-preflight` therefore warns into the log
 and the runtime context, and the full check is `pnpm run doctor`
 ([`scripts/doctor.mjs`](../scripts/doctor.mjs)).
 
+One narrow exception is worth naming: a plugin that already owns a surface can
+render its own UI in a list slot. The access-mode reminder uses
+`conversation.input.dock` for the one state it can identify client-side (a distro
+workspace on a non-WSL preset), which is a plugin-owned banner — not a general
+advisory seam. An arbitrary session-start finding still has nowhere dedicated to
+appear, which is what this proposal asks for.
+
 ## What an advisory needs
 
 `wsl-preflight` runs when a distro session opens. Its findings are advisory:

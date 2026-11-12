@@ -14,6 +14,7 @@
  * @module dsh-plugin-wsl-env/doctor-live
  */
 import type { AgentStatus } from "./agent.js";
+import { autoPresetSeam } from "./auto-preset-seam.js";
 
 /** One check line of the doctor's versioned JSON report. */
 interface DoctorCheck {
@@ -75,5 +76,50 @@ export function mergeLiveResidentStatus(report: DoctorReport, status: AgentStatu
     summary[fresh.status] = Math.max(0, (summary[fresh.status] ?? 0) - 1);
     summary[merged.status] = (summary[merged.status] ?? 0) + 1;
   }
+  return { ...report, checks, summary };
+}
+
+/** The report fields {@link mergeAutoPresetSeam} needs; the strict and loose report types both fit. */
+interface SeamMergeReport {
+  /** The report's check rows. */
+  checks?: Array<{ id: string; status: string; title?: string; detail?: string; remedy?: string; distro?: string; blocksFirstCommand?: boolean }>;
+  /** The per-status tally. */
+  summary?: Record<string, number>;
+}
+
+/**
+ * Fold auto-preset's creation-time seam state into a doctor report.
+ *
+ * The seam is host-process state — whether the running session controller
+ * exposes `agents.createSession` — so the standalone CLI cannot see it, just as
+ * it cannot see a live resident's lifecycle (see {@link mergeLiveResidentStatus}).
+ * The in-app surfaces (the `wsl_doctor` tool, the `/wsl-doctor` command and the
+ * sidebar panel) call this merge, so the silent-degradation case that motivated
+ * the check appears as a warning instead of a log line only. A `warn` does not
+ * block the first command: adoption after creation still runs.
+ *
+ * @param report - the collected doctor report (not mutated).
+ * @returns the report with the `session.preset-seam` row appended.
+ */
+export function mergeAutoPresetSeam<T extends SeamMergeReport>(report: T): T {
+  const seam = autoPresetSeam();
+  const status = seam.state === "active" ? "ok" : seam.state === "inactive" ? "warn" : "info";
+  const detail = seam.state === "active"
+    ? `the creation-time preset seam is active (${seam.method ?? "agents.createSession"})`
+    : seam.state === "inactive"
+      ? `the creation-time preset seam is inactive: ${seam.reason}; a distro session still adopts the WSL preset after creation, but its first mount can use the host environment`
+      : `the auto-preset row has not initialized in this process (${seam.reason}); the check applies only where the plugin's root composition is mounted`;
+  const check = {
+    id: "session.preset-seam",
+    status,
+    title: "Environment auto-binding",
+    detail,
+    ...(status === "warn"
+      ? { remedy: "update the plugin (or the host) so the session controller exposes agents.createSession, then restart DSH — see docs/DIAGNOSTICS.md" }
+      : {}),
+  };
+  const checks = [...(report.checks ?? []), check];
+  const summary: Record<string, number> = { ...report.summary };
+  summary[status] = (summary[status] ?? 0) + 1;
   return { ...report, checks, summary };
 }

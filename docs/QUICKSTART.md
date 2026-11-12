@@ -101,6 +101,9 @@ WSL** (the default — commands, files and the terminal all run in the distro) o
 **Windows access** (the folder as an ordinary Windows share over 9p, without the
 Linux toolchain). The choice is recorded in the `auto-preset` row's
 `windowsWorkspaces` and applies to later sessions in that workspace too.
+A Windows-access directory is called out in the session itself: a distro workspace
+running a non-WSL preset keeps a warning above the composer, with a one-click switch
+while the session is still blank and the access-record fix once a turn has started.
 Two distros can be open at once, each with its own environment.
 
 ### Open the workspace in VS Code (Remote-WSL)
@@ -119,6 +122,11 @@ code --folder-uri "vscode-remote://wsl+ubuntu/home/me/proj"
 
 Requires the `code` shim on PATH (VS Code installer adds it) and the
 Remote-WSL extension.
+
+In the desktop GUI, the Session header menu also carries
+**在 VS Code 中打开（WSL）**: it converts the Session workspace to the same URI
+and launches the editor with a cleaned environment, so it does not depend on a
+patched `app.asar`.
 
 ![The directory picker listing a WSL distro's folders](screenshots/picker.png)
 

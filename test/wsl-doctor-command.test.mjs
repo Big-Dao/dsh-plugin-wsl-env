@@ -329,6 +329,8 @@ await check("formatDoctorReport digests the CLI's versioned JSON", () => {
   const text = formatDoctorReport(FIXTURE_REPORT, "missing");
   assert.match(text, /host\.platform/);
   assert.match(text, /distro\.present/);
+  assert.match(text, /session\.preset-seam/, "the in-process seam check is merged into the command's report");
+  assert.match(text, /Environment auto-binding/);
 });
 
 await check("the real runner rejects stdout that is not a JSON report", async () => {

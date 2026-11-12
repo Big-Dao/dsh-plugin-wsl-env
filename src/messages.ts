@@ -89,6 +89,29 @@ const en = {
     `running them here would act on a different machine's tree. Open a session in that distro, ` +
     `or point cwd/workdir at this distro.`,
 
+  /**
+   * `auto-preset`: a distro workspace is recorded as Windows access (9p), so
+   * the session runs the host preset. The model-facing half of the reminder;
+   * the human sees the web client's banner.
+   */
+  hostModeWindowsAccess: ({ cwd, distro }: { cwd: string, distro: string }): string =>
+    `The workspace "${cwd}" is inside WSL distro "${distro}" but is recorded as a Windows-access workspace, ` +
+    `so this session runs the host (Windows) environment: commands execute in Windows PowerShell, file access ` +
+    `crosses the 9p share, and the distro's Linux toolchain is unavailable. Do not assume Linux commands, paths, ` +
+    `or tooling here; using the distro requires opening a new session in this workspace with the WSL preset.`,
+  /** `auto-preset`: the session began its first turn before the WSL preset could be selected. */
+  hostModeLocked: ({ cwd, distro }: { cwd: string, distro: string }): string =>
+    `The workspace "${cwd}" is inside WSL distro "${distro}", but this session became interactive before the WSL ` +
+    `preset could be selected, so it keeps the host (Windows) environment: commands execute in Windows PowerShell, ` +
+    `file access crosses the 9p share, and the distro's Linux toolchain is unavailable. Do not assume Linux commands, ` +
+    `paths, or tooling here; a new session in this workspace adopts the WSL preset.`,
+  /** `auto-preset`: the profile composes no WSL preset, so the session keeps the host environment. */
+  hostModePresetUnavailable: ({ cwd, distro }: { cwd: string, distro: string }): string =>
+    `The workspace "${cwd}" is inside WSL distro "${distro}", but this profile composes no WSL preset, so this ` +
+    `session runs the host (Windows) environment: commands execute in Windows PowerShell, file access crosses the ` +
+    `9p share, and the distro's Linux toolchain is unavailable. Do not assume Linux commands, paths, or tooling ` +
+    `here; the operator can run /wsl-doctor to diagnose the profile.`,
+
   /** `wsl_doctor` digest: the verdict line. `verdict` is the report's own `ready`/`blocked`. */
   doctorDigestVerdict: ({ verdict }: { verdict: string }): string =>
     `wsl doctor verdict: ${verdict}`,
@@ -174,6 +197,19 @@ const zh: typeof en = {
   workdirAnotherDistro: ({ workdir, distro }) =>
     `"${workdir}" 指向另一个 WSL 发行版中的工作区，而本 profile 将命令固定在 "${distro}" —— ` +
     `在这里运行会作用于另一台机器的目录树。请在该发行版中打开会话，或将 cwd/workdir 指向本发行版。`,
+
+  hostModeWindowsAccess: ({ cwd, distro }) =>
+    `工作区 "${cwd}" 位于 WSL 发行版 "${distro}" 内，但被记录为 Windows 访问工作区，` +
+    `因此本会话运行在宿主（Windows）环境：命令经 PowerShell 执行，文件访问经过 9p 共享，发行版的 Linux 工具链不可用。` +
+    `不要在此假设 Linux 命令、路径或工具；如需在发行版内运行，须由操作者以 WSL preset 在本工作区新开会话。`,
+  hostModeLocked: ({ cwd, distro }) =>
+    `工作区 "${cwd}" 位于 WSL 发行版 "${distro}" 内，但本会话在选中 WSL preset 之前就已开始交互，` +
+    `因此保留宿主（Windows）环境：命令经 PowerShell 执行，文件访问经过 9p 共享，发行版的 Linux 工具链不可用。` +
+    `不要在此假设 Linux 命令、路径或工具；在本工作区新开的会话会采用 WSL preset。`,
+  hostModePresetUnavailable: ({ cwd, distro }) =>
+    `工作区 "${cwd}" 位于 WSL 发行版 "${distro}" 内，但本 profile 未装配 WSL preset，` +
+    `因此本会话运行在宿主（Windows）环境：命令经 PowerShell 执行，文件访问经过 9p 共享，发行版的 Linux 工具链不可用。` +
+    `不要在此假设 Linux 命令、路径或工具；操作者可运行 /wsl-doctor 诊断该 profile。`,
 
   doctorDigestVerdict: ({ verdict }) =>
     `wsl doctor 裁决：${verdict}`,

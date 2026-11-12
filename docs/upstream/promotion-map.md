@@ -59,9 +59,11 @@ C:\ 工作区与 `\\wsl.localhost` 工作区（`WorkspaceRegistry` 多条目并�
    全量运行），0.7.2 又加了组合测试（`test/composition.test.mjs` 用真实
    `applyEntryPatches` 跑插件的 patch 文件）。残余差距只剩覆盖面：上游形态还
    要求整个组合（agent-loop 等）经 Loader 启动，那要等晋升时并入其测试体系。
-3. **`ensureSession` monkey-patch 的替换**——`auto-preset.js` 补丁了 host 的
-   sessionController 以实现"目录→preset"。上游不会接受补丁式 hook；需提案正式
-   seam（如 session 创建时的 environment resolver）。这是插件最脆弱的接缝。
+3. **`agents.createSession` monkey-patch 的替换**——`auto-preset.js` 包装了 host
+   `sessionController.agents.createSession` 的请求对象，以实现"目录→preset"
+   （0.2.1 前的 `ensureSession` 帧已被宿主移除）。上游不会接受补丁式 hook；需提案
+   正式 seam（如 session 创建时接收 cwd 的 environment resolver）。这是插件最脆弱
+   的接缝；doctor 的 `session.preset-seam` 暴露其 active/inactive。
 4. **搜索的 seam 化**——rg spawn 拦截依赖"argv[0] 基名为 rg"的形状识别；正式形态
    应是 tool-fs-search 暴露 provider 口（或根 subprocess 的 transport 抽象）。
 5. **helper 的 digest 验证与租约**——已落地（协议 v4）：digest 在 HELLO 握手

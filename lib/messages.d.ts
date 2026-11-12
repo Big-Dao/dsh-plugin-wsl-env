@@ -92,6 +92,25 @@ declare const en: {
         workdir: string;
         distro: string;
     }) => string;
+    /**
+     * `auto-preset`: a distro workspace is recorded as Windows access (9p), so
+     * the session runs the host preset. The model-facing half of the reminder;
+     * the human sees the web client's banner.
+     */
+    hostModeWindowsAccess: ({ cwd, distro }: {
+        cwd: string;
+        distro: string;
+    }) => string;
+    /** `auto-preset`: the session began its first turn before the WSL preset could be selected. */
+    hostModeLocked: ({ cwd, distro }: {
+        cwd: string;
+        distro: string;
+    }) => string;
+    /** `auto-preset`: the profile composes no WSL preset, so the session keeps the host environment. */
+    hostModePresetUnavailable: ({ cwd, distro }: {
+        cwd: string;
+        distro: string;
+    }) => string;
     /** `wsl_doctor` digest: the verdict line. `verdict` is the report's own `ready`/`blocked`. */
     doctorDigestVerdict: ({ verdict }: {
         verdict: string;

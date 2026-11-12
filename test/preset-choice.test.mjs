@@ -8,7 +8,7 @@
  *   node test/preset-choice.test.mjs
  */
 import assert from "node:assert/strict";
-import { isWindowsAccessWorkspace, shouldAdoptWslPreset } from "../lib/preset-choice.js";
+import { isDefaultPresetChoice, isWindowsAccessWorkspace, shouldAdoptWslPreset } from "../lib/preset-choice.js";
 
 let passed = 0;
 /**
@@ -96,6 +96,24 @@ check("isWindowsAccessWorkspace compares whole segments only", () => {
     isWindowsAccessWorkspace("\\\\wsl.localhost\\ubuntu\\home\\you", ["\\\\wsl.localhost\\ubuntu\\home"]),
     true,
   );
+});
+
+check("an absent preset id is not an explicit choice", () => {
+  assert.equal(isDefaultPresetChoice(undefined, "host"), true);
+  assert.equal(isDefaultPresetChoice(undefined, undefined), true);
+});
+
+check("an explicit default id is automatic, not a pick of another environment", () => {
+  assert.equal(isDefaultPresetChoice("host", "host"), true);
+});
+
+check("a non-default explicit id is an operator choice", () => {
+  assert.equal(isDefaultPresetChoice("wsl", "host"), false);
+  assert.equal(isDefaultPresetChoice("other", "host"), false);
+});
+
+check("a missing registry default cannot be matched", () => {
+  assert.equal(isDefaultPresetChoice("host", undefined), false);
 });
 
 console.log(`\n${passed} checks passed`);

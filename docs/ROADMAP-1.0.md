@@ -63,7 +63,7 @@ North-star metrics:
 | Onboarding | `doctor`, `bootstrap` / `bootstrap-import`, session preflight, `profile-preset` helper | Clean-machine first-run timing still unmeasured; session UI has no toast seam |
 | Configuration | Every shipped key documented; nested `preset-wsl` rows edited through the helper | An id patch of `wsl-shell` / `wsl-fs` still only warns |
 | Quality | Unit files including `fs-routing`; coverage 85/84/70; qemu aarch64 18-check; five-family container agent; COMPATIBILITY.md | Nightly `probes` job is GitHub-hosted `windows-latest` (skips without WSL); physical aarch64 out of scope |
-| Ecosystem | npm package, bundle patch, bilingual locale, issue templates | Upstream seams remain: `ensureSession` monkey patch, argv-shape search interception, missing `FileReferenceTraversal` |
+| Ecosystem | npm package, bundle patch, bilingual locale, issue templates | Upstream seams remain: `createSession` monkey patch, argv-shape search interception, missing `FileReferenceTraversal` |
 
 ### 0.12.0 baseline (historical)
 

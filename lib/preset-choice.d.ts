@@ -33,6 +33,19 @@
  */
 export declare function isWindowsAccessWorkspace(cwd: string, windowsAccess: readonly string[]): boolean;
 /**
+ * Whether a session-creation preset id leaves the environment to this plugin.
+ *
+ * An absent id means the caller mounted nothing (the headless runner); the
+ * registry's default id means the caller passed the default explicitly, which
+ * is not a pick of a different environment. A non-default id is an operator's
+ * choice and must win.
+ *
+ * @param presetId - the preset id the session controller received.
+ * @param fallback - the registry's default id, when it exposes one.
+ * @returns true when the WSL preset may be selected for the session.
+ */
+export declare function isDefaultPresetChoice(presetId: string | undefined, fallback: string | undefined): boolean;
+/**
  * The adoption decision.
  *
  * `windowsAccess` lists directories the operator explicitly opened for Windows

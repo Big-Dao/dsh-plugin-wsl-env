@@ -90,6 +90,18 @@ The Windows desktop app ships **no `dsh` executable**: the installer writes
 (the probe scripts launch it through `ELECTRON_RUN_AS_NODE`). Use the
 distribution you have.
 
+**The shortest path**, either distribution:
+
+1. Install `bubblewrap` once:
+   `wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap`
+2. Install the plugin by name and enable it — the Plugins page
+   (**Add plugin** → `dsh-plugin-wsl-env`), or
+   `dsh plugin --profile wsl add dsh-plugin-wsl-env`.
+3. Restart the app, open a folder inside the distro; type `/wsl-doctor` in the
+   composer for a `ready`/`blocked` verdict before the first command.
+
+The details follow.
+
 **Desktop app.** Open **Plugins** in the sidebar, choose **Add plugin**, enter
 the exact package name `dsh-plugin-wsl-env`, then enable it. The plugin manager
 writes the active profile's `package.json` — the dependency and the

@@ -88,6 +88,17 @@ Windows 桌面应用**没有 `dsh` 可执行程序**：安装器只写 `DeepSeek
 CLI 入口在 `resources/app.asar` 内部（探针脚本通过 `ELECTRON_RUN_AS_NODE` 启动它）。
 按你手上的发行版二选一。
 
+**最快的路径**，两种发行版通用：
+
+1. 装一次 `bubblewrap`：
+   `wsl.exe -d <发行版> -u root -- apt-get install -y bubblewrap`
+2. 按包名安装插件并启用——Plugins 页（**Add plugin** → `dsh-plugin-wsl-env`），
+   或 `dsh plugin --profile wsl add dsh-plugin-wsl-env`。
+3. 重启应用，打开发行版里的文件夹；想在第一条命令前拿到裁决，
+   在输入框输入 `/wsl-doctor`。
+
+细节如下。
+
 **桌面应用**：在侧边栏打开 **插件**，点 **Add plugin**，填精确包名
 `dsh-plugin-wsl-env` 并启用。插件管理器写入当前 profile 的 `package.json`
 （依赖项与 `dsh.profile.bundles`），与下面的 CLI 命令得到的状态一致。从检出

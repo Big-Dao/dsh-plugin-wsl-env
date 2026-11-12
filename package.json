@@ -8,7 +8,13 @@
     "dsh-plugin",
     "cordis",
     "wsl",
-    "windows"
+    "wsl2",
+    "windows",
+    "linux",
+    "deepseek",
+    "ai-agent",
+    "coding-agent",
+    "bubblewrap"
   ],
   "type": "module",
   "types": "./lib/client-host.d.ts",

@@ -62,8 +62,12 @@ jobs:
       # pnpm reads the yaml list again.
       - name: Install
         run: pnpm install --frozen-lockfile --config.minimum-release-age=0
+      # The browser gate needs a downloaded browser; --with-deps installs its
+      # shared libraries on the hosted runner.
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
       - name: Gates
-        run: pnpm test && pnpm run test:coverage
+        run: pnpm test && pnpm run test:coverage && pnpm run test:browser
       - name: Test shipped native agents
         run: |
           sudo apt-get update

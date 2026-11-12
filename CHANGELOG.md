@@ -16,9 +16,37 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-11-12
+
+One theme: adapted to DeepSeek Harness `0.2.2-rc.2` without patching the host —
+installation stays plugin-only, and a WSL workspace gains the durable
+open-in-app bridge plus a visible host-mode guard.
+
+### Changed
+
+- **Installation is plugin-only: the plugin no longer patches the installed
+  desktop app.** The durable open-in-app bridge lives entirely in the
+  `wsl-open-in-app` row; the plugin never edits `resources/app.asar`. That
+  simplifies upgrades on both sides: replacing the desktop app cannot drop the
+  bridge, and updating the plugin needs only a reinstall and restart — no
+  archive re-patch, no post-upgrade re-patch checklist, and no local byte
+  patching of the host bundle. The shipped "Open in app" item still inherits
+  `ELECTRON_RUN_AS_NODE` and remains an upstream fix; the plugin's
+  **在 VS Code 中打开（WSL）** item works on an unpatched archive.
+  `test/probe/open-in-app-patch.sh` now only reports the bridge and archive
+  state instead of prescribing a patch.
+
+- **Adapted to DeepSeek Harness `0.2.2-rc.2`.** The peer floor moves from
+  `>=0.2.2-rc.1` to `>=0.2.2-rc.2` and the dev pins follow the rc.2 line; the
+  web client declares the conversation, context-menu and session UI packages
+  its new surfaces use. The parity audit was re-walked against the rc.2
+  tarballs: `dsh-fs-local` is 1035 lines (its permission/IO arms now route
+  through `fsErrorFromErrno`), `dsh-bash-local` is byte-identical, and hashes
+  plus line references are in `docs/PEER-PARITY.md`.
+
 ### Added
 
-- **A durable open-in-app bridge, replacing the local `app.asar` patch.** The
+- **A durable open-in-app bridge.** The
   `wsl-open-in-app` row registers `POST /api/wsl-env/open-in-app` on the
   authenticated `/api` channel, and the Session header menu gains
   **在 VS Code 中打开（WSL）**: it converts a WSL UNC workspace to its

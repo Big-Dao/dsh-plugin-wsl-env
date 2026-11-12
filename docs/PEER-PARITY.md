@@ -7,25 +7,25 @@ same refusal dialect on both substrates. The **read path** holds end to end;
 the **edit path** carries two declared divergences, listed at the end. This
 file records the verification against the real peers.
 
-- Peers: `@deepseek-ai/dsh-fs-local@0.2.2-rc.1` (the exact version the
-  devDependencies pin, and the floor the peer range `>=0.2.2-rc.1` was
-  verified against), plus `@deepseek-ai/dsh-fs@0.2.2-rc.1` for the
+- Peers: `@deepseek-ai/dsh-fs-local@0.2.2-rc.2` (the exact version the
+  devDependencies pin, and the floor the peer range `>=0.2.2-rc.2` was
+  verified against), plus `@deepseek-ai/dsh-fs@0.2.2-rc.2` for the
   `FsVersion` brand the local package imports. Divergence 2 is measured
-  against a third peer, `@deepseek-ai/dsh-bash-local@0.2.2-rc.1` — the shell
+  against a third peer, `@deepseek-ai/dsh-bash-local@0.2.2-rc.2` — the shell
   executor carries the collect-budget/spill machinery; `spill` and
   `maxSpillBytes` do not appear in `dsh-fs-local` at all.
-- The `0.2.2-rc.1` move grows `dsh-fs-local`'s shipped `lib/index.js` from 909
-  to 1048 lines (patch/move/delete operations, `expandHomePrefix`, `writeIoError`,
-  multi-key locks), so every line reference below was re-walked on 2026-11-05.
-  Every replicated string survived verbatim; the fsio **read path** holds end
-  to end and the **edit path** carries the same two declared divergences, listed
-  at the end. The release also added a `FS_ERROR_CODES` const export with two
-  new codes (`FS_PATCH_MISMATCH`, `FS_SAME_TARGET`). The plugin serves those
+- The `0.2.2-rc.2` move shrinks `dsh-fs-local`'s shipped `lib/index.js` from
+  1048 to 1035 lines: the local peer now routes permission/IO faults through
+  `fsErrorFromErrno` (imported from `dsh-fs`) instead of its own
+  `listingIoError`/pass-through arms. Every replicated string survived verbatim;
+  the fsio **read path** holds end to end and the **edit path** carries the same
+  two declared divergences, listed at the end. The `FS_ERROR_CODES` export with
+  `FS_PATCH_MISMATCH`/`FS_SAME_TARGET` remains. The plugin serves those
   operations for real over protocol v7 — see the new-peer-operations section
-  at the end.
-  `dsh-bash-local@0.2.2-rc.1`'s `lib/index.js` is byte-identical to
-  `0.2.1-rc.3`'s (only manifests and locale files changed), so its references
-  stand. `dsh-fs@0.2.2-rc.1` still has no `./invariant` export subpath; this
+  at the end. The references below were re-walked on 2026-11-12.
+  `dsh-bash-local@0.2.2-rc.2`'s `lib/index.js` is byte-identical to
+  `0.2.1-rc.3`'s and to `0.2.2-rc.1`'s, so its references stand.
+  `dsh-fs@0.2.2-rc.2` still has no `./invariant` export subpath; this
   plugin imports neither it nor `dsh-invariants`.
 - What "not imported" means: the peer's **fsio module** is not reachable from
   the package's exports, so `lib/fsio-text.js` reimplements it and imports
@@ -41,26 +41,27 @@ file records the verification against the real peers.
 
 ```sh
 mkdir -p /tmp/peer-audit && cd /tmp/peer-audit
-npm pack @deepseek-ai/dsh-fs-local@0.2.2-rc.1 @deepseek-ai/dsh-fs@0.2.2-rc.1 --pack-destination .
-openssl dgst -sha512 -binary deepseek-ai-dsh-fs-local-0.2.2-rc.1.tgz | base64 -w0
-tar xzf deepseek-ai-dsh-fs-local-0.2.2-rc.1.tgz   # -> package/lib/index.js
-wc -l package/lib/index.js                        # expect 1048
+npm pack @deepseek-ai/dsh-fs-local@0.2.2-rc.2 @deepseek-ai/dsh-fs@0.2.2-rc.2 --pack-destination .
+openssl dgst -sha512 -binary deepseek-ai-dsh-fs-local-0.2.2-rc.2.tgz | base64 -w0
+tar xzf deepseek-ai-dsh-fs-local-0.2.2-rc.2.tgz   # -> package/lib/index.js
+wc -l package/lib/index.js                        # expect 1035
 ```
 
 The tarballs this audit compared, by content — the same values
-`npm view <pkg>@0.2.2-rc.1 dist.integrity` reports (re-recorded 2026-11-05;
-the `0.2.1-rc.3` values they supersede are in git history):
+`npm view <pkg>@0.2.2-rc.2 dist.integrity` reports (re-recorded 2026-11-12;
+the `0.2.2-rc.1` values they supersede are in git history):
 
 ```
-@deepseek-ai/dsh-fs-local@0.2.2-rc.1  sha512-tibC9z4YJx7C6DhiWmTc9AYeF+GSh22XVaaDdumwTgBgvFuiNITNGn3E0DTL3skugB3MKnvAvrjybdveNQ7MmQ==
-@deepseek-ai/dsh-fs@0.2.2-rc.1        sha512-sbr+u+3dG4KAUdY7FoMLJg/gSE39gvgBMwmvVeR/6acNrlHaIducvnuxRUYAq2V0+NOVnG8fA9sdfBq2uGAfUw==
+@deepseek-ai/dsh-fs-local@0.2.2-rc.2  sha512-QjzwjFskmTXVg9fUFvs8k/1lHti4JOGnu/ABF6UWUwZjqYFwDQIkbJbi5nTuz0mE50DQup7yyv0D9STgC1eEKA==
+@deepseek-ai/dsh-fs@0.2.2-rc.2        sha512-y3ocU0T1mZgFIAfgqAo+4l61zqvNpdsmRM0Pp2Ek8xDu6XvtIcsur3ST/iUsudtz1m/ope8t27jeEgtTefn/TQ==
 ```
 
 Each row of the table below names the peer's `lib/index.js` line and the
 literal both sides must produce. Verified 2026-10-03; the read/edit split
 re-verified 2026-10-06; the whole table re-checked against `0.2.1-rc.2`,
-2026-10-17, against `0.2.1-rc.3`, 2026-10-26, and against `0.2.2-rc.1`,
-2026-11-05 (line numbers shifted; strings identical).
+2026-10-17, against `0.2.1-rc.3`, 2026-10-26, against `0.2.2-rc.1`,
+2026-11-05, and against `0.2.2-rc.2`, 2026-11-12 (line numbers shifted; strings
+identical).
 
 ## Verdict
 
@@ -77,22 +78,22 @@ declared extensions, listed at the end.
 
 | Item | Evidence (peer `lib/index.js`) | Ours |
 |---|---|---|
-| `normalizeLineEndings` | `:628` `content.replaceAll("\r\n", "\n")` | identical |
-| `detectLineEndings` | `:630` 4096-char sample; `crlf > lf - crlf` | identical |
-| `restoreLineEndings` | `:643` LF unchanged; CRLF re-normalizes then `\n` → `\r\n` | identical (`replaceAll` vs `split/join` — equivalent) |
-| occurrence counting | `:650` non-overlapping left-to-right | `split(needle).length - 1` — equivalent |
-| `applyLiteralEdit` | `:741` empty needle, not-found, and ambiguous refusals; single-pass `split/join` without rescanning | identical |
-| edit refusal strings | `:743`, `:746`, `:747` — `old_string must be a non-empty string` (`FS_EDIT_NOT_FOUND`); ``old_string was not found in "${displayPath}"``; ``old_string matched ${n} times in "${displayPath}"; provide a more specific old_string or set replace_all to true`` (`FS_AMBIGUOUS_EDIT`) | identical |
-| invalid UTF-8, read path | `:343` — ``cannot ${verb} "${displayPath}": invalid UTF-8 text`` (`FS_NOT_TEXT`), verb `read` | identical (the edit path's verb differs; see 4) |
-| binary detection, read path | `:99`/`:387` (sample const, guard), stream at `:471-473` — 8192-byte sample, NUL check; ``cannot read "${displayPath}": binary file`` (`FS_NOT_TEXT`) | identical — both accept a NUL at offset 8500, past the sample; the edit path's bound differs, see 4 |
-| size caps | `:403`, `:414` — ``cannot read "${displayPath}": ${size} bytes exceeds the ${maxBytes}-byte limit`` and ``content exceeds the ${maxBytes}-byte limit`` (`FS_TOO_LARGE`) | identical |
-| `writeText` guards | `:505`, `:506-508` — not-regular (`FS_NOT_REGULAR_FILE`), `file no longer exists` / `file changed since it was read` (`FS_STALE_VERSION`) via `writeTarget` at `:1021-1025`, ``cannot overwrite existing "${displayPath}" without reading it first`` (`FS_NOT_OBSERVED`) | identical |
-| `editText` guards — not-regular and stale version | `:938`, `:939` — ``cannot edit "${displayPath}": not a regular file`` (`FS_NOT_REGULAR_FILE`); `file changed since it was read` (`FS_STALE_VERSION`) when the expected version differs (`requireFile` at `:1030-1032`) | identical |
-| `editText` guards — missing file | `:937` — one refusal for every caller: `file changed since it was read` (`FS_STALE_VERSION`), with or without an expected version | **diverges by design** — we split on the caller's evidence: with an expected version `file no longer exists` (`FS_STALE_VERSION`), without one `file does not exist` (`FS_NOT_FOUND`). See 5 |
-| `listDir` refusal | `:310` — ``cannot list "${displayPath}": not a directory`` (`FS_NOT_DIRECTORY`) | identical |
-| diff-basis gate | `:920` — `existing !== null && Buffer.byteLength(content) < diffBasisMaxBytes` — keyed on the NEW content's size, `null` above the cap (the move path inherits the same keying at `:983`/`:997`) | identical — the gate's new-size keying is inherited by design, not a divergence |
-| outcome shapes | `:927`, `:992` — `operation: "update" \| "create"`, the `missing:${targetKey}` sentinel version (`:1044`), `before`/`after` | identical |
-| version join | `:148` — `` `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}` `` (branded by `dsh-fs`'s `FsVersion`) | `versionOf` — identical shape |
+| `normalizeLineEndings` | `:614` `content.replaceAll("\r\n", "\n")` | identical |
+| `detectLineEndings` | `:617` 4096-char sample; `crlf > lf - crlf` | identical |
+| `restoreLineEndings` | `:630` LF unchanged; CRLF re-normalizes then `\n` → `\r\n` | identical (`replaceAll` vs `split/join` — equivalent) |
+| occurrence counting | `:633` non-overlapping left-to-right | `split(needle).length - 1` — equivalent |
+| `applyLiteralEdit` | `:728` empty needle, not-found, and ambiguous refusals; single-pass `split/join` without rescanning | identical |
+| edit refusal strings | `:730`, `:733`, `:734` — `old_string must be a non-empty string` (`FS_EDIT_NOT_FOUND`); ``old_string was not found in "${displayPath}"``; ``old_string matched ${n} times in "${displayPath}"; provide a more specific old_string or set replace_all to true`` (`FS_AMBIGUOUS_EDIT`) | identical |
+| invalid UTF-8, read path | `:331` — ``cannot ${verb} "${displayPath}": invalid UTF-8 text`` (`FS_NOT_TEXT`), verb `read` | identical (the edit path's verb differs; see 4) |
+| binary detection, read path | `:99`/`:373` (sample const, guard), stream at `:457-459` — 8192-byte sample, NUL check; ``cannot read "${displayPath}": binary file`` (`FS_NOT_TEXT`) | identical — both accept a NUL at offset 8500, past the sample; the edit path's bound differs, see 4 |
+| size caps | `:389`, `:400` — ``cannot read "${displayPath}": ${size} bytes exceeds the ${maxBytes}-byte limit`` and ``content exceeds the ${maxBytes}-byte limit`` (`FS_TOO_LARGE`) | identical |
+| `writeText` guards | `:493`, `:495` — not-regular (`FS_NOT_REGULAR_FILE`), `file no longer exists` / `file changed since it was read` (`FS_STALE_VERSION`) via `writeTarget` at `:1006-1010`, ``cannot overwrite existing "${displayPath}" without reading it first`` (`FS_NOT_OBSERVED`) | identical |
+| `editText` guards — not-regular and stale version | `:924`, `:925` — ``cannot edit "${displayPath}": not a regular file`` (`FS_NOT_REGULAR_FILE`); `file changed since it was read` (`FS_STALE_VERSION`) when the expected version differs (`requireFile` at `:1015-1019`) | identical |
+| `editText` guards — missing file | `:924` — one refusal for every caller: `file changed since it was read` (`FS_STALE_VERSION`), with or without an expected version | **diverges by design** — we split on the caller's evidence: with an expected version `file no longer exists` (`FS_STALE_VERSION`), without one `file does not exist` (`FS_NOT_FOUND`). See 5 |
+| `listDir` refusal | `:298` — ``cannot list "${displayPath}": not a directory`` (`FS_NOT_DIRECTORY`) | identical |
+| diff-basis gate | `:907` — `existing !== null && Buffer.byteLength(content) < diffBasisMaxBytes` — keyed on the NEW content's size, `null` above the cap (the move path inherits the same keying at `:966`/`:979`) | identical — the gate's new-size keying is inherited by design, not a divergence |
+| outcome shapes | `:914`, `:979` — `operation: "update" \| "create"`, the `missing:${targetKey}` sentinel version (`:1031`), `before`/`after` | identical |
+| version join | `:146` — `` `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}` `` (branded by `dsh-fs`'s `FsVersion`) | `versionOf` — identical shape |
 
 ## Deliberate divergences (declared, not drift)
 
@@ -103,7 +104,7 @@ declared extensions, listed at the end.
 2. **Per-stream truncation flags.** The EXEC frame carries an output budget;
    the RES line reports which streams the agent cut, surfaced as honest
    `truncated` flags. The collect-budget/spill machinery of the shell peer,
-   `@deepseek-ai/dsh-bash-local@0.2.2-rc.1` (`lib/index.js:30`, `:110`), is the
+   `@deepseek-ai/dsh-bash-local@0.2.2-rc.2` (`lib/index.js:30`, `:110`), is the
    spill-file path we deliberately do not run.
 3. **The transport around the ops** (ACK, KILL, the confined resident) is
    protocol this package owns; the peer has no agent.
@@ -112,10 +113,10 @@ declared extensions, listed at the end.
    dialect, but a divergence all the same, so it is declared: an edit refused
    for its bytes reads ``cannot read "…": binary file`` or
    ``cannot read "…": invalid UTF-8 text`` — verb `read`, where the peer's
-   `readForEdit` (`lib/index.js:664`) says ``cannot edit "…": …``. The NUL
+   `readForEdit` (`lib/index.js:651`) says ``cannot edit "…": …``. The NUL
    check is likewise the read path's 8192-byte sample
    (`src/fsio-agent.ts:377-384`, guard at `:380`), where the peer scans the
-   whole buffer (`lib/index.js:668`): a file whose first 8192 bytes are clean
+   whole buffer (`lib/index.js:655`): a file whose first 8192 bytes are clean
    but that carries a NUL later is edited by us and refused by the peer.
    Measured on a 9000-byte fixture with a NUL at offset 8500 — ours `EDITED`,
    the peer `FS_NOT_TEXT: cannot edit "…"`.
@@ -125,7 +126,7 @@ declared extensions, listed at the end.
    behind it names a file that never answered the stat, so it takes the read
    path's missing-file dialect (`cannot edit "…": file does not exist`,
    `FS_NOT_FOUND`). The peer throws `file changed since it was read`
-   (`FS_STALE_VERSION`, `lib/index.js:937` via `requireFile` at `:1030`) for
+   (`FS_STALE_VERSION`, `lib/index.js:924` via `requireFile` at `:1015`) for
    both. Pinned by `test/fs-substrate.test.mjs`.
 6. **Publication durability (shell agent, 2026-11-06).** After the publish
    rename, the shell agent fsyncs the destination's containing directory
@@ -146,9 +147,20 @@ declared extensions, listed at the end.
    always sends numerics, so this is drift-hardening at the trust boundary,
    not a behavioral change for any caller.
 
-## The peer's 0.2.2-rc.1 operations: implemented over protocol v7
+8. **Permission classification on the distro path.** The rc.2 local peer routes
+   `EACCES`/`EPERM` through `fsErrorFromErrno` to `FS_PERMISSION_DENIED` with
+   ``cannot <op> "<path>": permission denied``. The WSL agent keeps ordinary
+   permission refusals at `FS_IO_ERROR` with the agent's stderr text; only the
+   sandbox's read-only-bind denial is classified as `FS_SANDBOX_DENIED`. This is
+   pinned by `test/fsio-agent.test.mjs` ("a write refused on ordinary
+   permissions keeps its I/O classification"). A consumer that switches between
+   the host and distro backends will see both the code and the text differ for a
+   plain permission refusal: the distro path carries the agent's stderr text,
+   not the peer's `cannot <op> "<path>": …` shape.
 
-`0.2.2-rc.1` added three operations to the peer's `FileSystem` base —
+## The peer's 0.2.2 operations: implemented over protocol v7
+
+The `0.2.2` line added three operations to the peer's `FileSystem` base —
 `patchText` (hunks via `@deepseek-ai/dsh-fs-patch`, refusal
 `FS_PATCH_MISMATCH`), `deleteFile`, and `moveFile` (same-target refusal
 `FS_SAME_TARGET`). 0.18.0 shipped them as an honest refusal (an inherited

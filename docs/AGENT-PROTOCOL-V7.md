@@ -20,7 +20,7 @@ negotiation rule, four capabilities.
 | `delete` / `move` FS ops | new op names in the FS frame vocabulary | yes | yes | guarded, mapped to `FsDeleteOutcome` / `FsMoveOutcome` |
 | `patchText` | **no wire change** — host-side hunk application + a guarded `replace` write | n/a | n/a | hunks applied in-process via `@deepseek-ai/dsh-fs-patch` (a new peer dependency, the peer's own `applyHunks` — perfect error parity, `FS_PATCH_MISMATCH` free) |
 
-`PROTOCOL_VERSION` becomes 7. `@deepseek-ai/dsh-fs-patch@0.2.2-rc.1` is added
+`PROTOCOL_VERSION` becomes 7. `@deepseek-ai/dsh-fs-patch@0.2.2-rc.2` is added
 to `peerDependencies` (the host imports `applyHunks` at runtime) and pinned in
 `devDependencies`.
 
@@ -131,7 +131,7 @@ the parity way:
    trip).
 
 Two round trips, zero new wire semantics, zero second implementation. The
-`dsh-fs-patch` peer floor is `0.2.2-rc.1`, the same line the plugin already
+`dsh-fs-patch` peer floor is `0.2.2-rc.2`, the same line the plugin already
 targets.
 
 ## What breaks

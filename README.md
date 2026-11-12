@@ -100,6 +100,12 @@ no arguments. The app opens the profile it is configured with — the one the
 Plugins page writes into — so a different profile is a CLI-distribution thing
 (`dsh --profile <name>`).
 
+**No host patch.** The plugin never edits the installed
+`resources/app.asar`. The **在 VS Code 中打开（WSL）** bridge is a plugin row, so
+an app upgrade cannot drop it and a plugin update only needs reinstall plus
+restart — there is no archive re-patch step. The shipped "Open in app" item is a
+separate upstream defect; see [docs/UPSTREAM-OPEN-IN-APP.md](docs/UPSTREAM-OPEN-IN-APP.md).
+
 **CLI distribution** (`dsh` on `PATH`), in a Windows terminal:
 
 ```powershell

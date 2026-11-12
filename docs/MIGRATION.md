@@ -74,11 +74,12 @@ shows the composed value.
 | Gate | How | Runs where |
 |---|---|---|
 | Config docs and CHANGELOG current | review the diff; `lint:links` covers cross-references | CI |
-| `pnpm test` | style, links, requirement citations, doc consistency, syntax, build freshness, tsc, 50 unit files | CI (Node 22/24, Ubuntu + Windows) |
+| `pnpm test` | style, links, requirement citations, doc consistency, syntax, build freshness, tsc, and the unit files | CI (Node 22/24, Ubuntu + Windows) |
 | `pnpm run test:coverage` | lines 85 / branches 84 / functions 70 | CI (Node 24, Ubuntu) |
-| Peer line tested | `peer-canary` workflow resolves `next` and runs the scratch upgrade | CI schedule/manual |
+| `pnpm run test:browser` | the plugin web bundle in headless Chromium (layout, clicks, badge timing); install Chromium once | CI (`browser` job, Ubuntu) and the release `Gates` |
+| Peer line tested | floor `>=0.2.2-rc.2`; the `peer-canary` workflow resolves `next` and runs the scratch upgrade | CI schedule/manual |
 | Packed install/upgrade/uninstall | `pnpm run e2e:install` (temp `DSH_HOME`, 0.17.1 → current over the peer raise, marker) | manual, this machine (10/10 on 2026-11-06; the origin moved 0.11.0 → 0.17.1 because dsh 0.2.2-rc.1 rightly rejects the exact-pin era) |
-| Real-machine probe suite | `test/probe/run-all-when-closed.sh --include-fs` (needs the app closed) | manual; 15/15 on 2026-10-31 and again 2026-11-05 (docs/superpowers/probe-runs/); the suite grew to 17 on 2026-11-06 — the first 17-probe run on the same day passed 16 and failed the new `two-distro.sh` on a wrong assertion vehicle (session-scoped `DSH_WSL_DISTRO` is absent on a direct `ctx.shell` seam); after the probe was reworked to per-distro `/tmp` markers it passed alone, giving all 17 probes a pass on this machine (2026-11-06-probe-suite.md) |
+| Real-machine probe suite | `test/probe/run-all-when-closed.sh --include-fs` (needs the app closed) | manual; 15/15 on 2026-10-31 and again 2026-11-05 (docs/superpowers/probe-runs/); the suite grew to 17 on 2026-11-06 — the first 17-probe run on the same day passed 16 and failed the new `two-distro.sh` on a wrong assertion vehicle (session-scoped `DSH_WSL_DISTRO` is absent on a direct `ctx.shell` seam); after the probe was reworked to per-distro `/tmp` markers it passed alone, giving all 17 probes a pass on this machine (2026-11-06-probe-suite.md); 17/17 again on 2026-11-12 against the rc.2 host |
 | Clean Win11 + Ubuntu first run ≤ 5 min | a clean machine, a stopwatch | **not run** (the project's machine is already configured) |
 | aarch64 executed | the native 18-check suite under qemu in CI | **run in CI** (physical aarch64 WSL is out of scope; see COMPATIBILITY.md) |
 | No open P0 bug for 30 days | issue tracker | time-based; cannot be asserted from a checkout |

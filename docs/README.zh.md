@@ -96,6 +96,12 @@ CLI 入口在 `resources/app.asar` 内部（探针脚本通过 `ELECTRON_RUN_AS_
 Plugins 页面写入的那个；要用别的 profile 属于 CLI 发行版的事
 （`dsh --profile <名字>`）。
 
+**不对宿主打补丁。** 插件从不修改已安装的 `resources/app.asar`。
+**在 VS Code 中打开（WSL）** 的桥完全在插件行内，因此应用升级不会丢掉它，
+插件升级也只需重新安装并重启——没有重新打 archive 补丁的步骤。应用自带的
+"Open in app" 是独立的上游缺陷，见
+[docs/UPSTREAM-OPEN-IN-APP.md](UPSTREAM-OPEN-IN-APP.md)。
+
 **CLI 发行版**（`dsh` 在 `PATH` 上），在 Windows 终端执行：
 
 ```powershell

@@ -31,9 +31,10 @@ legs a CI run cannot execute) are in [MIGRATION.md](MIGRATION.md#gates-a-release
 ```bash
 pnpm test
 pnpm run test:coverage
+pnpm run test:browser   # once: pnpm exec playwright install chromium
 ```
 
-The release workflow runs both of these before it publishes.
+The release workflow runs all three before it publishes.
 
 `pnpm test` includes the build-freshness gate: modules whose source lives in
 `src/*.ts` must be rebuilt (`pnpm run build`) and the result committed under

@@ -1,6 +1,6 @@
 # API 表面
 
-_本页是权威版本；英文译本见 [API surface](API.md)。_
+[English](API.md)
 
 已发布的 API 就是每个编译模块旁生成的 `lib/*.d.ts`（`pnpm run build` 保持
 其逐字节最新；`lint:build` 在发生漂移时失败）。`package.json` 中的

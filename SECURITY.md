@@ -1,6 +1,6 @@
 # Security policy
 
-*The Chinese version ([SECURITY.zh.md](SECURITY.zh.md)) is authoritative; this page is its English translation.*
+[中文](SECURITY.zh.md)
 
 ## Supported versions
 

@@ -7,58 +7,58 @@
 ## 事实权威表
 
 一类事实只归一个文件所有；其余文档只链接或摘要，不得与之矛盾。
-双语成对时权威在中文版（规则见下节）；`lint:docs` 守下表中标明的机械项。
+双语成对时先写中文、再对齐英文（规则见下节）；`lint:docs` 守下表中标明的机械项。
 
 | 事实类 | 权威 |
 |---|---|
-| 配置项语义、默认值、合法值 | [CONFIGURATION.zh.md](CONFIGURATION.zh.md)（英文为译本）；随包值看 [`cordis.patch.yml`](../cordis.patch.yml) |
+| 配置项语义、默认值、合法值 | [CONFIGURATION.zh.md](CONFIGURATION.zh.md)；随包值看 [`cordis.patch.yml`](../cordis.patch.yml) |
 | doctor 的 CLI 表面（flags、sections、env） | [DIAGNOSTICS.zh.md](DIAGNOSTICS.zh.md) 的概要行；flags 与 `scripts/doctor.mjs --help` 逐字对齐（`lint:docs` 守门），sections/env 目前靠人工核对 |
 | doctor 检查项清单 | [DIAGNOSTICS.zh.md](DIAGNOSTICS.zh.md)；README、CONFIGURATION、ARCHITECTURE 中的枚举是摘要，不得与之矛盾 |
-| 前置条件与兼容矩阵 | [COMPATIBILITY.zh.md](COMPATIBILITY.zh.md)（英文为译本） |
+| 前置条件与兼容矩阵 | [COMPATIBILITY.zh.md](COMPATIBILITY.zh.md) |
 | 限制与不承诺 | [LIMITATIONS.zh.md](LIMITATIONS.zh.md) |
-| 错误码 | [ARCHITECTURE.zh.md](ARCHITECTURE.zh.md#错误码)（英文为译本） |
-| API 表面 | [API.zh.md](API.zh.md)（英文为译本；权威仍是 `package.json` 的 `exports` 与 `lib/*.d.ts`） |
-| 性能测量 | [PERFORMANCE.zh.md](PERFORMANCE.zh.md)（英文为译本） |
-| 配置迁移与发布门禁 | [MIGRATION.zh.md](MIGRATION.zh.md)（英文为译本） |
-| 安全与支持政策 | [SECURITY.zh.md](../SECURITY.zh.md)、[SUPPORT.zh.md](../SUPPORT.zh.md)（英文为译本） |
+| 错误码 | [ARCHITECTURE.zh.md](ARCHITECTURE.zh.md#错误码) |
+| API 表面 | [API.zh.md](API.zh.md)（英文页 [API](API.md)；事实来源仍是 `package.json` 的 `exports` 与 `lib/*.d.ts`） |
+| 性能测量 | [PERFORMANCE.zh.md](PERFORMANCE.zh.md) |
+| 配置迁移与发布门禁 | [MIGRATION.zh.md](MIGRATION.zh.md) |
+| 安全与支持政策 | [SECURITY.zh.md](../SECURITY.zh.md)、[SUPPORT.zh.md](../SUPPORT.zh.md) |
 | 需求追溯 | [REQUIREMENTS.zh.md](REQUIREMENTS.zh.md)（只引用权威说明与测试，不另立实现规范） |
 
 ## 用户入口与行为契约
 
-- [中文 README](README.zh.md) 是权威入口，[README](../README.md) 是英文译本；
-  [快速开始](QUICKSTART.zh.md) 是权威安装与首用步骤（英文译本 [QUICKSTART](QUICKSTART.md)）。
-- [配置](CONFIGURATION.zh.md) 解释配置项、默认值和覆盖方式（英文译本
+- [中文 README](README.zh.md) 与 [README](../README.md) 对应；
+  [快速开始](QUICKSTART.zh.md) 给出安装与首用步骤（英文页 [QUICKSTART](QUICKSTART.md)）。
+- [配置](CONFIGURATION.zh.md) 解释配置项、默认值和覆盖方式（英文页
   [CONFIGURATION](CONFIGURATION.md)）；[限制](LIMITATIONS.zh.md) 记录未实现或
-  不能保证的行为（英文译本 [LIMITATIONS](LIMITATIONS.md)）。
-  社区常用文档保持双语成对：**中文版是权威版本，修改先落 `.zh.md`，英文随中文
-  翻译对齐**；新文档落地时先写中文，再同步英文译本。范围：README、QUICKSTART、
+  不能保证的行为（英文页 [LIMITATIONS](LIMITATIONS.md)）。
+  社区常用文档保持双语成对；修改先落中文，再对齐英文。新文档落地时先写中文，
+  再同步英文页。范围：README、QUICKSTART、
   CONFIGURATION、LIMITATIONS、DIAGNOSTICS、COMPATIBILITY、PERFORMANCE、MIGRATION、
   API、ARCHITECTURE、CONTRIBUTING、SECURITY、SUPPORT、CODE_OF_CONDUCT、VALUE。
-- [安全政策](../SECURITY.zh.md) 定义漏洞报告与沙箱威胁边界（英文译本
+- [安全政策](../SECURITY.zh.md) 定义漏洞报告与沙箱威胁边界（英文页
   [SECURITY](../SECURITY.md)）。
-- [架构](ARCHITECTURE.zh.md) 描述服务、路由、协议与验证分层（英文译本
+- [架构](ARCHITECTURE.zh.md) 描述服务、路由、协议与验证分层（英文页
   [ARCHITECTURE](ARCHITECTURE.md)）；[根文件系统路由](root-fs-routing.md) 补充
   路径坐标和组合层设计，仍仅有英文。
 - [兼容性](COMPATIBILITY.zh.md) 和 [性能](PERFORMANCE.zh.md) 保存带环境、日期的
-  测量（英文译本 [COMPATIBILITY](COMPATIBILITY.md)、[PERFORMANCE](PERFORMANCE.md)）；
-  [迁移](MIGRATION.zh.md) 说明升级与配置兼容规则（英文译本
+  测量（英文页 [COMPATIBILITY](COMPATIBILITY.md)、[PERFORMANCE](PERFORMANCE.md)）；
+  [迁移](MIGRATION.zh.md) 说明升级与配置兼容规则（英文页
   [MIGRATION](MIGRATION.md)）。
-- [API 表面](API.zh.md) 按子路径列出包的导出（英文译本 [API](API.md)）；权威是
+- [API 表面](API.zh.md) 按子路径列出包的导出（英文页 [API](API.md)）；权威是
   `package.json` 的 `exports` 与生成的 `lib/*.d.ts`，本文只是索引。
 - [诊断](DIAGNOSTICS.zh.md) 给出 doctor 的 verdict 契约与错误码→检查项地图
-  （英文译本 [DIAGNOSTICS](DIAGNOSTICS.md)）；各码的权威含义在 ARCHITECTURE。
-- [价值说明](VALUE.zh.md) 汇总用途与取舍（英文译本 [VALUE](VALUE.md)）；
+  （英文页 [DIAGNOSTICS](DIAGNOSTICS.md)）；各码的权威含义在 ARCHITECTURE。
+- [价值说明](VALUE.zh.md) 汇总用途与取舍（英文页 [VALUE](VALUE.md)）；
   [需求追溯](REQUIREMENTS.zh.md) 将行为承诺关联到权威说明和测试。需求表不是
   第二份实现规范。
 
 ## 开发、发布与支持
 
-- [贡献指南](../CONTRIBUTING.zh.md) 说明环境、检查和探针（英文译本
+- [贡献指南](../CONTRIBUTING.zh.md) 说明环境、检查和探针（英文页
   [CONTRIBUTING](../CONTRIBUTING.md)）；[AGENTS.md](../AGENTS.md) 是本仓库的
   代理协作规则。
 - [发布流程](RELEASING.md) 定义版本、tag、发布和核验步骤；
   [变更日志](../CHANGELOG.md) 按版本记录变更，不反向改写历史条目。
-- [支持政策](../SUPPORT.zh.md)、[行为准则](../CODE_OF_CONDUCT.zh.md)（英文译本
+- [支持政策](../SUPPORT.zh.md)、[行为准则](../CODE_OF_CONDUCT.zh.md)（英文页
   [SUPPORT](../SUPPORT.md)、[CODE_OF_CONDUCT](../CODE_OF_CONDUCT.md)）、
   [许可证](../LICENSE) 和 [PR 模板](../.github/PULL_REQUEST_TEMPLATE.md)
   分别约束支持、协作、授权和提交信息。
@@ -123,7 +123,7 @@
 
 ## 维护关系
 
-实现或默认值改变时，先更新中文的配置、架构和限制，再对齐英文译本，并检查
+实现或默认值改变时，先更新中文的配置、架构和限制，再对齐英文页，并检查
 双语 README、快速开始、需求追溯和支持政策。协议或 peer 版本改变时，同时检查对拍、
 ADR、上游接口记录和发布流程；保留测量发生时的版本，不把旧实测写成新验证。
 提交前运行 `pnpm test`；真机变更还需按贡献指南执行适用的探针。

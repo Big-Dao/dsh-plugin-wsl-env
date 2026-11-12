@@ -28,9 +28,9 @@
  *   `scripts/<path>` references exist on disk.
  * - R5 pair integrity — both sides of each pair carry the same `## ` heading
  *   count (fence-aware), the same documentation-table rows (README pair) and
- *   the same first-cell config-key rows (CONFIGURATION pair). The docs map's
- *   authority rule says the zh side wins on content; this rule only asks the
- *   sides to stay complete.
+ *   the same first-cell config-key rows (CONFIGURATION pair). The docs map keeps
+ *   the Chinese side as the development source; this rule only asks the sides
+ *   to stay complete.
  *
  *   node scripts/check-doc-consistency.mjs
  *
@@ -42,7 +42,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-/** zh side first: the docs map's authority rule orders the pairs this way. */
+/** zh side first: the docs map's pairing order for the bilingual files. */
 const PAIRS = [
   ["README.md", "docs/README.zh.md"],
   ["docs/QUICKSTART.md", "docs/QUICKSTART.zh.md"],

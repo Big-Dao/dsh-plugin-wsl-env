@@ -1,6 +1,6 @@
 # dsh-plugin-wsl-env
 
-[English translation](../README.md) · **中文（权威）**
+[English](../README.md) · **中文**
 
 [![CI](https://github.com/Big-Dao/dsh-plugin-wsl-env/actions/workflows/ci.yml/badge.svg)](https://github.com/Big-Dao/dsh-plugin-wsl-env/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/dsh-plugin-wsl-env)](https://www.npmjs.com/package/dsh-plugin-wsl-env)

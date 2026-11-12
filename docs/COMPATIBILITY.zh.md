@@ -1,6 +1,6 @@
 # 兼容性矩阵
 
-_本页是权威版本；英文译本见 [Compatibility matrix](COMPATIBILITY.md)。_
+[English](COMPATIBILITY.md)
 
 以下是 [`ROADMAP-1.0.md`](ROADMAP-1.0.md)（WSL-202）中支持分级的实测证据。
 下表的每一行都于 **2026-10-26** 在同一台机器的真实 WSL2 发行版上执行

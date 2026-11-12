@@ -1,6 +1,6 @@
 # 配置稳定性与迁移
 
-_本页是权威版本；英文译本见 [Configuration stability and migration](MIGRATION.md)。_
+[English](MIGRATION.md)
 
 发布可以改变什么、破坏性的配置变更如何公布与承接，以及发布必须通过哪些门禁。
 [RELEASING.md](RELEASING.md#1-decide-the-version) 中的版本表是版本号递增的依据；本页是这些递增所遵循的约定。

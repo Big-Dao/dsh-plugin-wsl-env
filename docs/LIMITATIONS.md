@@ -1,6 +1,6 @@
 # Limitations
 
-*The Chinese version ([LIMITATIONS.zh](LIMITATIONS.zh.md)) is authoritative; this page is its English translation.*
+[中文](LIMITATIONS.zh.md)
 
 What the plugin does not do, and why. A limitation that is documented is a design
 boundary; one that is not is a bug report waiting to happen. Each entry states the

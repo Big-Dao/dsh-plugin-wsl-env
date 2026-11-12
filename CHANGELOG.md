@@ -36,12 +36,11 @@ open-in-app bridge plus a visible host-mode guard.
   `test/probe/open-in-app-patch.sh` now only reports the bridge and archive
   state instead of prescribing a patch.
 
-- **Community-facing documentation is now Chinese-authoritative.** README,
-  QUICKSTART, CONFIGURATION, LIMITATIONS, DIAGNOSTICS, COMPATIBILITY,
-  PERFORMANCE, MIGRATION, API, ARCHITECTURE, CONTRIBUTING, SECURITY, SUPPORT,
-  CODE_OF_CONDUCT and VALUE each carry a Chinese authoritative page and an
-  English translation; the npm tarball ships both sides of every pair. New
-  pages are written in Chinese first and translated into English.
+- **Chinese versions of the community documentation.** README, QUICKSTART,
+  CONFIGURATION, LIMITATIONS, DIAGNOSTICS, COMPATIBILITY, PERFORMANCE,
+  MIGRATION, API, ARCHITECTURE, CONTRIBUTING, SECURITY, SUPPORT,
+  CODE_OF_CONDUCT and VALUE now ship with Chinese pages alongside English;
+  the npm tarball carries both sides of every pair.
 
 - **Adapted to DeepSeek Harness `0.2.2-rc.2`.** The peer floor moves from
   `>=0.2.2-rc.1` to `>=0.2.2-rc.2` and the dev pins follow the rc.2 line; the

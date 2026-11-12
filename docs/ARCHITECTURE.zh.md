@@ -1,6 +1,6 @@
 # 架构
 
-_本页是权威版本；英文译本见 [Architecture](ARCHITECTURE.md)。_
+[English](ARCHITECTURE.md)
 
 本文件描述插件当前的实际状态。它覆盖代码做了什么，以及每个部分位于何处。
 设计背后的推理，包括被否决的设计，记录在
@@ -493,8 +493,8 @@ src/wsl.ts                   wsl.exe interop primitives (no DSH imports)
   [`archive/README.en.md`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/archive/README.en.md)
   是同样三份归档文件的两份英文索引；后者让不读中文的读者也能知道其中有什么；
   记录本身是中文。
-- [`docs/README.zh.md`](README.zh.md) 与它的英文译本 [`README.md`](../README.md) 是
-  当前状态的陈述；中文 README 是权威版本（见文档地图）。
+- [`docs/README.zh.md`](README.zh.md) 与 [`README.md`](../README.md) 是当前状态的
+  陈述。
 
 ## 诊断
 

@@ -1,6 +1,6 @@
 # Configuration
 
-*The Chinese version ([CONFIGURATION.zh](CONFIGURATION.zh.md)) is authoritative; this page is its English translation.*
+[中文](CONFIGURATION.zh.md)
 
 ## Profile patches
 

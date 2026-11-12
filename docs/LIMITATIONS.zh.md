@@ -1,6 +1,6 @@
 # 限制与不承诺
 
-_本页是权威版本；英文译本见 [LIMITATIONS](LIMITATIONS.md)。_
+[English](LIMITATIONS.md)
 
 插件不做什么，以及为什么。写进文档的限制是设计边界；
 没写进文档的迟早会变成 bug 报告。每一条都说明限制本身和补救方法；

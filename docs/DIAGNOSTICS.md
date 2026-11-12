@@ -1,6 +1,6 @@
 # Diagnostics: the doctor and the error-code map
 
-*The Chinese version ([DIAGNOSTICS.zh](DIAGNOSTICS.zh.md)) is authoritative; this page is its English translation.*
+[中文](DIAGNOSTICS.zh.md)
 
 Every refusal this plugin produces is named. This page is the map between
 those names and the doctor: for each error code, whether the `doctor`

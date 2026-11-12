@@ -1,6 +1,6 @@
 # 安全政策
 
-_本页是权威版本；英文译本见 [Security policy](SECURITY.md)。_
+[English](SECURITY.md)
 
 ## 支持的版本
 

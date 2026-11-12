@@ -1,6 +1,6 @@
 # Support
 
-*The Chinese version ([SUPPORT.zh.md](SUPPORT.zh.md)) is authoritative; this page is its English translation.*
+[中文](SUPPORT.zh.md)
 
 ## What is supported
 

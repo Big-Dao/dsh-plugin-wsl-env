@@ -1,6 +1,6 @@
 # 快速开始
 
-_本页是权威版本；英文译本见 [QUICKSTART](QUICKSTART.md)。_
+[English](QUICKSTART.md)
 
 从一台 Windows + WSL 2 机器到可用的 WSL 会话，只需以下步骤。
 本页是入口；每条说明都链接到负责该主题的文档。

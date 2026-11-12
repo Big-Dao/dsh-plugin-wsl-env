@@ -1,6 +1,6 @@
 # Contributing
 
-*The Chinese version ([CONTRIBUTING.zh.md](CONTRIBUTING.zh.md)) is authoritative; this page is its English translation.*
+[中文](CONTRIBUTING.zh.md)
 
 This document covers the development loop, the gates a pull request must pass, and
 the conventions this repository uses.
@@ -398,7 +398,7 @@ Windows + WSL machine; unit tests, docs and packaging changes do not.
 - Keep one topic per commit.
 - In the pull request, say how you tested it. Paste probe output where a probe is
   relevant.
-- Community-facing docs are bilingual and Chinese is authoritative: edit the `.zh.md` side first, then bring the English translation into line. The scope is README, QUICKSTART, CONFIGURATION, LIMITATIONS, DIAGNOSTICS, COMPATIBILITY, PERFORMANCE, MIGRATION, API, ARCHITECTURE, CONTRIBUTING, SECURITY, SUPPORT, CODE_OF_CONDUCT and VALUE. When a change affects usage, update the Chinese README and the affected Chinese doc first, then its English translation; the two sides stay section-for-section.
+- Community-facing docs are bilingual; keep the English and Chinese pages section-for-section. The covered set is README, QUICKSTART, CONFIGURATION, LIMITATIONS, DIAGNOSTICS, COMPATIBILITY, PERFORMANCE, MIGRATION, API, ARCHITECTURE, CONTRIBUTING, SECURITY, SUPPORT, CODE_OF_CONDUCT and VALUE.
   The two files match section for section.
 
 ## Reporting bugs and security issues

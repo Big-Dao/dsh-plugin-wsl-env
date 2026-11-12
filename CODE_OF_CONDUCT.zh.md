@@ -1,6 +1,6 @@
 # 贡献者公约行为准则
 
-_本页是权威版本；英文译本见 [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md)。_
+[English](CODE_OF_CONDUCT.md)
 
 ## 我们的承诺
 

@@ -1,6 +1,6 @@
 # dsh-plugin-wsl-env value proposition
 
-*The Chinese version ([VALUE.zh](VALUE.zh.md)) is authoritative; this page is its English translation.*
+[中文](VALUE.zh.md)
 
 This page answers one question only: **why it is worth installing this plugin to work on WSL projects with DeepSeek Harness on Windows.**
 Features, installation, and per-item behavior are covered in [README](../README.md) and [ARCHITECTURE.md](ARCHITECTURE.md); this page discusses benefits, costs, and applicable boundaries.

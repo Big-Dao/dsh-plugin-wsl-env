@@ -1,6 +1,6 @@
 # Performance: ext4 agent vs the 9p share
 
-*The Chinese version ([PERFORMANCE.zh.md](PERFORMANCE.zh.md)) is authoritative; this page is its English translation.*
+[中文](PERFORMANCE.zh.md)
 
 The plugin's reason to exist is not only correctness: a WSL workspace served
 through the Windows 9p share is measurably slower than the same files read on

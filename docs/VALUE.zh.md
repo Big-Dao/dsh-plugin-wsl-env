@@ -1,6 +1,6 @@
 # dsh-plugin-wsl-env 价值说明
 
-_本页是权威版本；英文译本见 [Value](VALUE.md)。_
+[English](VALUE.md)
 
 本文只回答一个问题：**在 Windows 上用 DeepSeek Harness 做 WSL 项目，为什么值得装这个插件。**
 功能、安装与逐项行为见 [README](README.zh.md) 和 [ARCHITECTURE.zh.md](ARCHITECTURE.zh.md)，这里谈收益、代价与适用边界。

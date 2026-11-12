@@ -1,6 +1,6 @@
 # dsh-plugin-wsl-env
 
-**English translation** · [中文（权威）](docs/README.zh.md)
+**English** · [中文](docs/README.zh.md)
 
 [![CI](https://github.com/Big-Dao/dsh-plugin-wsl-env/actions/workflows/ci.yml/badge.svg)](https://github.com/Big-Dao/dsh-plugin-wsl-env/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/dsh-plugin-wsl-env)](https://www.npmjs.com/package/dsh-plugin-wsl-env)
@@ -234,9 +234,8 @@ The toolchain follows the harness host: Node `^22.19.0 || >=24.0.0`. `src/` is T
 
 Real-machine probes run on Windows + WSL only. See [CONTRIBUTING.md](CONTRIBUTING.md) and `test/probe/`.
 
-Community-facing documents are bilingual: the Chinese version is authoritative and
-the English page is its translation. The Chinese README is
-[docs/README.zh.md](docs/README.zh.md).
+Community-facing documents are available in English and Chinese. The Chinese
+README is [docs/README.zh.md](docs/README.zh.md).
 
 ## Documentation
 

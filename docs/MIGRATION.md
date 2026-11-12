@@ -1,6 +1,6 @@
 # Configuration stability and migration
 
-*The Chinese version ([MIGRATION.zh.md](MIGRATION.zh.md)) is authoritative; this page is its English translation.*
+[中文](MIGRATION.zh.md)
 
 What a release may change, how a breaking configuration change is announced and
 carried, and which gates a release must clear. The version table in

@@ -1,6 +1,6 @@
 # API surface
 
-*The Chinese version ([API.zh.md](API.zh.md)) is authoritative; this page is its English translation.*
+[中文](API.zh.md)
 
 The published API is the generated `lib/*.d.ts` next to each compiled module
 (`pnpm run build` keeps them byte-fresh; `lint:build` fails on drift). The

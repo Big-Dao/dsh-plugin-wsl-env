@@ -1,6 +1,6 @@
 # 贡献指南
 
-_本页是权威版本；英文译本见 [Contributing](CONTRIBUTING.md)。_
+[English](CONTRIBUTING.md)
 
 本文介绍开发循环、pull request 必须通过的检查，以及本仓库采用的约定。
 
@@ -189,7 +189,7 @@ import 固定版本 `@deepseek-ai/*` 包的测试也进入同样的列表，无�
 - 行为变更需在 `## [Unreleased]` 下添加 `CHANGELOG.md` 条目。文档或注释改动不需要。
 - 一次提交只包含一个主题。
 - 在 pull request 中说明你如何测试。相关时粘贴探针输出。
-- 社区常用文档成对存在，中文版是权威：先改 `.zh.md`，再对齐英文译本。范围包括 README、QUICKSTART、CONFIGURATION、LIMITATIONS、DIAGNOSTICS、COMPATIBILITY、PERFORMANCE、MIGRATION、API、ARCHITECTURE、CONTRIBUTING、SECURITY、SUPPORT、CODE_OF_CONDUCT、VALUE。改动影响用法时，先更新中文 README 和受影响的中文文档，再对齐英文译本；两侧逐节对应。
+- 社区常用文档成对存在；英文与中文两侧逐节对应。范围包括 README、QUICKSTART、CONFIGURATION、LIMITATIONS、DIAGNOSTICS、COMPATIBILITY、PERFORMANCE、MIGRATION、API、ARCHITECTURE、CONTRIBUTING、SECURITY、SUPPORT、CODE_OF_CONDUCT、VALUE。
 
 ## 报告缺陷与安全问题
 

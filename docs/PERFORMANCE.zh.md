@@ -1,6 +1,6 @@
 # 性能：ext4 agent 对比 9p 共享
 
-_本页是权威版本；英文译本见 [Performance: ext4 agent vs the 9p share](PERFORMANCE.md)。_
+[English](PERFORMANCE.md)
 
 本插件存在的理由不只是正确性：通过 Windows 9p 共享提供的 WSL 工作区，
 明显慢于经常驻 agent 在发行版 ext4 上读取同样的文件。本页记录测量结果及

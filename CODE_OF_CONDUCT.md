@@ -1,6 +1,6 @@
 # Contributor Covenant Code of Conduct
 
-*The Chinese version ([CODE_OF_CONDUCT.zh.md](CODE_OF_CONDUCT.zh.md)) is authoritative; this page is its English translation.*
+[中文](CODE_OF_CONDUCT.zh.md)
 
 ## Our Pledge
 

@@ -1,6 +1,6 @@
 # 支持政策
 
-_本页是权威版本；英文译本见 [Support](SUPPORT.md)。_
+[English](SUPPORT.md)
 
 ## 支持范围
 

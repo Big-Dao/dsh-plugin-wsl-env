@@ -43,7 +43,9 @@ function normalizeWorkspace(value: string): string {
 export function isWindowsAccessWorkspace(cwd: string, windowsAccess: readonly string[]): boolean {
   const target = normalizeWorkspace(cwd);
   return windowsAccess.some((entry) => {
-    if (entry.trim() === "") return false;
+    // The list is settings-sourced. A malformed entry is ignored rather than
+    // allowed to fail a session creation or an adoption decision.
+    if (typeof entry !== "string" || entry.trim() === "") return false;
     const base = normalizeWorkspace(entry);
     return target === base || target.startsWith(`${base}\\`);
   });

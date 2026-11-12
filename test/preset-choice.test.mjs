@@ -98,6 +98,16 @@ check("isWindowsAccessWorkspace compares whole segments only", () => {
   );
 });
 
+check("isWindowsAccessWorkspace ignores malformed settings entries", () => {
+  const malformed = /** @type {any} */ ([42, null, undefined, {}]);
+  assert.equal(isWindowsAccessWorkspace(DISTRO_CWD, malformed), false, "no throw, no match");
+  assert.equal(
+    isWindowsAccessWorkspace(DISTRO_CWD, /** @type {any} */ ([42, DISTRO_CWD])),
+    true,
+    "a valid entry beside a malformed one still matches",
+  );
+});
+
 check("an absent preset id is not an explicit choice", () => {
   assert.equal(isDefaultPresetChoice(undefined, "host"), true);
   assert.equal(isDefaultPresetChoice(undefined, undefined), true);

@@ -36,7 +36,7 @@ were part of the record.
   composer naming the consequence (PowerShell commands, 9p file access, no Linux
   toolchain) and the fix that applies: a one-click switch while the session is
   blank, and the `windowsWorkspaces` correction once a turn has started. The
-  session header keeps a small **Windows 模式** marker after the warning is
+  session header keeps a small **WSL工作区正以Windows模式打开** marker after the warning is
   collapsed, the **WSL environment** panel lists the recorded directories, and
   `auto-preset` logs the state and publishes it as a runtime-context entry so the
   model does not assume a Linux toolchain. The reminder is plugin-owned client UI;

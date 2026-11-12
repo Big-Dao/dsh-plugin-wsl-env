@@ -481,3 +481,29 @@ test("the route drives the scrubbed launcher end to end", async () => {
   assert.deepEqual(seen.args, ["--folder-uri", "vscode-remote://wsl%2BUbuntu/home/you"]);
   assert.equal(seen.options.env && /** @type {Record<string, unknown>} */ (seen.options.env).ELECTRON_RUN_AS_NODE, undefined);
 });
+
+test("a malformed UTF-16 path is refused instead of throwing", async () => {
+  assert.equal(
+    editorUri("\\\\wsl.localhost\\Ubuntu\\bad\uD800"),
+    undefined,
+    "a lone surrogate in the path is not a workspace",
+  );
+  assert.equal(
+    editorUri("\\\\wsl.localhost\\bad\uD800\\home"),
+    undefined,
+    "nor is one in the distro name",
+  );
+  assert.equal(
+    editorUri("\\\\wsl.localhost\\Ubuntu\\emoji\u{1F600}"),
+    "vscode-remote://wsl%2BUbuntu/emoji%F0%9F%98%80",
+    "a well-formed non-BMP character still encodes",
+  );
+
+  let launches = 0;
+  const handler = createOpenInAppHandler({
+    launch: async () => { launches += 1; return "launched"; },
+  });
+  const answer = await handler(post({ path: "\\\\wsl.localhost\\Ubuntu\\bad\uD800" }));
+  assert.equal(answer.status, 400, "the route classifies the refusal");
+  assert.equal(launches, 0, "nothing is spawned for an unencodable path");
+});

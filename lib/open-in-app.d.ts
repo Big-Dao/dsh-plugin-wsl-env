@@ -83,7 +83,8 @@ export interface LaunchOptions {
  * than guessed at.
  *
  * @param uncPath - candidate workspace path.
- * @returns the editor URI, or undefined when the path is not WSL UNC.
+ * @returns the editor URI, or undefined when the path is not WSL UNC or
+ *   cannot be encoded (a path with malformed UTF-16 is not a workspace).
  */
 export declare function editorUri(uncPath: string): string | undefined;
 /**

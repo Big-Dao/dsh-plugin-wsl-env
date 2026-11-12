@@ -702,7 +702,7 @@ test("collapsing the reminder leaves the header badge, and a new session asks ag
 
   const badge = harness.badge();
   await badge.settle();
-  assert.equal(texts(badge.current()).join(""), "Windows 模式", "the fact survives collapsing");
+  assert.equal(texts(badge.current()).join(""), "WSL工作区正以Windows模式打开", "the fact survives collapsing");
   assert.match(String(badge.current()?.props?.title ?? ""), /9p/);
   assert.match(String(badge.current()?.props?.title ?? ""), /Ubuntu/);
   badge.unmount();
@@ -716,6 +716,25 @@ test("collapsing the reminder leaves the header badge, and a new session asks ag
   await fresh.settle();
   assert.notEqual(fresh.current(), null, "a new session asks again");
   fresh.unmount();
+});
+
+test("collapsing the reminder reveals the header badge without a remount", async () => {
+  const harness = accessHarness({ summary: { cwd: WSL, blank: false }, paths: [WSL] });
+  memoryStorage(harness.sandbox);
+  const banner = harness.banner();
+  const badge = harness.badge();
+  await banner.settle();
+  await badge.settle();
+  assert.equal(badge.current(), null, "the badge stays quiet while the banner shows");
+  click(banner.current(), "收起");
+  await banner.settle();
+  await badge.settle();
+  assert.equal(banner.current(), null, "the banner is collapsed");
+  const badgeTree = badge.current();
+  assert.ok(badgeTree !== null && badgeTree !== undefined, "the already-mounted badge appears");
+  assert.equal(texts(badgeTree).join(""), "WSL工作区正以Windows模式打开", "the badge updates in place");
+  banner.unmount();
+  badge.unmount();
 });
 
 test("a started session can drop the recorded Windows-access directory", async () => {

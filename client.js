@@ -202,6 +202,20 @@ window.__ModuleLoader__.load({
     /** The sessionStorage key that collapses the warning for one session. */
     const dismissedKey = (sessionId) => "wsl-env.access-mode.dismissed:" + String(sessionId);
 
+    /** Reminder components that must re-read the collapse fact when it changes. */
+    const dismissedListeners = new Set();
+
+    /**
+     * Subscribe to collapse changes so a badge that is already mounted updates
+     * when the banner's "收起" button records the dismissal.
+     * @param {() => void} listener - called after the dismissal fact changes.
+     * @returns {() => void} the unsubscribe function.
+     */
+    const subscribeDismissed = (listener) => {
+      dismissedListeners.add(listener);
+      return () => { dismissedListeners.delete(listener); };
+    };
+
     /**
      * Whether the operator collapsed the reminder for this session.
      * @param sessionId - the session to ask about.
@@ -225,6 +239,7 @@ window.__ModuleLoader__.load({
       } catch {
         /* a browser without storage keeps the reminder visible */
       }
+      for (const listener of dismissedListeners) listener();
     };
 
     /**
@@ -295,9 +310,11 @@ window.__ModuleLoader__.load({
       const [notice, setNotice] = useState(null);
 
       useEffect(() => {
-        setDismissed(readDismissed(sessionId));
+        const sync = () => { setDismissed(readDismissed(sessionId)); };
+        sync();
         setRemoved(false);
         setNotice(null);
+        return subscribeDismissed(sync);
       }, [sessionId]);
 
       if (state === null || dismissed) return null;
@@ -394,7 +411,11 @@ window.__ModuleLoader__.load({
     function AccessModeBadge({ ctx, sessionId, useSessions, useProjection }) {
       const { summary, state } = useHostMode(ctx, sessionId, useSessions, useProjection);
       const [dismissed, setDismissed] = useState(() => readDismissed(sessionId));
-      useEffect(() => { setDismissed(readDismissed(sessionId)); }, [sessionId]);
+      useEffect(() => {
+        const sync = () => { setDismissed(readDismissed(sessionId)); };
+        sync();
+        return subscribeDismissed(sync);
+      }, [sessionId]);
       if (state === null || !dismissed) return null;
       return h(
         "span",
@@ -402,7 +423,7 @@ window.__ModuleLoader__.load({
           style: styles.accessBadge,
           title: `此工作区在 WSL 发行版 ${distroOf(summary?.cwd) ?? "WSL"} 内，但当前会话运行在 Windows 宿主模式（PowerShell、9p 共享，没有 Linux 工具链）。`,
         },
-        "Windows 模式",
+        "WSL工作区正以Windows模式打开",
       );
     }
 

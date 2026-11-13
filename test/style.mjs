@@ -212,6 +212,7 @@ const docsExceptions = new Set([
   "docs/UPSTREAM-SPAWN-SEAM.md", // upstream negotiation, not user-facing
   "docs/UPSTREAM-SESSION-BACKGROUND-KILL.md", // upstream negotiation, not user-facing
   "docs/UPSTREAM-TERMINAL-FONT.md", // upstream negotiation, not user-facing
+  "docs/UPSTREAM-DESKTOP-VERIFY.md", // the dated verifyDesktopPath record; only the doc map links it
 ]);
 const docsUnshipped = tracked
   .filter((file) => /^docs\/[\w.-]+\.md$/.test(file) && !docsShipped.has(file) && !docsExceptions.has(file))

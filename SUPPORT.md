@@ -98,13 +98,13 @@ what it cannot see:
 | The diagnose report | `pnpm run diagnose <distro>` (read-only; review and redact before sharing) |
 | Plugin version | `npm ls dsh-plugin-wsl-env`, or the git tag you built from |
 | DSH version | the version of the harness you run |
-| The composed configuration | On the CLI distribution, `dsh --profile <name> --dump-config` (the `dsh-plugin-wsl-env` layer and the rows it patches). The desktop app has no `dsh` command; attach the profile's `cordis.patch.yml` instead |
+| The composed configuration | the profile's `package.json` and `cordis.patch.yml` (the `dsh-plugin-wsl-env` layer and the rows it patches). The desktop app has no `dsh` command |
 | Sandbox behaviour, in depth | the output of `npm run probe:sandbox`, run from inside the distro (`wsl.exe -d <distro>` first) — the probe calls `bwrap` and reads `lib/bwrap.js` there, so it needs both in the distro |
 | What you expected and what happened | one paragraph each |
 | A reproduction | the exact command, or the exact sequence of clicks |
 
 Redact your user name and any path you would rather not publish. The useful part
-of `--dump-config` is usually the layer heading and the patched rows, not the whole
+of `cordis.patch.yml` is usually the layer heading and the patched rows, not the whole
 file.
 
 ## Response times

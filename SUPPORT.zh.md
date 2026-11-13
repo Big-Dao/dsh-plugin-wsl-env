@@ -85,12 +85,12 @@ Schemastery 使用 caret peer 区间。接受的区间并不保证与每个更�
 | 诊断报告 | `pnpm run diagnose <distro>`（只读；分享前审查并脱敏） |
 | 插件版本 | `npm ls dsh-plugin-wsl-env`，或你构建所用的 git tag |
 | DSH 版本 | 你运行的 harness 版本 |
-| 合成配置 | 在 CLI 发行版上，`dsh --profile <name> --dump-config`（`dsh-plugin-wsl-env` 层及其修补的行）。桌面应用没有 `dsh` 命令；请改附 profile 的 `cordis.patch.yml` |
+| 合成配置 | profile 的 `package.json` 与 `cordis.patch.yml`（`dsh-plugin-wsl-env` 层及其修补的行）。桌面应用没有 `dsh` 命令 |
 | 沙箱行为（深入） | 在发行版内运行（先 `wsl.exe -d <distro>`）`npm run probe:sandbox` 的输出——探针会调用 `bwrap` 并读取那里的 `lib/bwrap.js`，因此发行版内两者都需要 |
 | 你期望什么、实际发生了什么 | 各写一段 |
 | 复现 | 精确命令，或精确的点击顺序 |
 
-隐去你的用户名以及任何你不愿公开的路径。`--dump-config` 中有用的部分通常是
+隐去你的用户名以及任何你不愿公开的路径。`cordis.patch.yml` 中有用的部分通常是
 层标题与被修补的行，而不是整个文件。
 
 ## 响应时间

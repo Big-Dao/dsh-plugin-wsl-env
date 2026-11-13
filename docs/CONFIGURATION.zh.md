@@ -48,9 +48,8 @@ profile 层；检测到时会打印应使用的块。`--out` 会整体替换目�
 
 要手动编辑 preset，需替换整个 `preset-wsl` 行。它的 config
 不做深度合并：保留 `id`、`order` 以及 `plugins` 中的每一项。
-从 `cordis.patch.yml` 或 `dsh --profile <name> --dump-config`
-（CLI 发行版；桌面应用没有 `dsh` 命令）
-复制当前块，再修改嵌套的值。插件升级改变了 preset 后要重新复制。
+从 profile 的 `cordis.patch.yml` 复制当前块，再修改嵌套的值。
+插件升级改变了 preset 后要重新复制。
 
 ### `wsl-shell`
 
@@ -386,9 +385,8 @@ profile 补丁与废弃键陷阱——每个失败附可复制的修复。运行
 无需重新探测即可选择骨架语言。`--yes` 跳过确认提示（不跳过确认门本身），
 `--read-only` 拒绝与 `--fix` 或 `--install` 同用。
 判定契约与错误码地图见 [DIAGNOSTICS.zh.md](DIAGNOSTICS.zh.md)。
-CLI 发行版可用 `dsh --profile <name> --dump-config` 检查合成后的 profile，
-无需真正启动；输出会显示某行的覆盖是否生效。桌面应用没有 `dsh` 命令，
-请直接查看 `cordis.patch.yml` 与 Plugins 页面。
+某行的覆盖是否生效，直接查看 profile 的 `cordis.patch.yml` 与 Plugins 页面：
+桌面应用没有 `dsh` 命令，合成后的 profile 没有命令行视图。
 侧边栏的 **WSL 环境** 面板经 `GET /api/wsl-env/status` 渲染同一份快速摘要，
 并把完整运行动作提交到同一路由：以 `--fix-owned` 运行 doctor，清扫残留
 session scope、清理损坏的 agent 缓存并逐一复检。行内显示上次检查时间、来源（手动或后台）与结果结构（各状态计数与分区分布）。

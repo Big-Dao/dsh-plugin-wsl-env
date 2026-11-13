@@ -7,8 +7,8 @@ This page is the entry point; every claim links to the document that owns it.
 
 ## 0. Do you need this plugin?
 
-If the harness can run inside the distro, installing the CLI there
-(`npm install -g @deepseek-ai/dsh`) and skipping this plugin is simpler — the
+If the harness can run inside the distro, installing the CLI there and
+skipping this plugin is simpler — the
 [README's decision table](../README.md#do-i-need-this-plugin) has the cases.
 The rest of this page assumes the desktop app stays on Windows and this plugin
 supplies the WSL environment.
@@ -59,15 +59,6 @@ The desktop app has no `dsh` command; open **Plugins** in the sidebar, choose
 **Add plugin**, and enter the exact package name `dsh-plugin-wsl-env`. That
 writes the profile's `package.json` and its `dsh.profile.bundles` entry.
 
-With the CLI distribution (`dsh` on `PATH`), from Windows PowerShell:
-
-```powershell
-dsh plugin --profile <profile> add dsh-plugin-wsl-env
-# if it resolves to a stale version (same-day registry metadata cache), pin it:
-# dsh plugin --profile <profile> add dsh-plugin-wsl-env@<latest>
-dsh --profile <profile> --dump-config      # the plugin rows must be there
-```
-
 For a profile that already overrides the preset, keep the override as the full
 `preset-wsl` block — `pnpm run preset --check <patch>` fails loudly when a layer
 targets `wsl-shell`/`wsl-fs` by id.
@@ -76,8 +67,7 @@ targets `wsl-shell`/`wsl-fs` by id.
 
 Start the desktop app the way its Start-menu shortcut does: `DeepSeek Harness.exe`,
 no arguments — it opens the profile the app is configured with (the Plugins page
-writes into that one). (CLI distribution: `dsh --profile <profile>` boots a
-profile of that name.)
+writes into that one).
 
 In the GUI, open a folder through the picker (`\\wsl.localhost\<distro>\home\<you>\proj`)
 or an UNC path directly. The session's commands, file tools, terminal and previews

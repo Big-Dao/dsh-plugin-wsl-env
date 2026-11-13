@@ -16,6 +16,22 @@ were part of the record.
 
 ## [Unreleased]
 
+### Documentation
+
+- **The user-facing docs demonstrate only the desktop app's path.** The
+  Windows desktop app ships no `dsh` executable, so the install, verify,
+  upgrade, uninstall and troubleshooting steps no longer present the
+  `dsh ...` forms of the npm CLI distribution as an alternative — the
+  Plugins page, the profile's `package.json` and `cordis.patch.yml`, and the
+  doctor surfaces are the only demonstrated way. The CLI keeps one home: the
+  README's "Do I need this plugin?" decision table, where it is the
+  alternative to this plugin, not a way to use it. MIGRATION's local
+  verification block, the ROADMAP-1.0 P1.3 gate, the first-use record
+  template, the probe profile headers (the `dsh wslfs ...` lines become the
+  real `ELECTRON_RUN_AS_NODE` launch documented in the header of
+  `test/probe/run.sh`) and the update-check service comment carry the same
+  reality; the CHANGELOG's older entries are history and stay as written.
+
 ## [0.26.0] - 2026-11-12
 
 One theme: adapted to DeepSeek Harness `0.2.2-rc.2` without patching the host —

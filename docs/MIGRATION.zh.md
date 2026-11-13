@@ -84,8 +84,11 @@ aarch64 qemu 是 CI 门禁。发布说明不得声称未运行的行，
 ```bash
 pnpm run preset --distro default --check <profile>/cordis.patch.yml  # 无嵌套行陷阱
 pnpm run doctor --json                                               # 生效的环境事实
-dsh --profile <name> --dump-config                                   # 合成后的行（CLI 发行版）
+pnpm run e2e:install                                                 # 打包安装/升级/卸载全链
 ```
+
+桌面应用没有 `dsh` 命令；合成后的状态就是 profile 的 `package.json` 与
+`cordis.patch.yml`，直接查看即可。
 
 迁移后启动失败的 profile 应在错误中指明补救方法；若没有，那就是 bug——
 请附上 `doctor --json` 输出报告它。

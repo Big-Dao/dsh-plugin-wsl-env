@@ -6,7 +6,7 @@
 # What it proves, on a real Windows + WSL machine:
 #   1. `npm pack` produces a tarball, a fresh profile (from the shipped `web`
 #      template) installs it through the desktop CLI (`ELECTRON_RUN_AS_NODE` +
-#      the app's `cli.js`; `dsh plugin add` on a CLI distribution), `--dump-config`
+#      the app's `cli.js`), `--dump-config`
 #      composes it without skipped-patch warnings, and `plugin remove` takes it
 #      out again.
 #   2. Upgrading from the previous minor over an existing profile keeps that

@@ -86,14 +86,13 @@ Windows 上的编程工具要在 WSL 项目中工作，有三条路：把整个�
 
 Windows 桌面应用**没有 `dsh` 可执行程序**：安装器只写 `DeepSeek Harness.exe`，
 CLI 入口在 `resources/app.asar` 内部（探针脚本通过 `ELECTRON_RUN_AS_NODE` 启动它）。
-按你手上的发行版二选一。
+本页只演示桌面应用的路径。
 
-**最快的路径**，两种发行版通用：
+**最快的路径**：
 
 1. 装一次 `bubblewrap`：
    `wsl.exe -d <发行版> -u root -- apt-get install -y bubblewrap`
-2. 按包名安装插件并启用——Plugins 页（**Add plugin** → `dsh-plugin-wsl-env`），
-   或 `dsh plugin --profile wsl add dsh-plugin-wsl-env`。
+2. 按包名安装插件并启用——Plugins 页（**Add plugin** → `dsh-plugin-wsl-env`）。
 3. 重启应用，打开发行版里的文件夹；想在第一条命令前拿到裁决，
    在输入框输入 `/wsl-doctor`。
 
@@ -101,11 +100,9 @@ CLI 入口在 `resources/app.asar` 内部（探针脚本通过 `ELECTRON_RUN_AS_
 
 **桌面应用**：在侧边栏打开 **插件**，点 **Add plugin**，填精确包名
 `dsh-plugin-wsl-env` 并启用。插件管理器写入当前 profile 的 `package.json`
-（依赖项与 `dsh.profile.bundles`），与下面的 CLI 命令得到的状态一致。从检出
-目录运行时，改为以链接形式添加该目录。启动方式与安装器创建的快捷方式一致：
-`DeepSeek Harness.exe`，不带参数。桌面应用打开的是它自己配置的 profile——也就是
-Plugins 页面写入的那个；要用别的 profile 属于 CLI 发行版的事
-（`dsh --profile <名字>`）。
+（依赖项与 `dsh.profile.bundles`）。从检出目录运行时，改为以链接形式添加该目录。
+启动方式与安装器创建的快捷方式一致：`DeepSeek Harness.exe`，不带参数——应用
+打开的就是 Plugins 页面写入的那个 profile。
 
 **不对宿主打补丁。** 插件从不修改已安装的 `resources/app.asar`。
 **在 VS Code 中打开（WSL）** 的桥完全在插件行内，因此应用升级不会丢掉它，
@@ -113,26 +110,11 @@ Plugins 页面写入的那个；要用别的 profile 属于 CLI 发行版的事
 "Open in app" 是独立的上游缺陷，见
 [docs/UPSTREAM-OPEN-IN-APP.md](UPSTREAM-OPEN-IN-APP.md)。
 
-**CLI 发行版**（`dsh` 在 `PATH` 上），在 Windows 终端执行：
-
-```powershell
-dsh wsl --from-default-profile web --dump-config   # 创建 profile
-dsh plugin --profile wsl add dsh-plugin-wsl-env    # 安装插件及其配置
-dsh --profile wsl --dump-config                    # 检查：输出 "# == dsh-plugin-wsl-env"
-dsh --profile wsl                                  # 启动
-```
-
-第一条命令之前安装 `bubblewrap`：
-
-```powershell
-wsl.exe -d <发行版> -u root -- apt-get install -y bubblewrap
-```
-
 在插件检出目录中，`pnpm run doctor` 是一键环境体检：Windows/WSL 平台、每个发行版的 WSL 模式与身份、`.wslconfig` 与 `/etc/wsl.conf` 交叉核对、发行版与宿主卷、时钟与 DNS、bubblewrap 可用性、systemd / user manager / Linger、可选工具、peer 版本、native agent 与其缓存、新 agent 握手、证明链路完好的 shell 冒烟腿（帧 I/O、受限围栏、批量 substrate）与一条 native HELLO 腿、残留会话 scope、已知的 profile 补丁与废弃键陷阱。报告逐项列出每个检查——按 distro 分组，每项带显式状态标记，失败项下附可复制的处理办法——并以裁决收尾：`ready`（本次运行覆盖的检查全部通过，不保证每条命令都成功）或 `blocked`（列明待修项），按生效配置计算。运行可以收窄范围：`--quick` 只探首条命令的前置项（约 10 秒），`--sections <分区清单>`（逗号分隔）只运行指定分区，且范围化报告会把未运行的检查显式列为跳过项。`--json` 供脚本使用；`--fix` 会复核它修过的项——插件自有的残留 scope 清扫与 agent 缓存清理是安全自动的，安装包需要 `--fix --install` 并显式确认，`--fix-owned` 只运行插件自有的这两类（即侧边栏面板的“修复”动作）——`--all` 检查每个已装发行版，`--bundle <路径>` 写出可附加到问题报告的诊断文件（`--redact` 将路径脱敏）。固定骨架按宿主语言渲染——从 Windows 区域设置检测，可用 `--locale <标签>` 或 `DSH_WSL_DOCTOR_LOCALE` 覆盖；`--json` 保持语言无关。同一份报告经三个入口给出：本 CLI、`/wsl-doctor` 命令（在输入框输入——宿主侧执行，不进模型对话）、以及 `wsl_doctor` 模型工具（进程内采集，合并常驻 agent 的实时状态）。`DSH_WSL_DOCTOR` 还携带一条现成命令（`sh -c "$DSH_WSL_DOCTOR --json"`），可在发行版内直接重放 doctor。`pnpm run diagnose` 是 CLI 的只读别名。`pnpm run bootstrap <发行版>` 仍是较窄的工具安装助手。
 
-插件大约每天自行检查一次更新（启动后 2–10 分钟内首查），方式是询问应用的插件管理器——它从不自行联网。当存在更新的稳定版时，每个发行版会话中受管的 `DSH_WSL_PLUGIN_UPDATE` 变量会携带该事实；补丁配置里的 `wsl-update-check.enabled: false` 可关闭该检查。升级保持手动，因为 harness 没有热重载：重新安装（Plugins 页面或 `add` 命令），然后重启。
+插件大约每天自行检查一次更新（启动后 2–10 分钟内首查），方式是询问应用的插件管理器——它从不自行联网。当存在更新的稳定版时，每个发行版会话中受管的 `DSH_WSL_PLUGIN_UPDATE` 变量会携带该事实；补丁配置里的 `wsl-update-check.enabled: false` 可关闭该检查。升级保持手动，因为 harness 没有热重载：重新安装（Plugins 页面），然后重启。
 
-卸载：在 Plugins 页面移除，或在 CLI 发行版执行 `dsh plugin --profile wsl remove dsh-plugin-wsl-env`；之后可删除 `~/.cache/dsh-wsl`。如果你为了恢复预览在 profile 里加过 `workspace-files-wsl` 的临时覆盖，升级后请删掉：插件不再挂载该行。
+卸载：在 Plugins 页面移除；之后可删除 `~/.cache/dsh-wsl`。如果你为了恢复预览在 profile 里加过 `workspace-files-wsl` 的临时覆盖，升级后请删掉：插件不再挂载该行。
 
 ## 使用
 
@@ -212,7 +194,7 @@ wsl preset（每个会话）
 | 会话在第一条命令前就被拒绝 | 运行 `pnpm run doctor`；启用 systemd 和 linger，或把 `wsl-shell`、`wsl-fs` 上的 `sessionSandbox` 设为 `auto` 或 `false` |
 | 发行版内 `glob`、`grep` 很慢 | 运行 `pnpm run bootstrap <发行版>`，使用打印的安装命令安装 `ripgrep` |
 | `npm install` / `pnpm add` 报 `EROFS` | 沙箱默认只授予工作区；在 `wsl-shell` 和 `wsl-fs` 上配置 `writableRoots`（如 `~/.npm`、`~/.cache`、`~/.local/share/pnpm`），见 [CONFIGURATION](CONFIGURATION.zh.md#工具链缓存与额外可写目录) |
-| `dsh plugin add` 没有输出，或 Plugins 页面装完没有日志 | 以 profile 的 `package.json` 与 `dsh.profile.bundles` 为准：列出插件即安装成功 |
+| Plugins 页面装完没有任何日志 | 以 profile 的 `package.json` 与 `dsh.profile.bundles` 为准：列出插件即安装成功 |
 | 对 `wsl-shell`/`wsl-fs` 的 profile 补丁不生效 | 这些行嵌套在 `preset-wsl` 里。运行 `pnpm run preset --check <补丁>`；它会失败并输出需要粘贴的完整块 |
 | 改了 `lib/` 但不生效 | 运行 `pnpm run sync:windows`，然后重启应用 |
 

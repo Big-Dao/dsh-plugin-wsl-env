@@ -97,8 +97,11 @@ ships through the tag workflow, but its notes say which gates were executed.
 ```bash
 pnpm run preset --distro default --check <profile>/cordis.patch.yml  # no nested-row trap
 pnpm run doctor --json                                               # effective environment facts
-dsh --profile <name> --dump-config                                   # composed rows (CLI distribution)
+pnpm run e2e:install                                                 # packed install/upgrade/uninstall chain
 ```
+
+The desktop app has no `dsh` command; the composed state is the profile's
+`package.json` and `cordis.patch.yml`, read directly.
 
 A profile that fails to boot after a migration should name the remedy in the
 error; if it does not, that is a bug — report it with the `doctor --json` output.

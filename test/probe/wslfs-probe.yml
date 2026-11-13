@@ -3,9 +3,12 @@
 # This file is a TEMPLATE. The UNC spelling of a path carries this machine's distro
 # name, so `test/probe/run.sh` substitutes @FS_PROBE_UNC@ and writes a generated copy
 # beside it (`.generated-wslfs-probe.yml`, gitignored). Use that generated file, or
-# spell the path out yourself:
+# spell the path out yourself — the harness has no `dsh` executable; the CLI is
+# the app's own, launched through ELECTRON_RUN_AS_NODE (see the header of
+# `test/probe/run.sh`):
 #
-#   dsh wslfs --no-open --port 0 --patch '<checkout>\test\probe\wslfs-probe.yml'
+#   ELECTRON_RUN_AS_NODE=1 "$APP/DeepSeek Harness.exe" --expose-internals "$CLI" \
+#     --profile wslfs --no-open --port 0 --patch '<checkout>\test\probe\.generated-wslfs-probe.yml'
 #
 # The profile itself (which swaps `ctx.fs` for the WSL backend) lives in
 # $DSH_HOME/profiles/wslfs/cordis.patch.yml.

@@ -87,16 +87,15 @@ No Node.js is required inside the distro.
 
 The Windows desktop app ships **no `dsh` executable**: the installer writes
 `DeepSeek Harness.exe`, and the CLI entry lives inside `resources/app.asar`
-(the probe scripts launch it through `ELECTRON_RUN_AS_NODE`). Use the
-distribution you have.
+(the probe scripts launch it through `ELECTRON_RUN_AS_NODE`). This page
+demonstrates the desktop app's path only.
 
-**The shortest path**, either distribution:
+**The shortest path**:
 
 1. Install `bubblewrap` once:
    `wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap`
 2. Install the plugin by name and enable it — the Plugins page
-   (**Add plugin** → `dsh-plugin-wsl-env`), or
-   `dsh plugin --profile wsl add dsh-plugin-wsl-env`.
+   (**Add plugin** → `dsh-plugin-wsl-env`).
 3. Restart the app, open a folder inside the distro; type `/wsl-doctor` in the
    composer for a `ready`/`blocked` verdict before the first command.
 
@@ -105,12 +104,10 @@ The details follow.
 **Desktop app.** Open **Plugins** in the sidebar, choose **Add plugin**, enter
 the exact package name `dsh-plugin-wsl-env`, then enable it. The plugin manager
 writes the active profile's `package.json` — the dependency and the
-`dsh.profile.bundles` entry — which is the same state the CLI command below
-produces. To run from a checkout, add it as a linked package instead of a
-name. Start it the way the installer's shortcut does: `DeepSeek Harness.exe`,
-no arguments. The app opens the profile it is configured with — the one the
-Plugins page writes into — so a different profile is a CLI-distribution thing
-(`dsh --profile <name>`).
+`dsh.profile.bundles` entry. To run from a checkout, add it as a linked
+package instead of a name. Start it the way the installer's shortcut does:
+`DeepSeek Harness.exe`, no arguments — the app opens the profile the Plugins
+page writes into.
 
 **No host patch.** The plugin never edits the installed
 `resources/app.asar`. The **在 VS Code 中打开（WSL）** bridge is a plugin row, so
@@ -118,26 +115,11 @@ an app upgrade cannot drop it and a plugin update only needs reinstall plus
 restart — there is no archive re-patch step. The shipped "Open in app" item is a
 separate upstream defect; see [docs/UPSTREAM-OPEN-IN-APP.md](docs/UPSTREAM-OPEN-IN-APP.md).
 
-**CLI distribution** (`dsh` on `PATH`), in a Windows terminal:
-
-```powershell
-dsh wsl --from-default-profile web --dump-config   # create a profile named wsl
-dsh plugin --profile wsl add dsh-plugin-wsl-env    # install the plugin and its settings
-dsh --profile wsl --dump-config                    # verify: prints "# == dsh-plugin-wsl-env"
-dsh --profile wsl                                  # start
-```
-
-Install `bubblewrap` before the first command:
-
-```powershell
-wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap
-```
-
 From a checkout, `pnpm run doctor` is the one-command environment check: the Windows/WSL platform, the per-distro WSL mode and identity, `.wslconfig` and `/etc/wsl.conf` cross-checks, the distro and host volumes, clock and DNS, bubblewrap usability, systemd / the user manager / Linger, the optional tools, peer versions, the native agent and its cache, a fresh-agent handshake, the shell smoke legs that prove the chain (frame I/O, the confined fence, the batched substrate) and a native HELLO leg, stale session scopes, and the known profile-patch and deprecated-key traps. The report itemizes every check — grouped by distro, each with an explicit status marker and a copy-paste remedy under every failure — and ends in a verdict, `ready` (every check that run covered passed — not a promise about a later command) or `blocked` (the named checks to fix), computed under the effective configuration. A run can be scoped: `--quick` probes the first-command prerequisites only (~10 s), `--sections <list>` (comma-separated) runs the named sections, and a scoped report lists the checks it did not run as explicit skips. `--json` is the machine contract; `--fix` re-verifies what it fixed — the plugin-owned stale-scope sweep and agent-cache purge are safe and automatic, packages need `--fix --install` and an explicit confirmation, and `--fix-owned` narrows a run to the plugin-owned two — `--all` checks every installed distro, and `--bundle <path>` writes the diagnostic file a setup report attaches (`--redact` strips the paths). The fixed skeleton renders in the host's language — detected from the Windows locale, overridable with `--locale <tag>` or `DSH_WSL_DOCTOR_LOCALE`; `--json` stays language-independent. The same report answers through three surfaces: this CLI, the `/wsl-doctor` command (typed in the composer — host-side, no model turn), and the `wsl_doctor` model tool (in-process, merging the live resident's state). `DSH_WSL_DOCTOR` additionally carries a ready-to-run command (`sh -c "$DSH_WSL_DOCTOR --json"`) that replays the doctor inside the distro. `pnpm run diagnose` is the CLI's read-only alias. `pnpm run bootstrap <distro>` remains the narrower tool-install helper.
 
-The plugin notices its own updates about once a day (first check 2–10 minutes after startup) by asking the app's plugin manager — it never fetches on its own. When a newer stable release exists, the managed `DSH_WSL_PLUGIN_UPDATE` variable in every distro session carries the fact; `wsl-update-check.enabled: false` in the patch config turns the check off. Upgrading stays manual, because the harness has no hot reload: install again (Plugins page, or the `add` command), then restart. Uninstall on
-the Plugins page, or with `dsh plugin --profile wsl remove dsh-plugin-wsl-env`
-where the CLI is installed; the agent cache under `~/.cache/dsh-wsl` can then be
+The plugin notices its own updates about once a day (first check 2–10 minutes after startup) by asking the app's plugin manager — it never fetches on its own. When a newer stable release exists, the managed `DSH_WSL_PLUGIN_UPDATE` variable in every distro session carries the fact; `wsl-update-check.enabled: false` in the patch config turns the check off. Upgrading stays manual, because the harness has no hot reload: install again
+(the Plugins page), then restart. Uninstall on
+the Plugins page; the agent cache under `~/.cache/dsh-wsl` can then be
 deleted. If you added a local `workspace-files-wsl` workaround to your profile to
 restore previews, remove it after upgrading: the plugin no longer mounts that
 row.
@@ -226,7 +208,7 @@ Enforcement is reported as `partial`. A command inside the distro can still star
 | the session refuses before the first command | run `pnpm run doctor`; enable systemd and linger, or set `sessionSandbox` to `auto` or `false` on `wsl-shell` and `wsl-fs` |
 | `glob` and `grep` are slow in the distro | run `pnpm run bootstrap <distro>` and use its printed install command to install `ripgrep` |
 | `npm install` / `pnpm add` fail with `EROFS` | the sandbox grants only the workspace by default; configure `writableRoots` on `wsl-shell` and `wsl-fs` (e.g. `~/.npm`, `~/.cache`, `~/.local/share/pnpm`); see [CONFIGURATION](docs/CONFIGURATION.md#toolchain-caches-and-extra-writable-roots) |
-| `dsh plugin add` prints nothing, or the Plugins page finishes without feedback | trust the profile's `package.json` and its `dsh.profile.bundles` entry: the plugin listed there is installed |
+| the Plugins page finishes without feedback | trust the profile's `package.json` and its `dsh.profile.bundles` entry: the plugin listed there is installed |
 | a profile patch for `wsl-shell`/`wsl-fs` changes nothing | those rows are nested inside `preset-wsl`. Run `pnpm run preset --check <patch>`; it fails with the complete block to paste |
 | changes under `lib/` have no effect | run `pnpm run sync:windows`, then restart the app |
 

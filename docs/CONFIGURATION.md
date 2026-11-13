@@ -50,10 +50,8 @@ that row unless you pass `--force`. Prefer manual merging for existing profiles.
 
 To edit the preset manually, replace the entire `preset-wsl` row. Its config is
 not deep-merged: preserve `id`, `order`, and every item in `plugins`. Copy the
-current block from `cordis.patch.yml` or from
-`dsh --profile <name> --dump-config` (CLI distribution — the desktop app has no
-`dsh` command), then change the nested values. Re-copy it
-after a plugin upgrade that changes the preset.
+current block from the profile's `cordis.patch.yml`, then change the nested
+values. Re-copy it after a plugin upgrade that changes the preset.
 
 ### `wsl-shell`
 
@@ -426,10 +424,9 @@ language without re-probing. `--yes` skips the confirmation prompt (not the
 confirmation gate itself), and `--read-only` refuses to run together with
 `--fix` or `--install`.
 See [DIAGNOSTICS.md](DIAGNOSTICS.md) for the verdict contract and the
-error-code map. With the CLI distribution, `dsh --profile <name> --dump-config` inspects
-the composed profile without booting it and shows whether a row override
-applied; the desktop app has no `dsh` command, so read `cordis.patch.yml` and
-the Plugins page there.
+error-code map. Whether a row override applied, read from the profile's
+`cordis.patch.yml` and the Plugins page: the desktop app has no `dsh` command,
+so the composed profile has no command-line view.
 The sidebar's **WSL environment** panel renders the same quick digest over
 `GET /api/wsl-env/status` and posts the full-run action to the same route: a
 doctor run with `--fix-owned`, which sweeps stale session scopes and purges a

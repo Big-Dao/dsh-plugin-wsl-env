@@ -1,8 +1,8 @@
 /**
  * The plugin's update check: notice when a newer release exists, stop there.
  *
- * Upgrading today means re-installing by hand (Plugins page, or
- * `dsh plugin add`) and the harness's own plugin-manager already answers
+ * Upgrading today means re-installing by hand (the Plugins page) and the
+ * harness's own plugin-manager already answers
  * "which versions exist and do they fit this DSH" — `listVersions` resolves
  * dist-tags, deprecation, and the `engines.dsh`/peer compatibility of every
  * candidate against the running DSH. This service makes that answer arrive

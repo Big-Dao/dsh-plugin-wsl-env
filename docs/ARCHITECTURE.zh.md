@@ -83,9 +83,8 @@ GUI 文件树与预览保留随包的 `workspace-files` 行。它的客户端半
 ## 各部件如何挂载
 
 [`cordis.patch.yml`](../cordis.patch.yml) 是 bundle 层。它是 patch 条目的顶层
-YAML 数组，`dsh plugin --profile <name> add dsh-plugin-wsl-env` 在 CLI 发行版上
-把它作为一层应用；桌面应用通过侧边栏 **Plugins** 页面（**Add plugin**）应用
-同一个 bundle，并记录到 profile 的 `dsh.profile.bundles` 中。
+YAML 数组；桌面应用通过侧边栏 **Plugins** 页面（**Add plugin**）把它作为一层
+应用，并记录到 profile 的 `dsh.profile.bundles` 中。
 
 环境按会话而非按进程：
 

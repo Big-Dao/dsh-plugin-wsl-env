@@ -10,7 +10,9 @@
 #   * the shell/file tool rows are flipped to the bash/file pair, since headless
 #     has no agent preset to do that selection.
 #
-#   dsh --profile wslmodel --json "<task>"
+#   ELECTRON_RUN_AS_NODE=1 "$APP/DeepSeek Harness.exe" --expose-internals "$CLI" \
+#     --profile wslmodel --json "<task>"
+#   (see the header of test/probe/run.sh; the desktop app ships no `dsh` executable)
 - id: agent-default-model
   name: '@deepseek-ai/dsh-agent-default-model'
   config:

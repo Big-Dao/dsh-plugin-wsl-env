@@ -7,10 +7,9 @@
 
 ## 0. 需要这个插件吗？
 
-如果 harness 可以整个跑在发行版里，把 CLI 装进去（`npm install -g
-@deepseek-ai/dsh`）并跳过本插件会更简单——判断表见
-[README](README.zh.md#需要这个插件吗)。本页其余部分假定桌面应用留在 Windows，
-由本插件提供 WSL 环境。
+如果 harness 可以整个跑在发行版里，把 CLI 装进去并跳过本插件会更简单——
+判断表见 [README](README.zh.md#需要这个插件吗)。本页其余部分假定桌面应用留在
+Windows，由本插件提供 WSL 环境。
 
 ## 1. 前置条件
 
@@ -51,15 +50,6 @@ agent 缓存，两者都会复检；以及确认后的 Windows git 信任）或
 `dsh-plugin-wsl-env` 安装。这一步写入该 profile 的 `package.json` 与
 `dsh.profile.bundles`。
 
-使用 CLI 发行版（`dsh` 在 `PATH` 上）时，在 Windows PowerShell 中：
-
-```powershell
-dsh plugin --profile <profile> add dsh-plugin-wsl-env
-# 若解析到旧版本（发布当天的元数据缓存），显式指定：
-# dsh plugin --profile <profile> add dsh-plugin-wsl-env@<latest>
-dsh --profile <profile> --dump-config      # 输出中必须包含插件的行
-```
-
 如果 profile 已覆盖 preset，请保持覆盖为完整的
 `preset-wsl` 块——当某个层直接按 id 指向 `wsl-shell`/`wsl-fs` 时，
 `pnpm run preset --check <patch>` 会明确报错。
@@ -67,8 +57,7 @@ dsh --profile <profile> --dump-config      # 输出中必须包含插件的行
 ## 3. 打开 WSL 工作区
 
 启动桌面应用的方式与它安装的快捷方式一致：`DeepSeek Harness.exe`，不带参数——
-它打开的是应用自己配置的 profile（也就是 Plugins 页面写入的那个）。（CLI
-发行版：`dsh --profile <名字>` 启动指定名字的 profile。）
+它打开的是应用自己配置的 profile（也就是 Plugins 页面写入的那个）。
 
 在 GUI 中，通过选择器打开文件夹（`\\wsl.localhost\<distro>\home\<you>\proj`），
 或直接打开 UNC 路径。会话的命令、文件工具、终端和预览

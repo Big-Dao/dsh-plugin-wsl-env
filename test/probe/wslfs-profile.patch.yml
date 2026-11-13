@@ -8,7 +8,9 @@
 #     disabled, because the WSL backend is intentionally unconfined; and
 #   * the WSL filesystem provider is inserted in its place.
 #
-#   dsh wslfs --no-open --port 0 --patch <overlay.yml>
+#   ELECTRON_RUN_AS_NODE=1 "$APP/DeepSeek Harness.exe" --expose-internals "$CLI" \
+#     --profile wslfs --no-open --port 0 --patch <overlay.yml>
+#   (see the header of test/probe/run.sh; the desktop app ships no `dsh` executable)
 - id: fs-sandbox
   disabled: true
 

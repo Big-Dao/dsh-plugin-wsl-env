@@ -76,6 +76,19 @@ DSH 是 Windows 桌面应用，项目在 WSL 的 ext4 里。不做集成，三�
 
 **证据。** [ARCHITECTURE「错误码」](ARCHITECTURE.zh.md#错误码)、[README「常见问题」](README.zh.md#常见问题)；`test/ports.test.mjs`、`test/preflight.test.mjs`、`test/terminal.test.mjs`。
 
+### 为什么是 Linux，而不是 PowerShell
+
+价值一的底层论据：多数编程 agent 的训练材料以 Linux 为主，开源工具链也大多先在 Linux 上构建和测试。让 agent 在 Windows shell 里工作，等于要求它在每次调用时做一层翻译：
+
+- **训练先验。** 示例、CI 脚本、Dockerfile 和大多数公开答案用的是 POSIX shell 和 GNU 工具；模型的第一反应是 `bash`，不是 PowerShell。
+- **工具链支持。** Node、Python、Rust、Go、C/C++ 和多数构建系统先在 Linux 上验证。Windows 支持往往是移植，引号、路径、换行和文件锁都不一样。
+- **Shell 语义。** PowerShell 和 `cmd` 在引号、转义、管道、环境变量、退出码和路径分隔符上都与 POSIX 不同。混用两套语法，很容易产生看起来像模型犯的低级错误。
+- **环境漂移。** Windows 侧的 PowerShell 版本、执行策略、PATH 和已装工具因人而异；Linux 环境更容易复现和容器化。
+
+结果是更多失败的命令、更多重试，以及更多时间花在语法而不是任务上。生成的代码也一样：shell 片段、构建命令和 CI 风格的一行命令通常按 POSIX 编写，发行版才是它们原样运行的地方。真实的 Linux 登录 shell 去掉了这层翻译。现代 PowerShell 和 Windows 原生工具在缩小差距，但默认先验和多数项目脚本仍然假设 POSIX。
+
+本插件把 GUI 留在 Windows，只把执行环境移进发行版，让 agent 得到它的训练和工具链都假设的那个 shell。
+
 ## 3. 和替代方案的价值对照
 
 | | 不做集成（Windows 侧开 UNC） | 桌面远程（VS Code Remote-WSL 等） | 把 CLI 装进 WSL | 本插件 |
@@ -89,6 +102,20 @@ DSH 是 Windows 桌面应用，项目在 WSL 的 ext4 里。不做集成，三�
 | 适用前提 | 能接受慢与语义丢失 | 用 VS Code / 对应桌面端 | 工具能整个搬进 WSL | Windows + DSH GUI + WSL2 |
 
 **别人更强的地方要直说。** 桌面远程重开工作区是即时的，服务常驻；VS Code 的远程有多年生产打磨。CLI 装进 WSL 则完全不需要桥接。本插件不试图在这些维度取胜，它只解决一个组合：**DSH 在 Windows 上，项目在 WSL 里，命令要有沙箱。**
+
+### 与 Remote-SSH 的对照（Windows 宿主）
+
+Remote-SSH 也能在 Windows 上连 WSL 发行版（VS Code 连本机 WSL 更常用 Remote-WSL 扩展，不经 SSH；这里单说 Remote-SSH）。它要求发行版内运行 sshd，与本插件的差别集中在几行：
+
+| | Remote-SSH 到 WSL | 本插件 |
+|---|---|---|
+| 到达范围 | 任意 SSH 主机（云主机、远程服务器） | 仅本机 WSL 2 发行版 |
+| 前置配置 | 发行版内装 openssh-server、配密钥；WSL NAT 下 IP 随重启变化，需端口转发或镜像网络 | 无——插件页安装即用 |
+| 网络 | sshd 监听端口 | 经 wsl.exe 的 stdio，无端口、无监听 |
+| 发行版内足迹 | `~/.vscode-server`（按版本累积，需维护） | 一个内容寻址 agent 缓存 |
+| 命令沙箱 | 无 | bubblewrap + DSH 权限档位 |
+
+**Remote-SSH 更强的地方照直说**：目标机器不是本机 WSL（云主机、公司服务器）时它是正确工具，且宿主不限 Windows。本插件只覆盖本机发行版这一种到达——代价是换来零网络配置、发行版内无服务端、命令有沙箱。
 
 ## 4. 代价、边界与不适用
 

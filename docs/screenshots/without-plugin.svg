@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="940" height="580" viewBox="0 0 940 580" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748B"/>
+    </marker>
+  </defs>
+  <rect width="940" height="580" fill="#FFFFFF"/>
+
+  <text x="470" y="34" text-anchor="middle" font-size="17" font-weight="600" fill="#111827">DSH Desktop for Windows — without the plugin</text>
+  <text x="470" y="56" text-anchor="middle" font-size="12.5" fill="#6B7280">both modes lack a POSIX execution environment — Windows workspaces get CMD / PowerShell, WSL workspaces get wsl.exe wrappers</text>
+
+  <!-- Windows host -->
+  <rect x="40" y="78" width="860" height="322" rx="10" fill="#EFF6FF" stroke="#93C5FD" stroke-width="1.5"/>
+  <text x="56" y="102" font-size="12" font-weight="700" fill="#1D4ED8" letter-spacing="0.5">WINDOWS HOST</text>
+
+  <rect x="60" y="114" width="820" height="104" rx="8" fill="#FFFFFF" stroke="#60A5FA"/>
+  <text x="76" y="138" font-size="13" font-weight="700" fill="#1E3A8A">DeepSeek Harness Desktop</text>
+  <text x="76" y="160" font-size="12.5" fill="#374151">GUI — chat · file tree · previews · terminal panel</text>
+  <text x="76" y="180" font-size="12.5" fill="#374151">model calls (LLM API traffic)</text>
+  <text x="76" y="200" font-size="12.5" fill="#374151">profiles &amp; session state — <tspan font-family="ui-monospace, Consolas, monospace" font-size="12">%USERPROFILE%\.dsh</tspan></text>
+
+  <!-- pain A: native Windows execution -->
+  <rect x="60" y="234" width="402" height="152" rx="8" fill="#FEF2F2" stroke="#FCA5A5"/>
+  <text x="76" y="258" font-size="13" font-weight="700" fill="#B91C1C">Windows workspace: commands run in CMD / PowerShell</text>
+  <text x="76" y="284" font-size="11.5" fill="#7F1D1D">✗ the model’s training corpus is POSIX-first —</text>
+  <text x="76" y="306" font-size="11.5" fill="#7F1D1D">✗ its CMD / PowerShell output is error-prone</text>
+  <text x="76" y="328" font-size="11.5" fill="#7F1D1D">✗ nvm, cargo, pyenv, rc files never apply</text>
+  <text x="76" y="352" font-size="11.5" fill="#B91C1C" font-weight="700">the model’s best language is not spoken here</text>
+
+  <!-- pain B: the wsl.exe workaround -->
+  <rect x="478" y="234" width="402" height="152" rx="8" fill="#FFFBEB" stroke="#FCD34D"/>
+  <text x="494" y="258" font-size="13" font-weight="700" fill="#B45309">WSL workspace: wrap each call in wsl.exe</text>
+  <text x="494" y="284" font-size="11.5" fill="#92400E">✗ the wsl.exe prefix on every command line</text>
+  <text x="494" y="306" font-size="11.5" fill="#92400E">✗ each call is an isolated space — environment,</text>
+  <text x="508" y="324" font-size="11.5" fill="#92400E">cwd and process state don’t carry across</text>
+  <text x="494" y="348" font-size="11.5" fill="#92400E">✗ multi-step scripts break at the seams</text>
+  <text x="494" y="372" font-size="11.5" fill="#B45309" font-weight="700">stateful work does not survive the wrapping</text>
+
+  <!-- the 9p bridge -->
+  <line x1="470" y1="404" x2="470" y2="460" stroke="#64748B" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="486" y="422" font-size="12" fill="#374151" font-family="ui-monospace, Consolas, monospace">file tools read \wsl.localhost\ubuntu\…</text>
+  <text x="486" y="442" font-size="12" fill="#6B7280">9p share — a slow round trip per read / write / search,</text>
+  <text x="486" y="460" font-size="12" fill="#6B7280">no native Linux file semantics</text>
+
+  <!-- distro -->
+  <rect x="40" y="468" width="860" height="88" rx="10" fill="#F0FDF4" stroke="#86EFAC" stroke-width="1.5"/>
+  <text x="56" y="492" font-size="12" font-weight="700" fill="#15803D" letter-spacing="0.5">WSL 2 DISTRO (LINUX VM)</text>
+  <text x="76" y="516" font-size="12.5" fill="#374151">the project lives here: ext4 · the distro’s rg · git hooks · dev servers</text>
+  <text x="76" y="538" font-size="12" fill="#9CA3AF">the one place the model’s scripts run well — and execution never gets there</text>
+</svg>

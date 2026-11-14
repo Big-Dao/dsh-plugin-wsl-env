@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="940" height="640" viewBox="0 0 940 640" font-family="-apple-system, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif">
+  <defs>
+    <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748B"/>
+    </marker>
+  </defs>
+  <rect width="940" height="640" fill="#FFFFFF"/>
+
+  <text x="470" y="34" text-anchor="middle" font-size="17" font-weight="600" fill="#111827">有本插件——一个会话，两半执行</text>
+  <text x="470" y="56" text-anchor="middle" font-size="12.5" fill="#6B7280">界面与模型调用留在 Windows；命令与文件在发行版内运行</text>
+
+  <rect x="40" y="78" width="860" height="280" rx="10" fill="#EFF6FF" stroke="#93C5FD" stroke-width="1.5"/>
+  <text x="56" y="102" font-size="12" font-weight="700" fill="#1D4ED8" letter-spacing="0.5">WINDOWS 宿主</text>
+
+  <rect x="60" y="114" width="820" height="100" rx="8" fill="#FFFFFF" stroke="#60A5FA"/>
+  <text x="76" y="138" font-size="13" font-weight="700" fill="#1E3A8A">DeepSeek Harness Desktop</text>
+  <text x="76" y="160" font-size="12.5" fill="#374151">GUI——对话 · 文件树 · 预览 · 终端面板</text>
+  <text x="76" y="180" font-size="12.5" fill="#374151">模型调用（LLM API 流量）</text>
+  <text x="76" y="200" font-size="12.5" fill="#374151">配置与会话状态——<tspan font-family="ui-monospace, Consolas, monospace" font-size="12">%USERPROFILE%\.dsh</tspan></text>
+
+  <rect x="60" y="230" width="820" height="108" rx="8" fill="#DBEAFE" stroke="#60A5FA"/>
+  <text x="76" y="254" font-size="13" font-weight="700" fill="#1E40AF">dsh-plugin-wsl-env——宿主半边</text>
+  <text x="76" y="278" font-size="12" fill="#1E3A8A" font-family="ui-monospace, Consolas, monospace">fs-routing:  \wsl.localhost\… → 发行版   ·   C:\… → 宿主</text>
+  <text x="76" y="298" font-size="12.5" fill="#1E3A8A">auto-preset：会话打开发行版目录时自动绑定 wsl preset</text>
+  <text x="76" y="318" font-size="12.5" fill="#1E3A8A">发行版选择器 · doctor 宿主侧探针 · Windows 目录会话保持不变</text>
+
+  <line x1="470" y1="366" x2="470" y2="414" stroke="#64748B" stroke-width="2" marker-start="url(#arrow2)" marker-end="url(#arrow2)"/>
+  <text x="486" y="390" font-size="12.5" font-weight="700" fill="#374151">经 wsl.exe 的 stdio 管道——整个会话一次</text>
+  <rect x="150" y="376" width="250" height="22" rx="11" fill="#DCFCE7"/>
+  <text x="275" y="391" text-anchor="middle" font-size="11.5" font-weight="700" fill="#15803D">无端口 · 无服务 · 零监听</text>
+
+  <rect x="40" y="422" width="860" height="188" rx="10" fill="#F0FDF4" stroke="#86EFAC" stroke-width="1.5"/>
+  <text x="56" y="446" font-size="12" font-weight="700" fill="#15803D" letter-spacing="0.5">WSL 2 发行版（LINUX 虚机）</text>
+  <text x="76" y="470" font-size="13" font-weight="700" fill="#166534">常驻 agent</text>
+  <text x="180" y="470" font-size="12" fill="#374151" font-family="ui-monospace, Consolas, monospace">~/.cache/dsh-wsl/agent/（内容寻址，此外无任何持久物）</text>
+
+  <rect x="60" y="484" width="266" height="104" rx="8" fill="#FFFFFF" stroke="#BBF7D0"/>
+  <text x="76" y="508" font-size="12.5" font-weight="700" fill="#166534">命令</text>
+  <text x="76" y="530" font-size="11.5" fill="#374151">纯 POSIX——不带 wsl.exe 前缀；</text>
+  <text x="76" y="548" font-size="11.5" fill="#374151">登录 shell：PATH、nvm、cargo、rc</text>
+  <text x="76" y="566" font-size="11.5" fill="#374151">每条命令一道 bubblewrap 围栏</text>
+
+  <rect x="337" y="484" width="266" height="104" rx="8" fill="#FFFFFF" stroke="#BBF7D0"/>
+  <text x="353" y="508" font-size="12.5" font-weight="700" fill="#166534">文件</text>
+  <text x="353" y="530" font-size="11.5" fill="#374151">ext4 原生语义</text>
+  <text x="353" y="548" font-size="11.5" fill="#374151">发行版自己的 rg · watch</text>
+  <text x="353" y="566" font-size="11.5" fill="#374151">git 变更快照</text>
+
+  <rect x="614" y="484" width="266" height="104" rx="8" fill="#FFFFFF" stroke="#BBF7D0"/>
+  <text x="630" y="508" font-size="12.5" font-weight="700" fill="#166534">会话 runtime</text>
+  <text x="630" y="530" font-size="11.5" fill="#374151">一个 systemd user scope——环境与</text>
+  <text x="630" y="548" font-size="11.5" fill="#374151">后台状态跨命令保持；dev server</text>
+  <text x="630" y="566" font-size="11.5" fill="#374151">存活 · 端口 → DSH_WSL_PORTS</text>
+
+  <text x="470" y="628" text-anchor="middle" font-size="12" fill="#6B7280">路径决定归属：发行版目录的会话在这里运行，盘符目录的会话留在 Windows——同一进程</text>
+</svg>

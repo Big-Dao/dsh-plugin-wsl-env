@@ -6,61 +6,67 @@
 [![npm](https://img.shields.io/npm/v/dsh-plugin-wsl-env)](https://www.npmjs.com/package/dsh-plugin-wsl-env)
 [![license](https://img.shields.io/npm/l/dsh-plugin-wsl-env)](../LICENSE)
 
-一个 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件，在 Windows 的 WSL 2 发行版中打开项目工作区。
+把 WSL 2 发行版变成 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 桌面会话的执行环境：命令、文件、终端都在发行版内运行，harness 留在 Windows。DeepSeek Harness 有两种形态——带 Web UI 的 npm CLI，与 macOS/Windows 桌面应用；本插件只服务其中一种组合：Windows 桌面应用 + WSL 2 中的项目。发行版内不装服务、不开端口；受限命令经 `bubblewrap` 沙箱。
 
-Harness 进程仍在 Windows 上。命令执行、shell 脚本和文件访问都在发行版的 Linux 空间内完成，以获得全套 Linux shell 工具链。发行版内不安装辅助服务或守护进程，也不开放端口，受限命令在 `bubblewrap` 中运行。
+![没有插件：桌面应用全部运行在 Windows——命令落在 CMD/PowerShell，文件经 9p 共享访问发行版](screenshots/without-plugin.zh.svg)
 
-仅支持 Windows + WSL 2。
+![有插件：界面与模型调用留在 Windows，命令与文件进发行版，中间只有一条 stdio 管道](screenshots/with-plugin.zh.svg)
 
-**刚接触？** 从 [docs/QUICKSTART.zh.md](QUICKSTART.zh.md) 开始：前置条件、常用配方与兼容性表。
-
-## 需要这个插件吗？
-
-如果 harness 本身可以跑在发行版里，更简单的做法是**不用**这个插件：把 CLI 装在
-发行版里，直接在发行版终端运行。没有 UNC 路径、没有 9p 往返，也没有
-Windows→发行版的 agent。
-
-```bash
-# 在发行版内执行；CLI 要求 Node >= 24.9
-npm install -g @deepseek-ai/dsh
-dsh web                       # 浏览器界面，经 WSL 的 localhost 转发访问
-dsh headless "run the tests"  # 单任务、输出答案后退出
-```
-
-需要 harness 留在 Windows 时，才用本插件：
-
-| 你的场景 | 用什么 |
-|---|---|
-| 工作区在 WSL 内，终端或浏览器界面够用 | 装在发行版里的 CLI |
-| 想要 Windows 桌面应用，命令与文件落在发行版 | 本插件 |
-| 同一会话要同时访问 Windows 与 WSL 工作区 | 本插件（按路径路由正是它的价值） |
-
-两者混用有一个坑：`desktop` 这个 profile 名由 Electron 应用独占，npm CLI 拒绝
-管理它的插件——桌面场景请用应用内的 Plugins 页面。[VALUE.zh.md](VALUE.zh.md)
-有完整对照和"不适用"清单。
+**刚接触？** 从 [QUICKSTART.zh.md](QUICKSTART.zh.md) 开始。
 
 ## 为什么用这个插件
 
-Windows 上的编程工具要在 WSL 项目中工作，有三条路：把整个工具装进发行版、连接发行版内的辅助服务，或由插件直接提供发行版环境。本插件是第三条。两类会话共用一套流程，同时保留发行版的真实工具和命令沙箱。
+「agent 在 WSL 项目上反复失败时，让桌面应用直接在发行版环境里工作——不搬家、不装服务、不放弃沙箱。」
 
-- **真实的 Linux 环境。** 命令在发行版自己的登录 shell 中运行，`PATH`、`nvm`、`cargo`、`pyenv` 和 rc 文件都生效。文件工具通过发行版内的 agent 访问发行版路径，底层文件系统取决于路径。
-- **发行版内没有服务。** 没有辅助服务、没有守护进程、没有监听端口。唯一持久化的内容是 `~/.cache/dsh-wsl/agent/` 下按内容寻址的原生 agent 副本。
-- **默认有沙箱。** 受限命令在发行版内的 `bubblewrap` 中运行。缺少 `bubblewrap` 时命令直接失败，不会脱箱运行。
-- **按会话生效。** 打开发行版文件夹的会话获得发行版环境；打开 Windows 文件夹的会话保留 Windows 工具。两者可同时运行在一个 harness 进程中。
-- **与 GUI 集成。** 文件夹选择器列出已安装的发行版，终端在发行版内打开 shell，模型能看到监听端口。侧边栏的 **WSL 环境** 面板按发行版运行 doctor 快速检查——宿主侧执行，不进模型对话；会话启动预检在每次会话打开时把环境判定写进日志，只有 blocked 判定同时进入会话上下文。
+- 模型的强项是 POSIX，弱项是 CMD/PowerShell：Windows 工作区只能用弱项，WSL 工作区经 `wsl.exe` 逐条包装又丢失环境与状态。本插件让脚本在持久的发行版会话里原样运行。
+- 命令跑在发行版登录 shell：`PATH`、`nvm`、`cargo`、`pyenv`、rc 文件全部生效。
+- 发行版内无服务、无端口；唯一持久物是 `~/.cache/dsh-wsl/agent/` 下的 agent 缓存。
+- 受限命令默认经 `bubblewrap`；缺 bwrap 时命令失败，不脱箱。
+- 环境按会话生效：发行版目录会话进发行版，Windows 目录会话不变，可同进程并存。
+- 与 GUI 集成：文件夹选择器列出发行版，终端在发行版内打开，模型可见监听端口。
 
-### 为什么是 Linux，而不是 PowerShell
+完整论证（为什么是 Linux 而不是 PowerShell、价值与代价）见 [VALUE.zh.md](VALUE.zh.md)。
 
-多数编程 agent 的训练材料以 Linux 为主，开源工具链也大多先在 Linux 上构建和测试。让 agent 在 Windows shell 里工作，等于要求它在每次调用时做一层翻译：
+## 安装
 
-- **训练先验。** 示例、CI 脚本、Dockerfile 和大多数公开答案用的是 POSIX shell 和 GNU 工具；模型的第一反应是 `bash`，不是 PowerShell。
-- **工具链支持。** Node、Python、Rust、Go、C/C++ 和多数构建系统先在 Linux 上验证。Windows 支持往往是移植，引号、路径、换行和文件锁都不一样。
-- **Shell 语义。** PowerShell 和 `cmd` 在引号、转义、管道、环境变量、退出码和路径分隔符上都与 POSIX 不同。混用两套语法，很容易产生看起来像模型犯的低级错误。
-- **环境漂移。** Windows 侧的 PowerShell 版本、执行策略、PATH 和已装工具因人而异；Linux 环境更容易复现和容器化。
+桌面应用没有 `dsh` 可执行程序；插件经 **Plugins** 页安装。三步：
 
-结果是更多失败的命令、更多重试，以及更多时间花在语法而不是任务上。生成的代码也一样：shell 片段、构建命令和 CI 风格的一行命令通常按 POSIX 编写，发行版才是它们原样运行的地方。真实的 Linux 登录 shell 去掉了这层翻译。现代 PowerShell 和 Windows 原生工具在缩小差距，但默认先验和多数项目脚本仍然假设 POSIX。
+1. `wsl.exe -d <发行版> -u root -- apt-get install -y bubblewrap`
+2. Plugins 页：**Add plugin** → `dsh-plugin-wsl-env`，启用。
+3. 重启应用，打开发行版内的文件夹；输入 `/wsl-doctor`（宿主侧执行）得到 `ready`/`blocked` 裁决。
 
-本插件把 GUI 留在 Windows，只把执行环境移进发行版，让 agent 得到它的训练和工具链都假设的那个 shell。
+其余前置（发行版内不需要 Node.js）：
+
+| 前置 | 说明 |
+|---|---|
+| Windows 10/11 + WSL 2 + ≥1 个发行版 | `wsl.exe -l -v` 显示 `VERSION 2`；缺则 `wsl.exe --install` |
+| systemd + Linger（默认会话沙箱需要） | `/etc/wsl.conf` 设 `[boot] systemd=true`，`wsl --shutdown`，执行一次 `loginctl enable-linger "$USER"`；无 systemd 时设 `sessionSandbox` 为 `auto` 或 `false` |
+| 可选：`ripgrep`、`git`、`inotify-tools` | `pnpm run bootstrap <发行版>` 打印安装命令 |
+
+插件不修改已安装的 `resources/app.asar`。升级 = 重新安装后重启；卸载在 Plugins 页面，之后可删 `~/.cache/dsh-wsl`。细节见 [QUICKSTART.zh.md](QUICKSTART.zh.md)。
+
+## 需要这个插件吗？
+
+harness 能整个跑在发行版里时，不用本插件更简单：把 CLI 装进发行版即可（命令见 [QUICKSTART §0](QUICKSTART.zh.md)）。harness 必须留在 Windows 时才用本插件：
+
+| 场景 | 用什么 |
+|---|---|
+| 终端或浏览器界面够用 | 发行版内的 CLI |
+| 要 Windows 桌面应用，命令与文件在发行版 | 本插件 |
+| 一个会话同时访问 Windows 与 WSL 目录 | 本插件 |
+
+坑：`desktop` profile 名由 Electron 应用独占，npm CLI 拒绝管理它的插件——用应用内 Plugins 页。完整对照见 [VALUE.zh.md](VALUE.zh.md)。
+
+## 使用
+
+打开发行版文件夹作为工作区，如 `\\wsl.localhost\ubuntu\home\you\project`。
+
+- 打开哪个发行版的文件夹，就在哪个发行版执行。
+- 命令在发行版登录 shell 中运行；`/home/you/x` 与 `\\wsl.localhost\ubuntu\home\you\x` 是同一文件。
+- **New terminal** 在同一发行版、同一目录打开 shell。
+- 模型可见监听端口并返回 dev server URL（WSL 2 转发 localhost）。
+- 权限：`read-only` / `workspace-write`（默认）/ `danger-full-access`；只有最后一档不经沙箱。
+- 侧边栏 **WSL 环境** 面板按发行版诊断，见 [DIAGNOSTICS.zh.md](DIAGNOSTICS.zh.md)。
 
 ## 方案对比
 
@@ -71,120 +77,36 @@ Windows 上的编程工具要在 WSL 项目中工作，有三条路：把整个�
 | 命令沙箱 | 无 | `bubblewrap` |
 | 卸载 | 删除服务 | 删除缓存 |
 
-桌面远程重连更快、更成熟。如果 CLI agent 能覆盖你的工作，直接装进 WSL 更简单。本插件面向的场景是：harness 留在 Windows，同时要求命令有沙箱。
-
-## 要求
-
-- Windows 10 或 11，启用 WSL 2，并至少有一个发行版。
-- 发行版内安装 `bubblewrap`，必需。
-- 默认的会话沙箱需要 systemd：在 `/etc/wsl.conf` 设置 `[boot] systemd=true`，重启 WSL，然后执行一次 `loginctl enable-linger "$USER"`。没有 systemd 时，在 `wsl-shell` 和 `wsl-fs` 上把 `sessionSandbox` 设为 `auto`（可用时仍用 scope，否则每条命令单独约束）或显式 `false`。
-- 可选：`ripgrep` 用于搜索，`git` 用于变更快照，`inotify-tools` 用于文件监视。
-
-发行版内不需要 Node.js。
-
-## 安装
-
-Windows 桌面应用**没有 `dsh` 可执行程序**：安装器只写 `DeepSeek Harness.exe`，
-CLI 入口在 `resources/app.asar` 内部（探针脚本通过 `ELECTRON_RUN_AS_NODE` 启动它）。
-本页只演示桌面应用的路径。
-
-**最快的路径**：
-
-1. 装一次 `bubblewrap`：
-   `wsl.exe -d <发行版> -u root -- apt-get install -y bubblewrap`
-2. 按包名安装插件并启用——Plugins 页（**Add plugin** → `dsh-plugin-wsl-env`）。
-3. 重启应用，打开发行版里的文件夹；想在第一条命令前拿到裁决，
-   在输入框输入 `/wsl-doctor`。
-
-细节如下。
-
-**桌面应用**：在侧边栏打开 **插件**，点 **Add plugin**，填精确包名
-`dsh-plugin-wsl-env` 并启用。插件管理器写入当前 profile 的 `package.json`
-（依赖项与 `dsh.profile.bundles`）。从检出目录运行时，改为以链接形式添加该目录。
-启动方式与安装器创建的快捷方式一致：`DeepSeek Harness.exe`，不带参数——应用
-打开的就是 Plugins 页面写入的那个 profile。
-
-**不对宿主打补丁。** 插件从不修改已安装的 `resources/app.asar`。
-**在 VS Code 中打开（WSL）** 的桥完全在插件行内，因此应用升级不会丢掉它，
-插件升级也只需重新安装并重启——没有重新打 archive 补丁的步骤。应用自带的
-"Open in app" 是独立的上游缺陷，见
-[docs/UPSTREAM-OPEN-IN-APP.md](UPSTREAM-OPEN-IN-APP.md)。
-
-在插件检出目录中，`pnpm run doctor` 是一键环境体检：Windows/WSL 平台、每个发行版的 WSL 模式与身份、`.wslconfig` 与 `/etc/wsl.conf` 交叉核对、发行版与宿主卷、时钟与 DNS、bubblewrap 可用性、systemd / user manager / Linger、可选工具、peer 版本、native agent 与其缓存、新 agent 握手、证明链路完好的 shell 冒烟腿（帧 I/O、受限围栏、批量 substrate）与一条 native HELLO 腿、残留会话 scope、已知的 profile 补丁与废弃键陷阱。报告逐项列出每个检查——按 distro 分组，每项带显式状态标记，失败项下附可复制的处理办法——并以裁决收尾：`ready`（本次运行覆盖的检查全部通过，不保证每条命令都成功）或 `blocked`（列明待修项），按生效配置计算。运行可以收窄范围：`--quick` 只探首条命令的前置项（约 10 秒），`--sections <分区清单>`（逗号分隔）只运行指定分区，且范围化报告会把未运行的检查显式列为跳过项。`--json` 供脚本使用；`--fix` 会复核它修过的项——插件自有的残留 scope 清扫与 agent 缓存清理是安全自动的，安装包需要 `--fix --install` 并显式确认，`--fix-owned` 只运行插件自有的这两类（即侧边栏面板的“修复”动作）——`--all` 检查每个已装发行版，`--bundle <路径>` 写出可附加到问题报告的诊断文件（`--redact` 将路径脱敏）。固定骨架按宿主语言渲染——从 Windows 区域设置检测，可用 `--locale <标签>` 或 `DSH_WSL_DOCTOR_LOCALE` 覆盖；`--json` 保持语言无关。同一份报告经三个入口给出：本 CLI、`/wsl-doctor` 命令（在输入框输入——宿主侧执行，不进模型对话）、以及 `wsl_doctor` 模型工具（进程内采集，合并常驻 agent 的实时状态）。`DSH_WSL_DOCTOR` 还携带一条现成命令（`sh -c "$DSH_WSL_DOCTOR --json"`），可在发行版内直接重放 doctor。`pnpm run diagnose` 是 CLI 的只读别名。`pnpm run bootstrap <发行版>` 仍是较窄的工具安装助手。
-
-插件大约每天自行检查一次更新（启动后 2–10 分钟内首查），方式是询问应用的插件管理器——它从不自行联网。当存在更新的稳定版时，每个发行版会话中受管的 `DSH_WSL_PLUGIN_UPDATE` 变量会携带该事实；补丁配置里的 `wsl-update-check.enabled: false` 可关闭该检查。升级保持手动，因为 harness 没有热重载：重新安装（Plugins 页面），然后重启。
-
-卸载：在 Plugins 页面移除；之后可删除 `~/.cache/dsh-wsl`。如果你为了恢复预览在 profile 里加过 `workspace-files-wsl` 的临时覆盖，升级后请删掉：插件不再挂载该行。
-
-## 使用
-
-打开一个发行版文件夹作为工作区，例如 `\\wsl.localhost\ubuntu\home\you\project`。
-
-- 打开哪个发行版的文件夹，就在哪个发行版执行——即使它不是 WSL 的默认发行版。
-- 命令在发行版登录 shell 中运行。`/home/you/x` 与 `\\wsl.localhost\ubuntu\home\you\x` 是同一个文件。
-- **New terminal** 在同一发行版、同一目录打开 shell。
-- 模型能看到监听端口，并返回 dev server 的 URL。WSL 2 会把 localhost 转发到 Windows。
-- 权限选择器：`read-only`、`workspace-write`（默认）、`danger-full-access`。只有 `danger-full-access` 不经过沙箱。
-- 侧边栏的 **WSL 环境** 面板是诊断页：列出已安装的发行版，可对单个发行版运行 doctor 快速检查（bwrap / systemd / Linger 等前置项），并提供一次完整运行（`--fix-owned`，存在插件可修复项时标为 **修复**，否则标为 **完整检查**）——清扫残留 session scope、清理损坏的 agent 缓存并逐一复检，不安装软件包、不改写 Windows 配置；其余告警保留各自的手动处理办法。每个已检查的行还显示上次检查时间、来源（**手动** 或页面加载时的 **后台** 复核）与结果结构——各状态计数与分区分布。每个已检查的行还可展开查看本次运行执行的全部检查项，按分区分组、逐项带状态与依据（快速检查未触及的目录项只计数、不伪装成结果），绿色或异常的行都能被审计而不只是被相信。不必再打开 doctor 就能决定下一步。每个发行版的最后一次结果保存在 `$DSH_HOME/cache/dsh-plugin-wsl-env/status.json`（缺省回退到 `~/.dsh`），页面刷新或应用重启后仍可见；加载时只对正在运行的发行版在后台复核（不会启动已停止的发行版），后台运行失败会按实际观测覆盖已存结果。不标记“已过期”：时间戳就是时间戳。经 **添加工作区** 选中发行版目录时，会问一次 **Remote WSL**（默认，发行版内执行）还是 **Windows 访问**（按 9p 共享打开，没有 Linux 工具链），后者记录在 `auto-preset` 行的 `windowsWorkspaces` 中。这些记录下来的目录也会出现在能感知后果的位置：运行非 WSL preset 的发行版工作区会在输入框上方常驻一条警示（会话尚未开始时可一键切换；已开始后可修正访问记录），会话页头在警示收起后保留 **WSL工作区正以Windows模式打开** 小标记，面板里也列出已记录的目录供审计。
+桌面远程更成熟；CLI 装进 WSL 更简单。本插件用于：harness 留在 Windows，且命令需要沙箱。
 
 ## 配置
 
-配置写在 `$DSH_HOME/profiles/<名字>/cordis.patch.yml` 的命名行上。主要设置：
-
-| 行 | 键 | 默认值 | 作用 |
-|---|---|---|---|
-| `wsl-shell` | `distro` | `''` | 发行版模式；空/`auto` 跟随工作区，`default` 强制 WSL 默认 |
-| | `sandbox` | `true` | 用 `bubblewrap` 约束命令 |
-| | `sessionSandbox` | `false`；随包 `true` | 会话命令跑在同一个 systemd user scope 中 |
-| | `agentBackend` | `auto` | 发行版内 agent：`auto`、`native` 或 `shell` |
-| | `maskWindowsDrive` | `false` | 让受限命令看不到 `/mnt` |
-| | `writableRoots` | `[]` | 额外可写的发行版目录（工具链缓存等；`wsl-fs` 上配同一列表） |
-| `wsl-fs` | `distro` | `''` | 发行版模式；空/`auto` 跟随每个目标路径 |
-| | `restrictToDistro` | `true` | 固定发行版（`default` 或名字）时拒绝属于其他发行版的路径 |
-| | `sandbox` | `true` | 按策略检查受限写入 |
-| | `sessionSandbox` | `false`；随包 `true` | 受限写入跑在会话 runtime 中 |
-| | `substrate` | `agent` | 发行版内 agent；`share` 在启动时被拒绝 |
-| | `writableRoots` | `[]` | 与 `wsl-shell` 相同的额外可写目录列表 |
-| `directory-picker-wsl` | `includeHostHome` | `true` | 同时提供 Windows 路径分支（从驱动器开始） |
-| `subprocess-wsl` | `distro` | `''` | 发行版模式；空/`auto` 跟随启动目录 |
-| `wsl-preflight` | `distro` | `''` | 环境检查探测的发行版；空/`auto` 跟随会话工作区 |
-| | `startup` | `true` | 插件加载时预先运行同一组检查，让判定在任何会话打开之前就出现在日志里 |
-
-`fs-routing` 是根级 `ctx.fs` 调用的顶层路由：它的发行版设置独立于 `wsl-fs`，也是按 id 在顶层补丁中覆盖的行。`wsl-shell` 和 `wsl-fs` 位于随包的 `wsl` preset 中，按 id 覆盖无效。要改就覆盖整个 `preset-wsl` 行；配方和其余键见 [CONFIGURATION.zh.md](CONFIGURATION.zh.md)。[`cordis.patch.yml`](../cordis.patch.yml) 是随包值的注释参考。
+配置在 `$DSH_HOME/profiles/<名字>/cordis.patch.yml` 的命名行上。`wsl-shell`/`wsl-fs` 嵌套在 `preset-wsl` 里，按 id 覆盖无效，须整行覆盖。全部键与配方见 [CONFIGURATION.zh.md](CONFIGURATION.zh.md)；[`cordis.patch.yml`](../cordis.patch.yml) 是随包值的注释参考。
 
 ## 架构
 
-一个 harness 进程可同时服务 Windows 文件夹会话和发行版文件夹会话。服务分两层挂载：
-
 ```text
-应用层（每个进程一份）
+应用层（每进程）
 ├─ directory-picker-wsl、workspace-files、subprocess-wsl
-├─ fs-routing：根级文件系统，按路径分流
-└─ auto-preset：会话打开发行版文件夹时绑定 wsl preset
+├─ fs-routing：根级文件系统按路径分流
+└─ auto-preset：会话打开发行版目录时绑定 wsl preset
 
-wsl preset（每个会话）
+wsl preset（每会话）
 ├─ wsl-shell：命令
 └─ wsl-fs：文件操作
 ```
 
-- `wsl-shell` 通过 systemd user scope 内的一个常驻 agent 执行命令。agent 默认是发行版架构（`x86_64` 或 `aarch64`）对应的包内静态 musl `dsh-wsl-agent`，shell agent 作为回退。每条命令在登录 shell 中、`bubblewrap` mount profile 下运行。scope 比命令活得久，所以后台服务存活，`ps` 能看到整个会话。设置 `sessionSandbox: false` 后，agent 仍按发行版常驻，但每条命令使用自己的 profile。
-- `wsl-fs` 通过同一个发行版内 agent 提供读写。受限写入运行在 mount profile 与策略一致的常驻 agent 中，由内核执行写入边界。没有宿主机侧的文件回退：agent 不可用时文件操作直接失败。
-- GUI 文件树和预览使用随包的 `workspace-files` 行，而不是插件的替换行：它的客户端半边是浏览器的 `file` 资源提供者。WSL 路径经根级路由读取，仍在发行版内，但会多几次 agent 往返。
-- 应用层服务按路径分流：发行版 UNC 路径走发行版，Windows 盘符路径留在宿主。见 [docs/root-fs-routing.md](root-fs-routing.md)。
+命令与文件走发行版内常驻 agent（systemd user scope + `bubblewrap` profile）。发行版 UNC 路径进发行版，盘符路径留宿主。详见 [ARCHITECTURE.zh.md](ARCHITECTURE.zh.md)。
 
 ## 沙箱
 
 | 模式 | 命令可以做什么 |
 |---|---|
-| `read-only` | 读整个发行版；挂载新的 `/dev`，其余不可写 |
-| `workspace-write` | 上面的权限，加上会话工作区与配置的 `writableRoots`；会话 runtime 下 `/tmp` 是发行版真实 `/tmp` |
-| `danger-full-access` | 不经过沙箱 |
+| `read-only` | 读整个发行版；仅新挂载的 `/dev`，其余不可写 |
+| `workspace-write` | 加上会话工作区与配置的 `writableRoots` |
+| `danger-full-access` | 不经沙箱 |
 
-设置 `sessionSandbox: false` 时，`workspace-write` 命令使用私有的 `/tmp`，而不是发行版的真实 `/tmp`；`read-only` 不挂载可写的 `/tmp`。
-
-`bubblewrap` 是必需项。缺失或损坏时，受限命令报 `SANDBOX_UNAVAILABLE`，不会运行。在对应的行设置 `sandbox: false` 可关闭沙箱；模型会收到"该操作无沙箱"的说明。
-
-隔离上报为 `partial`。发行版内的命令仍可通过 `/mnt/c` 启动 Windows 程序，`bubblewrap` 无法控制 Windows 进程。`maskWindowsDrive: true` 让受限视图看不到 `/mnt`，但会被 `interopVisibility: visible` 覆盖；遮罩只能收窄这个洞，不能关死。关闭 WSL interop 需要另行在发行版的 `/etc/wsl.conf` 中设置 `[interop] enabled=false`。见 [ARCHITECTURE.zh.md](ARCHITECTURE.zh.md#沙箱) 和 [SECURITY.zh.md](../SECURITY.zh.md)。
+缺 `bubblewrap` 时受限命令报 `SANDBOX_UNAVAILABLE`，不运行。隔离为 `partial`：发行版内进程仍可经 `/mnt/c` 启动 Windows 程序。详见 [ARCHITECTURE.zh.md](ARCHITECTURE.zh.md#沙箱) 与 [SECURITY.zh.md](../SECURITY.zh.md)。
 
 ## 常见问题
 
@@ -198,7 +120,7 @@ wsl preset（每个会话）
 | 对 `wsl-shell`/`wsl-fs` 的 profile 补丁不生效 | 这些行嵌套在 `preset-wsl` 里。运行 `pnpm run preset --check <补丁>`；它会失败并输出需要粘贴的完整块 |
 | 改了 `lib/` 但不生效 | 运行 `pnpm run sync:windows`，然后重启应用 |
 
-更多错误码和拒绝原因见 [ARCHITECTURE.zh.md](ARCHITECTURE.zh.md#错误码)，插件不做的事见 [LIMITATIONS.zh.md](LIMITATIONS.zh.md)。
+更多错误码见 [ARCHITECTURE.zh.md](ARCHITECTURE.zh.md#错误码)，插件不做的事见 [LIMITATIONS.zh.md](LIMITATIONS.zh.md)。
 
 ## 开发
 
@@ -210,9 +132,7 @@ pnpm run test:coverage # 带覆盖率阈值的单元测试
 pnpm run sync:windows  # 更新应用加载的 Windows 侧副本
 ```
 
-工具链跟随 harness 宿主：Node `^22.19.0 || >=24.0.0`。`src/` 是 TypeScript，`lib/` 是生成并提交的产物，必须保持同步。应用加载的是 Windows 侧的 `lib/` 副本，所以构建后要运行 `sync:windows` 并重启应用。
-
-真机探针仅在 Windows + WSL 下运行。见 [CONTRIBUTING.zh.md](../CONTRIBUTING.zh.md) 和 `test/probe/`。
+Node `^22.19.0 || >=24.0.0`；`src/` 是 TypeScript，`lib/` 是提交进仓的构建产物。真机探针仅 Windows + WSL。见 [CONTRIBUTING.zh.md](../CONTRIBUTING.zh.md) 与 `test/probe/`。
 
 ## 文档
 

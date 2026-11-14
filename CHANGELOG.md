@@ -32,6 +32,23 @@ were part of the record.
   `test/probe/run.sh`) and the update-check service comment carry the same
   reality; the CHANGELOG's older entries are history and stay as written.
 
+- **The README pair is now a one-page pitch: a one-line definition that
+  names DSH's two delivery forms and the one combination the plugin serves,
+  a bilingual without/with diagram pair, a three-step install, and short
+  sections that link the owning document for every detail.** The diagrams
+  carry the core pain and label the two workspace modes — a Windows
+  workspace gets CMD/PowerShell, a WSL workspace only reaches POSIX through
+  stateless `wsl.exe` wrappers — and the first "Why this plugin" bullet
+  states it. The contrast table, the doctor walkthrough, the configure
+  table and the architecture/sandbox detail moved out of the README; the
+  CLI install commands moved to QUICKSTART §0, the upgrade/uninstall and
+  no-host-patch notes to QUICKSTART §2, the "Why Linux, not PowerShell"
+  essay into VALUE's six-sources section, and VALUE also gained a
+  Remote-SSH comparison for the Windows host (reach, sshd setup, in-distro
+  footprint, sandbox). Anchored headings keep their names, the decision
+  table stays, and the sandbox section keeps the `partial` wording. The
+  diagram SVGs ship in the tarball. `pnpm test`: 119 pass.
+
 ## [0.26.0] - 2026-11-12
 
 One theme: adapted to DeepSeek Harness `0.2.2-rc.2` without patching the host —

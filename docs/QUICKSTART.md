@@ -9,7 +9,15 @@ This page is the entry point; every claim links to the document that owns it.
 
 If the harness can run inside the distro, installing the CLI there and
 skipping this plugin is simpler — the
-[README's decision table](../README.md#do-i-need-this-plugin) has the cases.
+[README's decision table](../README.md#do-i-need-this-plugin) has the cases:
+
+```bash
+# inside the distro; the CLI needs Node >= 24.9
+npm install -g @deepseek-ai/dsh
+dsh web                       # browser UI, reached through WSL's localhost forwarding
+dsh headless "run the tests"  # one task, one answer, exit
+```
+
 The rest of this page assumes the desktop app stays on Windows and this plugin
 supplies the WSL environment.
 
@@ -62,6 +70,14 @@ writes the profile's `package.json` and its `dsh.profile.bundles` entry.
 For a profile that already overrides the preset, keep the override as the full
 `preset-wsl` block — `pnpm run preset --check <patch>` fails loudly when a layer
 targets `wsl-shell`/`wsl-fs` by id.
+
+The plugin never edits the installed `resources/app.asar`: an app upgrade
+cannot drop the bridge, and a plugin update only needs a reinstall and restart.
+Upgrade = install again on the Plugins page, then restart (the harness has no
+hot reload); uninstall happens on the same page, after which `~/.cache/dsh-wsl`
+can be deleted. If you added a local `workspace-files-wsl` workaround to your
+profile to restore previews, remove it after upgrading: the plugin no longer
+mounts that row.
 
 ## 3. Open a WSL workspace
 

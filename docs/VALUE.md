@@ -76,6 +76,19 @@ This plugin fills the combination beyond those three: **the app stays on Windows
 
 **Evidence.** [ARCHITECTURE "Error codes"](ARCHITECTURE.md#error-codes), [README "Troubleshooting"](../README.md#troubleshooting); `test/ports.test.mjs`, `test/preflight.test.mjs`, `test/terminal.test.mjs`.
 
+### Why Linux, not PowerShell
+
+The underlying argument for Value 1: most coding agents learn from Linux-first material, and most open-source toolchains are built and tested on Linux first. Asking an agent to work through a Windows shell adds a translation layer on every call:
+
+- **Training prior.** Examples, CI scripts, Dockerfiles and most public answers use POSIX shells and GNU tools. A model's first instinct is `bash`, not PowerShell.
+- **Toolchain support.** Node, Python, Rust, Go, C/C++ and most build systems are validated on Linux first. Windows support is often a port with different quoting, paths, line endings and file locking.
+- **Shell semantics.** PowerShell and `cmd` differ from POSIX in quoting, escaping, pipelines, environment variables, exit codes and path separators. Mixing the two produces errors that look like model mistakes.
+- **Environment drift.** Windows setups vary by PowerShell version, execution policy, PATH and installed tools. Linux environments are easier to reproduce and containerize.
+
+The result is more failed commands, more retries and more time spent on syntax instead of the task. Generated code is affected too: shell snippets, build commands and CI-style one-liners are usually written for POSIX, and the distro is where they run unchanged. A real Linux login shell removes that translation layer. Modern PowerShell and Windows-native toolchains narrow the gap, but the default prior and most project scripts still assume POSIX.
+
+This plugin keeps the GUI on Windows and moves only the execution environment into the distro, so the agent gets the shell that its training and the toolchain both assume.
+
 ## 3. Value comparison with alternatives
 
 | | No integration (open UNC on the Windows side) | Desktop remote (VS Code Remote-WSL, etc.) | Install the CLI inside WSL | This plugin |
@@ -89,6 +102,20 @@ This plugin fills the combination beyond those three: **the app stays on Windows
 | Applicability | Can accept slowness and loss of semantics | Use VS Code / the corresponding desktop client | The tool can be moved entirely into WSL | Windows + DSH GUI + WSL2 |
 
 **Say plainly where others are stronger.** Reopening a workspace in desktop remote is instantaneous, and the service is always resident; VS Code's remote has years of production hardening. A CLI installed inside WSL needs no bridge at all. This plugin does not try to win on those dimensions; it solves one combination: **DSH on Windows, the project in WSL, and commands that must be sandboxed.**
+
+### Against Remote-SSH (Windows host)
+
+Remote-SSH can also reach a WSL distro from Windows (VS Code normally uses its Remote-WSL extension for the local case, not SSH; this is about Remote-SSH). It requires sshd inside the distro, and the differences from this plugin concentrate in a few rows:
+
+| | Remote-SSH to WSL | This plugin |
+|---|---|---|
+| Reach | any SSH host (cloud VMs, remote servers) | local WSL 2 distros only |
+| Setup | openssh-server in the distro, keys; a WSL NAT IP changes on every restart — port proxy or mirrored networking needed | none — install from the Plugins page |
+| Network | sshd listening on a port | stdio over wsl.exe, no port, nothing listening |
+| In-distro footprint | `~/.vscode-server` (accumulates per version, needs maintenance) | one content-addressed agent cache |
+| Command sandbox | none | bubblewrap + the DSH permission tiers |
+
+**Where Remote-SSH is stronger, plainly**: when the target machine is not the local WSL (cloud VMs, office servers) it is the right tool, and the host does not have to be Windows. This plugin covers only the local-distro arrival — the trade is zero network configuration, no server-side in the distro, and a command sandbox.
 
 ## 4. Costs, boundaries, and non-applicability
 

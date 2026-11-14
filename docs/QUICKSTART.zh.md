@@ -8,8 +8,16 @@
 ## 0. 需要这个插件吗？
 
 如果 harness 可以整个跑在发行版里，把 CLI 装进去并跳过本插件会更简单——
-判断表见 [README](README.zh.md#需要这个插件吗)。本页其余部分假定桌面应用留在
-Windows，由本插件提供 WSL 环境。
+判断表见 [README](README.zh.md#需要这个插件吗)：
+
+```bash
+# 在发行版内执行；CLI 要求 Node >= 24.9
+npm install -g @deepseek-ai/dsh
+dsh web                       # 浏览器界面，经 WSL 的 localhost 转发访问
+dsh headless "run the tests"  # 单任务、输出答案后退出
+```
+
+本页其余部分假定桌面应用留在 Windows，由本插件提供 WSL 环境。
 
 ## 1. 前置条件
 
@@ -53,6 +61,11 @@ agent 缓存，两者都会复检；以及确认后的 Windows git 信任）或
 如果 profile 已覆盖 preset，请保持覆盖为完整的
 `preset-wsl` 块——当某个层直接按 id 指向 `wsl-shell`/`wsl-fs` 时，
 `pnpm run preset --check <patch>` 会明确报错。
+
+插件不修改已安装的 `resources/app.asar`：应用升级不受影响，插件升级只需重新
+安装并重启。升级 = 在 Plugins 页重新安装后重启（harness 无热重载）；卸载也在
+Plugins 页，之后可删 `~/.cache/dsh-wsl`。曾为恢复预览加过 `workspace-files-wsl`
+临时覆盖的，升级后删除：插件不再挂载该行。
 
 ## 3. 打开 WSL 工作区
 

@@ -155,6 +155,7 @@
     "docs/README.zh.md",
     "docs/QUICKSTART.md",
     "docs/screenshots/*.png",
+    "docs/screenshots/*.svg",
     "docs/PERFORMANCE.md",
     "docs/COMPATIBILITY.md",
     "docs/CONFIGURATION.md",

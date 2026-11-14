@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="940" height="640" viewBox="0 0 940 640" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748B"/>
+    </marker>
+  </defs>
+  <rect width="940" height="640" fill="#FFFFFF"/>
+
+  <text x="470" y="34" text-anchor="middle" font-size="17" font-weight="600" fill="#111827">With the plugin — one session, two halves</text>
+  <text x="470" y="56" text-anchor="middle" font-size="12.5" fill="#6B7280">the GUI and model calls stay on Windows; commands and files run inside the distro</text>
+
+  <!-- Windows host -->
+  <rect x="40" y="78" width="860" height="280" rx="10" fill="#EFF6FF" stroke="#93C5FD" stroke-width="1.5"/>
+  <text x="56" y="102" font-size="12" font-weight="700" fill="#1D4ED8" letter-spacing="0.5">WINDOWS HOST</text>
+
+  <rect x="60" y="114" width="820" height="100" rx="8" fill="#FFFFFF" stroke="#60A5FA"/>
+  <text x="76" y="138" font-size="13" font-weight="700" fill="#1E3A8A">DeepSeek Harness Desktop</text>
+  <text x="76" y="160" font-size="12.5" fill="#374151">GUI — chat · file tree · previews · terminal panel</text>
+  <text x="76" y="180" font-size="12.5" fill="#374151">model calls (LLM API traffic)</text>
+  <text x="76" y="200" font-size="12.5" fill="#374151">profiles &amp; session state — <tspan font-family="ui-monospace, Consolas, monospace" font-size="12">%USERPROFILE%\.dsh</tspan></text>
+
+  <rect x="60" y="230" width="820" height="108" rx="8" fill="#DBEAFE" stroke="#60A5FA"/>
+  <text x="76" y="254" font-size="13" font-weight="700" fill="#1E40AF">dsh-plugin-wsl-env — host half</text>
+  <text x="76" y="278" font-size="12" fill="#1E3A8A" font-family="ui-monospace, Consolas, monospace">fs-routing:  \wsl.localhost\… → distro   ·   C:\… → host</text>
+  <text x="76" y="298" font-size="12.5" fill="#1E3A8A">auto-preset binds the wsl preset when a session opens a distro folder</text>
+  <text x="76" y="318" font-size="12.5" fill="#1E3A8A">distro picker · doctor host-side probes · a Windows-folder session stays unchanged</text>
+
+  <!-- the stdio channel -->
+  <line x1="470" y1="366" x2="470" y2="414" stroke="#64748B" stroke-width="2" marker-start="url(#arrow2)" marker-end="url(#arrow2)"/>
+  <text x="486" y="390" font-size="12.5" font-weight="700" fill="#374151">stdio over wsl.exe — once, for the whole session</text>
+  <rect x="150" y="376" width="250" height="22" rx="11" fill="#DCFCE7"/>
+  <text x="275" y="391" text-anchor="middle" font-size="11.5" font-weight="700" fill="#15803D">no port · no service · nothing listening</text>
+
+  <!-- distro -->
+  <rect x="40" y="422" width="860" height="188" rx="10" fill="#F0FDF4" stroke="#86EFAC" stroke-width="1.5"/>
+  <text x="56" y="446" font-size="12" font-weight="700" fill="#15803D" letter-spacing="0.5">WSL 2 DISTRO (LINUX VM)</text>
+  <text x="76" y="470" font-size="13" font-weight="700" fill="#166534">resident agent</text>
+  <text x="196" y="470" font-size="12" fill="#374151" font-family="ui-monospace, Consolas, monospace">~/.cache/dsh-wsl/agent/  (content-addressed, nothing else persisted)</text>
+
+  <rect x="60" y="484" width="266" height="104" rx="8" fill="#FFFFFF" stroke="#BBF7D0"/>
+  <text x="76" y="508" font-size="12.5" font-weight="700" fill="#166534">commands</text>
+  <text x="76" y="530" font-size="11.5" fill="#374151">plain POSIX — no wsl.exe prefix;</text>
+  <text x="76" y="548" font-size="11.5" fill="#374151">login shell: PATH, nvm, cargo, rc</text>
+  <text x="76" y="566" font-size="11.5" fill="#374151">bubblewrap fence per command</text>
+
+  <rect x="337" y="484" width="266" height="104" rx="8" fill="#FFFFFF" stroke="#BBF7D0"/>
+  <text x="353" y="508" font-size="12.5" font-weight="700" fill="#166534">files</text>
+  <text x="353" y="530" font-size="11.5" fill="#374151">ext4 native semantics</text>
+  <text x="353" y="548" font-size="11.5" fill="#374151">the distro’s own rg · watch</text>
+  <text x="353" y="566" font-size="11.5" fill="#374151">git change snapshots</text>
+
+  <rect x="614" y="484" width="266" height="104" rx="8" fill="#FFFFFF" stroke="#BBF7D0"/>
+  <text x="630" y="508" font-size="12.5" font-weight="700" fill="#166534">session runtime</text>
+  <text x="630" y="530" font-size="11.5" fill="#374151">one systemd user scope — env and</text>
+  <text x="630" y="548" font-size="11.5" fill="#374151">background state persist; dev servers</text>
+  <text x="630" y="566" font-size="11.5" fill="#374151">survive · ports → DSH_WSL_PORTS</text>
+
+  <text x="470" y="628" text-anchor="middle" font-size="12" fill="#6B7280">path decides: a distro-folder session runs here, a drive-letter session stays on Windows — both in one process</text>
+</svg>

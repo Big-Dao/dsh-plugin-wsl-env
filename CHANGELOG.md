@@ -16,6 +16,12 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-11-16
+
+One theme: the peer self-check now answers for the set the running plugin
+actually loads, so a stale tree beside the runtime mirror can no longer fail
+it; the README/docs pass that leads with the desktop-app path ships too.
+
 ### Fixed
 
 - **The `peers.versions` self-check no longer reports a stale `node_modules`

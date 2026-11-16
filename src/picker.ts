@@ -57,10 +57,10 @@ import { DirectoryPicker, DirectoryPickerError } from "@deepseek-ai/dsh-host-dir
 import type { Context } from "@deepseek-ai/cordis";
 import type { DirectoryEntry, DirectoryListing, DirectoryPickerBrowseCapability } from "@deepseek-ai/dsh-host-directory-picker";
 import { UNC_PROVIDER_ROOT, distroRoot, isProviderRoot, isWslUnc, uncToPosix } from "./paths.js";
-import { breadcrumbs, boundedInsert, dirListingArgv, fullyQualified, parseDirListing } from "./listing.js";
+import { breadcrumbs, boundedInsert, dirListingArgv, distroMkdirArgv, fullyQualified, parseDirListing } from "./listing.js";
 import { listDistros, linuxHome, runCapture } from "./wsl.js";
 import { sharedAgent } from "./agent-shared.js";
-import { AgentUnavailableError } from "./agent-errors.js";
+import { AgentUnavailableError, CwdError, SpawnError } from "./agent-errors.js";
 
 /** How long a resolved distro list stays fresh before it is queried again. */
 const DEFAULT_DISTRO_CACHE_MS = 5_000;
@@ -462,14 +462,21 @@ export class WslDirectoryPicker extends DirectoryPicker {
       }
       stdout = result.stdout;
     } catch (error) {
-      if (!(error instanceof AgentUnavailableError)) throw error;
-      try {
-        stdout = await runCapture(
-          [this.config.wslPath, "-d", parsed.distro, "--cd", linuxDir, "--exec", ...dirListingArgv(linuxDir)],
-          signal,
-        );
-      } catch (fallbackError) {
-        throw new DirectoryPickerError("directory-unreadable", target, `cannot list "${target}": ${messageOf(fallbackError)}`);
+      if (error instanceof AgentUnavailableError) {
+        try {
+          stdout = await runCapture(
+            [this.config.wslPath, "-d", parsed.distro, "--cd", linuxDir, "--exec", ...dirListingArgv(linuxDir)],
+            signal,
+          );
+        } catch (fallbackError) {
+          throw new DirectoryPickerError("directory-unreadable", target, `cannot list "${target}": ${messageOf(fallbackError)}`);
+        }
+      } else if (error instanceof CwdError || error instanceof SpawnError) {
+        // The agent could not enter the directory (or start the program): a
+        // picker failure with the path, not an opaque provider error.
+        throw new DirectoryPickerError("directory-unreadable", target, `cannot list "${target}": ${messageOf(error)}`);
+      } else {
+        throw error;
       }
     }
     return parseDirListing(stdout, linuxDir, target, this.config.maxEntries);
@@ -571,7 +578,7 @@ export class WslDirectoryPicker extends DirectoryPicker {
     const parsed = uncToPosix(parent) as import("./paths.js").DistroPath;
     const linuxParent = parsed.linuxPath.length > 0 ? parsed.linuxPath : "/";
     try {
-      const result = await sharedAgent(parsed.distro).exec({ cwd: linuxParent, argv: ["mkdir", "--", name], timeoutMs: 10_000 });
+      const result = await sharedAgent(parsed.distro).exec({ cwd: linuxParent, argv: distroMkdirArgv(linuxParent, name), timeoutMs: 10_000 });
       if (result.exitCode === 0) return target;
       const detail = result.stderr.toString("utf8");
       if (/File exists/i.test(detail)) throw new DirectoryPickerError("directory-exists", target, `${target} already exists`);
@@ -582,15 +589,22 @@ export class WslDirectoryPicker extends DirectoryPicker {
       );
     } catch (error) {
       if (error instanceof DirectoryPickerError) throw error;
-      if (!(error instanceof AgentUnavailableError)) throw error;
-      try {
-        await runCapture([this.config.wslPath, "-d", parsed.distro, "--cd", linuxParent, "--exec", "mkdir", "--", name]);
-        return target;
-      } catch (fallbackError) {
-        const message = messageOf(fallbackError);
-        if (/File exists/i.test(message)) throw new DirectoryPickerError("directory-exists", target, `${target} already exists`);
-        throw new DirectoryPickerError("directory-create-failed", target, `cannot create "${target}": ${message}`);
+      if (error instanceof AgentUnavailableError) {
+        try {
+          // Absolute target: a `--cd` that silently fell back to `/` must not
+          // turn this into a creation somewhere else.
+          await runCapture([this.config.wslPath, "-d", parsed.distro, "--cd", linuxParent, "--exec", ...distroMkdirArgv(linuxParent, name)]);
+          return target;
+        } catch (fallbackError) {
+          const message = messageOf(fallbackError);
+          if (/File exists/i.test(message)) throw new DirectoryPickerError("directory-exists", target, `${target} already exists`);
+          throw new DirectoryPickerError("directory-create-failed", target, `cannot create "${target}": ${message}`);
+        }
       }
+      if (error instanceof CwdError || error instanceof SpawnError) {
+        throw new DirectoryPickerError("directory-create-failed", target, `cannot create "${target}": ${messageOf(error)}`);
+      }
+      throw error;
     }
   }
 }

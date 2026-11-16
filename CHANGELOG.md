@@ -64,6 +64,17 @@ were part of the record.
   the delegate's per-stream cut flags over. Pinned by
   `test/git-exec.test.mjs`.
 
+- **The directory picker can no longer create a directory in `/` while
+  reporting the requested target.** `createDirectory`'s one-shot fallback ran
+  a relative `mkdir -- <name>` under `--cd <parent>`; a parent that vanished
+  makes `wsl.exe` warn, run in `/`, and exit 0 — where a writable root (a
+  root-default image) turns that into a created `/name` reported as the UNC
+  target. The argv now names the absolute target on both transports
+  (`distroMkdirArgv`), and the picker maps the agent's `CwdError` /
+  `SpawnError` to `DirectoryPickerError` instead of leaking an opaque provider
+  error. Pinned by `test/listing.test.mjs`; the peer-bound row itself remains
+  probe-covered.
+
 ### Changed
 
 - **The doctor's quick pass now includes the optional-tool probe.**

@@ -170,6 +170,27 @@ export function dirListingArgv(linuxDir: string): string[] {
 }
 
 /**
+ * The distro-side argv one picker directory is created with.
+ *
+ * The target is named in ABSOLUTE form even though the agent path also sets a
+ * working directory: `wsl.exe --cd <missing>` does not fail — it warns, runs
+ * the command in `/` and exits 0 — so a relative `mkdir -- <name>` on the
+ * one-shot fallback would create `/name` while the picker reports the UNC
+ * target as created (when the distro user can write `/`, e.g. a root-default
+ * image). The absolute path makes the target independent of the directory the
+ * transport actually entered; the agent path keeps the same argv, and its
+ * `cwd` still supplies the existence check.
+ *
+ * @param linuxParent - the absolute Linux parent directory.
+ * @param name - the validated single path segment to create.
+ * @returns the argv for the agent or a `wsl.exe --exec` launch.
+ */
+export function distroMkdirArgv(linuxParent: string, name: string): string[] {
+  const base = linuxParent.endsWith("/") ? linuxParent : `${linuxParent}/`;
+  return ["mkdir", "--", `${base}${name}`];
+}
+
+/**
  * Parse one `find -print0` listing into the picker's rows.
  *
  * Entries arrive NUL-separated as `<linuxDir>/<name>`; the linuxDir prefix is

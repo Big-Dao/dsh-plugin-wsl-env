@@ -5,7 +5,7 @@
  *   node test/listing.test.mjs
  */
 import assert from "node:assert/strict";
-import { ancestryCrumbs, boundedInsert, breadcrumbs, dirListingArgv, fullyQualified, parseDirListing } from "../lib/listing.js";
+import { ancestryCrumbs, boundedInsert, breadcrumbs, dirListingArgv, distroMkdirArgv, fullyQualified, parseDirListing } from "../lib/listing.js";
 import { UNC_PROVIDER_ROOT, distroRoot, isProviderRoot } from "../lib/paths.js";
 
 let passed = 0;
@@ -137,6 +137,17 @@ check("boundedInsert displaces the largest when a smaller candidate arrives", ()
 
 check("dirListingArgv lists one level with links resolved and NUL separation", () => {
   assert.deepEqual(dirListingArgv("/home/andy"), ["find", "-L", "/home/andy", "-maxdepth", "1", "-mindepth", "1", "-type", "d", "-print0"]);
+});
+
+check("distroMkdirArgv names the absolute target, so a --cd fallback cannot create in /", () => {
+  // A relative `mkdir -- name` runs in `/` when `wsl.exe --cd` silently fell
+  // back, and on a writable `/` (a root-default image) that creates the wrong
+  // directory and reports success. The absolute spelling makes the target
+  // independent of the directory the transport actually entered.
+  assert.deepEqual(distroMkdirArgv("/home/andy/proj", "new"), ["mkdir", "--", "/home/andy/proj/new"]);
+  assert.deepEqual(distroMkdirArgv("/home/andy/proj/", "new"), ["mkdir", "--", "/home/andy/proj/new"], "a trailing separator does not double");
+  assert.deepEqual(distroMkdirArgv("/", "new"), ["mkdir", "--", "/new"], "the root parent stays absolute");
+  assert.deepEqual(distroMkdirArgv("", "new"), ["mkdir", "--", "/new"], "an empty parent means the distro root");
 });
 
 check("parseDirListing keeps enterable rows, carries the UNC parent into paths, and sorts", () => {

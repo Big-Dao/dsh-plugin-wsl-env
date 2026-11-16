@@ -16,6 +16,12 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.26.2] - 2026-11-17
+
+One theme: a broken distro's failures surface as the program's own —
+actionable exit codes and remedies instead of opaque provider errors — while
+the doctor's quick pass spots the missing tools before the model does.
+
 ### Fixed
 
 - **A search in a distro without ripgrep reports rg's failure, not an opaque

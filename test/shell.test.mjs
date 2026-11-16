@@ -5,7 +5,7 @@
  *   node test/shell.test.mjs
  */
 import assert from "node:assert/strict";
-import { shellArgs, workdirFailure, wslErrorCode } from "../lib/wsl.js";
+import { execProgramFailure, shellArgs, workdirFailure, wslErrorCode } from "../lib/wsl.js";
 import { toLinuxPath } from "../lib/paths.js";
 
 let passed = 0;
@@ -89,6 +89,19 @@ check("a command's own chdir message is not mistaken for the relay's", () => {
   assert.equal(workdirFailure("done", "chdir(/x) failed"), undefined);
   assert.equal(workdirFailure("", "CreateProcessCommon: chdir(/x) failed"), undefined);
   assert.equal(workdirFailure("hi", ""), undefined);
+});
+
+check("the relay's missing-program line is recognised, UTF-16 included", () => {
+  const stderr = "<3>WSL (269223 - Relay) ERROR: CreateProcessCommon:881: execvpe(rg) failed: No such file or directory";
+  assert.equal(execProgramFailure("", stderr), "execvpe(rg) failed: No such file or directory");
+  const utf16 = Buffer.from(stderr, "utf16le").toString("utf8");
+  assert.equal(execProgramFailure("", utf16), "execvpe(rg) failed: No such file or directory");
+});
+
+check("a program's own message is not mistaken for the relay's", () => {
+  assert.equal(execProgramFailure("", "rg: not found"), undefined);
+  assert.equal(execProgramFailure("execvpe(rg) failed: Permission denied", ""), undefined);
+  assert.equal(execProgramFailure(undefined, undefined), undefined);
 });
 
 console.log(`\n${passed} checks passed`);

@@ -116,7 +116,10 @@ agent preset 在其隔离域中运行服务。preset registry 在自己的上下
 发行版内——文件搜索工具随包的 ripgrep 和 git 快照命令（两者都优先走已预热的
 常驻 agent——协议 v6 承载 git 调用的 stdin，而一次性调用要付出约 230 ms 的
 `wsl.exe` 启动开销，常驻 agent 只需约 2 ms——agent 不在时以一次性的
-`wsl.exe --exec` 句柄为回退）。宿主没有 git 时，`resolveExecutable` 对 git
+`wsl.exe --exec` 句柄为回退）。没有 rg 的发行版不会退化为静默回退：搜索句柄
+把常驻 agent 的 spawn 失败翻译为退出码 127 并附 bootstrap 安装指引，工作目录
+缺失则翻译为 rg 的错误码 2（`1` 属于“无匹配”，不能占用）；
+`lib/search-exec.js` 拥有这层翻译。宿主没有 git 时，`resolveExecutable` 对 git
 返回一个发行版哨兵路径，快照命令的发现调用（`rev-parse --show-toplevel ...`）
 也随之路由，其绝对路径输出再转换回 UNC 形式——因此没有 Windows git 也能完成
 完整的 WSL 变更审阅。两个 spawn 决策都是纯坐标函数（`lib/search-route.js`、

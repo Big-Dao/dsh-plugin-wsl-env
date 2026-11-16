@@ -114,7 +114,7 @@ wsl preset（每会话）
 |---|---|
 | 每条命令都报 `SANDBOX_UNAVAILABLE` | 在发行版内安装 `bubblewrap`，或设置 `sandbox: false` |
 | 会话在第一条命令前就被拒绝 | 运行 `pnpm run doctor`；启用 systemd 和 linger，或把 `wsl-shell`、`wsl-fs` 上的 `sessionSandbox` 设为 `auto` 或 `false` |
-| 发行版内 `glob`、`grep` 很慢 | 运行 `pnpm run bootstrap <发行版>`，使用打印的安装命令安装 `ripgrep` |
+| 发行版内 `glob`、`grep` 很慢，或以退出码 127 失败（没有 `rg`） | 运行 `pnpm run bootstrap <发行版>`，使用打印的安装命令安装 `ripgrep`；`~/.local/bin` 下的用户级安装不在命令使用的 PATH 上 |
 | `npm install` / `pnpm add` 报 `EROFS` | 沙箱默认只授予工作区；在 `wsl-shell` 和 `wsl-fs` 上配置 `writableRoots`（如 `~/.npm`、`~/.cache`、`~/.local/share/pnpm`），见 [CONFIGURATION](CONFIGURATION.zh.md#工具链缓存与额外可写目录) |
 | Plugins 页面装完没有任何日志 | 以 profile 的 `package.json` 与 `dsh.profile.bundles` 为准：列出插件即安装成功 |
 | 对 `wsl-shell`/`wsl-fs` 的 profile 补丁不生效 | 这些行嵌套在 `preset-wsl` 里。运行 `pnpm run preset --check <补丁>`；它会失败并输出需要粘贴的完整块 |

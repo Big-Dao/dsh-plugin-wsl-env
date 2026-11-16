@@ -93,6 +93,20 @@ declare const en: {
         distro: string;
     }) => string;
     /**
+     * `search-exec`: the agent could not start the search program. The native
+     * agent cannot tell a missing executable from a missing directory, so both
+     * causes and the install remedy are named.
+     */
+    searchProgramMissing: ({ program, distro, detail }: {
+        program: string;
+        distro: string;
+        detail: string;
+    }) => string;
+    /** `search-exec`: the working directory a search asked for does not exist. */
+    searchWorkdirMissing: ({ path }: {
+        path: string;
+    }) => string;
+    /**
      * `auto-preset`: a distro workspace is recorded as Windows access (9p), so
      * the session runs the host preset. The model-facing half of the reminder;
      * the human sees the web client's banner.

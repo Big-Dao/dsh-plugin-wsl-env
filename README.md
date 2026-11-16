@@ -114,7 +114,7 @@ Without `bubblewrap`, confined commands report `SANDBOX_UNAVAILABLE` and do not 
 |---|---|
 | every command reports `SANDBOX_UNAVAILABLE` | install `bubblewrap` in the distro, or set `sandbox: false` |
 | the session refuses before the first command | run `pnpm run doctor`; enable systemd and linger, or set `sessionSandbox` to `auto` or `false` on `wsl-shell` and `wsl-fs` |
-| `glob` and `grep` are slow in the distro | run `pnpm run bootstrap <distro>` and use its printed install command to install `ripgrep` |
+| `glob` and `grep` are slow in the distro, or fail with exit 127 (no `rg`) | run `pnpm run bootstrap <distro>` and use its printed install command to install `ripgrep`; a user-local install under `~/.local/bin` is not on the PATH commands run with |
 | `npm install` / `pnpm add` fail with `EROFS` | the sandbox grants only the workspace by default; configure `writableRoots` on `wsl-shell` and `wsl-fs` (e.g. `~/.npm`, `~/.cache`, `~/.local/share/pnpm`); see [CONFIGURATION](docs/CONFIGURATION.md#toolchain-caches-and-extra-writable-roots) |
 | the Plugins page finishes without feedback | trust the profile's `package.json` and its `dsh.profile.bundles` entry: the plugin listed there is installed |
 | a profile patch for `wsl-shell`/`wsl-fs` changes nothing | those rows are nested inside `preset-wsl`. Run `pnpm run preset --check <patch>`; it fails with the complete block to paste |

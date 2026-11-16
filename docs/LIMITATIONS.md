@@ -43,7 +43,12 @@ operations never use the 9p share.
   required; a policy change pays one agent startup; a write granted to `/tmp` lands
   in the distro's real `/tmp`.
 - **`glob`/`grep` run the distro's rg**; a distro without rg fails the search
-  (exit 127). Install: `wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap
+  with exit 127, naming the program and the install remedy below — no silent
+  fallback, and not an opaque provider error; a missing working directory
+  fails explicitly too (rg's error code 2, because `1` means "no matches").
+  Commands and the resident agent both inherit `wsl.exe`'s default PATH, so a
+  user-local install under `~/.local/bin` is invisible — install it
+  system-wide, or somewhere on that PATH. Install: `wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap
   git ripgrep inotify-tools` (or the detected family's spelling). `--install` runs it
   only for a missing `bubblewrap`.
 - **`watch()` is coarse invalidation, not per-file notifications**: inotify events

@@ -39,8 +39,12 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
   工作区之外以 `FS_SANDBOX_DENIED` 拒绝。代价：需要 `bubblewrap`；
   策略变更要付出一次 agent 启动；授予 `/tmp` 的写入落在发行版真实的
   `/tmp` 中。
-- **`glob`/`grep` 使用发行版的 rg**；没有 rg 的发行版搜索失败
-  （退出码 127）。安装：`wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap
+- **`glob`/`grep` 使用发行版的 rg**；没有 rg 的发行版搜索失败，
+  以退出码 127 报出程序名与下面的安装指引——不会静默回退，也不是不可读的
+  provider 错误；工作目录缺失同样显式失败（rg 的错误码 2，`1` 只表示"无
+  匹配"）。命令与常驻 agent 都继承 `wsl.exe` 的默认 PATH，因此
+  `~/.local/bin` 下的用户级安装不可见——请装成系统级，或放在那个 PATH 上。
+  安装：`wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap
   git ripgrep inotify-tools`（或检测到的包管理族对应的写法）。`--install` 只在
   缺少 `bubblewrap` 时才执行安装。
 - **`watch()` 是粗粒度失效，不是逐文件通知**：inotify 事件合并到 0.5 s，

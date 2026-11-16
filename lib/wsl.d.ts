@@ -147,6 +147,27 @@ export declare function shellArgs(shellPath: string, login: boolean): string[];
  */
 export declare function workdirFailure(stdout?: string, stderr?: string): string | undefined;
 /**
+ * The relay line for a program `wsl.exe --exec` could not start, when its
+ * output carries one.
+ *
+ * A missing `--exec` binary does not surface as a shell's `127`: the relay
+ * writes a `CreateProcessCommon: execvpe(<program>) failed: No such file or
+ * directory` line to STDERR and exits **1** — the exit code callers such as a
+ * search or a git snapshot read as "empty result", not as a failure. The line
+ * is matched here (on NUL-stripped text, because the relay answers in UTF-16LE
+ * unless `WSL_UTF8` was pinned) so a facade can turn a missing distro program
+ * into its own actionable failure.
+ *
+ * The whole matched line is returned, not just the program name: it is the
+ * relay's own evidence and reads well as the parenthesized detail of a
+ * caller's message.
+ *
+ * @param stdout - a command's captured stdout; absent reads as empty.
+ * @param stderr - its captured stderr; absent reads as empty.
+ * @returns the matched relay line, or undefined.
+ */
+export declare function execProgramFailure(stdout?: string, stderr?: string): string | undefined;
+/**
  * The flags that make an interactive shell a login shell.
  *
  * Separate from {@link shellArgs} because an interactive terminal passes no

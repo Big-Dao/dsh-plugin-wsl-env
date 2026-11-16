@@ -16,6 +16,29 @@ were part of the record.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A search in a distro without ripgrep reports rg's failure, not an opaque
+  provider error.** The file-search tool reads rg's exit dialect (`1` = no
+  matches, `2` = rg failed), but `search-exec.js` treated only
+  `AgentUnavailableError` as a cue: the native resident's `SpawnError` — a
+  missing `rg` on the PATH the agent inherits from `wsl.exe`, which never
+  holds `~/.local/bin` — rejected `done`, and the tool rendered
+  "subprocess failed before reporting an outcome (ripgrep provider failure)".
+  The handle now synthesizes the documented shape: exit 127 with a message
+  naming the program, the distro, the user-local-PATH cause, and the
+  `scripts/bootstrap.sh <distro> --install` remedy. A missing working
+  directory becomes rg's error code 2 with the relay-shaped `chdir(...)` line
+  — never `1`, which the tool reads as "no matches". The one-shot fallback
+  translates the relay's `execvpe(rg) failed: No such file or directory` the
+  same way, and pins `WSL_UTF8=1` so that line (and every other relay
+  diagnostic) arrives readable. A spawn failure deliberately does not retry
+  one-shot: `wsl.exe --cd` does not fail on a missing directory — it warns and
+  runs the command in `/` — so the retry could turn a wrong directory into a
+  successful empty search. Pinned by `test/search-exec.test.mjs`;
+  `docs/LIMITATIONS.md` and `docs/ARCHITECTURE.md` record the failure shapes
+  and the PATH fact.
+
 ## [0.26.1] - 2026-11-16
 
 One theme: the peer self-check now answers for the set the running plugin

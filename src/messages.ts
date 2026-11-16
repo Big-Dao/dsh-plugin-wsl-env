@@ -88,6 +88,17 @@ const en = {
     `"${workdir}" names a workspace in another WSL distro, and this profile pins its commands to "${distro}" — ` +
     `running them here would act on a different machine's tree. Open a session in that distro, ` +
     `or point cwd/workdir at this distro.`,
+  /**
+   * `search-exec`: the agent could not start the search program. The native
+   * agent cannot tell a missing executable from a missing directory, so both
+   * causes and the install remedy are named.
+   */
+  searchProgramMissing: ({ program, distro, detail }: { program: string, distro: string, detail: string }): string =>
+    `${program} could not be started inside distro "${distro}" (${detail}). Commands run with wsl.exe's default PATH, so a user-local install under ~/.local/bin is invisible, and the search directory may also be gone. ` +
+    `Install ripgrep with "scripts/bootstrap.sh ${distro} --install" (from the package), or with the distro's own package manager.`,
+  /** `search-exec`: the working directory a search asked for does not exist. */
+  searchWorkdirMissing: ({ path }: { path: string }): string =>
+    `The search directory "${path}" does not exist inside the distro. Create it, or point the session's working directory at a directory that exists.`,
 
   /**
    * `auto-preset`: a distro workspace is recorded as Windows access (9p), so
@@ -197,6 +208,11 @@ const zh: typeof en = {
   workdirAnotherDistro: ({ workdir, distro }) =>
     `"${workdir}" 指向另一个 WSL 发行版中的工作区，而本 profile 将命令固定在 "${distro}" —— ` +
     `在这里运行会作用于另一台机器的目录树。请在该发行版中打开会话，或将 cwd/workdir 指向本发行版。`,
+  searchProgramMissing: ({ program, distro, detail }) =>
+    `无法在发行版 "${distro}" 内启动 ${program}（${detail}）。命令使用 wsl.exe 给出的默认 PATH，因此安装在 ~/.local/bin 下的用户级版本不可见；搜索目录也可能已不存在。` +
+    `请用 "scripts/bootstrap.sh ${distro} --install"（随包提供）安装 ripgrep，或使用该发行版自己的包管理器。`,
+  searchWorkdirMissing: ({ path }) =>
+    `搜索目录 "${path}" 在发行版中不存在。请创建它，或将会话的工作目录指向一个已存在的目录。`,
 
   hostModeWindowsAccess: ({ cwd, distro }) =>
     `工作区 "${cwd}" 位于 WSL 发行版 "${distro}" 内，但被记录为 Windows 访问工作区，` +

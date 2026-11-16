@@ -11,7 +11,7 @@
  *   node test/search-exec.test.mjs
  */
 import assert from "node:assert/strict";
-import { AgentUnavailableError } from "../lib/agent-errors.js";
+import { AgentUnavailableError, CwdError, SpawnError } from "../lib/agent-errors.js";
 import { searchExecutionHandle } from "../lib/search-exec.js";
 
 /**
@@ -58,7 +58,10 @@ const runCheck = async (name, fn) => {
 };
 
 const CWD = "/home/andy/proj";
+const DISTRO = "ubuntu";
 const ARGV = ["rg", "--json", "--regexp=hole", "--", "."];
+/** The stderr text a search must read after a failure. */
+const stderrOf = (/** @type {SearchHandle} */ handle) => /** @type {SearchReader} */ (handle.collected.stderr).readFrom(0).text;
 
 /**
  * A fake resident: records exec options, resolves from a script.
@@ -86,7 +89,7 @@ function fakeAgent(script) {
 
 check("a successful agent exec fills collected and reports the exit code", async () => {
   const agent = fakeAgent([{ exitCode: 0, stdout: Buffer.from("alpha\nbeta\n"), stderr: Buffer.alloc(0) }]);
-  const handle = searchExecutionHandle(/** @type {Parameters<typeof searchExecutionHandle>[0]} */ (/** @type {AgentSearchOptions} */ ({ agent, cwd: CWD, argv: ARGV, maxOutputBytes: 4096 })));
+  const handle = searchExecutionHandle(/** @type {Parameters<typeof searchExecutionHandle>[0]} */ (/** @type {AgentSearchOptions} */ ({ agent, cwd: CWD, argv: ARGV, distro: DISTRO, maxOutputBytes: 4096 })));
   const outcome = await handle.done;
   assert.deepEqual(outcome, { exitCode: 0, signal: null });
   const stdout = /** @type {SearchReader} */ (handle.collected.stdout).readFrom(0);
@@ -104,7 +107,7 @@ check("a successful agent exec fills collected and reports the exit code", async
 
 check("readFrom consumes incrementally and clamps past the end", async () => {
   const agent = fakeAgent([{ exitCode: 0, stdout: Buffer.from("one\ntwo\n"), stderr: Buffer.alloc(0) }]);
-  const handle = searchExecutionHandle(/** @type {Parameters<typeof searchExecutionHandle>[0]} */ (/** @type {AgentSearchOptions} */ ({ agent, cwd: CWD, argv: ARGV })));
+  const handle = searchExecutionHandle(/** @type {Parameters<typeof searchExecutionHandle>[0]} */ (/** @type {AgentSearchOptions} */ ({ agent, cwd: CWD, argv: ARGV, distro: DISTRO })));
   await handle.done;
   const first = /** @type {SearchReader} */ (handle.collected.stdout).readFrom(0);
   assert.equal(first.text, "one\ntwo\n");
@@ -114,9 +117,44 @@ check("readFrom consumes incrementally and clamps past the end", async () => {
 
 check("rg's no-matches exit code rides through untouched", async () => {
   const agent = fakeAgent([{ exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }]);
-  const handle = searchExecutionHandle(/** @type {Parameters<typeof searchExecutionHandle>[0]} */ (/** @type {AgentSearchOptions} */ ({ agent, cwd: CWD, argv: ARGV })));
+  const handle = searchExecutionHandle(/** @type {Parameters<typeof searchExecutionHandle>[0]} */ (/** @type {AgentSearchOptions} */ ({ agent, cwd: CWD, argv: ARGV, distro: DISTRO })));
   const outcome = await handle.done;
   assert.deepEqual(outcome, { exitCode: 1, signal: null }, "1 is the tool's no-matches dialect, not a failure");
+});
+
+check("a spawn failure settles as exit 127 with the program and the bootstrap remedy", async () => {
+  const agent = fakeAgent([new SpawnError("No such file or directory (os error 2)")]);
+  const handle = searchExecutionHandle({
+    agent,
+    cwd: CWD,
+    argv: ARGV,
+    distro: DISTRO,
+    spawnFallback: () => assert.fail("a spawn failure must not fall back to the one-shot path"),
+  });
+  const outcome = await handle.done;
+  assert.deepEqual(outcome, { exitCode: 127, signal: null }, "the distro's missing rg surfaces as a command-not-found exit");
+  const stderr = stderrOf(handle);
+  assert.match(stderr, /\brg\b/, "the message names the program the tool tried to run");
+  assert.match(stderr, /"ubuntu"/, "the message names the distro the remedy must run in");
+  assert.match(stderr, /~\/\.local\/bin/, "a user-local install on another PATH is named as a cause");
+  assert.match(stderr, /scripts\/bootstrap\.sh ubuntu --install/, "the bootstrap remedy is copy-pasteable");
+  assert.equal(/** @type {SearchReader} */ (handle.collected.stdout).readFrom(0).text, "");
+});
+
+check("a missing workdir settles as rg's error code, never the no-matches 1", async () => {
+  const agent = fakeAgent([new CwdError("/home/andy/gone")]);
+  const handle = searchExecutionHandle({
+    agent,
+    cwd: CWD,
+    argv: ARGV,
+    distro: DISTRO,
+    spawnFallback: () => assert.fail("a cwd failure must not fall back to the one-shot path"),
+  });
+  const outcome = await handle.done;
+  assert.deepEqual(outcome, { exitCode: 2, signal: null }, "2 is rg's own error dialect; 1 would read as no matches");
+  const stderr = stderrOf(handle);
+  assert.match(stderr, /chdir\(\/home\/andy\/gone\) failed/, "the relay-shaped line names the directory");
+  assert.match(stderr, /search directory "\/home\/andy\/gone" does not exist/, "the remedy follows the relay line");
 });
 
 check("an out agent falls back to the delegate and proxies it", async () => {
@@ -127,6 +165,7 @@ check("an out agent falls back to the delegate and proxies it", async () => {
     agent,
     cwd: CWD,
     argv: ARGV,
+    distro: DISTRO,
     spawnFallback: () => {
       fallbacks += 1;
       return {
@@ -142,10 +181,52 @@ check("an out agent falls back to the delegate and proxies it", async () => {
   assert.equal(handle.collected, delegateCollected, "collected proxies the delegate verbatim");
 });
 
+check("a delegate's missing-program relay is translated to 127 with the remedy", async () => {
+  const agent = fakeAgent([new AgentUnavailableError("the resident is out")]);
+  const relay = "<3>WSL (123 - Relay) ERROR: CreateProcessCommon:881: execvpe(rg) failed: No such file or directory";
+  /** @type {string[]} */
+  const reads = [];
+  const handle = searchExecutionHandle({
+    agent,
+    cwd: CWD,
+    argv: ARGV,
+    distro: DISTRO,
+    spawnFallback: () => ({
+      done: Promise.resolve({ exitCode: 1, signal: null }),
+      collected: {
+        stdout: { readFrom: () => ({ text: "", lossy: false, nextOffset: 0 }) },
+        stderr: { readFrom: () => { reads.push(relay); return { text: relay, lossy: false, nextOffset: relay.length }; } },
+      },
+    }),
+  });
+  const outcome = await handle.done;
+  assert.deepEqual(outcome, { exitCode: 127, signal: null }, "the relay's execvpe failure is a command-not-found, not no matches");
+  assert.ok(reads.length >= 1, "the delegate's stderr was read for the relay marker");
+  assert.match(stderrOf(handle), /scripts\/bootstrap\.sh ubuntu --install/, "the translated text carries the remedy");
+});
+
+check("the relay marker survives a UTF-16LE stream read as UTF-8", async () => {
+  const agent = fakeAgent([new AgentUnavailableError("out")]);
+  const relay = "<3>WSL (123 - Relay) ERROR: CreateProcessCommon:881: execvpe(rg) failed: No such file or directory";
+  const utf16 = [...relay].map((char) => `${char}\0`).join("");
+  const handle = searchExecutionHandle({
+    agent,
+    cwd: CWD,
+    argv: ARGV,
+    distro: DISTRO,
+    spawnFallback: () => ({
+      done: Promise.resolve({ exitCode: 1, signal: null }),
+      collected: { stderr: { readFrom: () => ({ text: utf16, lossy: false, nextOffset: utf16.length }) } },
+    }),
+  });
+  const outcome = await handle.done;
+  assert.deepEqual(outcome, { exitCode: 127, signal: null });
+});
+
 check("a genuine agent failure propagates through done", async () => {
   const failure = new Error("the workdir vanished");
   const agent = fakeAgent([failure]);
-  const handle = searchExecutionHandle({ agent, cwd: CWD, argv: ARGV, spawnFallback: () => assert.fail("must not fall back") });
+  const handle = searchExecutionHandle({ agent, cwd: CWD, argv: ARGV, distro: DISTRO, spawnFallback: () => assert.fail("must not fall back") });
   await assert.rejects(handle.done, (error) => error === failure);
 });
 
@@ -157,7 +238,7 @@ check("a cancelled search settles as killed, not failed", async () => {
         options.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
       }),
   ]);
-  const handle = searchExecutionHandle(/** @type {Parameters<typeof searchExecutionHandle>[0]} */ (/** @type {AgentSearchOptions} */ ({ agent, cwd: CWD, argv: ARGV, signal: controller.signal })));
+  const handle = searchExecutionHandle(/** @type {Parameters<typeof searchExecutionHandle>[0]} */ (/** @type {AgentSearchOptions} */ ({ agent, cwd: CWD, argv: ARGV, distro: DISTRO, signal: controller.signal })));
   controller.abort(new Error("tool timeout"));
   const outcome = await handle.done;
   assert.deepEqual(outcome, { exitCode: null, signal: "SIGTERM" });
@@ -170,7 +251,7 @@ check("kill() aborts a running agent exec", async () => {
         options.signal?.addEventListener("abort", () => reject(new Error("killed")), { once: true });
       }),
   ]);
-  const handle = searchExecutionHandle(/** @type {Parameters<typeof searchExecutionHandle>[0]} */ (/** @type {AgentSearchOptions} */ ({ agent, cwd: CWD, argv: ARGV })));
+  const handle = searchExecutionHandle(/** @type {Parameters<typeof searchExecutionHandle>[0]} */ (/** @type {AgentSearchOptions} */ ({ agent, cwd: CWD, argv: ARGV, distro: DISTRO })));
   assert.equal(/** @type {NonNullable<SearchHandle["kill"]>} */ (handle.kill)(), undefined, "kill is fire-and-forget");
   const outcome = await handle.done;
   assert.deepEqual(outcome, { exitCode: null, signal: "SIGTERM" });
@@ -183,6 +264,7 @@ check("kill() reaches the delegate once the fallback is active", async () => {
     agent,
     cwd: CWD,
     argv: ARGV,
+    distro: DISTRO,
     spawnFallback: () => ({
       done: new Promise(() => {}),
       collected: {},

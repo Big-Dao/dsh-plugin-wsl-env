@@ -379,7 +379,9 @@ export class WslSubprocessRuntime extends LocalSubprocessRuntime {
    * shipped handle's). Both decisions are pure coordinate functions
    * (`search-route.js`, `git-route.js`); a spawn neither names (any other
    * program, any drive or relative directory) reaches the shipped
-   * implementation verbatim.
+   * implementation verbatim. A distro without ripgrep surfaces rg's own
+   * failure — exit 127 with the bootstrap remedy — instead of a provider
+   * rejection; `search-exec.js` owns that translation.
    *
    * @param spec - the spawn request.
    * @returns the live search handle.
@@ -438,6 +440,7 @@ export class WslSubprocessRuntime extends LocalSubprocessRuntime {
       agent: sharedAgent(rewrite.distro),
       cwd: rewrite.linuxCwd,
       argv: rewrite.rgArgv,
+      distro: rewrite.distro,
       // One budget serves both streams; the stdout budget is the binding one,
       // and a pathological stderr is still bounded by it.
       maxOutputBytes: (spec.stdio.stdout as SubprocessCollect | undefined)?.maxBytes ?? 0,
@@ -449,7 +452,12 @@ export class WslSubprocessRuntime extends LocalSubprocessRuntime {
           // `wsl.exe --cd` carries the Linux directory; the host process itself
           // must start in a Windows directory, as with a terminal launch.
           cwd: this.hostCwd(),
-          env: this.forwardedEnv(spec),
+          // The relay writes its own diagnostics as UTF-16LE unless this is
+          // set. The search handle reads the `execvpe(rg) failed` line to turn
+          // a missing distro rg into rg's documented exit 127, so the line
+          // must arrive as UTF-8 — and a human reading the raw relay text gets
+          // a readable message too.
+          env: { ...this.forwardedEnv(spec), WSL_UTF8: "1" },
         }),
     }) as SubprocessHandle;
   }

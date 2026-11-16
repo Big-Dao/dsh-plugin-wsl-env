@@ -10,15 +10,45 @@
  *
  * The agent being out is not an error condition here — it is the fallback
  * cue. `spawnFallback` (the shipped one-shot handle the caller builds) is
- * consulted lazily inside `done`; from that point the facade proxies the
- * delegate's `collected` and `done` verbatim. Neither transport ever touches
- * the 9p share.
+ * consulted lazily inside `done`. Cancellation shares one channel: the
+ * caller's `signal` and `kill()` abort the agent exec, which settles `done`
+ * as killed (`{exitCode: null, signal: "SIGTERM"}`) — the same shape the
+ * one-shot path reports for a killed search.
  *
- * Cancellation shares one channel: the caller's `signal` and `kill()` abort
- * the agent exec, which settles `done` as killed (`{exitCode: null, signal:
- * "SIGTERM"}`) — the same shape the one-shot path reports for a killed search.
- * A genuine agent failure (anything but unavailability) propagates through
- * `done` as a rejection, which the tool classifies as a search failure.
+ * ## Failure surfacing: the tool must read rg's own failure, not a provider blow-up
+ *
+ * rg's exit codes are a contract the tool reads: `1` is "no matches", `2` is
+ * "rg itself failed", and anything else is a provider-class failure. A distro
+ * without ripgrep is the common, actionable failure — `docs/LIMITATIONS.md`
+ * promises it surfaces as exit 127 with the bootstrap remedy — so this module
+ * turns the agent's two local failures into that shape instead of rejecting
+ * `done` (which the tool renders as an opaque "ripgrep provider failure", with
+ * no program name and no remedy):
+ *
+ * - A `SpawnError` means the agent could not start the program. The native
+ *   agent reports both a missing executable and a missing working directory
+ *   that way, without naming either, so the synthesized message names both
+ *   possibilities and the install remedy; the exit code is 127.
+ * - A `CwdError` names the directory that could not be entered. It is
+ *   synthesized as rg's own error exit code (`2`) with relay-shaped text —
+ *   never `1`, which the tool would read as "no matches" and report as an
+ *   empty success.
+ *
+ * Neither failure falls back to the one-shot path. A missing program would
+ * only produce the relay's `execvpe(rg) failed` at exit `1` (again the
+ * "no matches" dialect), and a missing directory is worse: `wsl.exe --cd`
+ * does not fail on it — it warns, runs the command in `/`, and exits 0. The
+ * shell executor can afford the one-shot retry because it decorates the
+ * result with its workdir verdict; this handle has no such decoration point.
+ * Everything else — a genuine agent failure that is not `AgentUnavailableError`
+ * — still propagates through `done` as a rejection.
+ *
+ * The one-shot delegate is post-processed the same way, because the agent
+ * being out must not change what a broken environment looks like: a missing
+ * program's `execvpe(rg) failed` line (exit 1) becomes the same 127, and the
+ * relay's `chdir(...) failed` warning — which `wsl.exe` writes while it runs
+ * the search in `/` and exits 0/1 — becomes the same explicit directory
+ * failure instead of a silent wrong-directory result.
  *
  * Pure shaping over injected collaborators, so the handle semantics are
  * unit-testable without a distro.
@@ -70,7 +100,7 @@ export interface SearchExecutionHandle {
  * @param object - the handle's collaborators.
  * @returns the search handle (`done`, `collected`, `kill`).
  */
-export declare function searchExecutionHandle({ agent, cwd, argv, maxOutputBytes, signal, spawnFallback }: {
+export declare function searchExecutionHandle({ agent, cwd, argv, distro, maxOutputBytes, signal, spawnFallback }: {
     /**
      * The {@link WslAgent}-like runner: `exec` accepting
      * `{cwd, argv, maxOutputBytes, signal}` and resolving
@@ -81,6 +111,12 @@ export declare function searchExecutionHandle({ agent, cwd, argv, maxOutputBytes
     cwd: string;
     /** The distro-side argv (`rg` and its arguments). */
     argv: string[];
+    /**
+     * The distro name, for the failures' remedies and the relay
+     * post-processing. The synthesized text names the distro so the model can
+     * relay an install command without another probe.
+     */
+    distro: string;
     /**
      * Per-stream capture ceiling the agent enforces; the tool's own raw-output
      * budget rides here.

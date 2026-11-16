@@ -802,19 +802,111 @@ function comparePrerelease(left, right) {
   return 0;
 }
 
+/** The private env contract: the peer set the spawning host process resolved. */
+const HOST_PEERS_ENV = "DSH_WSL_DOCTOR_PEERS";
+
+/** Per-directory peer declarations, read once per doctor run. */
+const peerDeclarations = new Map();
+
 /**
- * Read the installed version of one peer, or undefined when it cannot resolve.
+ * The peer names one package project declares.
+ *
+ * The host's linked-plugin resolution applies a peer declaration at the first
+ * ancestor `node_modules` position whose project declares the name; the
+ * physical copy there is the one that position owns. A `node_modules`
+ * directory with no manifest above it (the stale tree a harness upgrade
+ * leaves behind) declares nothing and has no vote.
+ *
+ * @param {string} directory - the project directory that owns one `node_modules`.
+ * @returns {Set<string>} its declared peer names; empty when the manifest is absent.
+ */
+function declaredPeers(directory) {
+  let peers = peerDeclarations.get(directory);
+  if (peers === undefined) {
+    try {
+      const manifest = /** @type {{ peerDependencies?: Record<string, string> }} */ (JSON.parse(readFileSync(join(directory, "package.json"), "utf8")));
+      peers = new Set(Object.keys(manifest.peerDependencies ?? {}));
+    } catch {
+      peers = new Set();
+    }
+    peerDeclarations.set(directory, peers);
+  }
+  return peers;
+}
+
+/**
+ * The directory of one peer as the plugin's own package tree carries it.
+ *
+ * Scoped to the first ancestor position that declares the peer. That mirrors
+ * the runtime's projection rule and keeps a copy from a `node_modules` above
+ * the plugin (an old installation tree, or a hoisted workspace) from being
+ * reported as the plugin's peer set. When the declaring position has no
+ * copy, the peer is not installed with the plugin — the standalone process
+ * cannot see whether the runtime projects an installation copy, so it reports
+ * that as unchecked rather than failed.
+ *
+ * @param {string} packageName - the peer package.
+ * @param {string} [root] - the plugin root; defaults to this script's root.
+ * @returns the package directory, or undefined when the plugin does not carry it.
+ */
+export function peerPackageDir(packageName, root = ROOT) {
+  const require = createRequire(join(root, "package.json"));
+  for (const searchPath of require.resolve.paths(packageName) ?? []) {
+    if (!declaredPeers(dirname(searchPath)).has(packageName)) continue;
+    const candidate = join(searchPath, packageName);
+    return existsSync(join(candidate, "package.json")) ? candidate : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Read the installed version of one peer, or undefined when absent.
  * @param {string} packageName - the peer package.
  * @returns {string | undefined} the installed version.
  */
 function installedPeer(packageName) {
-  const require = createRequire(join(ROOT, "package.json"));
+  const directory = peerPackageDir(packageName);
+  if (directory === undefined) return undefined;
   try {
-    const manifest = /** @type {{ version?: string }} */ (JSON.parse(readFileSync(require.resolve(`${packageName}/package.json`), "utf8")));
+    const manifest = /** @type {{ version?: string }} */ (JSON.parse(readFileSync(join(directory, "package.json"), "utf8")));
     return manifest.version;
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The peer versions the spawning host process resolved, or undefined when
+ * this run is the standalone CLI.
+ *
+ * Presence of the variable is the signal: the in-app spawners always set it,
+ * even when the map is empty or partial, because a JSON object can only carry
+ * the peers that resolved. A missing peer then means "the host could not
+ * resolve it" and is reported unchecked — never looked up again in the
+ * plugin's physical tree, which may hold a stale copy from an older
+ * installation. A malformed value is treated as absent: it cannot come from
+ * {@link withHostPeerVersions}, so the standalone lookup is the honest
+ * fallback.
+ *
+ * @returns the name → version map, or undefined when the variable is absent
+ *   or unparseable.
+ */
+function hostPeerVersions() {
+  const raw = process.env[HOST_PEERS_ENV];
+  if (raw === undefined || raw.length === 0) return undefined;
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+  /** @type {Record<string, string>} */
+  const versions = {};
+  for (const [name, version] of Object.entries(parsed)) {
+    if (typeof version === "string" && version.length > 0) versions[name] = version;
+  }
+  return versions;
 }
 
 /**
@@ -1765,17 +1857,43 @@ async function main(options) {
   }
 
   // ---- peers ---------------------------------------------------------------
+  // The host runtime projects a linked plugin's declared peers onto the
+  // installation's single copies, so the spawning in-app process hands its
+  // resolved set over. When that variable is present it is authoritative even
+  // if partial or empty: a peer it omits could not be resolved by the host,
+  // and falling back to this process's own lookup would report a stale copy
+  // beside the plugin. Only the standalone CLI, with no variable at all,
+  // looks in the plugin's tree; there, a peer nobody can see is unchecked
+  // rather than failed, because the runtime may project an installation copy.
   const peers = Object.entries(manifest.peerDependencies ?? {});
+  const hostPeers = hostPeerVersions();
   const badPeers = [];
   const unknownPeers = [];
+  const uncheckedPeers = [];
+  let matchedPeers = 0;
   for (const [name, range] of peers) {
-    const installed = installedPeer(name);
-    if (installed === undefined) badPeers.push(`${name}: not installed (want ${range})`);
-    else if (peerSatisfied(installed, range) === false) badPeers.push(`${name}: ${installed} (want ${range})`);
-    else if (peerSatisfied(installed, range) === undefined) unknownPeers.push(`${name}: ${installed} (range ${range} unchecked)`);
+    const installed = hostPeers === undefined ? installedPeer(name) : hostPeers[name];
+    if (installed === undefined) {
+      uncheckedPeers.push(name);
+      continue;
+    }
+    const satisfied = peerSatisfied(installed, range);
+    if (satisfied === false) badPeers.push(`${name}: ${installed} (want ${range})`);
+    else if (satisfied === undefined) unknownPeers.push(`${name}: ${installed} (range ${range} unchecked)`);
+    else matchedPeers += 1;
   }
-  if (badPeers.length === 0) check("peers.versions", "ok", "Peer versions", `${peers.length} pinned peer(s) match${unknownPeers.length > 0 ? `; ${unknownPeers.length} unchecked` : ""}`);
-  else check("peers.versions", "fail", "Peer versions", badPeers.join("; "), "install the peer set this plugin pins (pnpm install in the plugin, or reinstall/upgrade it against this harness); see docs/PEER-PARITY.md");
+  if (badPeers.length === 0) {
+    const hostNote = hostPeers === undefined ? "" : " (host runtime)";
+    const unknownNote = unknownPeers.length > 0 ? `; ${unknownPeers.length} unrecognized range` : "";
+    const uncheckedNote = uncheckedPeers.length > 0
+      ? (hostPeers === undefined
+        ? `; ${uncheckedPeers.length} not visible to this process (the runtime projects peers from the installation)`
+        : `; ${uncheckedPeers.length} not resolved by the host runtime`)
+      : "";
+    check("peers.versions", "ok", "Peer versions", `${matchedPeers} pinned peer(s) match${hostNote}${unknownNote}${uncheckedNote}`);
+  } else {
+    check("peers.versions", "fail", "Peer versions", badPeers.join("; "), "install the peer set this plugin pins (pnpm install in the plugin, or reinstall/upgrade it against this harness); see docs/PEER-PARITY.md");
+  }
 
   phase("surveys");
   // ---- effective configuration (verdict inputs, reported) ------------------

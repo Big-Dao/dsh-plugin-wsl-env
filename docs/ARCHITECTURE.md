@@ -385,6 +385,16 @@ The Windows copy at `default-workspace/dsh-plugin-wsl` is a runtime mirror.
 [`test/probe/sync-to-windows.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/sync-to-windows.sh) keeps it in
 step with the checkout, and `pnpm run sync:windows` runs that script.
 
+The mirror carries no `node_modules` by design: the harness's linked-plugin
+resolution projects the peers the manifest declares onto the installation's
+single copies, so the mirror and the running app share one peer set. A separate
+process (the doctor child, `DSH_WSL_DOCTOR`) has no such resolution, so the
+in-app surfaces hand the peer versions this process resolved to the doctor.
+That hand-off is authoritative even when only some peers resolved: a missing
+peer is unchecked, not read back from a copy beside the plugin. A stale
+`node_modules` above the mirror — the tree an earlier harness installation
+leaves behind — neither feeds the runtime nor counts in the check.
+
 ## Test layers
 
 | Layer | Location | Needs a harness |

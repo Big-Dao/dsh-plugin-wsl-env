@@ -11,13 +11,15 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { peerSatisfied, parseWslConfig, parseWslSize, parseIni, parseWslVerbose, effectiveMaskWindowsDrive, distroPath, hostDiskVerdict, localeNameFromReg, localeFromTag, overrideLocale, setDoctorLocale, doctorT } from "../scripts/doctor.mjs";
+import { peerSatisfied, peerPackageDir, parseWslConfig, parseWslSize, parseIni, parseWslVerbose, effectiveMaskWindowsDrive, distroPath, hostDiskVerdict, localeNameFromReg, localeFromTag, overrideLocale, setDoctorLocale, doctorT } from "../scripts/doctor.mjs";
 import { mergeLiveResidentStatus } from "../lib/doctor-live.js";
 import { doctorReport } from "../lib/index.js";
+import { DOCTOR_PEERS_ENV, resolvedPeerVersion, resolvedPeerVersions, versionAbove, withHostPeerVersions } from "../lib/peer-versions.js";
 import { effectiveMaskWindowsDrive as libEffectiveMaskWindowsDrive } from "../lib/index.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -993,6 +995,113 @@ try {
     assert.equal(peerSatisfied("3.9.9", ">=4"), false);
     assert.equal(peerSatisfied("4.0.5", "<4.0.0"), undefined);
     assert.equal(peerSatisfied("4.0.5", "*"), undefined, "shapes outside the manifest's vocabulary stay unchecked");
+  });
+
+  await check("the peer check prefers the host-resolved set over the plugin's physical tree", () => {
+    const report = /** @type {Report} */ (JSON.parse(doctor(["--json", "--quick"], {
+      [DOCTOR_PEERS_ENV]: JSON.stringify({ "@deepseek-ai/dsh-fs": "0.0.1" }),
+    }).stdout));
+    const peers = report.checks.find((entry) => entry.id === "peers.versions");
+    assert.equal(peers?.status, "fail", "a host-resolved floor miss fails the check");
+    assert.match(String(peers?.detail), /@deepseek-ai\/dsh-fs: 0\.0\.1 \(want >=0\.2\.2-rc\.2\)/);
+  });
+
+  await check("an authoritative host map is not backfilled from the plugin's tree", () => {
+    // A partial map is what the host really resolved; the peers it omits
+    // could not be resolved there, so they must stay unchecked — a native
+    // lookup would count this checkout's copies as if the host had loaded
+    // them. The non-string entry is ignored the same way.
+    const report = /** @type {Report} */ (JSON.parse(doctor(["--json", "--quick"], {
+      [DOCTOR_PEERS_ENV]: JSON.stringify({ "@deepseek-ai/dsh-fs": "0.2.2-rc.3", "@deepseek-ai/dsh-tools": 42 }),
+    }).stdout));
+    const peers = report.checks.find((entry) => entry.id === "peers.versions");
+    assert.equal(peers?.status, "ok");
+    assert.match(String(peers?.detail), /^1 pinned peer\(s\) match \(host runtime\); 10 not resolved by the host runtime$/);
+  });
+
+  await check("an empty in-app peer map still suppresses the native lookup", () => {
+    const report = /** @type {Report} */ (JSON.parse(doctor(["--json", "--quick"], {
+      [DOCTOR_PEERS_ENV]: "{}",
+    }).stdout));
+    const peers = report.checks.find((entry) => entry.id === "peers.versions");
+    assert.equal(peers?.status, "ok");
+    assert.match(String(peers?.detail), /^0 pinned peer\(s\) match \(host runtime\); 11 not resolved by the host runtime$/);
+  });
+
+  await check("a malformed host peer map falls back to the plugin's own lookup", () => {
+    const report = /** @type {Report} */ (JSON.parse(doctor(["--json", "--quick"], {
+      [DOCTOR_PEERS_ENV]: "{not-json",
+    }).stdout));
+    const peers = report.checks.find((entry) => entry.id === "peers.versions");
+    assert.equal(peers?.status, "ok");
+    assert.match(String(peers?.detail), /11 pinned peer\(s\) match/);
+    assert.doesNotMatch(String(peers?.detail), /host runtime/);
+  });
+
+  await check("the peer check stops at the plugin's own peer position", () => {
+    const tree = mkdtempSync(join(tmpdir(), "dsh-peers-"));
+    try {
+      const plugin = join(tree, "workspace", "plugin");
+      mkdirSync(join(plugin, "lib"), { recursive: true });
+      writeFileSync(join(plugin, "package.json"), JSON.stringify({ name: "plugin", peerDependencies: { "peer-pkg": ">=1.0.0" } }));
+      // A copy above the plugin, under another project that declares the peer:
+      // the runtime projects the installation's copy at the plugin's position
+      // instead, so the native lookup must not report this one.
+      writeFileSync(join(tree, "workspace", "package.json"), JSON.stringify({ name: "workspace", peerDependencies: { "peer-pkg": ">=1.0.0" } }));
+      mkdirSync(join(tree, "workspace", "node_modules", "peer-pkg"), { recursive: true });
+      writeFileSync(join(tree, "workspace", "node_modules", "peer-pkg", "package.json"), JSON.stringify({ name: "peer-pkg", version: "0.0.1" }));
+      assert.equal(peerPackageDir("peer-pkg", plugin), undefined, "a copy above the plugin's declaring position is not the plugin's peer set");
+      mkdirSync(join(plugin, "node_modules", "peer-pkg"), { recursive: true });
+      writeFileSync(join(plugin, "node_modules", "peer-pkg", "package.json"), JSON.stringify({ name: "peer-pkg", version: "1.2.3" }));
+      assert.equal(peerPackageDir("peer-pkg", plugin), join(plugin, "node_modules", "peer-pkg"), "the plugin's own copy is its peer set");
+    } finally {
+      rmSync(tree, { recursive: true, force: true });
+    }
+  });
+
+  await check("the host helper resolves this package's peer set and hands it over", () => {
+    const versions = resolvedPeerVersions();
+    const fsVersion = JSON.parse(readFileSync(join(ROOT, "node_modules", "@deepseek-ai", "dsh-fs", "package.json"), "utf8")).version;
+    assert.equal(versions["@deepseek-ai/dsh-fs"], fsVersion);
+    assert.equal(Object.keys(versions).length, 11, "every declared peer resolves in this checkout");
+    const env = withHostPeerVersions({ PATH: "/bin" }, versions);
+    assert.deepEqual(JSON.parse(String(env[DOCTOR_PEERS_ENV])), versions);
+    assert.deepEqual(withHostPeerVersions({ PATH: "/bin" }, {}), { PATH: "/bin", [DOCTOR_PEERS_ENV]: "{}" }, "an empty set is still sent: presence marks an in-app run");
+  });
+
+  await check("the host helper walks a peer's manifest and falls back to its entry file", () => {
+    const tree = mkdtempSync(join(tmpdir(), "dsh-peer-version-"));
+    try {
+      // A package that does not export ./package.json: the version comes from
+      // the manifest above its resolved entry file.
+      const pkg = join(tree, "node_modules", "no-manifest-export");
+      mkdirSync(join(pkg, "lib"), { recursive: true });
+      writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "no-manifest-export", version: "2.0.0", exports: { ".": "./lib/index.js" } }));
+      writeFileSync(join(pkg, "lib", "index.js"), "");
+      writeFileSync(join(tree, "package.json"), JSON.stringify({ name: "anchor" }));
+      const require = createRequire(join(tree, "package.json"));
+      assert.equal(resolvedPeerVersion(require, "no-manifest-export"), "2.0.0");
+      assert.equal(resolvedPeerVersion(require, "missing-peer"), undefined);
+      assert.equal(versionAbove(join(pkg, "lib", "index.js")), "2.0.0");
+      // A malformed manifest is skipped, and a readable one without a version
+      // does not invent one.
+      writeFileSync(join(pkg, "package.json"), "{not-json");
+      assert.equal(versionAbove(join(pkg, "lib", "index.js")), undefined);
+      writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "no-manifest-export", exports: { ".": "./lib/index.js" } }));
+      assert.equal(versionAbove(join(pkg, "lib", "index.js")), undefined);
+    } finally {
+      rmSync(tree, { recursive: true, force: true });
+    }
+  });
+
+  await check("doctorReport hands the doctor the peer set this process resolved", async () => {
+    const echo = join(bin, "echo-peers-doctor.mjs");
+    writeFileSync(echo, 'const peers = process.env.DSH_WSL_DOCTOR_PEERS ?? "";\nprocess.stdout.write(JSON.stringify({ schemaVersion: 2, checks: [{ id: "peers.versions", status: "ok", detail: peers }], summary: { ok: 1 } }));\n');
+    const report = await doctorReport("ubuntu", { doctorPath: echo });
+    const detail = String(report.checks.find((entry) => entry.id === "peers.versions")?.detail ?? "");
+    const versions = JSON.parse(detail);
+    const fsVersion = JSON.parse(readFileSync(join(ROOT, "node_modules", "@deepseek-ai", "dsh-fs", "package.json"), "utf8")).version;
+    assert.equal(versions["@deepseek-ai/dsh-fs"], fsVersion);
   });
 
   await check("the fix loop re-verifies: swept scopes show before → after and the verdict recomputes", () => {

@@ -113,6 +113,22 @@ process. That is host-process state, so the standalone CLI cannot see it; the
 command, the panel and the model tool merge the row in. A missing row in a CLI
 report means "not observable from a subprocess", not "the seam is fine".
 
+`peers.versions` is surface-dependent for the same reason: it asks which peer
+copies this process loads. The host runtime projects a linked plugin's declared
+peers onto the installation's single copies, so the same plugin can load the
+app's versions while a separate Node process resolves something else. Before
+the check learned the plugin's peer position, the standalone CLI's native
+lookup walked past the mirror into an older `node_modules` above it — the tree
+an earlier harness installation left behind — and compared that tree's
+versions. It now stops at the first position that declares the peer (the
+plugin's own), counts the copy there, and reports every other peer as
+unchecked, never as a failure. The in-app surfaces (panel, `/wsl-doctor`,
+`wsl_doctor`) instead hand the versions this process resolved to the doctor
+child in `DSH_WSL_DOCTOR_PEERS`. A present variable is authoritative even when
+the map is partial or empty: the peers it omits could not be resolved by the
+host, so they are unchecked rather than looked up again in the plugin's
+physical tree.
+
 ## The map
 
 Class legend:

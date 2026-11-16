@@ -338,6 +338,14 @@ harness 无法从发行版内的检出目录加载插件。
 [`test/probe/sync-to-windows.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/sync-to-windows.sh)
 让它与检出目录保持一致，`pnpm run sync:windows` 运行该脚本。
 
+镜像按设计不带 `node_modules`：harness 的链接插件解析会把镜像清单里声明的
+peer 投影到安装处的同一份副本，因此镜像与运行中的应用共享一套对等包。独立
+进程（doctor 子进程、`DSH_WSL_DOCTOR`）没有这层解析，所以应用内入口把本进程
+解析出的 peer 版本交给 doctor；这份交接即使只解析到部分 peer 也是权威的，
+缺失项记作 unchecked，不再回读插件目录旁的旧副本。镜像上方遗留的旧
+`node_modules`——例如 harness 升级前留下的树——既不参与运行时解析，也不计入
+检查。
+
 ## 测试分层
 
 | 分层 | 位置 | 需要 harness |

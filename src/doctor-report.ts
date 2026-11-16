@@ -1,6 +1,7 @@
 import type { AgentStatus } from "./agent.js";
 import { sharedAgent } from "./agent-shared.js";
 import { mergeAutoPresetSeam, mergeLiveResidentStatus, type DoctorReport } from "./doctor-live.js";
+import { withHostPeerVersions } from "./peer-versions.js";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -189,9 +190,15 @@ export async function doctorReport(distro: string, options?: {
   // The stdout is parsed regardless; only a run that produced no versioned
   // report rejects.
   const timeoutMs = options?.timeoutMs ?? DOCTOR_TIMEOUT_MS;
+  // The child inherits this process's environment either way; the overlay adds
+  // the peer set this host actually resolved, which the child cannot look up
+  // itself (a separate Node process has no profile interception).
+  const env = withHostPeerVersions(options?.envPath === undefined
+    ? process.env
+    : { ...process.env, PATH: `${options.envPath}:${process.env.PATH ?? ""}` });
   const run = await runDoctorProcess(argv, {
     timeoutMs,
-    ...(options?.envPath !== undefined ? { env: { ...process.env, PATH: `${options.envPath}:${process.env.PATH ?? ""}` } } : {}),
+    env,
     ...(options?.signal === undefined ? {} : { signal: options.signal }),
   });
   let report: DoctorReport;

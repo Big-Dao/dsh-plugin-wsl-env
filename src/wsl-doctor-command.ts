@@ -31,6 +31,7 @@ import { spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { distroOfUnc } from "./distro-route.js";
+import { withHostPeerVersions } from "./peer-versions.js";
 import { digestReport, renderDigest, SECTIONS, type DoctorDigest, type DoctorReportLike } from "./wsl-doctor-tool.js";
 import { mergeAutoPresetSeam } from "./doctor-live.js";
 
@@ -221,7 +222,7 @@ export function parseDoctorInput(rawInput: string): ParsedDoctorInput {
 export function runDoctorCli(argv: string[], signal?: AbortSignal, timeoutMs: number = DOCTOR_CLI_TIMEOUT_MS): Promise<string> {
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(process.execPath, [DOCTOR_SCRIPT, ...argv], {
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+      env: withHostPeerVersions({ ...process.env, ELECTRON_RUN_AS_NODE: "1" }),
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
       signal,

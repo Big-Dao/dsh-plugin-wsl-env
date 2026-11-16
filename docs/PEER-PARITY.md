@@ -192,6 +192,22 @@ and `test/agent-protocol.test.mjs` (HELLO caps, FSERR, FSB encoding).
 Divergence 4's binary/UTF-8 dialect note now also covers the patch path, which
 re-reads through `readForEdit`.
 
+## The check that reports this set
+
+`peers.versions` names the versions the plugin is loaded against, which is not
+always what a native lookup beside the runtime mirror finds. The host's profile
+resolution projects this package's declared peers onto the installation's single
+copies (a linked plugin's own `node_modules` is the input, not the answer), and
+the in-app doctor spawners pass that resolved map to the CLI in
+`DSH_WSL_DOCTOR_PEERS`; the variable's presence is authoritative even when the
+map is partial or empty, so a peer the host could not resolve is unchecked
+rather than looked up beside the mirror. The standalone CLI has no projection,
+so it counts only a copy at the plugin's own peer position and reports every
+other peer as unchecked instead of failing it — a stale `node_modules` above the
+mirror (the previous harness installation's tree, for example) is not this
+plugin's peer set. The versions above remain the ones the
+standalone `pnpm run doctor` reports from this checkout's pinned dev set.
+
 ## Maintenance
 
 When a peer floor or dev pin moves in `package.json`, re-run the comparison

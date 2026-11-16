@@ -16,6 +16,25 @@ were part of the record.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The `peers.versions` self-check no longer reports a stale `node_modules`
+  above the runtime mirror.** A linked plugin's declared peers are resolved by
+  the host's profile projection onto the installation's single copies, but the
+  doctor is a separate process: its native lookup walked past the mirror into
+  whatever `node_modules` sat above it — after a harness upgrade, the previous
+  installation's tree — and failed the check against versions the plugin never
+  loads. The in-app spawners now hand the versions this process resolved to the
+  doctor in `DSH_WSL_DOCTOR_PEERS`; a present map is authoritative even when it
+  is partial or empty, so a peer the host could not resolve is unchecked rather
+  than backfilled from the plugin's tree. The standalone CLI, which has no
+  projection, counts only a copy at the plugin's own peer position and reports
+  peers it cannot see as unchecked instead of failed.
+  Pinned by `test/doctor.test.mjs` (host-map preference, malformed-map fallback,
+  the peer-position walk, and the collector's hand-off).
+  `docs/DIAGNOSTICS.md`, `docs/ARCHITECTURE.md` and `docs/PEER-PARITY.md` record
+  the two answers and why they differ.
+
 ### Documentation
 
 - **The user-facing docs demonstrate only the desktop app's path.** The

@@ -363,7 +363,8 @@ profile 不使用会话 runtime 时，设置 `sessionSandbox: false`。
 进程内调用 doctor，以逐项清单返回判定——每个检查带显式状态标记、按 distro
 分组、失败项下附可复制的修复——用户只要请求诊断即可。该工具按设计是交互式
 的：`depth: "quick"`（默认）只跑前置项（单 distro 约 10 秒：宿主事实、会话
-沙箱四件套、bubblewrap——无冒烟、无 registry 查询、无端口勘察），是正确的
+沙箱四件套、bubblewrap，以及一次合并的可选工具探测——rg/git/inotifywait——
+无冒烟、无 registry 查询、无端口勘察），是正确的
 首次调用；`section` 把跟进收窄到一个区域（`host`、`sandbox`、`session`、
 `conf`、`net`、`agent`）；`depth: "full"` 是完整扫描，对所有检查负责。
 `/wsl-doctor` 命令（`wsl-doctor-command` 行，部署具有命令注册表时注册）在

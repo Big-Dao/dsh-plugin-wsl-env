@@ -39,6 +39,20 @@ were part of the record.
   `docs/LIMITATIONS.md` and `docs/ARCHITECTURE.md` record the failure shapes
   and the PATH fact.
 
+### Changed
+
+- **The doctor's quick pass now includes the optional-tool probe.**
+  `tools.rg`, `tools.git` and `tools.inotifywait` ran only in a full scan, so
+  a distro without ripgrep surfaced at the model's first `grep`/`glob` and not
+  in the sidebar's quick check. One combined in-distro probe (a single
+  `wsl.exe`, not three) now answers all three in the quick profile too; a
+  missing `rg` warns with the install remedy, and a probe that answers nothing
+  reports `info` instead of fabricating "missing". Pinned by
+  `test/doctor.test.mjs`; `docs/CONFIGURATION.md`, `docs/QUICKSTART.md` and
+  `docs/DIAGNOSTICS.md` describe the quick scope, and the READMEs' `glob`/
+  `grep` troubleshooting row names the failure (exit 127) alongside the
+  slowness.
+
 ## [0.26.1] - 2026-11-16
 
 One theme: the peer self-check now answers for the set the running plugin

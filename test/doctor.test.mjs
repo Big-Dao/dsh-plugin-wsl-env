@@ -125,6 +125,10 @@ case "$all" in
         printf 'ok' ;;
       *'SH='*) [ "\${FAKE_IDENTITY:-ok}" = bad ] && printf 'SH=\nHM=\n' || printf 'SH=/bin/bash\nHM=%s\n' "$HOME" ;;
       *'uname -r'*) printf '6.6.87.2' ;;
+      *'for t in rg git inotifywait'*)
+        [ "\${FAKE_RG:-yes}" = no ] && printf 'missing rg\\n' || printf 'found rg /usr/bin/rg\\n'
+        [ "\${FAKE_GIT_TOOL:-yes}" = no ] && printf 'missing git\\n' || printf 'found git /usr/bin/git\\n'
+        printf 'found inotifywait /usr/bin/inotifywait\\n' ;;
       *'for f in apt-get'*) printf 'apt-get' ;;
       *'apt-get install'*) : > "\${FAKE_STATE_DIR:-/nonexistent}/installed-bwrap"; exit 0 ;;
       *'command -v bwrap'*) [ -f "\${FAKE_STATE_DIR:-/nonexistent}/installed-bwrap" ] && printf '/usr/bin/bwrap' || { [ "\${FAKE_BWRAP:-yes}" = no ] || printf '/usr/bin/bwrap'; } ;;
@@ -348,9 +352,23 @@ try {
     for (const id of report.checks.map((/** @type {{ id: string }} */ c) => c.id)) {
       assert.doesNotMatch(id, /^(functional\.|agent\.)/, "quick never runs the agent smokes or the agent chain");
     }
-    assert.equal(report.checks.some((entry) => entry.id.startsWith("tools.")), false, "quick skips the optional-tool probes");
+    for (const tool of ["rg", "git", "inotifywait"]) {
+      const entry = report.checks.find((row) => row.id === `tools.${tool}`);
+      assert.equal(entry?.status, "ok", `quick probes the optional tool ${tool}`);
+    }
     assert.equal(report.checks.find((entry) => entry.id === "distro.dns"), undefined, "quick skips the net section");
     assert.ok(report.checks.find((entry) => entry.id === "session.linger"), "the session prerequisites stay in the quick profile");
+  });
+
+  await check("the quick profile warns when ripgrep is missing, install remedy included", () => {
+    const run = doctor(["--json", "--quick"], { FAKE_RG: "no" });
+    assert.equal(run.status, 0, run.stderr);
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    const rg = report.checks.find((entry) => entry.id === "tools.rg");
+    assert.equal(rg?.status, "warn", "the missing search dependency is visible in the quick pass");
+    assert.match(String(rg?.detail), /missing; the fs-search tool fails \(exit 127\)/);
+    assert.match(String(rg?.remedy), /apt-get install -y bubblewrap git ripgrep inotify-tools/);
+    assert.equal(report.verdict, "ready", "a missing optional tool never blocks the first command");
   });
 
   await check("--sections bounds the report and the verdict answers for the requested scope", async () => {

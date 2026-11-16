@@ -311,7 +311,7 @@ await check("the skip summary names the scope profile that left checks unrun", (
     scope: { sections: ["host", "session", "sandbox"], quick: true },
   });
   const rendered = renderDigest(digest);
-  assert.match(rendered, /\[SKIP\] not run in this scope — the quick profile covers first-command prerequisites only \(\d+\): .*\bconfig\.wslconfig\b/);
+  assert.match(rendered, /\[SKIP\] not run in this scope — the quick profile covers the prerequisites and the optional tools only \(\d+\): .*\bconfig\.wslconfig\b/);
   const sectioned = renderDigest(digestReport({
     verdict: "ready",
     blockers: [],

@@ -55,7 +55,8 @@ confirmation); `--fix-owned` restricts a fix run to the plugin-owned state
 (the panel's repair action); `--bundle <path>` writes
 the diagnostic file a setup report attaches (`--redact` strips the paths
 from it). A run can be scoped — `--quick` probes the first-command
-prerequisites only (~10 s), `--sections <list>` (comma-separated) runs the
+prerequisites plus one combined optional-tool probe (~10 s), `--sections
+<list>` (comma-separated) runs the
 named sections — or widened with `--all` to every installed distro; the
 report itemizes every check with an explicit status marker, grouped by
 distro. The fixed skeleton renders in the host's language

@@ -140,7 +140,7 @@ const en = {
     `[SKIP] not run in this scope — ${reason} (${n}): ${ids}`,
   /** `wsl_doctor` digest: the scope reason for a quick run's skip line. */
   doctorSkipReasonQuick: (): string =>
-    "the quick profile covers first-command prerequisites only",
+    "the quick profile covers the prerequisites and the optional tools only",
   /** `wsl_doctor` digest: the scope reason for a section-filtered run's skip line. */
   doctorSkipReasonSections: ({ sections }: { sections: string }): string =>
     `the run covered only: ${sections}`,
@@ -238,7 +238,7 @@ const zh: typeof en = {
   doctorDigestSkipRow: ({ n, reason, ids }) =>
     `[SKIP] 不在本次范围——${reason}（${n}）：${ids}`,
   doctorSkipReasonQuick: () =>
-    "quick 档只探首条命令的前置项",
+    "quick 档只探前置项与可选工具",
   doctorSkipReasonSections: ({ sections }) =>
     `本次只运行了这些分区：${sections}`,
   doctorSkipReasonGeneric: () =>

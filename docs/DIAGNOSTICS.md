@@ -107,6 +107,11 @@ posts the full-run action (`--fix-owned`, labeled 修复 or 完整检查):
   never reports. This is the only surface that depends on the model path; use
   the command or the CLI when the plugin's runtime itself is under suspicion.
 
+The quick profile carries the optional-tool probe (`tools.rg`, `tools.git`,
+`tools.inotifywait`) in one combined spawn, so a missing `rg` is visible in
+the panel before the model's first `grep`/`glob`; those ids live in the `host`
+section, and the quick scope covers them.
+
 One check is surface-dependent by construction: `session.preset-seam` reports
 whether `auto-preset` could wrap the host's `agents.createSession` in this
 process. That is host-process state, so the standalone CLI cannot see it; the

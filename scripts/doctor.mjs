@@ -1509,23 +1509,31 @@ async function main(options) {
     }
 
     // ---- optional tools ------------------------------------------------------
-    // Feature-degradation warnings, not first-command prerequisites: the quick
-    // profile skips them (three process spawns a distro) and the full run names
-    // what each missing tool costs. None is a fallback-free break — a missing
-    // rg still leaves the model bash grep, a missing git still leaves
-    // file-tool edits, a missing inotifywait still polls.
-    if (!quick) {
+    // Feature-degradation warnings, not first-command prerequisites. One
+    // combined probe (one process a distro) runs them in the quick profile too,
+    // so a missing rg is visible in the panel at startup instead of surfacing
+    // as an opaque failure at the model's first grep/glob. None is a
+    // fallback-free break — a missing rg still leaves bash grep, a missing git
+    // still leaves file-tool edits, a missing inotifywait still polls.
+    if (want("host")) {
       /** The optional tools, in the order users notice them losing. */
       /** @type {Array<[string, string]>} */
-      const optionalTools = [["rg", "the fs-search tool needs rg; the model can still run grep in a shell, slower"], ["git", "change review falls back to file-tool edits"], ["inotifywait", "the watcher falls back to polling"]];
+      const optionalTools = [["rg", "the fs-search tool fails (exit 127); the model can still run grep in a shell, slower"], ["git", "change review falls back to file-tool edits"], ["inotifywait", "the watcher falls back to polling"]];
+      // One `wsl.exe` for the set: every name is answered in the same shell, so
+      // the quick profile pays one spawn, not three, for the full tool list.
+      const toolAnswer = await probe(`for t in ${optionalTools.map(([tool]) => tool).join(" ")}; do if p=$(command -v "$t" 2>/dev/null); then printf 'found %s %s\\n' "$t" "$p"; else printf 'missing %s\\n' "$t"; fi; done`);
+      /** @type {Map<string, string>} */
+      const toolPaths = new Map();
+      for (const line of toolAnswer.stdout.split(/\r?\n/)) {
+        const match = /^(?:found|missing)\s+([a-z]+)(?:\s+(.*))?$/.exec(line.trim());
+        if (match !== null && match[1] !== undefined) toolPaths.set(match[1], match[2] ?? "");
+      }
       for (const [tool, cost] of optionalTools) {
-        const toolAnswer = await probe(`command -v ${tool}`);
+        const found = toolPaths.get(tool);
         if (!toolAnswer.ok && toolAnswer.flaked) flakeCheck(`tools.${tool}`, tool, toolAnswer);
-        else {
-          const found = toolAnswer.stdout.trim();
-          if (found.length > 0) check(`tools.${tool}`, "ok", tool, found);
-          else check(`tools.${tool}`, "warn", tool, `missing; ${cost}`, install);
-        }
+        else if (found === undefined) check(`tools.${tool}`, "info", tool, "the combined probe answered nothing for this tool, so this run cannot say whether it is installed");
+        else if (found.length > 0) check(`tools.${tool}`, "ok", tool, found);
+        else check(`tools.${tool}`, "warn", tool, `missing; ${cost}`, install);
       }
     }
 

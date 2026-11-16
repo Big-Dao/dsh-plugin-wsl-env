@@ -131,11 +131,14 @@ launches into the distro — the file-search tool's packaged ripgrep and git
 snapshot commands (each agent-first on the warm resident — protocol v6 carries
 a git call's stdin, and a one-shot call costs ~230 ms of `wsl.exe` startup
 against the resident's ~2 ms — with the one-shot `wsl.exe --exec` handle as
-the fallback when the agent is out). A distro without rg does not degrade
-into a silent fallback: the search handle translates the resident's spawn
-failure into exit 127 with the bootstrap remedy, and a missing working
+the fallback when the agent is out). A distro without rg or git does not
+degrade into a silent fallback: the search handle translates the resident's
+spawn failure into exit 127 with the bootstrap remedy, and a missing working
 directory into rg's error code 2 (`1` means "no matches" and is never reused);
-`lib/search-exec.js` owns that translation. When the HOST has no git,
+the snapshot handle uses the same 127 shape for a missing git and git's own
+`fatal: cannot change to ...` (exit 128) for a missing directory, so a
+snapshot cannot read as "no changes". `lib/search-exec.js` and
+`lib/git-exec.js` own those translations. When the HOST has no git,
 `resolveExecutable` answers git with a distro sentinel path, and the snapshot
 command's discovery call (`rev-parse --show-toplevel ...`) routes too, its
 absolute-path output translated back into UNC form — so full WSL change review

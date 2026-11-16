@@ -11,7 +11,7 @@
  *   node test/git-exec.test.mjs
  */
 import assert from "node:assert/strict";
-import { AgentUnavailableError } from "../lib/agent-errors.js";
+import { AgentUnavailableError, CwdError, SpawnError } from "../lib/agent-errors.js";
 import { gitExecutionHandle } from "../lib/git-exec.js";
 
 /**
@@ -58,8 +58,11 @@ const runCheck = async (name, fn) => {
 };
 
 const CWD = "/home/andy/proj";
+const DISTRO = "ubuntu";
 const ARGV = ["git", "check-ignore", "-z", "--stdin"];
 const CAPS = { stdout: 64000, stderr: 16384 };
+/** The stderr text a snapshot must read after a failure. */
+const stderrOf = (/** @type {GitHandle} */ handle) => /** @type {GitReader} */ (handle.collected.stderr).readFrom(0).text;
 
 /**
  * A fake resident: records exec options, resolves from a script.
@@ -87,7 +90,7 @@ function fakeAgent(script) {
 
 check("a successful agent exec fills collected and reports the exit code", async () => {
   const agent = fakeAgent([{ exitCode: 0, stdout: Buffer.from("src/a.ts\0"), stderr: Buffer.alloc(0) }]);
-  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent, cwd: CWD, argv: ARGV, env: { GIT_INDEX_FILE: "/tmp/snap/index" }, stdin: Buffer.from("src/a.ts\0"), caps: CAPS }))));
+  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent, cwd: CWD, argv: ARGV, distro: DISTRO, env: { GIT_INDEX_FILE: "/tmp/snap/index" }, stdin: Buffer.from("src/a.ts\0"), caps: CAPS }))));
   const outcome = await handle.done;
   assert.deepEqual(outcome, { exitCode: 0, signal: null });
   const stdout = /** @type {GitReader} */ (handle.collected.stdout).readFrom(0);
@@ -111,7 +114,7 @@ check("each stream is cut at its own budget, not the wire cap", async () => {
     stderr: Buffer.alloc(100, 0x62), // well under the 16384 tail
     truncated: { stdout: true, stderr: false },
   }]);
-  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent, cwd: CWD, argv: ARGV, env: {}, caps: CAPS }))));
+  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent, cwd: CWD, argv: ARGV, distro: DISTRO, env: {}, caps: CAPS }))));
   await handle.done;
   const stdout = /** @type {GitReader} */ (handle.collected.stdout).readFrom(0);
   assert.equal(stdout.lossy, true, "the stdout stream over its cap is lossy");
@@ -123,7 +126,7 @@ check("each stream is cut at its own budget, not the wire cap", async () => {
 
 check("a one-character overflow past the cap flags lossy", async () => {
   const agent = fakeAgent([{ exitCode: 0, stdout: Buffer.alloc(CAPS.stderr + 1, 0x61), stderr: Buffer.alloc(0) }]);
-  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent, cwd: CWD, argv: ARGV, env: {}, caps: { stdout: CAPS.stderr, stderr: CAPS.stderr } }))));
+  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent, cwd: CWD, argv: ARGV, distro: DISTRO, env: {}, caps: { stdout: CAPS.stderr, stderr: CAPS.stderr } }))));
   await handle.done;
   const stdout = /** @type {GitReader} */ (handle.collected.stdout).readFrom(0);
   assert.equal(stdout.text.length, CAPS.stderr);
@@ -148,7 +151,7 @@ check("a snapshot call's stdout is never translated", async () => {
 
 check("an empty stdin keeps the payload off the wire", async () => {
   const agent = fakeAgent([{ exitCode: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }]);
-  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent, cwd: CWD, argv: ["git", "write-tree"], env: {}, caps: CAPS }))));
+  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent, cwd: CWD, argv: ["git", "write-tree"], distro: DISTRO, env: {}, caps: CAPS }))));
   await handle.done;
   const call = agent.calls[0];
   assert.ok(call !== undefined);
@@ -166,6 +169,7 @@ check("an out agent falls back to the delegate and proxies it", async () => {
     agent,
     cwd: CWD,
     argv: ARGV,
+    distro: DISTRO,
     env: {},
     caps: CAPS,
     spawnFallback: () => {
@@ -179,9 +183,133 @@ check("an out agent falls back to the delegate and proxies it", async () => {
   assert.equal(fallbacks, 1, "the fallback builds at most once");
 });
 
+
+check("a spawn failure settles as exit 127 with git and the bootstrap remedy", async () => {
+  const agent = fakeAgent([new SpawnError("No such file or directory (os error 2)")]);
+  const handle = gitExecutionHandle({
+    agent,
+    cwd: CWD,
+    argv: ARGV,
+    distro: DISTRO,
+    env: {},
+    caps: CAPS,
+    spawnFallback: () => assert.fail("a spawn failure must not fall back to the one-shot path"),
+  });
+  const outcome = await handle.done;
+  assert.deepEqual(outcome, { exitCode: 127, signal: null }, "a missing distro git is a shell command-not-found");
+  const stderr = stderrOf(handle);
+  assert.match(stderr, /\bgit could not be started/, "the message names the program");
+  assert.match(stderr, /"ubuntu"/, "the message names the distro the remedy must run in");
+  assert.match(stderr, /~\/\.local\/bin/, "a user-local install on another PATH is named as a cause");
+  assert.match(stderr, /scripts\/bootstrap\.sh ubuntu --install/, "the bootstrap remedy is copy-pasteable");
+  assert.equal(/** @type {GitReader} */ (handle.collected.stdout).readFrom(0).text, "");
+});
+
+check("a missing workdir settles as git's fatal dialect, not a clean snapshot", async () => {
+  const agent = fakeAgent([new CwdError("/home/andy/gone")]);
+  const handle = gitExecutionHandle({
+    agent,
+    cwd: CWD,
+    argv: ARGV,
+    distro: DISTRO,
+    env: {},
+    caps: CAPS,
+    spawnFallback: () => assert.fail("a cwd failure must not fall back to the one-shot path"),
+  });
+  const outcome = await handle.done;
+  assert.deepEqual(outcome, { exitCode: 128, signal: null }, "git's own fatal class");
+  const stderr = stderrOf(handle);
+  assert.match(stderr, /fatal: cannot change to '\/home\/andy\/gone'/, "the line speaks git's dialect and names the path");
+  assert.match(stderr, /git snapshot directory "\/home\/andy\/gone" does not exist/, "the remedy follows the fatal line");
+});
+
+check("a delegate's missing-program relay is translated to 127", async () => {
+  const agent = fakeAgent([new AgentUnavailableError("the resident is out")]);
+  const relay = "<3>WSL (123 - Relay) ERROR: CreateProcessCommon:881: execvpe(git) failed: No such file or directory";
+  const handle = gitExecutionHandle({
+    agent,
+    cwd: CWD,
+    argv: ARGV,
+    distro: DISTRO,
+    env: {},
+    caps: CAPS,
+    spawnFallback: () => ({
+      done: Promise.resolve({ exitCode: 1, signal: null }),
+      collected: { stderr: { readFrom: () => ({ text: relay, lossy: false, nextOffset: relay.length }) } },
+    }),
+  });
+  const outcome = await handle.done;
+  assert.deepEqual(outcome, { exitCode: 127, signal: null }, "the relay's execvpe failure is a command-not-found");
+  assert.match(stderrOf(handle), /scripts\/bootstrap\.sh ubuntu --install/);
+});
+
+check("a delegate's missing-directory warning is not read as a clean empty snapshot", async () => {
+  const agent = fakeAgent([new AgentUnavailableError("the resident is out")]);
+  const relay = "<3>WSL (123 - Relay) ERROR: CreateProcessCommon:881: chdir(/home/andy/gone) failed: No such file or directory";
+  const handle = gitExecutionHandle({
+    agent,
+    cwd: CWD,
+    argv: ARGV,
+    distro: DISTRO,
+    env: {},
+    caps: CAPS,
+    spawnFallback: () => ({
+      // `wsl.exe --cd <missing>` runs the command in `/` and exits 0; git
+      // would answer "not a git repository", which reads as no changes.
+      done: Promise.resolve({ exitCode: 0, signal: null }),
+      collected: { stderr: { readFrom: () => ({ text: relay, lossy: false, nextOffset: relay.length }) } },
+    }),
+  });
+  const outcome = await handle.done;
+  assert.deepEqual(outcome, { exitCode: 128, signal: null }, "the relay warning outranks the exit code it ran with");
+  assert.match(stderrOf(handle), /fatal: cannot change to '\/home\/andy\/gone'/);
+});
+
+check("a delegated discovery call's output is translated on the one-shot transport too", async () => {
+  const agent = fakeAgent([new AgentUnavailableError("the resident is out")]);
+  const raw = "/home/andy/proj\n.git/objects\n";
+  const handle = gitExecutionHandle({
+    agent,
+    cwd: CWD,
+    argv: ["git", "rev-parse", "--show-toplevel"],
+    distro: DISTRO,
+    discovery: true,
+    env: {},
+    caps: CAPS,
+    spawnFallback: () => ({
+      done: Promise.resolve({ exitCode: 0, signal: null }),
+      collected: { stdout: { readFrom: () => ({ text: raw, lossy: true, nextOffset: raw.length }) } },
+    }),
+  });
+  const outcome = await handle.done;
+  assert.deepEqual(outcome, { exitCode: 0, signal: null });
+  const stdout = /** @type {GitReader} */ (handle.collected.stdout).readFrom(0);
+  assert.equal(stdout.text, "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj\n.git/objects\n", "the delegate's Linux paths become UNC like the agent path's");
+  assert.equal(stdout.lossy, true, "the delegate's own cut flag is carried over, not flattened");
+});
+
+check("a delegated snapshot call keeps its output untranslated", async () => {
+  const agent = fakeAgent([new AgentUnavailableError("the resident is out")]);
+  const raw = "/home/andy/proj\n";
+  const handle = gitExecutionHandle({
+    agent,
+    cwd: CWD,
+    argv: ["git", "ls-files"],
+    distro: DISTRO,
+    env: {},
+    caps: CAPS,
+    spawnFallback: () => ({
+      done: Promise.resolve({ exitCode: 0, signal: null }),
+      collected: { stdout: { readFrom: () => ({ text: raw, lossy: false, nextOffset: raw.length }) } },
+    }),
+  });
+  await handle.done;
+  assert.equal(/** @type {GitReader} */ (handle.collected.stdout).readFrom(0).text, raw, "snapshot calls never translate, either transport");
+});
+
 check("a genuine agent failure propagates through done", async () => {
   const agent = fakeAgent([new Error("the exec failed for a real reason")]);
-  const handle = gitExecutionHandle({ agent, cwd: CWD, argv: ARGV, env: {}, caps: CAPS, spawnFallback: () => { throw new Error("must not fall back"); } });
+  const handle = gitExecutionHandle({ agent, cwd: CWD, argv: ARGV, distro: DISTRO, env: {}, caps: CAPS, spawnFallback: () => { throw new Error("must not fall back"); } });
   await assert.rejects(handle.done, /for a real reason/);
 });
 
@@ -189,7 +317,7 @@ check("kill settles done as the one-shot path's killed outcome", async () => {
   const agent = fakeAgent([(/** @type {import("../lib/agent-exec.js").AgentExecRequest} */ options) => new Promise((_, reject) => {
     options.signal?.addEventListener("abort", () => reject(options.signal?.reason ?? new Error("aborted")), { once: true });
   })]);
-  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent, cwd: CWD, argv: ARGV, env: {}, caps: CAPS }))));
+  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent, cwd: CWD, argv: ARGV, distro: DISTRO, env: {}, caps: CAPS }))));
   const settled = handle.done;
   handle.kill?.();
   const outcome = await settled;
@@ -202,12 +330,12 @@ check("the abort plumbing tolerates a signal object without a listener and a pre
   const controller = new AbortController();
   controller.abort(new Error("cancelled up front"));
   const dying = fakeAgent([new Error("the exec saw the abort")]);
-  const abortedHandle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent: dying, cwd: CWD, argv: ARGV, caps: CAPS, signal: controller.signal }))));
+  const abortedHandle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent: dying, cwd: CWD, argv: ARGV, distro: DISTRO, caps: CAPS, signal: controller.signal }))));
   assert.deepEqual(await abortedHandle.done, { exitCode: null, signal: "SIGTERM" });
   // No signal at all skips the listener arm entirely (the `?.` false arm);
   // the plain passthrough still settles.
   const live = fakeAgent([{ exitCode: 0, stdout: Buffer.from("ok\0"), stderr: Buffer.alloc(0) }]);
-  const plainHandle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent: live, cwd: CWD, argv: ARGV, caps: CAPS }))));
+  const plainHandle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent: live, cwd: CWD, argv: ARGV, distro: DISTRO, caps: CAPS }))));
   assert.deepEqual(await plainHandle.done, { exitCode: 0, signal: null });
 });
 
@@ -221,7 +349,7 @@ check("the collected reader answers empty before the streams exist, and kill is 
       else request.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
     }),
   ]);
-  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent: hanging, cwd: CWD, argv: ARGV, caps: CAPS }))));
+  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent: hanging, cwd: CWD, argv: ARGV, distro: DISTRO, caps: CAPS }))));
   const early = /** @type {GitReader} */ (handle.collected.stdout).readFrom(0);
   assert.equal(early.text, "", "no stream yet: the read is empty, not a crash");
   assert.equal(early.lossy, false);

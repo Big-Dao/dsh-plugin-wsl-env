@@ -39,6 +39,31 @@ were part of the record.
   `docs/LIMITATIONS.md` and `docs/ARCHITECTURE.md` record the failure shapes
   and the PATH fact.
 
+- **A git snapshot on a distro without git reports git's failure instead of a
+  silently empty change review.** `git-exec.js` had the same only-
+  `AgentUnavailableError` cue: the native resident's `SpawnError` (a missing
+  system `git` on the agent's inherited PATH) rejected `done`, and the
+  one-shot fallback would have been worse — `wsl.exe --cd <missing>` runs git
+  in `/`, where "not a git repository" reads as "no changes". The handle now
+  settles a missing program as exit 127 with the bootstrap remedy, a missing
+  directory as git's own `fatal: cannot change to ...` at exit 128, and
+  post-processes the one-shot relay's `execvpe(git) failed` / `chdir(...)
+  failed` lines into the same shapes (that path now pins `WSL_UTF8=1`). The
+  relay parsers are shared from `wsl.ts` (`execProgramFailure` joins
+  `workdirFailure`); pinned by `test/git-exec.test.mjs` and
+  `test/shell.test.mjs`, with `docs/LIMITATIONS.md` and
+  `docs/ARCHITECTURE.md` recording the contract.
+
+- **A discovery answer's UNC translation no longer depends on the transport.**
+  When the host has no Windows git, the snapshot's sentinel `rev-parse`
+  discovery call routes into the distro; with the resident out, the one-shot
+  fallback returned that call's Linux absolute paths untranslated, so
+  `workspace-changes` resolved them in the host's coordinate system instead of
+  `\\wsl.localhost\<distro>`. The fallback now passes the delegated stdout
+  through `translateDiscoveryOutput` exactly as the agent path does, carrying
+  the delegate's per-stream cut flags over. Pinned by
+  `test/git-exec.test.mjs`.
+
 ### Changed
 
 - **The doctor's quick pass now includes the optional-tool probe.**

@@ -222,6 +222,12 @@ Windows git `safe.directory` 白名单）。`--fix-owned` 把运行收窄到插�
   应用。两个替代方案：doctor 的 `git.win-safe` 探针可报告该状态；而
   **没有** Windows git 的机器什么都不用做——提供者把发现请求路由进
   发行版，并把输出转写成 UNC 形式。
+- **没有系统级 git 的发行版不会把变更审阅伪装成“无变更”**：快照调用以退出码
+  127 报出 git 无法启动、agent PATH 的成因（`~/.local/bin` 下的安装不可见）
+  与 bootstrap 安装指引；快照目录缺失则用 git 自身的
+  `fatal: cannot change to ...`（退出码 128）失败，而不是静默返回空结果。
+  一次性回退路径上的同类 relay 文本（`execvpe(git) failed`、`chdir(...) failed`）
+  做同样的翻译。
 - **多目录 `GIT_*` 值会被转写而不是跳过——Windows 形态的列表会译坏。**
   git 环境转写对每个 `GIT_*` 值无条件套用单值翻译，列表被折叠进首个盘符的
   挂载点（`C:\a;D:\b` 变成 `/mnt/c/a;D:/b`）；只有 POSIX 形态的冒号列表

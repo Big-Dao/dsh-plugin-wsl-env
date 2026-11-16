@@ -25,14 +25,46 @@
  * The agent being out is the fallback cue, exactly as `search-exec.ts`:
  * `spawnFallback` (the caller's one-shot `wsl.exe` handle) is consulted
  * lazily inside `done`, and from that point the facade proxies the delegate
- * verbatim. Cancellation shares one channel: the caller's `signal` and
- * `kill()` abort the agent exec, settling `done` as killed.
+ * verbatim unless its relay named a broken program or directory. Cancellation
+ * shares one channel: the caller's `signal` and `kill()` abort the agent
+ * exec, settling `done` as killed.
+ *
+ * ## Failure surfacing: a broken distro must not look like "no changes"
+ *
+ * `GitRunner` reads git's own exit codes and stderr; a rejection from
+ * `handle.done` is an opaque snapshot failure the model cannot act on. The
+ * agent's two local failures therefore become git's own dialect instead:
+ *
+ * - A `SpawnError` means the agent could not start the program. The native
+ *   agent reports both a missing executable and a missing working directory
+ *   that way, without naming either — so the synthesized message names both
+ *   and the install remedy, at exit 127 (a shell's command-not-found; never
+ *   `1`, which several git subcommands use for a normal negative answer, nor
+ *   `128`, which `GitRunner` reads as "not a repository").
+ * - A `CwdError` names the directory that could not be entered. It becomes
+ *   git's fatal class — `fatal: cannot change to '<path>': No such file or
+ *   directory` at exit 128 — which is exactly what `git -C <missing>` itself
+ *   prints.
+ *
+ * Neither failure falls back to the one-shot path. A missing program would
+ * only produce the relay's `execvpe(git) failed` at exit `1`, and a missing
+ * directory is worse: `wsl.exe --cd` does not fail on it — it warns, runs in
+ * `/`, and exits 0 — where `git` then answers "not a git repository", which
+ * the snapshot reads as a clean, empty result. The one-shot delegate is
+ * post-processed for both relay markers, so the agent being out cannot turn a
+ * broken environment into a silent "no changes" either. Other failures still
+ * propagate through `done` as rejections.
+ *
+ * A discovery call's absolute-path answer is translated on BOTH transports:
+ * the one-shot delegate's stdout is taken over and passed through
+ * `translateDiscoveryOutput` exactly as the agent's result is, so change
+ * review sees the same UNC paths whether or not the resident is up.
  *
  * Pure shaping over injected collaborators, unit-testable without a distro.
  *
  * This is a TypeScript source built to `lib/git-exec.js`; edit THIS file and
- * run `pnpm run build` — the artifact under `lib/` is generated, and
- * `pnpm test` fails when it drifts.
+ * run `pnpm run build` — the artifact under `lib/` is generated, and `pnpm test`
+ * fails when it drifts.
  *
  * @module dsh-plugin-wsl-env/git-exec
  */
@@ -86,10 +118,10 @@ export declare function gitExecutionHandle({ agent, cwd, argv, env, stdin, caps,
     /** The distro-side argv (`git` and its arguments). */
     argv: string[];
     /**
-     * The distro name; required when `discovery` is set (absolute path lines
-     * become `\\wsl.localhost\<distro><path>`).
+     * The distro name; used by the discovery translation (absolute path lines
+     * become `\\wsl.localhost\<distro><path>`) and by every failure's remedy.
      */
-    distro?: string;
+    distro: string;
     /**
      * True for a SENTINEL discovery call (`--show-toplevel` /
      * `--absolute-git-dir` / `--git-path` answered by the distro git): the

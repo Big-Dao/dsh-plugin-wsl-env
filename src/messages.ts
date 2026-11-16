@@ -99,6 +99,18 @@ const en = {
   /** `search-exec`: the working directory a search asked for does not exist. */
   searchWorkdirMissing: ({ path }: { path: string }): string =>
     `The search directory "${path}" does not exist inside the distro. Create it, or point the session's working directory at a directory that exists.`,
+  /**
+   * `git-exec`: the agent could not start git. The native agent cannot tell a
+   * missing executable from a missing directory, so both causes and the
+   * install remedy are named.
+   */
+  gitProgramMissing: ({ distro, detail }: { distro: string, detail: string }): string =>
+    `git could not be started inside distro "${distro}" (${detail}). Commands run with wsl.exe's default PATH, so a user-local install under ~/.local/bin is invisible, and the snapshot directory may also be gone. ` +
+    `Install git with "scripts/bootstrap.sh ${distro} --install" (from the package), or with the distro's own package manager.`,
+  /** `git-exec`: the working directory a git snapshot asked for does not exist. */
+  gitWorkdirMissing: ({ path }: { path: string }): string =>
+    `The git snapshot directory "${path}" does not exist inside the distro. Create it, or point the session's working directory at a directory that exists.`,
+
 
   /**
    * `auto-preset`: a distro workspace is recorded as Windows access (9p), so
@@ -213,6 +225,12 @@ const zh: typeof en = {
     `请用 "scripts/bootstrap.sh ${distro} --install"（随包提供）安装 ripgrep，或使用该发行版自己的包管理器。`,
   searchWorkdirMissing: ({ path }) =>
     `搜索目录 "${path}" 在发行版中不存在。请创建它，或将会话的工作目录指向一个已存在的目录。`,
+  gitProgramMissing: ({ distro, detail }) =>
+    `无法在发行版 "${distro}" 内启动 git（${detail}）。命令使用 wsl.exe 给出的默认 PATH，因此安装在 ~/.local/bin 下的用户级版本不可见；快照目录也可能已不存在。` +
+    `请用 "scripts/bootstrap.sh ${distro} --install"（随包提供）安装 git，或使用该发行版自己的包管理器。`,
+  gitWorkdirMissing: ({ path }) =>
+    `git 快照目录 "${path}" 在发行版中不存在。请创建它，或将会话的工作目录指向一个已存在的目录。`,
+
 
   hostModeWindowsAccess: ({ cwd, distro }) =>
     `工作区 "${cwd}" 位于 WSL 发行版 "${distro}" 内，但被记录为 Windows 访问工作区，` +

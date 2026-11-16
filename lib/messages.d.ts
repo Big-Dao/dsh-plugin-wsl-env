@@ -107,6 +107,19 @@ declare const en: {
         path: string;
     }) => string;
     /**
+     * `git-exec`: the agent could not start git. The native agent cannot tell a
+     * missing executable from a missing directory, so both causes and the
+     * install remedy are named.
+     */
+    gitProgramMissing: ({ distro, detail }: {
+        distro: string;
+        detail: string;
+    }) => string;
+    /** `git-exec`: the working directory a git snapshot asked for does not exist. */
+    gitWorkdirMissing: ({ path }: {
+        path: string;
+    }) => string;
+    /**
      * `auto-preset`: a distro workspace is recorded as Windows access (9p), so
      * the session runs the host preset. The model-facing half of the reminder;
      * the human sees the web client's banner.

@@ -252,6 +252,13 @@ sandbox's security statement: `enforcement: partial` is untouched.
   app. Two alternatives: the doctor's `git.win-safe` probe reports the state, and a
   machine **without** Windows git needs nothing — the provider routes discovery into
   the distro and translates the output into UNC form.
+- **A distro without a system git never disguises change review as "no
+  changes"**: a snapshot call fails with exit 127, naming git, the agent
+  PATH's user-local blind spot (`~/.local/bin` is invisible), and the
+  bootstrap remedy; a missing snapshot directory fails in git's own dialect —
+  `fatal: cannot change to ...` at exit 128 — instead of returning an empty
+  result. The one-shot fallback translates the same relay lines
+  (`execvpe(git) failed`, `chdir(...) failed`) the same way.
 - **A multi-directory `GIT_*` value is translated, not skipped — and a
   Windows-form list comes out wrong.** The translation applies the single-value
   translator to every `GIT_*` value unchecked, so a list folds onto the first

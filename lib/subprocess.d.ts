@@ -295,9 +295,10 @@ export declare class WslSubprocessRuntime extends LocalSubprocessRuntime {
      * shipped handle's). Both decisions are pure coordinate functions
      * (`search-route.js`, `git-route.js`); a spawn neither names (any other
      * program, any drive or relative directory) reaches the shipped
-     * implementation verbatim. A distro without ripgrep surfaces rg's own
-     * failure — exit 127 with the bootstrap remedy — instead of a provider
-     * rejection; `search-exec.js` owns that translation.
+     * implementation verbatim. A broken distro surfaces the program's own
+     * failure instead of a provider rejection: a missing rg or git reports
+     * exit 127 with the bootstrap remedy, and a missing workdir reports that
+     * directory; `search-exec.js` and `git-exec.js` own those translations.
      *
      * @param spec - the spawn request.
      * @returns the live search handle.

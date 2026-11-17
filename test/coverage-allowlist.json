@@ -1,7 +1,6 @@
 {
   "modules": {
     "agent-shared.js": "the shared resident's spawn/cache arms need a live distro; fs.boot.test.mjs covers the resident path, but only on a machine with a distro",
-    "picker.js": "peer-bound cordis row: no peer-level test yet, exercised by the probes only",
-    "subprocess.js": "peer-bound cordis row: the terminal and workspace-changes spawn override is probe-only for now"
+    "picker.js": "Windows-only host/UNC listing paths need win32 path semantics, so the Ubuntu coverage job cannot exercise them; the virtual levels, distro listing (agent and one-shot), mkdir, cache and refusal branches are covered by test/provider-takeover.test.mjs, and the rest is probe/manual"
   }
 }

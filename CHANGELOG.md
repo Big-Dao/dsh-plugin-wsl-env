@@ -39,6 +39,16 @@ were part of the record.
 
 ### Fixed
 
+- **The directory picker's one-shot fallback listed an empty directory.**
+  `runCapture` strips NUL bytes because `wsl.exe` writes its own diagnostics as
+  UTF-16LE, but the fallback feeds it `find -print0` output, whose NUL
+  separators are data: every name collapsed into one and the level came back
+  empty whenever the resident agent was unavailable (a stopped distro's first
+  browse, or an exhausted rebuild budget). The picker now uses
+  `runCaptureRaw`, which keeps the separators while the generic capture keeps
+  its UTF-16 recovery. Found and pinned by
+  `test/provider-takeover.test.mjs`; `test/wsl.test.mjs` pins both capture
+  contracts.
 - **A live enable or HMR plugin upgrade no longer fails on the three
   same-name takeovers, so the plugin manager no longer rolls the update back
   (#39).** The `subprocess`, `fs`, and `directoryPicker` rows used to register

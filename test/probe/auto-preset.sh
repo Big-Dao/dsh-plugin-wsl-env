@@ -26,6 +26,9 @@ OVERLAY="$(write_overlay auto-preset-probe.yml .generated-auto-preset-probe.yml 
   WORKSPACE_UNC "$UNC" \
   PROBE_UNC "$UNC\\test\\probe\\auto-preset-probe.mjs" \
   REPORT_UNC "$UNC\\test\\probe\\auto-preset-report.txt")"
+# `wslfs` does not compose the plugin bundle; apply the package's own patch
+# layer so the auto-preset row and the `wsl` preset exist.
+PLUGIN_PATCH="$UNC\\cordis.patch.yml"
 
 [ -f "$PROFILE/cordis.patch.yml" ] || { echo "no probe profile at $PROFILE; see the header of test/probe/run.sh" >&2; exit 1; }
 [ -x "$APP/DeepSeek Harness.exe" ] || { echo "no harness at $APP; set DSH_WSL_ENV_APP" >&2; exit 1; }
@@ -37,7 +40,7 @@ env -u DSH_HOME -u DSH_PROFILE -u DSH_PROFILE_DIR -u DSH_SESSION_ID \
     -u DSH_SHELL -u DSH_WEB_URL -u DSH_WSL_DISTRO -u DSH_WSL_HOME -u DSH_WSL_SHELL \
     ELECTRON_RUN_AS_NODE=1 \
     "$APP/DeepSeek Harness.exe" --expose-internals "$CLI" \
-    --profile wslfs --patch "$OVERLAY" --no-open --port 0 >"$LOG" 2>&1
+    --profile wslfs --patch "$PLUGIN_PATCH" --patch "$OVERLAY" --no-open --port 0 >"$LOG" 2>&1
 STATUS=$?
 set -e
 

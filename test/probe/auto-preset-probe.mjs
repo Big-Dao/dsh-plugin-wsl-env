@@ -4,9 +4,11 @@
  * `auto-preset` wraps `sessionController.agents.createSession` so the preset
  * is chosen before the first mount. The unit suite fakes that seam; only a
  * real host answers whether the frame still exists and whether the composed
- * `wsl` preset resolves. This probe boots under the throwaway `wslfs` profile,
- * creates one session on the checkout's UNC workspace, and reports the preset
- * the controller says it ran.
+ * `wsl` preset resolves. This probe boots under the throwaway `wslfs` profile
+ * with the package's own `cordis.patch.yml` layered on top (the profile does
+ * not compose the plugin bundle, so the preset and the auto-preset row come
+ * from that layer), creates one session on the checkout's UNC workspace, and
+ * reports the preset the controller says it ran.
  *
  * The probe declares the two services as injects, so the loader starts it after
  * they exist; `apply` then calls the real controller. A host without the seam

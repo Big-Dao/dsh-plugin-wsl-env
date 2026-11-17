@@ -1,10 +1,20 @@
 # Auto-preset probe overlay, applied on top of the throwaway `wslfs` profile
-# that `test/probe/run.sh` documents. It inserts only the probe module; the
-# profile already composes this checkout's bundle, including the `wsl` preset
-# and the `auto-preset` row.
+# that `test/probe/run.sh` documents.
+#
+# `wslfs` links this checkout but its `dsh.profile.bundles` does NOT include the
+# plugin bundle (it is a filesystem probe profile), so the auto-preset row and
+# the `wsl` preset are absent by default. The probe script therefore applies the
+# plugin's own `cordis.patch.yml` as a second `--patch` layer before this
+# overlay; that layer inserts the preset and the auto-preset row.
+#
+# The profile's own root `fs` row must go: the bundle layer inserts the
+# `fs-routing` replacement, and two root `fs` providers would collide.
 #
 # TEMPLATE: `auto-preset.sh` substitutes @WORKSPACE_UNC@, @PROBE_UNC@ and
 # @REPORT_UNC@ into a generated copy beside it.
+- id: wsl-fs
+  disabled: true
+
 - insert:
     - id: auto-preset-probe
       name: '@PROBE_UNC@'

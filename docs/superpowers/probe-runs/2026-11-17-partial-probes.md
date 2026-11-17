@@ -46,15 +46,34 @@
   `run-all-when-closed.sh` 的等待正是为此。逐项结果可作为行为证据，但不能替代
   关闭应用后的门禁结果。
 
+## 关闭应用后的全套结果（同日稍晚）
+
+Harness 关闭后运行 `run-all-when-closed.sh --include-fs`：
+
+**18 项 — pass 17 · fail 1 · skipped 0 · not run 0**。唯一失败是
+`auto-preset.sh`：报告 `preset="standard"` 而非 `wsl`。原因是探针的
+`wslfs` profile **不组合插件 bundle**（`dsh.profile.bundles` 只有 base 与
+web），因此 auto-preset 行和 `wsl` preset 根本不存在；探针的注释错误地假设
+“profile 已组合本 checkout 的 bundle”。
+
+修复：`auto-preset.sh` 在 profile 层之后追加包自身的
+`cordis.patch.yml` 作为第二个 `--patch`，并在探针 overlay 中禁用 profile
+自己的根 `wsl-fs`（否则与 bundle 层的 `fs-routing` 争用根 `fs`）。该组合已用
+`--dump-config` 验证：无 patch 警告，`auto-preset`、`preset-wsl`、
+`fs-routing` 均在位，`wsl-fs` 为 disabled。探针单独重跑待执行（需要再次关闭
+Harness，因为 `wslfs` 的 agent 与运行中应用的 native scope 同名）。
+
 ## 待办
 
 ```bash
-# 退出 DSH 全部进程后，在 WSL 终端：
+# 退出 DSH 全部进程后，在 WSL 终端（单探针验证，约 1 分钟）：
+cd /home/andy/Projects/dsh/plugins/dsh-plugin-wsl-env
+pnpm run probe:auto-preset
+# 通过后可重跑整套；期望 18 项全通过：
 bash test/probe/run-all-when-closed.sh --include-fs
 ```
 
-期望 18 项（17 个快速探针 + `run.sh`）；通过后更新 MIGRATION 的探针行与
-会话级沙箱行（后者已按本次 11/11 结果更新）。
+通过后更新 MIGRATION 的探针行（目前记录 17/18 与探针组合修复）。
 
 ## 原始日志
 

@@ -67,6 +67,14 @@ import { AgentUnavailableError, CwdError, SpawnError } from "./agent-errors.js";
 
 /** How long a resolved distro list stays fresh before it is queried again. */
 const DEFAULT_DISTRO_CACHE_MS = 5_000;
+/**
+ * Capture ceiling for one distro level's `find` output. A bounded listing is
+ * far below this; the cap only keeps a hostile or broken walk from buffering
+ * a protocol-sized line in the Host.
+ */
+const LIST_OUTPUT_CAP_BYTES = 4_000_000;
+/** Capture ceiling for `mkdir`'s diagnostics. */
+const MKDIR_OUTPUT_CAP_BYTES = 64_000;
 
 /**
  * Virtual root of the picker's category level: the Windows world and the WSL
@@ -467,6 +475,7 @@ export class WslDirectoryPicker extends DirectoryPicker {
         cwd: linuxDir,
         argv: dirListingArgv(linuxDir),
         timeoutMs: 15_000,
+        maxOutputBytes: LIST_OUTPUT_CAP_BYTES,
         signal,
       });
       if (result.exitCode !== 0) {
@@ -597,7 +606,12 @@ export class WslDirectoryPicker extends DirectoryPicker {
     const parsed = uncToPosix(parent) as import("./paths.js").DistroPath;
     const linuxParent = parsed.linuxPath.length > 0 ? parsed.linuxPath : "/";
     try {
-      const result = await sharedAgent(parsed.distro).exec({ cwd: linuxParent, argv: distroMkdirArgv(linuxParent, name), timeoutMs: 10_000 });
+      const result = await sharedAgent(parsed.distro).exec({
+        cwd: linuxParent,
+        argv: distroMkdirArgv(linuxParent, name),
+        timeoutMs: 10_000,
+        maxOutputBytes: MKDIR_OUTPUT_CAP_BYTES,
+      });
       if (result.exitCode === 0) return target;
       const detail = result.stderr.toString("utf8");
       if (/File exists/i.test(detail)) throw new DirectoryPickerError("directory-exists", target, `${target} already exists`);

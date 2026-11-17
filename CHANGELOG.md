@@ -18,6 +18,14 @@ were part of the record.
 
 ### Fixed
 
+- **Protocol hardening for the v7 FS frame (#55).** Four independent gaps:
+  an out-of-order FSB record is now refused as `FS_IO_ERROR` instead of being
+  attributed to the next op by line position; the FS budget grows with the
+  content a `write`/`move` must handle (30 s base, one second per MiB, ten
+  minutes maximum) instead of failing a multi-GB move at a fixed 30 s; the
+  directory picker and port survey now pass explicit capture caps instead of
+  allowing a transport-sized RES line; and the SETENV section of
+  `docs/AGENT-PROTOCOL-V7.md` names the real two-field frame.
 - **All plugin-authored UI text follows the harness locale (#50).** The status
   route's errors, the open-in-app route's refusals, the directory picker's
   breadcrumbs and branch labels, and the `/wsl-doctor` command's usage,

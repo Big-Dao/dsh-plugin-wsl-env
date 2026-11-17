@@ -35,8 +35,25 @@ import {
 import { posixToUnc, uncToPosix } from "./paths.js";
 import type { WslAgent } from "./agent.js";
 
-/** One FS frame's in-distro watchdog; fs ops are short, writes bounded by content size. */
+/** Base in-distro watchdog for one FS frame. */
 const FS_OP_TIMEOUT_MS = 30_000;
+/** Extra in-distro budget per MiB of content the op must copy, write or move. */
+const FS_OP_TIMEOUT_PER_MIB_MS = 1_000;
+/** Ceiling on the size-scaled budget; a stuck op must still fail in bounded time. */
+const FS_OP_TIMEOUT_MAX_MS = 10 * 60_000;
+
+/**
+ * The in-distro budget for an op whose cost scales with `bytes`: a fixed 30 s
+ * was a false `FS_IO_ERROR` for a multi-GB `move` (the agent copies with
+ * `cat > tmp`) or write on a slow 9p-backed distro path.
+ *
+ * @param bytes - the content size the op must handle, when known.
+ * @returns the frame's timeout budget in ms, capped at ten minutes.
+ */
+function fsOpTimeoutMs(bytes = 0): number {
+  const scaled = FS_OP_TIMEOUT_MS + Math.ceil(bytes / (1024 * 1024)) * FS_OP_TIMEOUT_PER_MIB_MS;
+  return Math.min(scaled, FS_OP_TIMEOUT_MAX_MS);
+}
 
 /** One agent FS round trip's result — the shape `WslAgent#fs` resolves to. */
 interface AgentFsResult {
@@ -196,9 +213,9 @@ export class DistroFs {
    * @param agent - the agent that must run the op; the plain resident by default.
    * @returns the op's result.
    */
-  private async request(op: string, args: Array<string | Uint8Array>, signal: AbortSignal | undefined, agent: WslAgent = this.agent): Promise<AgentFsResult> {
+  private async request(op: string, args: Array<string | Uint8Array>, signal: AbortSignal | undefined, agent: WslAgent = this.agent, timeoutMs = FS_OP_TIMEOUT_MS): Promise<AgentFsResult> {
     try {
-      return await agent.fs({ op, args: args as string[], timeoutMs: FS_OP_TIMEOUT_MS, signal });
+      return await agent.fs({ op, args: args as string[], timeoutMs, signal });
     } catch (error) {
       if (signal?.aborted) {
         throw new FsCodedError(`${op === "write" ? "write" : "read"} aborted`, "FS_ABORTED", error instanceof Error ? error : undefined);
@@ -619,6 +636,7 @@ export class DistroFs {
       ],
       signal,
       agent,
+      fsOpTimeoutMs(typeof content === "string" ? Buffer.byteLength(content, "utf8") : content.byteLength),
     );
     if (result.exitCode === 0) return;
     const failure = this.fail("write", result, displayPath);
@@ -666,15 +684,28 @@ export class DistroFs {
     const result = await agent.fsb({ ops, timeoutMs: FS_OP_TIMEOUT_MS, signal });
     if (result.exitCode !== 0) throw this.fail("batch", result, ops.map((op) => op.op).join(","));
     const records: Array<{ ok: true, payload: Buffer } | { ok: false, reason: string, message: string }> = [];
+    let expected = 1;
     for (const line of result.stdout.toString("utf8").split("\n")) {
       if (line.length === 0) continue;
-      if (line.startsWith("OK ")) {
-        const bar = line.indexOf("|");
-        records.push({ ok: true, payload: Buffer.from(line.slice(bar + 1), "base64") });
-      } else if (line.startsWith("BAD ")) {
-        const [, reason, message] = line.split("|");
+      const bad = line.startsWith("BAD ");
+      if (!bad && !line.startsWith("OK ")) continue;
+      const bar = line.indexOf("|");
+      const indexText = line.slice(bad ? 4 : 3, bar);
+      const index = Number(indexText);
+      if (bar < 0 || !Number.isInteger(index) || index !== expected) {
+        throw new FsCodedError(
+          `cannot run the batch (${ops.map((op) => op.op).join(",")}): record ${expected} was answered as "${line.slice(0, bar < 0 ? 40 : bar)}"`,
+          "FS_IO_ERROR",
+        );
+      }
+      const rest = line.slice(bar + 1);
+      if (!bad) {
+        records.push({ ok: true, payload: Buffer.from(rest, "base64") });
+      } else {
+        const [reason, message] = rest.split("|");
         records.push({ ok: false, reason: reason ?? "io", message: Buffer.from(message ?? "", "base64").toString("utf8") });
       }
+      expected += 1;
     }
     return records;
   }
@@ -719,6 +750,10 @@ export class DistroFs {
     sourceVersion?: string,
     /** The destination version the move was based on. */
     destinationVersion?: string,
+    /** The source size in bytes, when known, so the budget scales with the copy. */
+    size?: number,
+    /** Explicit budget override in ms; takes precedence over `size`. */
+    timeoutMs?: number,
     signal?: AbortSignal,
     agent?: WslAgent,
   }): Promise<{ destination: StatRow, sourceFailure?: { reason: string, message: string } }> {
@@ -729,7 +764,7 @@ export class DistroFs {
       options.guard,
       options.sourceVersion ?? "-",
       options.destinationVersion ?? "-",
-    ], options.signal, options.agent ?? this.agent);
+    ], options.signal, options.agent ?? this.agent, options.timeoutMs ?? fsOpTimeoutMs(options.size));
     if (result.exitCode !== 0) throw this.fail("move", result, source);
     const lines = result.stdout.toString("utf8").split("\n").filter((line) => line.length > 0);
     const statLine = lines[0] ?? "";

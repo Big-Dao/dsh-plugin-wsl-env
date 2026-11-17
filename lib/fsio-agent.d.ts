@@ -376,6 +376,10 @@ export declare class DistroFs {
         sourceVersion?: string;
         /** The destination version the move was based on. */
         destinationVersion?: string;
+        /** The source size in bytes, when known, so the budget scales with the copy. */
+        size?: number;
+        /** Explicit budget override in ms; takes precedence over `size`. */
+        timeoutMs?: number;
         signal?: AbortSignal;
         agent?: WslAgent;
     }): Promise<{

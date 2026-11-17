@@ -166,10 +166,12 @@ the executor already runs on any handshake mismatch.
 
 ## The SETENV verb: implemented, host-refused
 
-`SETENV|id|key|value-b64` is a protocol-6 verb both agent implementations
+`SETENV|<key>|<value-b64>` is a protocol-6 verb both agent implementations
 still answer (`agent/wsl-agent.sh`, the native binary) and the suite still
 tests, but no host code sends it: per-request environment rides the EXEC
 frame's env block, and a global mutation would outlive the request that
-made it. The verb is reserved — a host that wants idempotent
+made it. The frame has TWO fields after the verb — there is no request id
+and no `ACK`/`RES`; the key must be a POSIX identifier or the agent answers
+`ERR||protocol`. The verb is reserved — a host that wants idempotent
 environment pre-warming can adopt it without a protocol bump. Until then
 it is dormant surface, kept because removing it means a native rebuild.

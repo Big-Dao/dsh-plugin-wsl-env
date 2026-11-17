@@ -63,6 +63,18 @@ check("a failed scan is undefined, while an empty successful scan is []", async 
   );
 });
 
+check("the scan bounds the capture it asks from the agent", async () => {
+  /** @type {unknown} */
+  let request;
+  await scanListeningPorts({
+    exec: async (asked) => {
+      request = asked;
+      return { exitCode: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
+    },
+  });
+  assert.equal(/** @type {{ maxOutputBytes?: number }} */ (request).maxOutputBytes, 1_000_000);
+});
+
 check("ports come back ascending and deduplicated", () => {
   const text = [
     "  sl  local_address rem_address st",

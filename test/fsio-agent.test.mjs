@@ -499,6 +499,44 @@ checks.push(["the batch's OK-stat/BAD-read and malformed-stat arms map onto thei
   });
 }]);
 
+checks.push(["a batch record with the wrong index is refused instead of misattributed", async () => {
+  const fake = fakeResident({
+    fsb: async () => ({
+      exitCode: 0,
+      stdout: Buffer.from(`OK 2|${Buffer.from("second").toString("base64")}\nOK 1|${Buffer.from("first").toString("base64")}\n`),
+      stderr: Buffer.alloc(0),
+    }),
+  });
+  const fs = new DistroFs({ agent: fake, distro: DISTRO });
+  await assert.rejects(
+    fs.batch([{ op: "stat", args: ["/x"] }, { op: "list", args: ["/x"] }], undefined),
+    /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_IO_ERROR" && /record 1 was answered as "OK 2"/.test(error.message),
+  );
+}]);
+
+checks.push(["the FS budget scales with the content a write or move must handle", async () => {
+  /** @type {number[]} */
+  const budgets = [];
+  const fake = {
+    protocolVersion: 7,
+    caps: new Set(),
+    fs: async (/** @type {{ op: string, timeoutMs: number }} */ request) => {
+      budgets.push(request.timeoutMs);
+      return {
+        exitCode: 0,
+        stdout: request.op === "move"
+          ? Buffer.from("f\t644\t5\t1\t2\t3.000000000\t4.000000000\n")
+          : Buffer.alloc(0),
+        stderr: Buffer.alloc(0),
+      };
+    },
+  };
+  const fs = new DistroFs({ agent: asAgent(fake), distro: DISTRO });
+  await fs.writeFileAtomic("/x", Buffer.alloc(3 * 1024 * 1024));
+  await fs.moveAtomic("/x", "/y", { mode: 0o644, guard: "replace", size: 5 * 1024 * 1024 });
+  assert.deepEqual(budgets, [33_000, 35_000], "30 s base plus one second per MiB");
+}]);
+
 checks.push(["removeFile and moveAtomic map the v7 refusals and the SRCFAIL record", async () => {
   /** @type {import("../lib/agent.js").WslAgent} */
   const fake = /** @type {never} */ ({

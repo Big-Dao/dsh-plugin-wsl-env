@@ -52,6 +52,9 @@ export function procNetScript(): string {
   return "cat /proc/net/tcp /proc/net/tcp6 2>/dev/null";
 }
 
+/** Capture ceiling for the `/proc/net` survey; the file is kilobytes, the cap is a transport guard. */
+const PORTS_OUTPUT_CAP_BYTES = 1_000_000;
+
 /**
  * Snapshot the distro's listening ports through the agent.
  *
@@ -62,7 +65,12 @@ export function procNetScript(): string {
  */
 export async function scanListeningPorts(runner: AgentExecRunner, timeoutMs = 10000): Promise<number[] | undefined> {
   try {
-    const result = await runner.exec({ cwd: "/", argv: ["sh", "-c", procNetScript(), "ports"], timeoutMs });
+    const result = await runner.exec({
+      cwd: "/",
+      argv: ["sh", "-c", procNetScript(), "ports"],
+      timeoutMs,
+      maxOutputBytes: PORTS_OUTPUT_CAP_BYTES,
+    });
     if (result.exitCode !== 0) return undefined;
     return parseListeningPorts(result.stdout.toString("utf8"));
   } catch {

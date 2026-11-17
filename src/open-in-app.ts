@@ -39,6 +39,8 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import z from "@deepseek-ai/schemastery";
+import type { Context } from "@deepseek-ai/cordis";
+import { installMessagesLocale, t } from "./messages.js";
 import { uncToPosix } from "./paths.js";
 
 /** The composition row's plugin name. */
@@ -259,33 +261,33 @@ function json(payload: unknown, status = 200): Response {
  */
 export function createOpenInAppHandler(deps: OpenInAppDeps): (request: Request) => Promise<Response> {
   return async (request: Request): Promise<Response> => {
-    if (request.method !== "POST") return json({ error: "只支持 POST" }, 405);
+    if (request.method !== "POST") return json({ error: t("openInAppPostOnly", {}) }, 405);
     const essence = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
-    if (essence !== "application/json") return json({ error: "content-type 必须是 application/json" }, 415);
+    if (essence !== "application/json") return json({ error: t("openInAppJsonContentType", {}) }, 415);
     let body: unknown;
     try {
       body = await request.json();
     } catch {
-      return json({ error: "请求体不是合法 JSON" }, 400);
+      return json({ error: t("openInAppInvalidJson", {}) }, 400);
     }
-    if (typeof body !== "object" || body === null) return json({ error: "请求体必须是对象" }, 400);
+    if (typeof body !== "object" || body === null) return json({ error: t("openInAppBodyNotObject", {}) }, 400);
     const path = (body as { path?: unknown }).path;
-    if (typeof path !== "string") return json({ error: "path 必须是字符串" }, 400);
+    if (typeof path !== "string") return json({ error: t("openInAppPathMustBeString", {}) }, 400);
     const uri = editorUri(path);
-    if (uri === undefined) return json({ error: "不是 WSL 工作区路径" }, 400);
+    if (uri === undefined) return json({ error: t("openInAppNotWslWorkspacePath", {}) }, 400);
     let outcome: LaunchOutcome;
     try {
       outcome = await deps.launch(uri);
     } catch {
       // The launcher is a seam: a rejected promise must become a classified
       // failure, not an unhandled rejection inside the route.
-      return json({ error: "VS Code 启动失败" }, 502);
+      return json({ error: t("openInAppLaunchFailed", {}) }, 502);
     }
     if (outcome === "launched") return json({ ok: true, uri });
     return json({
       error: outcome === "missing"
-        ? "找不到 VS Code；可在 wsl-open-in-app 行配置 executable"
-        : "VS Code 启动失败",
+        ? t("openInAppExecutableMissing", {})
+        : t("openInAppLaunchFailed", {}),
     }, 502);
   };
 }
@@ -357,6 +359,8 @@ export function createLauncher(
  */
 export function apply(ctx: OpenInAppContext, config: OpenInAppConfig = {}): void {
   if (typeof ctx.inject !== "function") return;
+  // The test seam is structural; production hands the row a cordis Context.
+  installMessagesLocale(ctx as unknown as Context);
   ctx.inject(["connection"], (scope) => {
     const connection = scope.connection ?? (scope.get?.("connection") as ConnectionFace | undefined);
     if (connection === undefined) return;

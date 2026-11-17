@@ -46,6 +46,7 @@
  */
 
 import z from "@deepseek-ai/schemastery";
+import type { Context } from "@deepseek-ai/cordis";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -53,6 +54,7 @@ import { listDistros, listRunningDistros } from "./wsl.js";
 import { digestReport, sectionOf, type DoctorDigest, type DoctorReportLike } from "./wsl-doctor-tool.js";
 import { runDoctorCli } from "./wsl-doctor-command.js";
 import { mergeAutoPresetSeam } from "./doctor-live.js";
+import { installMessagesLocale, t } from "./messages.js";
 import { mergeTakeoverReport, takeoverSnapshot, type TakeoverSnapshot } from "./takeover-report.js";
 
 export const name = "wsl-status";
@@ -370,7 +372,7 @@ function viewOf(digest: DoctorDigest, distro: string, now: number, repaired: boo
   const findings = digest.items.filter((item) => !item.id.startsWith("fix."));
   // Which findings the plugin-owned repair can actually act on. A repair
   // button that cannot apply is worse than no button: the user sees warnings,
-  // clicks "修复", and nothing changes. The cache only explains a failed
+  // clicks "Repair", and nothing changes. The cache only explains a failed
   // handshake when the cache is the finding — otherwise the handshake needs a
   // reinstall or a resync, not a purge.
   // A broken cache is `warn` under `agentBackend: auto` and `fail` under
@@ -537,7 +539,7 @@ export function createStatusHandler(options: StatusHandlerOptions): StatusHandle
   };
 
   return async (request: Request): Promise<Response> => {
-    if (request.method !== "GET" && request.method !== "POST") return json({ error: "只支持 GET 与 POST" }, 405);
+    if (request.method !== "GET" && request.method !== "POST") return json({ error: t("statusMethodNotAllowed", {}) }, 405);
     const url = new URL(request.url);
     const repair = request.method === "POST";
     const refresh = url.searchParams.get("refresh") === "1";
@@ -546,10 +548,10 @@ export function createStatusHandler(options: StatusHandlerOptions): StatusHandle
     try {
       names = await installed(repair || refresh);
     } catch (error) {
-      return json({ error: `无法读取发行版清单：${(error as Error)?.message ?? String(error)}` }, 502);
+      return json({ error: t("statusDistroListFailed", { detail: (error as Error)?.message ?? String(error) }) }, 502);
     }
     if (requested === null || requested === "") {
-      if (repair) return json({ error: "修复需要指定发行版" }, 400);
+      if (repair) return json({ error: t("statusRepairNeedsDistro", {}) }, 400);
       // The running list bounds the panel's background refresh: only a
       // distro that is already up may be re-checked without the user asking,
       // because a probe boots a stopped one. A failed read means no refresh.
@@ -568,7 +570,7 @@ export function createStatusHandler(options: StatusHandlerOptions): StatusHandle
       };
       return json(reply);
     }
-    if (!names.includes(requested)) return json({ error: `未知发行版：${requested}` }, 400);
+    if (!names.includes(requested)) return json({ error: t("statusUnknownDistro", { distro: requested }) }, 400);
     const background = !repair && url.searchParams.get("background") === "1";
     return json(await check(requested, refresh || repair, repair, background ? "background" : "user"));
   };
@@ -610,6 +612,8 @@ function optionsFor(config: StatusConfig, providers?: () => readonly TakeoverSna
  */
 export function apply(ctx: StatusContext, config: StatusConfig = {}): void {
   if (typeof ctx.inject !== "function") return;
+  // The test seam is structural; production hands the row a cordis Context.
+  installMessagesLocale(ctx as unknown as Context);
   ctx.inject(["connection"], (scope) => {
     const connection = scope.connection ?? (scope.get?.("connection") as ConnectionFace | undefined);
     if (connection === undefined) return;

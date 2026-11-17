@@ -56,6 +56,19 @@ check("the preference resolver maps zh tags to zh and every other id to en", () 
   assert.equal(resolveMessagesLocale(42), "en", "a non-string preference renders en");
 });
 
+check("UI surface text follows the configured locale", () => {
+  configureMessagesLocale("zh");
+  try {
+    assert.equal(t("statusUnknownDistro", { distro: "gone" }), "未知发行版：gone");
+    assert.equal(t("openInAppJsonContentType", {}), "content-type 必须是 application/json");
+    assert.equal(t("pickerWorkspace", {}), "工作区");
+    assert.equal(t("doctorInputHint", {}), "[quick|full|<section>] [--distro <名称>]");
+    assert.match(t("doctorUsage", { sections: "conf | net" }), /^用法：\/wsl-doctor/);
+  } finally {
+    resetMessagesLocaleForTests();
+  }
+});
+
 check("the english catalog keeps the shipped refusals byte-for-byte", () => {
   resetMessagesLocaleForTests();
   assert.equal(messagesLocale(), "en");

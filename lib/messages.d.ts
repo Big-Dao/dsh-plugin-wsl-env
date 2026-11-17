@@ -138,6 +138,76 @@ declare const en: {
         cwd: string;
         distro: string;
     }) => string;
+    /** `wsl-status`: the route's method guard. */
+    statusMethodNotAllowed: () => string;
+    /** `wsl-status`: `wsl.exe -l -q` did not answer. */
+    statusDistroListFailed: ({ detail }: {
+        detail: string;
+    }) => string;
+    /** `wsl-status`: a repair POST named no distro. */
+    statusRepairNeedsDistro: () => string;
+    /** `wsl-status`: the requested name is not in `wsl.exe -l -q`. */
+    statusUnknownDistro: ({ distro }: {
+        distro: string;
+    }) => string;
+    /** `wsl-open-in-app`: the route's method guard. */
+    openInAppPostOnly: () => string;
+    /** `wsl-open-in-app`: the route requires a JSON content type. */
+    openInAppJsonContentType: () => string;
+    /** `wsl-open-in-app`: the request body did not parse as JSON. */
+    openInAppInvalidJson: () => string;
+    /** `wsl-open-in-app`: the body parsed but is not an object. */
+    openInAppBodyNotObject: () => string;
+    /** `wsl-open-in-app`: the body's `path` is not a string. */
+    openInAppPathMustBeString: () => string;
+    /** `wsl-open-in-app`: the path is not a WSL UNC workspace. */
+    openInAppNotWslWorkspacePath: () => string;
+    /** `wsl-open-in-app`: the detached launch failed. */
+    openInAppLaunchFailed: () => string;
+    /** `wsl-open-in-app`: no editor executable could be resolved. */
+    openInAppExecutableMissing: () => string;
+    /** The directory picker's root crumb, shared by every level. */
+    pickerWorkspace: () => string;
+    /** The directory picker's Windows branch label. */
+    pickerWindowsPaths: () => string;
+    /** The directory picker's WSL branch label. */
+    pickerWslDistros: () => string;
+    /** `/wsl-doctor`: the usage block a grammar violation settles with. */
+    doctorUsage: ({ sections }: {
+        sections: string;
+    }) => string;
+    /** `/wsl-doctor`: a token that matches no mode, section or distro spelling. */
+    doctorUnknownToken: ({ token }: {
+        token: string;
+    }) => string;
+    /** `/wsl-doctor`: `--distro` was not followed by a name. */
+    doctorDistroNeedsName: () => string;
+    /** `/wsl-doctor`: the CLI run was cancelled. */
+    doctorCliCancelled: () => string;
+    /** `/wsl-doctor`: the CLI produced no report before the deadline. */
+    doctorCliTimeout: ({ seconds }: {
+        seconds: number;
+    }) => string;
+    /** `/wsl-doctor`: the CLI exited without a report. `detail` is "" or ": <stderr>". */
+    doctorCliNoReport: ({ status, detail }: {
+        status: string;
+        detail: string;
+    }) => string;
+    /** `/wsl-doctor`: the resolved target is one named distro. */
+    doctorTargetDistro: ({ distro }: {
+        distro: string;
+    }) => string;
+    /** `/wsl-doctor`: no distro resolved, so the CLI's configured target decides. */
+    doctorTargetConfigured: () => string;
+    /** `/wsl-doctor`: the CLI run failed; `target` is the localized target phrase. */
+    doctorRunFailed: ({ target, message }: {
+        target: string;
+        message: string;
+    }) => string;
+    /** `/wsl-doctor`: the command-plane description. */
+    doctorCommandDescription: () => string;
+    /** `/wsl-doctor`: the input hint under the command name. */
+    doctorInputHint: () => string;
     /** `wsl_doctor` digest: the verdict line. `verdict` is the report's own `ready`/`blocked`. */
     doctorDigestVerdict: ({ verdict }: {
         verdict: string;

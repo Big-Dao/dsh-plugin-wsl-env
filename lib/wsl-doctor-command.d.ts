@@ -83,8 +83,12 @@ interface ParsedDoctorInput {
 }
 /** The doctor CLI this row spawns, resolved from the built module's package root. */
 export declare const DOCTOR_SCRIPT: string;
-/** The usage text a grammar violation settles with. */
-export declare const USAGE: string;
+/**
+ * The usage text a grammar violation settles with.
+ *
+ * @returns the usage block in the active catalog language.
+ */
+export declare function doctorUsage(): string;
 /**
  * Parse the raw input after the command name. Tokens: one mode word or
  * section name, plus an optional `--distro <name>` / `--distro=<name>`; a

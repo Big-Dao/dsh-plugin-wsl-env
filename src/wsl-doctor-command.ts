@@ -28,12 +28,14 @@
  * @module dsh-plugin-wsl-env/wsl-doctor-command
  */
 import { spawn } from "node:child_process";
+import type { Context } from "@deepseek-ai/cordis";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { distroOfUnc } from "./distro-route.js";
 import { withHostPeerVersions } from "./peer-versions.js";
 import { digestReport, renderDigest, SECTIONS, type DoctorDigest, type DoctorReportLike } from "./wsl-doctor-tool.js";
 import { mergeAutoPresetSeam } from "./doctor-live.js";
+import { installMessagesLocale, t } from "./messages.js";
 import { mergeTakeoverReport, takeoverSnapshot, type TakeoverSnapshot } from "./takeover-report.js";
 
 export const name = "wsl-doctor-command";
@@ -152,9 +154,14 @@ interface ParsedDoctorInput {
 /** The doctor CLI this row spawns, resolved from the built module's package root. */
 export const DOCTOR_SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "scripts", "doctor.mjs");
 
-/** The usage text a grammar violation settles with. */
-export const USAGE = "用法：/wsl-doctor [quick|full|<section>] [--distro <名称>]\n" +
-  "section ∈ " + SECTIONS.join(" | ") + "；空输入等价 quick。省略 --distro 时用当前会话的工作目录推断 distro。";
+/**
+ * The usage text a grammar violation settles with.
+ *
+ * @returns the usage block in the active catalog language.
+ */
+export function doctorUsage(): string {
+  return t("doctorUsage", { sections: SECTIONS.join(" | ") });
+}
 
 /**
  * Parse the raw input after the command name. Tokens: one mode word or
@@ -196,9 +203,9 @@ export function parseDoctorInput(rawInput: string): ParsedDoctorInput {
       parsed.distro = token;
       continue;
     }
-    throw new Error(`无法识别的参数：${token}`);
+    throw new Error(t("doctorUnknownToken", { token }));
   }
-  if (expectingDistro) throw new Error("--distro 需要一个名称");
+  if (expectingDistro) throw new Error(t("doctorDistroNeedsName", {}));
   return parsed;
 }
 
@@ -251,7 +258,7 @@ export function runDoctorCli(argv: string[], signal?: AbortSignal, timeoutMs: nu
     child.on("error", (error) => {
       // An abort arrives here as an AbortError; normalize it so the settled
       // message names the run rather than the DOMException.
-      settle(() => rejectPromise((error as NodeJS.ErrnoException).name === "AbortError" ? new Error("doctor CLI 已取消") : error));
+      settle(() => rejectPromise((error as NodeJS.ErrnoException).name === "AbortError" ? new Error(t("doctorCliCancelled", {})) : error));
     });
     child.on("close", (code, signalName) => {
       const text = stdout.trim();
@@ -261,11 +268,14 @@ export function runDoctorCli(argv: string[], signal?: AbortSignal, timeoutMs: nu
       }
       if (timedOut) {
         settle(() => rejectPromise(new Error(
-          `doctor CLI 在 ${timeoutMs / 1000} 秒内没有给出报告；用 --distro <名称> 收窄到单个发行版，或改用 quick / <分区> 重试`,
+          t("doctorCliTimeout", { seconds: timeoutMs / 1000 }),
         )));
         return;
       }
-      settle(() => rejectPromise(new Error(`doctor CLI 未能给出报告（exit ${code ?? signalName ?? "signal"}）${stderr.trim().length > 0 ? `：${stderr.trim().slice(0, 400)}` : ""}`)));
+      settle(() => rejectPromise(new Error(t("doctorCliNoReport", {
+        status: String(code ?? signalName ?? "signal"),
+        detail: stderr.trim().length > 0 ? `: ${stderr.trim().slice(0, 400)}` : "",
+      }))));
     });
   });
 }
@@ -408,6 +418,8 @@ export function formatDoctorReport(json: string, distro: string, providers: read
  *   registry and the harness cwd service are reachable).
  */
 export async function apply(ctx: WslDoctorCommandContext): Promise<void> {
+  // The test seam is structural; production hands the row a cordis Context.
+  installMessagesLocale(ctx as unknown as Context);
   const commands = resolveCommands(ctx);
   // No command adapter: nothing to register, nothing to fail. The doctor CLI
   // (`pnpm run doctor`) stays the surface for headless deployments.
@@ -426,14 +438,14 @@ export async function apply(ctx: WslDoctorCommandContext): Promise<void> {
   })();
   commands.register({
     name: "wsl-doctor",
-    description: "运行 WSL 环境诊断（独立 doctor CLI）：结果直接显示在此，不进入模型对话。省略参数为快速诊断。",
-    input: { hint: "[quick|full|<section>] [--distro <名称>]" },
+    description: t("doctorCommandDescription", {}),
+    input: { hint: t("doctorInputHint", {}) },
     handler: async (invocation: WslDoctorCommandInvocation): Promise<WslDoctorCommandResult> => {
       let parsed: ParsedDoctorInput;
       try {
         parsed = parseDoctorInput(invocation.rawInput);
       } catch (error) {
-        return { kind: "error", text: `${error instanceof Error ? error.message : String(error)}\n\n${USAGE}` };
+        return { kind: "error", text: `${error instanceof Error ? error.message : String(error)}\n\n${doctorUsage()}` };
       }
       const distro = await resolveDistro(ctx, invocation, parsed.distro);
       const argv = ["--json"];
@@ -448,10 +460,8 @@ export async function apply(ctx: WslDoctorCommandContext): Promise<void> {
         const json = await runCli(argv, invocation.signal, budget);
         return { kind: "success", text: formatDoctorReport(json, distro, takeoverSnapshot(ctx)) };
       } catch (error) {
-        const target = distro.length > 0
-          ? `发行版 ${distro}`
-          : "配置指定的目标（未从会话工作目录解析出发行版，auto 会逐个检查所有已安装发行版）";
-        return { kind: "error", text: `doctor 运行失败（${target}）：${error instanceof Error ? error.message : String(error)}` };
+        const target = distro.length > 0 ? t("doctorTargetDistro", { distro }) : t("doctorTargetConfigured", {});
+        return { kind: "error", text: t("doctorRunFailed", { target, message: error instanceof Error ? error.message : String(error) }) };
       }
     },
   });

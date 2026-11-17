@@ -365,11 +365,13 @@ blocks the verdict.
 
 ### Message language
 
-The plugin's refusal and remedy messages (the `sessionSandbox` preflight
-verdicts, the `bwrap` install and repair hints, and the distro/workdir
-command errors) follow the harness app's Language setting: the preference is
-read from the host `locale` entry's `preference` field through the host
-settings service, and a language switch takes effect without a restart.
+All plugin-authored UI text follows the harness app's Language setting: the
+status panel's route errors, the open-in-app route's refusals, the directory
+picker's labels, the `/wsl-doctor` command text, and the refusal and remedy
+messages (the `sessionSandbox` preflight verdicts, the `bwrap` install and
+repair hints, and the distro/workdir command errors). The preference is read
+from the host `locale` entry's `preference` field through the host settings
+service, and a language switch takes effect without a restart.
 Chinese (`zh`, including `zh-CN` and `zh-Hans` tags) and English ship; every
 other language renders English. A profile without the settings service, or
 one whose user never picked a language, falls back to the process's ICU

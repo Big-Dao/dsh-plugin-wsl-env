@@ -308,9 +308,9 @@ checkPosix("the category level offers the host and WSL branches and the preferre
   process.env.FAKE_DISTROS = "ubuntu\ndebian\n";
   const { row } = await mountPicker({ preferredDistro: "debian" });
   const listing = await row.list();
-  assert.deepEqual(listing.entries.map((entry) => entry.name), ["Windows 路径", "WSL 发行版"]);
+  assert.deepEqual(listing.entries.map((entry) => entry.name), ["Windows paths", "WSL distros"]);
   assert.equal(listing.home, "\\\\wsl.localhost\\debian\\home\\andy");
-  assert.deepEqual(listing.crumbs.map((crumb) => crumb.name), ["工作区"]);
+  assert.deepEqual(listing.crumbs.map((crumb) => crumb.name), ["Workspace"]);
 });
 
 checkPosix("the WSL branch lists each distro and leads with the preferred one", async () => {
@@ -320,7 +320,7 @@ checkPosix("the WSL branch lists each distro and leads with the preferred one", 
   assert.deepEqual(listing.entries.map((entry) => entry.name), ["ubuntu", "debian"]);
   assert.equal(listing.entries[1]?.path, "\\\\wsl.localhost\\debian");
   assert.equal(listing.path, "\\\\wsl.localhost\\debian");
-  assert.deepEqual(listing.crumbs.map((crumb) => crumb.name), ["工作区", "WSL 发行版"]);
+  assert.deepEqual(listing.crumbs.map((crumb) => crumb.name), ["Workspace", "WSL distros"]);
 });
 
 checkPosix("a distro level is listed through the one-shot find and capped", async () => {

@@ -18,6 +18,14 @@ were part of the record.
 
 ### Fixed
 
+- **All plugin-authored UI text follows the harness locale (#50).** The status
+  route's errors, the open-in-app route's refusals, the directory picker's
+  breadcrumbs and branch labels, and the `/wsl-doctor` command's usage,
+  errors, description, and hint were hardcoded Chinese while the rest of the
+  plugin followed the Language setting. They now render through
+  `src/messages.ts`; a new style check rejects raw CJK literals anywhere under
+  `src/` except the catalog, so the next such string fails the gate instead of
+  reaching an English-locale user.
 - **A written request that is never ACKed no longer hangs the agent queue
   (#49).** The execution watchdog was armed only by the dequeue `ACK`, so a
   resident that stayed alive but stopped dequeuing (a wedged `wait`, a blocked

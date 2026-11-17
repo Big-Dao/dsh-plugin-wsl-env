@@ -81,7 +81,7 @@ check("breadcrumbs heads a distro chain with the category and WSL rows", () => {
   const crumbs = breadcrumbs(HOME, ROOTS);
   assert.deepEqual(
     crumbs.map((c) => c.name),
-    ["工作区", "WSL 发行版", "ubuntu", "home", "andy"],
+    ["Workspace", "WSL distros", "ubuntu", "home", "andy"],
   );
   const [pickerRow, wslRow, distroRow] = crumbs;
   assert.ok(pickerRow !== undefined && wslRow !== undefined && distroRow !== undefined, "the chain has the category, WSL and distro rows");
@@ -94,7 +94,7 @@ check("breadcrumbs heads a Windows chain with the category and drive rows", () =
   const crumbs = breadcrumbs("C:\\Users\\andyz", ROOTS);
   assert.deepEqual(
     crumbs.map((c) => c.name),
-    ["工作区", "Windows 路径", "C:\\", "Users", "andyz"],
+    ["Workspace", "Windows paths", "C:\\", "Users", "andyz"],
   );
   const [pickerRow, windowsRow, driveRow] = crumbs;
   assert.ok(pickerRow !== undefined && windowsRow !== undefined && driveRow !== undefined, "the chain has the category, Windows and drive rows");

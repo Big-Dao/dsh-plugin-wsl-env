@@ -51,7 +51,7 @@ export declare function fullyQualified(path: string): boolean;
 export declare function ancestryCrumbs(target: string): ListingRow[];
 /** The three virtual roots the picker's breadcrumb trail is built from. */
 export interface PickerRoots {
-    /** The two-category level ("工作区"): Windows paths and WSL distros. */
+    /** The two-category level ("Workspace"): Windows paths and WSL distros. */
     picker: string;
     /** The Windows branch's drive list. */
     windows: string;
@@ -63,7 +63,7 @@ export interface PickerRoots {
  * belongs to, then the path itself.
  *
  * The trail is what makes the two top-level categories reachable from anywhere:
- * every level keeps "工作区" as its first crumb, so a browse into a distro or a
+ * every level keeps the workspace crumb as its first, so a browse into a distro or a
  * drive never strands the user without a way back to the other world.
  *
  * Two Windows path quirks need explicit handling. `win32.dirname` treats

@@ -191,7 +191,7 @@ export declare class WslDirectoryPicker extends DirectoryPicker {
      *
      * `path` is the Windows home — a real directory — so adopting the level with
      * nothing selected still yields something adoptable; the entries are the two
-     * branches, and the "工作区" crumb returns here from either one.
+     * branches, and the workspace crumb returns here from either one.
      *
      * @param signal - optional cancellation.
      * @returns the category listing.

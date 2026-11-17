@@ -290,7 +290,7 @@ await check("a repair POST without a distro is refused before anything runs", as
   const { handler, calls } = handlerFor();
   const { status, body } = await send(handler, "", "POST");
   assert.equal(status, 400);
-  assert.match(body.error, /修复需要指定发行版/);
+  assert.match(body.error, /Repair requires a distro/);
   assert.equal(calls.length, 0);
 });
 
@@ -312,7 +312,7 @@ await check("an unknown distro is refused before anything runs", async () => {
   const { handler, calls } = handlerFor();
   const { status, body } = await get(handler, "?distro=Arch");
   assert.equal(status, 400);
-  assert.match(body.error, /未知发行版/);
+  assert.match(body.error, /Unknown distro/);
   assert.equal(calls.length, 0);
 });
 
@@ -374,7 +374,7 @@ await check("a failed background run overwrites the stored result truthfully", a
     statePath,
     running: async () => ["Ubuntu"],
     runCli: async () => {
-      if (mode === "fail") throw new Error("doctor 挂起");
+      if (mode === "fail") throw new Error("doctor hung");
       return JSON.stringify(READY);
     },
   });
@@ -386,7 +386,7 @@ await check("a failed background run overwrites the stored result truthfully", a
   const list = await get(handler);
   assert.equal(list.body.cached.length, 1);
   assert.equal(list.body.cached[0].verdict, "error", "the failure replaced the last success");
-  assert.equal(list.body.cached[0].error, "doctor 挂起");
+  assert.equal(list.body.cached[0].error, "doctor hung");
   assert.equal(list.body.cached[0].source, "background");
   const reloaded = handlerFor({ statePath });
   const afterReload = await get(reloaded.handler);
@@ -409,12 +409,12 @@ await check("a failed run answers verdict error and is not cached", async () => 
   const { handler } = handlerFor({
     runCli: async () => {
       attempts += 1;
-      throw new Error("doctor CLI 未能给出报告");
+      throw new Error("doctor CLI produced no report");
     },
   });
   const first = await get(handler, "?distro=Ubuntu");
   assert.equal(first.body.verdict, "error");
-  assert.match(first.body.error, /未能给出报告/);
+  assert.match(first.body.error, /produced no report/);
   const second = await get(handler, "?distro=Ubuntu");
   assert.equal(second.body.verdict, "error");
   assert.equal(attempts, 2);
@@ -424,7 +424,7 @@ await check("a distro-list failure is a 502 with the reason", async () => {
   const { handler } = handlerFor({ distros: async () => { throw new Error("wsl.exe missing"); } });
   const { status, body } = await get(handler);
   assert.equal(status, 502);
-  assert.match(body.error, /无法读取发行版清单/);
+  assert.match(body.error, /Cannot read the distro list/);
 });
 
 await check("apply registers one authenticated exact route on the connection", async () => {
@@ -438,6 +438,10 @@ await check("apply registers one authenticated exact route on the connection", a
      * @param {(scope: any) => void} callback - the activation callback.
      */
     inject(deps, callback) {
+      if (deps[0] === "settings") {
+        callback({});
+        return;
+      }
       assert.deepEqual(deps, ["connection"]);
       callback({
         connection: {

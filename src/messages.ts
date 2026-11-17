@@ -135,6 +135,85 @@ const en = {
     `9p share, and the distro's Linux toolchain is unavailable. Do not assume Linux commands, paths, or tooling ` +
     `here; the operator can run /wsl-doctor to diagnose the profile.`,
 
+  /** `wsl-status`: the route's method guard. */
+  statusMethodNotAllowed: (): string =>
+    "Only GET and POST are supported",
+  /** `wsl-status`: `wsl.exe -l -q` did not answer. */
+  statusDistroListFailed: ({ detail }: { detail: string }): string =>
+    `Cannot read the distro list: ${detail}`,
+  /** `wsl-status`: a repair POST named no distro. */
+  statusRepairNeedsDistro: (): string =>
+    "Repair requires a distro",
+  /** `wsl-status`: the requested name is not in `wsl.exe -l -q`. */
+  statusUnknownDistro: ({ distro }: { distro: string }): string =>
+    `Unknown distro: ${distro}`,
+  /** `wsl-open-in-app`: the route's method guard. */
+  openInAppPostOnly: (): string =>
+    "Only POST is supported",
+  /** `wsl-open-in-app`: the route requires a JSON content type. */
+  openInAppJsonContentType: (): string =>
+    "content-type must be application/json",
+  /** `wsl-open-in-app`: the request body did not parse as JSON. */
+  openInAppInvalidJson: (): string =>
+    "The request body is not valid JSON",
+  /** `wsl-open-in-app`: the body parsed but is not an object. */
+  openInAppBodyNotObject: (): string =>
+    "The request body must be an object",
+  /** `wsl-open-in-app`: the body's `path` is not a string. */
+  openInAppPathMustBeString: (): string =>
+    "path must be a string",
+  /** `wsl-open-in-app`: the path is not a WSL UNC workspace. */
+  openInAppNotWslWorkspacePath: (): string =>
+    "Not a WSL workspace path",
+  /** `wsl-open-in-app`: the detached launch failed. */
+  openInAppLaunchFailed: (): string =>
+    "VS Code failed to launch",
+  /** `wsl-open-in-app`: no editor executable could be resolved. */
+  openInAppExecutableMissing: (): string =>
+    "VS Code was not found; configure executable on the wsl-open-in-app row",
+  /** The directory picker's root crumb, shared by every level. */
+  pickerWorkspace: (): string =>
+    "Workspace",
+  /** The directory picker's Windows branch label. */
+  pickerWindowsPaths: (): string =>
+    "Windows paths",
+  /** The directory picker's WSL branch label. */
+  pickerWslDistros: (): string =>
+    "WSL distros",
+  /** `/wsl-doctor`: the usage block a grammar violation settles with. */
+  doctorUsage: ({ sections }: { sections: string }): string =>
+    `Usage: /wsl-doctor [quick|full|<section>] [--distro <name>]\n` +
+    `section ∈ ${sections}; an empty input means quick. Without --distro the distro is inferred from the session's working directory.`,
+  /** `/wsl-doctor`: a token that matches no mode, section or distro spelling. */
+  doctorUnknownToken: ({ token }: { token: string }): string =>
+    `Unrecognized argument: ${token}`,
+  /** `/wsl-doctor`: `--distro` was not followed by a name. */
+  doctorDistroNeedsName: (): string =>
+    "--distro needs a name",
+  /** `/wsl-doctor`: the CLI run was cancelled. */
+  doctorCliCancelled: (): string =>
+    "the doctor CLI was cancelled",
+  /** `/wsl-doctor`: the CLI produced no report before the deadline. */
+  doctorCliTimeout: ({ seconds }: { seconds: number }): string =>
+    `the doctor CLI produced no report within ${seconds} seconds; narrow to one distro with --distro <name>, or retry with quick / <section>`,
+  /** `/wsl-doctor`: the CLI exited without a report. `detail` is "" or ": <stderr>". */
+  doctorCliNoReport: ({ status, detail }: { status: string, detail: string }): string =>
+    `the doctor CLI produced no report (exit ${status})${detail}`,
+  /** `/wsl-doctor`: the resolved target is one named distro. */
+  doctorTargetDistro: ({ distro }: { distro: string }): string =>
+    `distro ${distro}`,
+  /** `/wsl-doctor`: no distro resolved, so the CLI's configured target decides. */
+  doctorTargetConfigured: (): string =>
+    "the configured target (no distro was resolved from the session working directory; auto checks every installed distro)",
+  /** `/wsl-doctor`: the CLI run failed; `target` is the localized target phrase. */
+  doctorRunFailed: ({ target, message }: { target: string, message: string }): string =>
+    `doctor run failed (${target}): ${message}`,
+  /** `/wsl-doctor`: the command-plane description. */
+  doctorCommandDescription: (): string =>
+    "Run the WSL environment doctor (standalone CLI): the report appears here and stays out of the model conversation. No arguments means a quick check.",
+  /** `/wsl-doctor`: the input hint under the command name. */
+  doctorInputHint: (): string =>
+    "[quick|full|<section>] [--distro <name>]",
   /** `wsl_doctor` digest: the verdict line. `verdict` is the report's own `ready`/`blocked`. */
   doctorDigestVerdict: ({ verdict }: { verdict: string }): string =>
     `wsl doctor verdict: ${verdict}`,
@@ -245,6 +324,59 @@ const zh: typeof en = {
     `因此本会话运行在宿主（Windows）环境：命令经 PowerShell 执行，文件访问经过 9p 共享，发行版的 Linux 工具链不可用。` +
     `不要在此假设 Linux 命令、路径或工具；操作者可运行 /wsl-doctor 诊断该 profile。`,
 
+  statusMethodNotAllowed: () =>
+    "只支持 GET 与 POST",
+  statusDistroListFailed: ({ detail }) =>
+    `无法读取发行版清单：${detail}`,
+  statusRepairNeedsDistro: () =>
+    "修复需要指定发行版",
+  statusUnknownDistro: ({ distro }) =>
+    `未知发行版：${distro}`,
+  openInAppPostOnly: () =>
+    "只支持 POST",
+  openInAppJsonContentType: () =>
+    "content-type 必须是 application/json",
+  openInAppInvalidJson: () =>
+    "请求体不是合法 JSON",
+  openInAppBodyNotObject: () =>
+    "请求体必须是对象",
+  openInAppPathMustBeString: () =>
+    "path 必须是字符串",
+  openInAppNotWslWorkspacePath: () =>
+    "不是 WSL 工作区路径",
+  openInAppLaunchFailed: () =>
+    "VS Code 启动失败",
+  openInAppExecutableMissing: () =>
+    "找不到 VS Code；可在 wsl-open-in-app 行配置 executable",
+  pickerWorkspace: () =>
+    "工作区",
+  pickerWindowsPaths: () =>
+    "Windows 路径",
+  pickerWslDistros: () =>
+    "WSL 发行版",
+  doctorUsage: ({ sections }) =>
+    `用法：/wsl-doctor [quick|full|<section>] [--distro <名称>]\n` +
+    `section ∈ ${sections}；空输入等价 quick。省略 --distro 时用当前会话的工作目录推断 distro。`,
+  doctorUnknownToken: ({ token }) =>
+    `无法识别的参数：${token}`,
+  doctorDistroNeedsName: () =>
+    "--distro 需要一个名称",
+  doctorCliCancelled: () =>
+    "doctor CLI 已取消",
+  doctorCliTimeout: ({ seconds }) =>
+    `doctor CLI 在 ${seconds} 秒内没有给出报告；用 --distro <名称> 收窄到单个发行版，或改用 quick / <分区> 重试`,
+  doctorCliNoReport: ({ status, detail }) =>
+    `doctor CLI 未能给出报告（exit ${status}）${detail}`,
+  doctorTargetDistro: ({ distro }) =>
+    `发行版 ${distro}`,
+  doctorTargetConfigured: () =>
+    "配置指定的目标（未从会话工作目录解析出发行版，auto 会逐个检查所有已安装发行版）",
+  doctorRunFailed: ({ target, message }) =>
+    `doctor 运行失败（${target}）：${message}`,
+  doctorCommandDescription: () =>
+    "运行 WSL 环境诊断（独立 doctor CLI）：结果直接显示在此，不进入模型对话。省略参数为快速诊断。",
+  doctorInputHint: () =>
+    "[quick|full|<section>] [--distro <名称>]",
   doctorDigestVerdict: ({ verdict }) =>
     `wsl doctor 裁决：${verdict}`,
   doctorDigestHostLabel: () =>

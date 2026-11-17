@@ -221,6 +221,10 @@ test("apply leaves the Host environment alone and registers the route", () => {
        * @param {(scope: Scope) => void} callback
        */
       inject(deps, callback) {
+        if (deps[0] === "settings") {
+          callback({});
+          return undefined;
+        }
         assert.deepEqual(deps, ["connection"]);
         callback(scope);
         return undefined;
@@ -257,6 +261,10 @@ test("apply tolerates no connection and no inject, and still leaves the Host env
        * @param {(scope: Scope) => void} callback
        */
       inject(deps, callback) {
+        if (deps[0] === "settings") {
+          callback({});
+          return;
+        }
         assert.deepEqual(deps, ["connection"]);
         callback({ get: () => undefined, effect() {} });
         noConnection.push(true);
@@ -410,7 +418,7 @@ test("the route refuses non-string paths and classifies a rejected launcher", as
     launch: async () => { throw new Error("spawn exploded"); },
   })(post({ path: "\\\\wsl.localhost\\Ubuntu\\home" }));
   assert.equal(throwing.status, 502, "a rejected launcher is a classified failure, not an unhandled rejection");
-  assert.deepEqual(await throwing.json(), { error: "VS Code 启动失败" });
+  assert.deepEqual(await throwing.json(), { error: "VS Code failed to launch" });
 });
 
 test("apply launches the configured executable and withdraws the route on dispose", async () => {

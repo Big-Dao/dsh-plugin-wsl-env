@@ -15,7 +15,7 @@ import {
   DOCTOR_CLI_SWEEP_TIMEOUT_MS,
   DOCTOR_CLI_TIMEOUT_MS,
   DOCTOR_SCRIPT,
-  USAGE,
+  doctorUsage,
   apply,
   formatDoctorReport,
   parseDoctorInput,
@@ -79,7 +79,7 @@ await check("the grammar parses depths, sections, and distro spellings", () => {
   assert.deepEqual(parseDoctorInput("--distro ubuntu net"), { mode: "section", section: "net", distro: "ubuntu" });
   assert.deepEqual(parseDoctorInput("ubuntu"), { mode: "quick", distro: "ubuntu" }, "a bare distro name is the distro");
   assert.throws(() => parseDoctorInput("warp nine"), /nine/);
-  assert.throws(() => parseDoctorInput("--distro"), /--distro 需要一个名称/);
+  assert.throws(() => parseDoctorInput("--distro"), /--distro needs a name/);
 });
 
 await check("apply registers the command and the handler runs the CLI with the right flags", async () => {
@@ -270,13 +270,13 @@ await check("the settled error names the target the run examined", async () => {
   await apply({ commands: scoped.commands, doctorCli: async () => { throw new Error("spawn failed"); } });
   const named = await soleDefinition(scoped).handler({ rawInput: "quick --distro ubuntu" });
   assert.equal(named.kind, "error");
-  assert.match(named.text, /发行版 ubuntu/);
+  assert.match(named.text, /distro ubuntu/);
 
   const unscoped = fakeRegistry();
   await apply({ commands: unscoped.commands, doctorCli: async () => { throw new Error("spawn failed"); } });
   const fallback = await soleDefinition(unscoped).handler({ rawInput: "quick" });
   assert.equal(fallback.kind, "error");
-  assert.match(fallback.text, /配置指定的目标/);
+  assert.match(fallback.text, /the configured target/);
 });
 
 await check("grammar violations settle as direct errors with usage text", async () => {
@@ -286,10 +286,10 @@ await check("grammar violations settle as direct errors with usage text", async 
   const bad = await handler({ rawInput: "warp nine" });
   assert.equal(bad.kind, "error");
   assert.match(bad.text, /nine/);
-  assert.ok(bad.text.includes(USAGE));
+  assert.ok(bad.text.includes(doctorUsage()));
   const missing = await handler({ rawInput: "--distro" });
   assert.equal(missing.kind, "error");
-  assert.match(missing.text, /需要一个名称/);
+  assert.match(missing.text, /needs a name/);
 });
 
 await check("a CLI infrastructure failure settles as an error, a blocked verdict does not", async () => {
@@ -349,7 +349,7 @@ await check("the real runner rejects stdout that is not a JSON report", async ()
   assert.notEqual(help.status, null);
   await assert.rejects(
     () => runDoctorCli(["--help"]),
-    /未能给出报告/,
+    /produced no report/,
     "--help prints usage, never a JSON report",
   );
 });
@@ -361,7 +361,7 @@ await check("the real runner settles a run that outlives its deadline", async ()
   // doctor cannot boot, probe, and report inside it.
   await assert.rejects(
     () => runDoctorCli(["--json", "--quick"], undefined, 1),
-    /秒内没有给出报告[\s\S]*--distro/,
+    /produced no report[\s\S]*--distro/,
     "the deadline settles with the narrowing hint",
   );
 });

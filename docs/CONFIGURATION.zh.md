@@ -343,9 +343,11 @@ profile 不使用会话 runtime 时，设置 `sessionSandbox: false`。
 
 ### 消息语言
 
-插件的拒绝与修复消息（`sessionSandbox` 预检判定、`bwrap` 的安装与修复提示、
-发行版/工作目录命令错误）跟随 harness 应用的语言设置：偏好经宿主 settings
-服务从 `locale` 条目的 `preference` 字段读取，切换语言无需重启应用。
+插件自作的 UI 文本全部跟随 harness 应用的语言设置：状态面板的路由错误、
+open-in-app 路由的拒绝、目录选择器的标签、`/wsl-doctor` 命令文本，以及拒绝
+与修复消息（`sessionSandbox` 预检判定、`bwrap` 的安装与修复提示、发行版/
+工作目录命令错误）。偏好经宿主 settings 服务从 `locale` 条目的 `preference`
+字段读取，切换语言无需重启应用。
 内置中文（`zh`，含 `zh-CN`、`zh-Hans` 标签）与英文；其他语言渲染英文。
 没有 settings 服务的 profile、或用户从未在设置中选过语言的情况，回退到
 进程的 ICU 默认区域设置——桌面应用中即操作系统 UI 语言——因此临时渲染为

@@ -114,6 +114,15 @@ check(
   "no UTF-8 BOM",
   [...texts].filter(([, text]) => text.startsWith(BOM)).map(([file]) => file),
 );
+// Plugin-authored UI text follows the harness locale through messages.ts. A
+// raw CJK literal anywhere else in src/ is text that would ignore the setting,
+// so the catalog stays the one place such strings can live.
+check(
+  "plugin-authored source text goes through messages.ts",
+  [...texts]
+    .filter(([file, text]) => file.startsWith("src/") && file.endsWith(".ts") && file !== "src/messages.ts" && /[\u3400-\u9fff]/u.test(text))
+    .map(([file]) => file),
+);
 
 // package.json is a tracked text file, so the map holds it.
 const pkg = JSON.parse(/** @type {string} */ (texts.get("package.json")));

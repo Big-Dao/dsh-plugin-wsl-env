@@ -16,6 +16,12 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.26.4] - 2026-11-18
+
+Patch release: bound a wedged resident agent's request, localize the remaining
+UI text, harden the v7 FS frame, and keep the picker's category level in one
+language. Documentation and internal refactors ride along.
+
 ### Fixed
 
 - **The picker's first category level no longer mixes two languages.** The

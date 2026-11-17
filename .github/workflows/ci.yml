@@ -4,16 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Manual-only real-machine probes. The nightly schedule and its freshness
+  # heartbeat were removed on 2026-11-18: no self-hosted Windows+WSL runner is
+  # registered for this repository, so a scheduled run would only be a hosted
+  # no-op. Evidence comes from the local closed-app suite or from this dispatch
+  # once a self-hosted runner is attached.
   workflow_dispatch:
-  # The nightly probes job (the Tier 1 north-star metric). A schedule fires
-  # every job in this workflow, so each *other* job skips the event and only
-  # `probes` runs. The `windows-latest` label is fulfilled by the
-  # development machine's self-hosted runner (which has WSL2), so the
-  # nightly collects real evidence when that machine is up; on a
-  # GitHub-hosted runner the same job skips green. The concurrency group
-  # below folds a backlog of missed nights into the newest run.
-  schedule:
-    - cron: "30 21 * * *" # 21:30 UTC — early morning, +08:00
 
 # Least privilege: every job here only reads the repository.
 permissions:
@@ -21,7 +17,7 @@ permissions:
 
 # A newer push to the same branch makes the older run obsolete.
 concurrency:
-  group: ${{ github.event_name == 'schedule' && 'ci-nightly-probes' || format('ci-{0}', github.ref) }}
+  group: ${{ format('ci-{0}', github.ref) }}
   cancel-in-progress: true
 
 # corepack resolves pnpm from the packageManager field and downloads it once per
@@ -39,7 +35,6 @@ env:
 # See docs/RELEASING.md, and the archived record §16.6 for what that gap once cost.
 jobs:
   test:
-    if: github.event_name != 'schedule'
     name: unit (node ${{ matrix.node }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
@@ -57,12 +52,11 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         node: ["22", "24"]
     steps:
-      # The `windows-latest` legs run on the development machine's self-hosted
-      # runner (see the header). Unreviewed fork code must not execute there:
-      # the fork's PR skips the self-hosted legs, the GitHub-hosted ubuntu legs
-      # keep running. The durable fix is renaming the runner's label (e.g.
-      # `self-hosted-wsl`) and repointing the two `windows-latest` consumers at
-      # it — a runner-settings change, recorded in CONTRIBUTING.md.
+      # The Windows legs run on GitHub-hosted `windows-latest`; no self-hosted
+      # runner is registered for this repository (2026-11-18). If one is
+      # attached later, give it a custom `self-hosted-wsl` label instead of the
+      # hosted label; this step-level fork gate is what keeps unreviewed PR
+      # code off a shared machine in the meantime.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -93,7 +87,6 @@ jobs:
         if: ${{ matrix.os != 'windows-latest' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
   coverage:
-    if: github.event_name != 'schedule'
     name: coverage (node 24)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -127,7 +120,6 @@ jobs:
   # without a downloaded browser still runs the ordinary gate; the plugin's
   # Desktop integration remains the real-machine probe's job.
   browser:
-    if: github.event_name != 'schedule'
     name: browser (chromium)
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -153,7 +145,6 @@ jobs:
   # host copies into a distro. The runner image carries Rust through rustup,
   # and agent/native/spike/rust-toolchain.toml pins the version it builds with.
   native:
-    if: github.event_name != 'schedule'
     name: native spike (x86_64)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -177,7 +168,6 @@ jobs:
   # goes through cargo-zigbuild so one job can produce both. The artifacts are
   # downloaded and committed (the plugin has no build step on purpose).
   native-package:
-    if: github.event_name != 'schedule'
     name: native packages (musl x86_64 + aarch64)
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -258,7 +248,6 @@ jobs:
   # Ubuntu. The script mounts the checkout read-only and drives the real
   # agent over stdio; no WSL and no harness.
   agent-containers:
-    if: github.event_name != 'schedule'
     name: shell agent in containers (${{ matrix.image }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -278,18 +267,15 @@ jobs:
       - run: node test/agent-container.mjs ${{ matrix.image }}
 
   # The real-machine probes need Windows + WSL2 + the harness app, which
-  # GitHub-hosted Windows does not have. This job is scheduled and
-  # dispatchable; `runs-on` is hosted `windows-latest`. The step skips whole
-  # unless the default distro actually launches: `wsl.exe` is on PATH of
-  # every Windows image, but hosted runners carry it with no distro behind
-  # it. With WSL but no bubblewrap, `sandbox.sh` fails rather than skips
-  # (see CONTRIBUTING.md). Dispatch on a development machine, or attach a
-  # self-hosted Windows+WSL runner with the `windows-latest` label, to
-  # collect evidence. The job does not run on pull_request.
+  # GitHub-hosted Windows does not have. This job is manual-only; `runs-on` is
+  # hosted `windows-latest`, so its preflight fails rather than skips unless a
+  # self-hosted Windows+WSL runner is attached under that label. Run the local
+  # closed-app suite (`test/probe/run-all-when-closed.sh --include-fs`) for
+  # actual evidence.
   probes:
     name: real-machine probes (Windows, WSL when present)
     runs-on: windows-latest
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    if: github.event_name == 'workflow_dispatch'
     timeout-minutes: 20
     defaults:
       run:
@@ -324,18 +310,18 @@ jobs:
               bash "test/probe/$script" || { echo "::endgroup::"; exit 1; }
               echo "::endgroup::"
             else
-              echo "skip probe:$name (no harness app at $APP — configure it or dispatch on the dev machine)"
+              echo "skip probe:$name (no harness app at $APP — install/configure it on the self-hosted runner, or run the closed-app suite locally)"
             fi
           }
-          command -v wsl.exe >/dev/null 2>&1 || { echo "skip all (no wsl.exe on this runner)"; exit 0; }
+          command -v wsl.exe >/dev/null 2>&1 || { echo "::error::no wsl.exe on this runner; the manual probes job needs a self-hosted Windows+WSL runner (or run test/probe/run-all-when-closed.sh locally)"; exit 1; }
           # wsl.exe ships with every modern Windows image, so its presence on
           # PATH proves nothing: a hosted runner carries the binary with no
           # distro behind it, and every invocation dies inside wsl.exe itself
           # (UTF-16 bytes and a nonzero exit — fatal under -e -o pipefail when
           # piped). The topology test is whether the default distro launches.
           if ! WSL_UTF8=1 wsl.exe -e true >/dev/null 2>&1; then
-            echo "skip all (wsl.exe resolves but the default distro does not launch — hosted runners ship the binary without a distro; dispatch on a development machine or attach a self-hosted Windows+WSL runner with the windows-latest label)"
-            exit 0
+            echo "::error::wsl.exe resolves but the default distro does not launch — hosted runners ship the binary without a distro. Attach a self-hosted Windows+WSL runner with the windows-latest label, or run test/probe/run-all-when-closed.sh locally"
+            exit 1
           fi
           # sandbox.sh is a distro probe (its header: "Run it from INSIDE the
           # distro"): bubblewrap exists only there, and a non-login distro
@@ -364,10 +350,10 @@ jobs:
           run_or_skip picker harness picker.sh
           run_or_skip missing-wsl harness missing-wsl.sh
           run_or_skip native-session harness native-session.sh
-          # Evidence only exists when the topology above was real; the early
-          # skip paths return before this line. The heartbeat job consumes it.
+          # Evidence only exists when the topology above was real; the preflight
+          # above fails before this line on a hosted runner.
           echo "probe suite completed at $(date -u +%Y-%m-%dT%H:%M:%SZ) on ${RUNNER_NAME:-unknown}" > probe-evidence.txt
-      - name: Keep the probe evidence for the nightly heartbeat
+      - name: Keep the probe evidence for this manual run
         if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -376,28 +362,3 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
-  # A hosted Windows runner with no WSL reports the probes job green while
-  # doing nothing, and the self-hosted runner being offline is otherwise
-  # invisible in the schedule. This job turns "no evidence" into a failure.
-  probe-heartbeat:
-    name: probe evidence freshness
-    if: github.event_name == 'schedule'
-    needs: probes
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: read
-      contents: read
-    steps:
-      - name: Require a real-machine probe artifact from the last three days
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          cutoff="$(date -u -d '3 days ago' +%Y-%m-%dT%H:%M:%SZ)"
-          artifacts="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" --jq '.artifacts[] | select(.name | startswith("probe-evidence-")) | "\(.created_at) \(.name)"')"
-          printf '%s\n' "$artifacts"
-          if ! printf '%s\n' "$artifacts" | awk -v cutoff="$cutoff" '$1 >= cutoff { found = 1 } END { exit found ? 0 : 1 }'; then
-            echo "::error::no real-machine probe evidence since ${cutoff}; the self-hosted Windows+WSL runner has not completed a nightly suite. Dispatch the probes job on a development machine, or fix the runner."
-            exit 1
-          fi

@@ -43,7 +43,7 @@ North-star metrics:
 |---|---|
 | Tier 1 first-run success | >= 95% |
 | Time to first successful WSL command | p50 <= 5 min, p90 <= 15 min |
-| Real-machine probe suite | 100% on Tier 1, nightly |
+| Real-machine probe suite | 100% on Tier 1 before release (manual closed-app suite) |
 | Known documentation drift | 0 |
 
 ## 2. The 0.15.0 baseline
@@ -157,7 +157,7 @@ correct once configured" and "the plugin is correct on first contact".
 | 1-2 | Baseline and hygiene | Ten clean-machine timings; P0.4; doctor specification |
 | 3-6 | Multi-distro | P0.1 implementation, unit tests, two-distro probe, migration note |
 | 7-8 | First-run loop | P0.2, P0.3, P0.5 |
-| 9-10 | Compatibility and proof | P1.2, P1.3, nightly probe runner |
+| 9-10 | Compatibility and proof | P1.2, P1.3, manual probe runner evidence |
 | 11-12 | Surface and performance | P1.4/P1.5 spike, P1.6 baseline, P1.7 fault injection |
 | 13+ | Ecosystem and 1.0 | P2.1-P2.4, release gates |
 
@@ -170,7 +170,7 @@ may move if the compatibility matrix exposes a higher-severity failure.
 |---|---|---|---|
 | Time to first command | Not systematically measured | p50 <= 5 min, p90 <= 15 min | Ten clean-machine runs |
 | Tier 1 first-run success | Not measured | >= 95% | Compatibility matrix |
-| Real-machine probes | 17 with `--include-fs` (16 base scripts plus `run.sh`; suite grew to 17 on 2026-11-06); nightly on the self-hosted Windows+WSL runner since 0.15.0 (cron 21:30 UTC, hosted runners skip green) | 100% green on the nightly run | CI `probes` job history |
+| Real-machine probes | Full `--include-fs` suite run locally before release with the app closed; a manual `probes` dispatch is available once a self-hosted Windows+WSL runner exists. The nightly schedule and its heartbeat were removed on 2026-11-18 because none is registered | 100% green before release | Local closed-app suite output; manual `probes` run |
 | FS single-op p95 | ~22ms host round trip | <= 30ms | `fs-queue.mjs` |
 | 16 concurrent reads p95 | 2.4-8.2ms | <= 20ms | `fs-queue.mjs` |
 | GUI preview p95 | Backend 63.5 ms/MiB (service round trips on top) | <= 1s/MiB | `probe:gui-preview` |
@@ -189,7 +189,7 @@ probe reports.
 | Upstream never lands a seam | Keep the plugin independent; promotion work is packaging and proof, not a dependency |
 | Multi-distro refactor destabilizes routing | Introduce `distro: auto` behind tests; keep explicit pins; run two-distro probes before release |
 | `sessionSandbox: auto` hides a semantic change | Still use bwrap; report the scope mode in the result; explicit `true` keeps the strict behavior |
-| Real-machine CI is unavailable | Self-hosted Windows nightly; qemu for the aarch64 binary; manual suite before release |
+| Real-machine CI is unavailable | Manual closed-app suite before release; qemu for the aarch64 binary; attach a self-hosted Windows+WSL runner and re-enable the manual `probes` dispatch if continuous evidence is needed |
 | Solo maintenance and bus factor | Freeze scope for 1.0; document every seam; keep the issue templates and probes current |
 | Security overclaim | Keep `enforcement: partial`; the strict preset narrows, never closes, the interop hole |
 | GUI regression repeats | Never replace the shipped `workspace-files` row again; only route and optimize |
@@ -467,8 +467,10 @@ but never executed.
       evidence (COMPATIBILITY.md). Physical aarch64 and Windows 10 are
       documented as out of scope rather than untested claims.
 
-**Tests/probes:** container matrix, qemu spike, COMPATIBILITY.md; nightly
-`probes` job is GitHub-hosted `windows-latest` and skips without WSL.
+**Tests/probes:** container matrix, qemu spike, COMPATIBILITY.md; the manual
+`probes` job is GitHub-hosted `windows-latest` and skips without WSL. The
+nightly schedule was removed on 2026-11-18 (no self-hosted runner); run the
+closed-app suite locally for evidence.
 
 **Depends on:** WSL-201 for non-systemd; WSL-203 for packaging.
 

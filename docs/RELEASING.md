@@ -124,15 +124,17 @@ maintainer joins the release rotation.
 
 ### Repository settings the workflow cannot verify
 
-One setting lives in GitHub's UI, not in this repository, and the gates cannot
-see it:
+There is currently **no self-hosted runner registered** for this repository, so
+the Windows matrix legs run on GitHub-hosted `windows-latest`. The nightly
+`probes` schedule and its freshness heartbeat were removed on 2026-11-18: with
+no runner, a scheduled run could only be a hosted no-op. The real-machine
+evidence path is the local closed-app suite
+(`test/probe/run-all-when-closed.sh --include-fs`, run with the app exited), or
+the manual `probes` workflow once a self-hosted Windows+WSL runner is attached.
 
-- **The self-hosted runner's label.** The development machine currently
-  answers `windows-latest`, so unit-matrix Windows legs (and scheduled probes)
-  run on it. Rename the runner's label (for example `self-hosted-wsl`) and
-  repoint the two `windows-latest` consumers in `ci.yml`; until then, fork PRs
-  stay gated off those steps and the probes heartbeat is the evidence that the
-  machine actually ran the suite.
+If a runner is added later, give it a custom `self-hosted-wsl` label rather than
+the hosted `windows-latest` label, and update every matrix / `runs-on` /
+fork-gate reference in `ci.yml` together.
 
 The `npm-publish` environment has no required reviewers by decision, not by
 oversight: see the paragraph above. Its presence is still required for npm
@@ -249,7 +251,7 @@ without watching this repository:
   on notable releases).
 - Content: the version, the two or three headline changes, the current
   verification snapshot in one line (unit tests, matrix, container and qemu
-  legs, nightly probes), and the release link.
+  legs, the manual closed-app probe suite), and the release link.
 - Post it with the same GraphQL mutation the 2026-10-27 update used
   (`addDiscussionComment` on the discussion's node id) from a session that
   holds the maintainer's GitHub credentials — the release workflow's

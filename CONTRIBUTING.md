@@ -236,33 +236,26 @@ still need Windows and WSL2, but no harness boot and no profile: run them from a
 distro terminal with Node available, and they reach `wsl.exe` through interop.
 
 Two conveniences for the real-machine set. `test/probe/run-all-when-closed.sh
---include-fs` runs all seventeen probes once the app has exited. The interop shell
-matrix uses the `wslfs` profile, systemd and a lingering user manager; it fails
-when Windows interop or its temporary marker cannot be verified. And `ci.yml` has a
-scheduled and manually dispatched `probes` job: `sandbox` runs whenever a default distro
-actually launches, then `mode`, `terminal`, `picker` and `missing-wsl` where the
-harness app is installed. It is named for a self-hosted Windows runner although
-its `runs-on` carries the GitHub-hosted `windows-latest` label; when the hosted
-runner has no usable distro the job is a green no-op (`skip all`). Where a default
-distro launches without bubblewrap, the `sandbox` leg fails, not skips.
+--include-fs` runs the full closed-app suite once the app has exited. The interop
+shell matrix uses the `wslfs` profile, systemd and a lingering user manager; it
+fails when Windows interop or its temporary marker cannot be verified.
 
-**Self-hosted runner label collision — known exposure.** The development
-machine's self-hosted runner fulfills the GitHub-hosted `windows-latest` label,
-so the unit matrix's Windows legs execute there on every push and PR. PR code
-from a fork is skipped on those legs (`ci.yml`'s step-level fork gate), but the
-durable fix is renaming the runner's label to something unambiguous (for
-example `self-hosted-wsl`) in the runner's settings and repointing the two
-`windows-latest` consumers in `ci.yml` at it — until then, treat the label as
-shared infrastructure, not hosted capacity. This is the remaining repository
-setting listed in
-[RELEASING.md](docs/RELEASING.md#repository-settings-the-workflow-cannot-verify);
-the release workflow's `npm-publish` environment intentionally has no required
-reviewers (single-maintainer decision).
+The `ci.yml` `probes` job is **manual-only** (`workflow_dispatch`) and requires a
+self-hosted Windows+WSL runner with the harness app and a configured profile;
+`runs-on` is the GitHub-hosted `windows-latest` label, so dispatching it without
+such a runner fails with a named error rather than passing (`skip all` is gone).
+No self-hosted runner is registered for this repository today (2026-11-18), so
+the documented path is the local closed-app command above. The nightly schedule
+and its `probe-heartbeat` were removed on the same date for that reason; there is
+no scheduled probe evidence to miss. A manual run still uploads
+`probe-evidence-<run>` as the evidence artifact.
 
-The scheduled probes job now writes a `probe-evidence-<run>` artifact after a
-real run, and the `probe-heartbeat` job fails the schedule when no such artifact
-appeared in the last three days. A hosted-runner no-op therefore alerts instead
-of staying green; the artifact is the evidence, not the job status.
+**Self-hosted runners.** None is currently registered for this repository, so
+the Windows matrix legs run on GitHub-hosted `windows-latest`. If one is added
+later, give it a custom label such as `self-hosted-wsl` rather than the hosted
+`windows-latest` label, and update every matrix / `runs-on` / fork-gate
+reference together. The release workflow's `npm-publish` environment
+intentionally has no required reviewers (single-maintainer decision).
 
 Also note the install steps carry `--config.minimum-release-age=0` (pnpm 11.7's
 lockfile re-verification ignores `minimumReleaseAgeExclude`; the flag is the

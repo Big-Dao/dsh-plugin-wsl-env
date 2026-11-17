@@ -47,13 +47,14 @@ were part of the record.
 
 - **Release and CI hardening (#52).** The release workflow now compares the
   registry's `dist.integrity` with the local `npm pack` product, not just the
-  file count and readme name; the scheduled probes job writes an evidence
-  artifact after a real run and a new `probe-heartbeat` job fails the schedule
-  when none appeared in three days; the stale `0.2.1-rc.2` entries were removed
-  from `minimumReleaseAgeExclude` and the restore condition is recorded; and
-  `docs/RELEASING.md` now names the remaining repository setting the gates
-  cannot verify (the shared `windows-latest` runner label) and records the
-  deliberate decision to run `npm-publish` without required reviewers.
+  file count and readme name; the stale `0.2.1-rc.2` entries were removed from
+  `minimumReleaseAgeExclude` and the restore condition is recorded; and
+  `docs/RELEASING.md` records the deliberate decision to run `npm-publish`
+  without required reviewers. The nightly `probes` schedule and its
+  `probe-heartbeat` were removed after confirming no self-hosted runner is
+  registered for the repository: the manual `probes` dispatch now fails loudly
+  when the runner has no WSL topology, and real-machine evidence comes from the
+  local closed-app suite (`test/probe/run-all-when-closed.sh --include-fs`).
 - **The filesystem and shell providers share their runtime bookkeeping and
   config narrowing (#54).** The two classes kept identical maps for distro
   homes, held session runtimes, the session-runtime preflight, and the `auto`

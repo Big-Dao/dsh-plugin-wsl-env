@@ -82,6 +82,7 @@
  *
  * @module dsh-plugin-wsl-env/subprocess
  */
+import { PLUGIN_PROVIDER } from "./provider-marker.js";
 import z from "@deepseek-ai/schemastery";
 import { LocalSubprocessRuntime } from "@deepseek-ai/dsh-subprocess-local";
 import type { Context } from "@deepseek-ai/cordis";
@@ -127,6 +128,8 @@ interface WslSubprocessConfig {
  * literally the shipped implementation.
  */
 export declare class WslSubprocessRuntime extends LocalSubprocessRuntime {
+    /** Brand for the in-app takeover report; see `provider-marker`. */
+    get [PLUGIN_PROVIDER](): "subprocess";
     static Config: z<Schemastery.ObjectS<NoInfer<{
         /**
          * Distro mode: empty/`"auto"` follows the launch directory, `"default"`

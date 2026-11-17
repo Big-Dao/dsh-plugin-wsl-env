@@ -47,6 +47,7 @@
  *
  * @module dsh-plugin-wsl-env/picker
  */
+import { PLUGIN_PROVIDER } from "./provider-marker.js";
 import z from "@deepseek-ai/schemastery";
 import { DirectoryPicker } from "@deepseek-ai/dsh-host-directory-picker";
 import type { Context } from "@deepseek-ai/cordis";
@@ -95,6 +96,8 @@ interface PickerConfig {
  * capture it across calls.
  */
 export declare class WslDirectoryPicker extends DirectoryPicker {
+    /** Brand for the in-app takeover report; see `provider-marker`. */
+    get [PLUGIN_PROVIDER](): "directoryPicker";
     static Config: z<Schemastery.ObjectS<NoInfer<{
         /** Path to `wsl.exe`; overridable for a non-standard install. */
         wslPath: z<string, string, "defined">;

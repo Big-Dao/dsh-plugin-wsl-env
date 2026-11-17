@@ -35,6 +35,18 @@ were part of the record.
   unknown-state/`AgentUnavailableError`, and the caller's usual fallback
   applies. An ACK replaces it with the existing execution budget.
 
+### Changed
+
+- **The takeover report identifies providers by a symbol brand, not
+  `instanceof` (#53).** `takeover-report` used to import the three provider
+  classes to tell this plugin's `subprocess`/`fs`/`directoryPicker` from the
+  shipped ones, which pulled the whole filesystem provider graph — including
+  `agent-shared`'s module-load script digest — into every diagnostic surface
+  that reads the report, including the preset realm. Each provider now carries
+  a `Symbol.for` brand on its prototype and the report compares that, so the
+  doctor snapshot loads only the marker module. A static import-graph test
+  keeps the provider stack out of `lib/takeover-report.js`.
+
 ### Documentation
 
 - **Documentation and comment drift swept, with the peer floor now checked
@@ -222,6 +234,18 @@ it; the README/docs pass that leads with the desktop-app path ships too.
   the peer-position walk, and the collector's hand-off).
   `docs/DIAGNOSTICS.md`, `docs/ARCHITECTURE.md` and `docs/PEER-PARITY.md` record
   the two answers and why they differ.
+
+### Changed
+
+- **The takeover report identifies providers by a symbol brand, not
+  `instanceof` (#53).** `takeover-report` used to import the three provider
+  classes to tell this plugin's `subprocess`/`fs`/`directoryPicker` from the
+  shipped ones, which pulled the whole filesystem provider graph — including
+  `agent-shared`'s module-load script digest — into every diagnostic surface
+  that reads the report, including the preset realm. Each provider now carries
+  a `Symbol.for` brand on its prototype and the report compares that, so the
+  doctor snapshot loads only the marker module. A static import-graph test
+  keeps the provider stack out of `lib/takeover-report.js`.
 
 ### Documentation
 
@@ -935,6 +959,18 @@ behaviour change owes the release notes.
   timeout, so a failing check cannot leak a `sh` that makes `node --test` wait
   forever.
 
+### Changed
+
+- **The takeover report identifies providers by a symbol brand, not
+  `instanceof` (#53).** `takeover-report` used to import the three provider
+  classes to tell this plugin's `subprocess`/`fs`/`directoryPicker` from the
+  shipped ones, which pulled the whole filesystem provider graph — including
+  `agent-shared`'s module-load script digest — into every diagnostic surface
+  that reads the report, including the preset realm. Each provider now carries
+  a `Symbol.for` brand on its prototype and the report compares that, so the
+  doctor snapshot loads only the marker module. A static import-graph test
+  keeps the provider stack out of `lib/takeover-report.js`.
+
 ### Documentation
 
 - **The install steps no longer assume a `dsh` executable.** The Windows
@@ -1066,6 +1102,18 @@ path is documented with its operator rule.
   copy-paste remedy when Windows git does not trust it, and an info (nothing
   to do) when there is no Windows git — the distro fallback covers WSL change
   review entirely.
+
+### Changed
+
+- **The takeover report identifies providers by a symbol brand, not
+  `instanceof` (#53).** `takeover-report` used to import the three provider
+  classes to tell this plugin's `subprocess`/`fs`/`directoryPicker` from the
+  shipped ones, which pulled the whole filesystem provider graph — including
+  `agent-shared`'s module-load script digest — into every diagnostic surface
+  that reads the report, including the preset realm. Each provider now carries
+  a `Symbol.for` brand on its prototype and the report compares that, so the
+  doctor snapshot loads only the marker module. A static import-graph test
+  keeps the provider stack out of `lib/takeover-report.js`.
 
 ### Documentation
 
@@ -3197,6 +3245,18 @@ Metadata and one documentation addition. No behaviour change.
   the folder picker, the GUI terminal — and the confinement, instead of naming only two
   of them. It is the line npm shows under the package name in search results.
 
+### Changed
+
+- **The takeover report identifies providers by a symbol brand, not
+  `instanceof` (#53).** `takeover-report` used to import the three provider
+  classes to tell this plugin's `subprocess`/`fs`/`directoryPicker` from the
+  shipped ones, which pulled the whole filesystem provider graph — including
+  `agent-shared`'s module-load script digest — into every diagnostic surface
+  that reads the report, including the preset realm. Each provider now carries
+  a `Symbol.for` brand on its prototype and the report compares that, so the
+  doctor snapshot loads only the marker module. A static import-graph test
+  keeps the provider stack out of `lib/takeover-report.js`.
+
 ### Documentation
 
 - The error table in `docs/ARCHITECTURE.md` states exactly what the model sees on a
@@ -3234,6 +3294,18 @@ No runtime change.
   directly by killing a `wsl.exe` relay and watching the distro-side `sleep` disappear
   with it (1 process before, 0 after).
 
+### Changed
+
+- **The takeover report identifies providers by a symbol brand, not
+  `instanceof` (#53).** `takeover-report` used to import the three provider
+  classes to tell this plugin's `subprocess`/`fs`/`directoryPicker` from the
+  shipped ones, which pulled the whole filesystem provider graph — including
+  `agent-shared`'s module-load script digest — into every diagnostic surface
+  that reads the report, including the preset realm. Each provider now carries
+  a `Symbol.for` brand on its prototype and the report compares that, so the
+  doctor snapshot loads only the marker module. A static import-graph test
+  keeps the provider stack out of `lib/takeover-report.js`.
+
 ### Documentation
 
 - The review's "unverified: orphaned processes after a timeout" item is closed. The
@@ -3261,6 +3333,18 @@ One correctness fix and the error-code reference the closure review asked for.
   root while that not-yet-existing root was its workdir, which had "worked" only because
   `mkdir -p` takes an absolute path. The setup now runs from the distro home, and the
   new assertion pins the failure it used to hide.
+
+### Changed
+
+- **The takeover report identifies providers by a symbol brand, not
+  `instanceof` (#53).** `takeover-report` used to import the three provider
+  classes to tell this plugin's `subprocess`/`fs`/`directoryPicker` from the
+  shipped ones, which pulled the whole filesystem provider graph — including
+  `agent-shared`'s module-load script digest — into every diagnostic surface
+  that reads the report, including the preset realm. Each provider now carries
+  a `Symbol.for` brand on its prototype and the report compares that, so the
+  doctor snapshot loads only the marker module. A static import-graph test
+  keeps the provider stack out of `lib/takeover-report.js`.
 
 ### Documentation
 
@@ -3306,6 +3390,18 @@ Three probes that close coverage gaps a closure review named, the documentation 
   points at `wslPath` and at WSL being installed, the same way it already did for a
   token denied by the Windows sandbox. `npm run probe:missing-wsl` asserts it.
 
+### Changed
+
+- **The takeover report identifies providers by a symbol brand, not
+  `instanceof` (#53).** `takeover-report` used to import the three provider
+  classes to tell this plugin's `subprocess`/`fs`/`directoryPicker` from the
+  shipped ones, which pulled the whole filesystem provider graph — including
+  `agent-shared`'s module-load script digest — into every diagnostic surface
+  that reads the report, including the preset realm. Each provider now carries
+  a `Symbol.for` brand on its prototype and the report compares that, so the
+  doctor snapshot loads only the marker module. A static import-graph test
+  keeps the provider stack out of `lib/takeover-report.js`.
+
 ### Documentation
 
 - `docs/LIMITATIONS.md` states the `/tmp` split: a confined command's `/tmp` is a fresh
@@ -3342,6 +3438,18 @@ could not work, and one where the cause of a failure was invisible.
   reads that code (NUL-stripped, so either encoding is found), pins `WSL_UTF8` on its
   own spawn so the text is readable, and fails with the distro name and the remedy.
   Deliberately not a sandbox code: a wider permission cannot create a distro.
+
+### Changed
+
+- **The takeover report identifies providers by a symbol brand, not
+  `instanceof` (#53).** `takeover-report` used to import the three provider
+  classes to tell this plugin's `subprocess`/`fs`/`directoryPicker` from the
+  shipped ones, which pulled the whole filesystem provider graph — including
+  `agent-shared`'s module-load script digest — into every diagnostic surface
+  that reads the report, including the preset realm. Each provider now carries
+  a `Symbol.for` brand on its prototype and the report compares that, so the
+  doctor snapshot loads only the marker module. A static import-graph test
+  keeps the provider stack out of `lib/takeover-report.js`.
 
 ### Documentation
 

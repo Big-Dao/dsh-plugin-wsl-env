@@ -49,6 +49,7 @@
  */
 
 import { mkdir, opendir, stat } from "node:fs/promises";
+import { PLUGIN_PROVIDER } from "./provider-marker.js";
 import type { Dir } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -189,6 +190,11 @@ async function directoryRow(parent: string, name: string, isDirectory: boolean, 
  * capture it across calls.
  */
 export class WslDirectoryPicker extends DirectoryPicker {
+  /** Brand for the in-app takeover report; see `provider-marker`. */
+  get [PLUGIN_PROVIDER](): "directoryPicker" {
+    return "directoryPicker";
+  }
+
   static Config = z.object({
     /** Path to `wsl.exe`; overridable for a non-standard install. */
     wslPath: z.string().default("wsl.exe"),

@@ -11,6 +11,9 @@
  *   node test/takeover-report.test.mjs
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { WslRoutingFileSystem } from "../lib/fs-routing.js";
 import { WslDirectoryPicker } from "../lib/picker.js";
 import { WslSubprocessRuntime } from "../lib/subprocess.js";
@@ -119,6 +122,29 @@ check("a shipped provider still serving a name warns with the remedy", () => {
   assert.match(String(row?.remedy), /restart DSH/);
   assert.match(String(row?.remedy), /docs\/LIMITATIONS\.md/);
   assert.equal(merged.summary?.warn, 1);
+});
+
+check("the report does not load the provider implementation graph", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const seen = new Set();
+  /**
+   * Walk this plugin's own static imports from one lib module.
+   * @param {string} file - an absolute path under lib/.
+   */
+  const walk = (file) => {
+    const name = file.slice(here.length + 1);
+    if (seen.has(name)) return;
+    seen.add(name);
+    const text = readFileSync(file, "utf8");
+    for (const match of text.matchAll(/from "\.\/([^"]+\.js)"/g)) {
+      const target = resolve(dirname(file), match[1]);
+      if (target.startsWith(here)) walk(target);
+    }
+  };
+  walk(resolve(here, "..", "lib", "takeover-report.js"));
+  for (const forbidden of ["wsl-filesystem.js", "fs-routing.js", "picker.js", "subprocess.js", "agent-shared.js"]) {
+    assert.equal(seen.has(forbidden), false, `takeover-report must not transitively load ${forbidden}`);
+  }
 });
 
 let failed = 0;

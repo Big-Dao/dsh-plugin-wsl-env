@@ -30,6 +30,7 @@
  *
  * @module dsh-plugin-wsl-env/fs-routing
  */
+import { PLUGIN_PROVIDER } from "./provider-marker.js";
 import z from "@deepseek-ai/schemastery";
 import { LocalFileSystem } from "@deepseek-ai/dsh-fs-local";
 import { WslFileSystem } from "./wsl-filesystem.js";
@@ -98,6 +99,8 @@ export declare function inputIsDistro(value: string | undefined): boolean;
  * mode the distro side reports through `sandboxMode`).
  */
 export declare class WslRoutingFileSystem extends LocalFileSystem {
+    /** Brand for the in-app takeover report; see `provider-marker`. */
+    get [PLUGIN_PROVIDER](): "fs";
     static Config: z<RoutingConfig>;
     /**
      * The routed backend's constructor reads the deployment default mode from

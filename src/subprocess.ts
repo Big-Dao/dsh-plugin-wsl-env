@@ -84,6 +84,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { PLUGIN_PROVIDER } from "./provider-marker.js";
 import { Buffer } from "node:buffer";
 import z from "@deepseek-ai/schemastery";
 import { LocalSubprocessRuntime } from "@deepseek-ai/dsh-subprocess-local";
@@ -155,6 +156,11 @@ interface WslSubprocessConfig {
  * literally the shipped implementation.
  */
 export class WslSubprocessRuntime extends LocalSubprocessRuntime {
+  /** Brand for the in-app takeover report; see `provider-marker`. */
+  get [PLUGIN_PROVIDER](): "subprocess" {
+    return "subprocess";
+  }
+
   static Config = z.object({
     /**
      * Distro mode: empty/`"auto"` follows the launch directory, `"default"`

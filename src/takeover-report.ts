@@ -22,9 +22,7 @@
  * @module dsh-plugin-wsl-env/takeover-report
  */
 
-import { WslRoutingFileSystem } from "./fs-routing.js";
-import { WslDirectoryPicker } from "./picker.js";
-import { WslSubprocessRuntime } from "./subprocess.js";
+import { PLUGIN_PROVIDER } from "./provider-marker.js";
 
 /** The service names this plugin replaces with its own providers. */
 export const TAKEOVER_SERVICES = ["subprocess", "fs", "directoryPicker"] as const;
@@ -64,14 +62,8 @@ export interface TakeoverMergeReport {
  * @returns true for this plugin's class of that service.
  */
 function isPluginProvider(service: TakeoverService, value: unknown): boolean {
-  switch (service) {
-    case "subprocess":
-      return value instanceof WslSubprocessRuntime;
-    case "fs":
-      return value instanceof WslRoutingFileSystem;
-    case "directoryPicker":
-      return value instanceof WslDirectoryPicker;
-  }
+  if (typeof value !== "object" || value === null) return false;
+  return (value as Record<symbol, unknown>)[PLUGIN_PROVIDER] === service;
 }
 
 /**

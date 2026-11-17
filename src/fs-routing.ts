@@ -32,6 +32,7 @@
  */
 
 import { isWslUnc, uncToPosix } from "./paths.js";
+import { PLUGIN_PROVIDER } from "./provider-marker.js";
 import z from "@deepseek-ai/schemastery";
 import { LocalFileSystem } from "@deepseek-ai/dsh-fs-local";
 import { WslFileSystem } from "./wsl-filesystem.js";
@@ -143,6 +144,11 @@ export function inputIsDistro(value: string | undefined): boolean {
  * mode the distro side reports through `sandboxMode`).
  */
 export class WslRoutingFileSystem extends LocalFileSystem {
+  /** Brand for the in-app takeover report; see `provider-marker`. */
+  get [PLUGIN_PROVIDER](): "fs" {
+    return "fs";
+  }
+
   static Config: z<RoutingConfig> = z.intersect([
     LocalFileSystem.Config,
     z.object({

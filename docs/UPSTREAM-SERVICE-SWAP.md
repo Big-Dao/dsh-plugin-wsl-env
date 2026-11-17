@@ -7,9 +7,26 @@ seen on the desktop `0.2.2-rc.1` release (app-bundled
 `@deepseek-ai/cordis-plugin-loader@1.1.0`; the npm line still ships
 cordis `4.0.5` / loader `1.0.5`), reproduced in isolation against both
 version pairs on 2026-11-05, and the mechanism is confirmed down to the
-`_unload` diff. The exact filing payload (title, body, command; drafted
+`_unload` diff. The installed desktop `0.2.2-rc.3` still bundles those same
+cordis/loader versions, and the failure it reports on a plugin upgrade
+(`0.24.0 → 0.26.2`, [#39](https://github.com/Big-Dao/dsh-plugin-wsl-env/issues/39))
+carries the identical `service "subprocess" has been registered at
+<LocalSubprocessRuntime>` diagnostic; the composed tree it rolled back from was
+correct. The exact filing payload (title, body, command; drafted
 2026-11-09) is
 [proposal-service-swap.md](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/upstream/proposal-service-swap.md).
+
+The same class is already filed upstream for the update path:
+[deepseek-ai/deepseek-harness#12510](https://github.com/deepseek-ai/deepseek-harness/discussions/12510)
+(opened 2026-11-07, category Q&A, **open, no accepted answer** as of
+2026-11-17) reports the `directoryPicker` collision from `updateBundle` with
+HMR. Its thread identifies the remove-then-install window — during
+`removeBundle` the bundle's `disabled: true` rows are gone, so the shipped
+provider re-activates and collides with the incoming replacement — and records
+a three-way result: an HMR update fails and rolls back; the same update with
+the `hmr` row disabled succeeds and waits for a restart; a stopped-host
+`dsh plugin add` succeeds. #12510 is the discussion to attach this plugin's
+`subprocess`/`fs` cases to; the payload below remains unfiled.
 
 ## The gap
 
@@ -118,11 +135,20 @@ that would:
 
 ## The plugin's posture until then
 
-[docs/LIMITATIONS.md](LIMITATIONS.md#enabling-the-plugin-on-a-running-profile)
-records the operator-facing rule: enabling (or re-enabling) the bundle
-on a running profile reports the three entries as failed; the selection
-is persisted, and **restarting the app applies it** — the cold
-composition is correct. Closing sessions first also clears the drain
-gate on the hot path, since with no dependents the shipped
-implementation releases within the recomposition and the challengers
-activate.
+The plugin no longer exposes the collision: its three takeover rows mount
+through `src/service-takeover.ts`, which registers the provider immediately
+when the name is free and otherwise stays ACTIVE, watches `internal/service`
+for the slot, and registers when the outgoing provision releases. A live
+enable or HMR upgrade therefore succeeds; the takeover lands as soon as the
+shipped provider drains, or at the next restart when a dependent outlives the
+recomposition. `test/hot-swap.test.mjs` pins the four states this relies on
+(the rejected immediate registration, the takeover after release, the idle
+swap, and the deferral), so a host change that alters the race fails in CI
+rather than in a user's upgrade. The in-app doctor's `providers.takeover` row
+names whichever provider still serves a name.
+
+The upstream gap remains for every other bundle that performs a same-name
+takeover, and for the ordering itself: a host that composed the disable to
+completion before starting the replacement would remove the need for the
+deferral entirely. [docs/LIMITATIONS.md](LIMITATIONS.md#enabling-the-plugin-on-a-running-profile)
+keeps the operator-facing summary.

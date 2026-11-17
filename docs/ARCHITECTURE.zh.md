@@ -46,7 +46,10 @@ GUI 文件树与预览保留随包的 `workspace-files` 行。它的客户端半
 `insert:` 列表——因为写在 insert 列表*内部*的 `disabled` 不是 patch，而是一行
 重复 id 的数据行；而嵌套的 `insert:` 根本不会被解释。
 [`cordis.patch.yml`](../cordis.patch.yml) 承载完整的行列表，`test/composition.test.mjs`
-用真实的 patch 算法跑一遍该文件，以保持结构诚实。
+用真实的 patch 算法跑一遍该文件，以保持结构诚实。替代行通过
+[`lib/service-takeover.js`](../lib/service-takeover.js) 挂载：服务名空闲时立即
+注册 provider，否则保持激活、等旧提供者释放后再注册，因此运行中的启用或 HMR
+升级会完成而不是相撞（见 [UPSTREAM-SERVICE-SWAP.md](UPSTREAM-SERVICE-SWAP.md)）。
 
 还有一个模块随包构建，但有意不接线：
 [`lib/file-reference-wsl.js`](../lib/file-reference-wsl.js)，即 `@` 补全的

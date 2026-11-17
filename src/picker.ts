@@ -60,6 +60,7 @@ import { UNC_PROVIDER_ROOT, distroRoot, isProviderRoot, isWslUnc, uncToPosix } f
 import { breadcrumbs, boundedInsert, dirListingArgv, distroMkdirArgv, fullyQualified, parseDirListing } from "./listing.js";
 import { listDistros, linuxHome, runCapture } from "./wsl.js";
 import { sharedAgent } from "./agent-shared.js";
+import { mountTakeover } from "./service-takeover.js";
 import { AgentUnavailableError, CwdError, SpawnError } from "./agent-errors.js";
 
 /** How long a resolved distro list stays fresh before it is queried again. */
@@ -609,4 +610,19 @@ export class WslDirectoryPicker extends DirectoryPicker {
   }
 }
 
-export default WslDirectoryPicker;
+/**
+ * The row the loader mounts: registers {@link WslDirectoryPicker} under the
+ * `directoryPicker` name now, or after an outgoing provision releases (see
+ * {@link mountTakeover}).
+ */
+export default class WslDirectoryPickerRow {
+  static Config = WslDirectoryPicker.Config;
+
+  /**
+   * @param ctx - the row's context; it owns the provider's provision.
+   * @param config - the schema-validated row config.
+   */
+  constructor(ctx: Context, config: PickerConfig) {
+    mountTakeover(ctx, "directoryPicker", () => { new WslDirectoryPicker(ctx, config); });
+  }
+}

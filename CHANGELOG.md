@@ -27,6 +27,33 @@ were part of the record.
   instead of a silently healthy report. The standalone CLI cannot observe live
   services, so the row exists only on the in-app surfaces. See
   [DIAGNOSTICS.md](docs/DIAGNOSTICS.md#effective-providers-in-app-only).
+- **`test/hot-swap.test.mjs` pins the live same-name swap semantics.** It
+  mounts the real `LocalSubprocessRuntime` and the rows the loader actually
+  uses against the host's cordis and asserts the states the install path
+  depends on: the rejected immediate registration while a live consumer holds
+  the provision, the takeover after the release, the idle swap, and the
+  deferral of all three takeover rows. A host change that alters the race
+  fails this file instead of a user's upgrade. The release gates now also name
+  the real-machine HMR update path
+  ([MIGRATION.md](docs/MIGRATION.md#gates-a-release-must-clear)).
+
+### Fixed
+
+- **A live enable or HMR plugin upgrade no longer fails on the three
+  same-name takeovers, so the plugin manager no longer rolls the update back
+  (#39).** The `subprocess`, `fs`, and `directoryPicker` rows used to register
+  their providers immediately; when the outgoing shipped provider was still
+  registered — the HMR `updateBundle` window, or a busy-profile enable — cordis
+  threw `service "…" has been registered at <…>`, the row entered FAILED, and
+  `updateBundle` deleted the target version and reinstalled the old one. The
+  rows now mount through `src/service-takeover.ts`:
+  they register immediately when the name is free (the cold path, unchanged)
+  and otherwise stay active, watch `internal/service` for the slot, and
+  register when the outgoing provision releases. The install/update succeeds;
+  the takeover lands when the shipped provider drains, or at the next restart
+  when a dependent outlives the recomposition. The in-app doctor's
+  `providers.takeover` row names whichever provider still serves a name
+  ([LIMITATIONS.md](docs/LIMITATIONS.md#enabling-the-plugin-on-a-running-profile)).
 
 ## [0.26.2] - 2026-11-17
 

@@ -38,6 +38,7 @@ import { WslFileSystem } from "./wsl-filesystem.js";
 import type { Context } from "@deepseek-ai/cordis";
 import type { FileSystem, FsEditRequest, FsTarget, FsVersion, FsWriteIntent } from "@deepseek-ai/dsh-fs";
 import type { SandboxExecutionPolicy } from "@deepseek-ai/dsh-sandbox";
+import { mountTakeover } from "./service-takeover.js";
 
 /**
  * The 0.2.2-rc.1 patch/move parameter shapes, derived from the peer's abstract
@@ -442,4 +443,21 @@ export class WslRoutingFileSystem extends LocalFileSystem {
   }
 }
 
-export default WslRoutingFileSystem;
+/**
+ * The row the loader mounts: registers {@link WslRoutingFileSystem} under the
+ * `fs` name now, or after an outgoing provision releases (see
+ * {@link mountTakeover}). The `sandboxPolicy` inject rides on the row exactly
+ * as it did on the provider, so the fiber still waits for its sibling row.
+ */
+export default class WslRoutingRow {
+  static Config = WslRoutingFileSystem.Config;
+  static inject = WslRoutingFileSystem.inject;
+
+  /**
+   * @param ctx - the row's context; it owns the provider's provision.
+   * @param config - the schema-validated row config.
+   */
+  constructor(ctx: Context, config: RoutingConfig) {
+    mountTakeover(ctx, "fs", () => { new WslRoutingFileSystem(ctx, config); });
+  }
+}

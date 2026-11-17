@@ -101,6 +101,7 @@ import type { SubprocessTerminalActivity } from "./terminal-activity.js";
 import { AgentUnavailableError } from "./agent-errors.js";
 import { terminalRoute } from "./terminal-route.js";
 import { pinnedDistro, isDefaultDistro } from "./distro-route.js";
+import { mountTakeover } from "./service-takeover.js";
 
 /**
  * Env names a terminal launch keeps for the distro. `TERM` rides along because
@@ -519,4 +520,23 @@ export class WslSubprocessRuntime extends LocalSubprocessRuntime {
   }
 }
 
-export default WslSubprocessRuntime;
+/**
+ * The row the loader mounts: registers {@link WslSubprocessRuntime} under the
+ * `subprocess` name now, or after an outgoing provision releases.
+ *
+ * The deferral is what keeps a live enable/update from failing with cordis's
+ * duplicate-service error and the plugin manager from rolling the update back;
+ * {@link mountTakeover} carries the reasoning. A cold boot takes the immediate
+ * branch, so the installed behaviour is unchanged.
+ */
+export default class WslSubprocessRow {
+  static Config = WslSubprocessRuntime.Config;
+
+  /**
+   * @param ctx - the row's context; it owns the provider's provision.
+   * @param config - the schema-validated row config.
+   */
+  constructor(ctx: Context, config: WslSubprocessConfig) {
+    mountTakeover(ctx, "subprocess", () => { new WslSubprocessRuntime(ctx, config); });
+  }
+}

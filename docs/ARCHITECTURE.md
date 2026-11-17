@@ -53,7 +53,11 @@ the replacement — because a `disabled` written *inside* an insert list is not 
 patch but a duplicate-id data row, and a nested `insert:` is never interpreted at
 all. [`cordis.patch.yml`](../cordis.patch.yml) carries the full row list, and
 `test/composition.test.mjs` runs the file through the real patch algorithm to
-keep the shape honest.
+keep the shape honest. The replacement rows mount through
+[`lib/service-takeover.js`](../lib/service-takeover.js): they register their
+providers immediately when the service name is free, and otherwise stay active
+until the outgoing provision releases, so a live enable or HMR upgrade
+completes instead of colliding (see [UPSTREAM-SERVICE-SWAP.md](UPSTREAM-SERVICE-SWAP.md)).
 
 One further module ships built but deliberately unwired:
 [`lib/file-reference-wsl.js`](../lib/file-reference-wsl.js), the distro-side

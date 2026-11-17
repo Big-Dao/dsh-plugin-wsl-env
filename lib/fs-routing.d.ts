@@ -298,4 +298,19 @@ export declare class WslRoutingFileSystem extends LocalFileSystem {
      */
     processPath(target: FsTarget): string;
 }
-export default WslRoutingFileSystem;
+/**
+ * The row the loader mounts: registers {@link WslRoutingFileSystem} under the
+ * `fs` name now, or after an outgoing provision releases (see
+ * {@link mountTakeover}). The `sandboxPolicy` inject rides on the row exactly
+ * as it did on the provider, so the fiber still waits for its sibling row.
+ */
+export default class WslRoutingRow {
+    static Config: z<RoutingConfig>;
+    static inject: string[];
+    /**
+     * @param ctx - the row's context; it owns the provider's provision.
+     * @param config - the schema-validated row config.
+     */
+    constructor(ctx: Context, config: RoutingConfig);
+}
+export {};

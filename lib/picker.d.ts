@@ -284,4 +284,55 @@ export declare class WslDirectoryPicker extends DirectoryPicker {
      */
     createDistroDirectory(parent: string, name: string, target: string): Promise<string>;
 }
-export default WslDirectoryPicker;
+/**
+ * The row the loader mounts: registers {@link WslDirectoryPicker} under the
+ * `directoryPicker` name now, or after an outgoing provision releases (see
+ * {@link mountTakeover}).
+ */
+export default class WslDirectoryPickerRow {
+    static Config: z<Schemastery.ObjectS<NoInfer<{
+        /** Path to `wsl.exe`; overridable for a non-standard install. */
+        wslPath: z<string, string, "defined">;
+        /**
+         * Distro listed first and used for the Home affordance. Empty means WSL's
+         * own default distro.
+         */
+        preferredDistro: z<string, string, "defined">;
+        /**
+         * Offer the Windows path branch, starting at the drive roots, so every
+         * volume and account stays reachable without typing a path. Without it the
+         * category level carries the WSL branch alone; the dialog's editable path
+         * zone accepts any Windows path either way.
+         */
+        includeHostHome: z<boolean, boolean, "defined">;
+        /** Bound on the directory rows one `list` call may return; the level is flagged truncated. */
+        maxEntries: z<number, number, "defined">;
+        /** How long a resolved distro list stays fresh. */
+        distroCacheMs: z<number, number, "defined">;
+    }>>, Schemastery.ObjectT<NoInfer<{
+        /** Path to `wsl.exe`; overridable for a non-standard install. */
+        wslPath: z<string, string, "defined">;
+        /**
+         * Distro listed first and used for the Home affordance. Empty means WSL's
+         * own default distro.
+         */
+        preferredDistro: z<string, string, "defined">;
+        /**
+         * Offer the Windows path branch, starting at the drive roots, so every
+         * volume and account stays reachable without typing a path. Without it the
+         * category level carries the WSL branch alone; the dialog's editable path
+         * zone accepts any Windows path either way.
+         */
+        includeHostHome: z<boolean, boolean, "defined">;
+        /** Bound on the directory rows one `list` call may return; the level is flagged truncated. */
+        maxEntries: z<number, number, "defined">;
+        /** How long a resolved distro list stays fresh. */
+        distroCacheMs: z<number, number, "defined">;
+    }>>, "plain">;
+    /**
+     * @param ctx - the row's context; it owns the provider's provision.
+     * @param config - the schema-validated row config.
+     */
+    constructor(ctx: Context, config: PickerConfig);
+}
+export {};

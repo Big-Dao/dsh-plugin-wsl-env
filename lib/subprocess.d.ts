@@ -336,4 +336,111 @@ export declare class WslSubprocessRuntime extends LocalSubprocessRuntime {
      */
     launchesDistro(argv?: readonly string[]): boolean;
 }
-export default WslSubprocessRuntime;
+/**
+ * The row the loader mounts: registers {@link WslSubprocessRuntime} under the
+ * `subprocess` name now, or after an outgoing provision releases.
+ *
+ * The deferral is what keeps a live enable/update from failing with cordis's
+ * duplicate-service error and the plugin manager from rolling the update back;
+ * {@link mountTakeover} carries the reasoning. A cold boot takes the immediate
+ * branch, so the installed behaviour is unchanged.
+ */
+export default class WslSubprocessRow {
+    static Config: z<Schemastery.ObjectS<NoInfer<{
+        /**
+         * Distro mode: empty/`"auto"` follows the launch directory, `"default"`
+         * forces WSL's default, and an explicit name pins.
+         */
+        distro: z<string, string, "defined">;
+        /** Path to `wsl.exe`; overridable for a non-standard install. */
+        wslPath: z<string, string, "defined">;
+        /**
+         * A shell to pin inside the distro, as an absolute Linux path. Empty — the
+         * default — leaves the choice to `wsl.exe`, which starts the distro user's
+         * login shell exactly as an interactive `wsl.exe` does.
+         */
+        shell: z<string, string, "defined">;
+        /**
+         * Login-shell semantics for a pinned shell. Ignored when no shell is pinned,
+         * because then the login shell is the shell.
+         */
+        loginShell: z<boolean, boolean, "defined">;
+        /** Fallback directory when a launch names none; accepts any coordinate system. */
+        cwd: z<string, string, "defined">;
+        /** Windows directory the `wsl.exe` process itself starts in. */
+        hostCwd: z<string, string, "volatile">;
+        /** Extra env names to forward into the distro through WSLENV. */
+        forwardEnv: z<string[], string[], "defined">;
+        /**
+         * Give a session opened on a WINDOWS folder a host shell instead of the
+         * distro's shell started at `/mnt/<drive>/…`. WSL-folder sessions always
+         * get the distro shell — that is this provider's purpose. `false` restores
+         * the composition-owned terminal for every session.
+         */
+        hostSessions: z<boolean, boolean, "defined">;
+        /**
+         * Let the controller reclaim an idle distro terminal. The terminal is
+         * marked at launch (`DSH_TERMINAL_ID` through the existing `WSLENV`
+         * forwarding) and its handle's `inspectActivity` is replaced with a
+         * distro-side observation: the resident agent scans `/proc` for the
+         * marker — a shell with live children is busy, a shell without children
+         * is idle. The shipped observation can only answer `unknown` for a distro
+         * terminal, and `unknown` never accumulates idle, which is why these
+         * terminals had to be closed by hand. When the agent is out the
+         * observation answers `unknown` (no reclaim) — a probe that cannot answer
+         * must not authorize a close. `false` restores that posture.
+         */
+        terminalIdleReclaim: z<boolean, boolean, "defined">;
+    }>>, Schemastery.ObjectT<NoInfer<{
+        /**
+         * Distro mode: empty/`"auto"` follows the launch directory, `"default"`
+         * forces WSL's default, and an explicit name pins.
+         */
+        distro: z<string, string, "defined">;
+        /** Path to `wsl.exe`; overridable for a non-standard install. */
+        wslPath: z<string, string, "defined">;
+        /**
+         * A shell to pin inside the distro, as an absolute Linux path. Empty — the
+         * default — leaves the choice to `wsl.exe`, which starts the distro user's
+         * login shell exactly as an interactive `wsl.exe` does.
+         */
+        shell: z<string, string, "defined">;
+        /**
+         * Login-shell semantics for a pinned shell. Ignored when no shell is pinned,
+         * because then the login shell is the shell.
+         */
+        loginShell: z<boolean, boolean, "defined">;
+        /** Fallback directory when a launch names none; accepts any coordinate system. */
+        cwd: z<string, string, "defined">;
+        /** Windows directory the `wsl.exe` process itself starts in. */
+        hostCwd: z<string, string, "volatile">;
+        /** Extra env names to forward into the distro through WSLENV. */
+        forwardEnv: z<string[], string[], "defined">;
+        /**
+         * Give a session opened on a WINDOWS folder a host shell instead of the
+         * distro's shell started at `/mnt/<drive>/…`. WSL-folder sessions always
+         * get the distro shell — that is this provider's purpose. `false` restores
+         * the composition-owned terminal for every session.
+         */
+        hostSessions: z<boolean, boolean, "defined">;
+        /**
+         * Let the controller reclaim an idle distro terminal. The terminal is
+         * marked at launch (`DSH_TERMINAL_ID` through the existing `WSLENV`
+         * forwarding) and its handle's `inspectActivity` is replaced with a
+         * distro-side observation: the resident agent scans `/proc` for the
+         * marker — a shell with live children is busy, a shell without children
+         * is idle. The shipped observation can only answer `unknown` for a distro
+         * terminal, and `unknown` never accumulates idle, which is why these
+         * terminals had to be closed by hand. When the agent is out the
+         * observation answers `unknown` (no reclaim) — a probe that cannot answer
+         * must not authorize a close. `false` restores that posture.
+         */
+        terminalIdleReclaim: z<boolean, boolean, "defined">;
+    }>>, "plain">;
+    /**
+     * @param ctx - the row's context; it owns the provider's provision.
+     * @param config - the schema-validated row config.
+     */
+    constructor(ctx: Context, config: WslSubprocessConfig);
+}
+export {};

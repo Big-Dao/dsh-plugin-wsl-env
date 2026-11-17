@@ -247,14 +247,25 @@ Windows git `safe.directory` 白名单）。`--fix-owned` 把运行收窄到插�
 
 ## 在运行中的 profile 上启用本插件
 
-- **在繁忙的 profile 上通过 GUI 启用本 bundle 可能失败，重启应用即可生效。**
-  三个根面接管行（`subprocess`、`fs`、`directoryPicker`）以同名替换随包服务。
-  在应用 `0.2.2-rc.1`（cordis 4.1.0）上，正在销毁的提供者在全部依赖方释放之前
-  一直持有服务注册，因此会话存活期间替换行会与随包提供者相撞，启用操作将它们
-  报告为失败。无论如何选择都会持久化；**重启应用即可加载插件**（冷启动组合是
-  正确的）。启用前先关闭会话通常能让热路径成功——没有依赖方时，随包提供者会在
-  重组期间释放。机制与复现：
+- **在运行中的 profile 上启用本 bundle 时，接管会推迟到旧提供者释放，而不是
+  失败。** 三个根面接管行（`subprocess`、`fs`、`directoryPicker`）以同名替换
+  随包服务。运行中的重组里旧提供者可能仍持有服务注册；本插件的行保持激活，
+  等 `internal/service` 报告槽位释放后再注册（`src/service-takeover.ts`），
+  所以 cordis 的重复服务错误不再让启用失败。释放之前随包 provider 继续服务，
+  `/wsl-doctor` 的 `providers.takeover` 行会点名它；依赖方始终不释放时，重启
+  应用即可完成接管（冷启动组合是正确的）。机制与复现：
   [UPSTREAM-SERVICE-SWAP.md](UPSTREAM-SERVICE-SWAP.md)。
+- **通过插件管理器升级不再自动回滚；接管可能推迟到重启。** 有 HMR 时
+  `updateBundle` 先 `removeBundle` 再安装目标版本：移除旧层的那一刻，本 patch
+  里的 `- id: subprocess / disabled: true` 等接管条目随之消失，随包行重新激活
+  并注册服务；新层到达时，本插件的行检测到槽位占用后等待释放，管理器看到的是
+  成功，不会删除目标版本。若随包 provider 因依赖方未释放而一直不释放，接管在
+  下次重启完成，期间 `providers.takeover` 报告仍在服务的随包 provider。宿主侧
+  的 remove→install 窗口仍是上游问题
+  （[deepseek-harness#12510](https://github.com/deepseek-ai/deepseek-harness/discussions/12510)），
+  其他 bundle 仍可能失败；本插件不再触发回滚。
+  [#39](https://github.com/Big-Dao/dsh-plugin-wsl-env/issues/39) 记录了
+  `0.24.0 → 0.26.2` 的实际表现。
 
 ## 宿主的"在应用中打开"
 

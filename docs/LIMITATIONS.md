@@ -281,18 +281,31 @@ sandbox's security statement: `enforcement: partial` is untouched.
 
 ## Enabling the plugin on a running profile
 
-- **A GUI enable of this bundle can fail on a busy profile, and a restart
-  applies it.** The three root-plane takeovers (`subprocess`, `fs`,
-  `directoryPicker`) replace shipped services under the same names. On
-  app `0.2.2-rc.1` (cordis 4.1.0), a disposing provider keeps its service
-  registration until every dependent releases, so the replacements
-  collide with the shipped providers while sessions are live and the
-  enable reports them as failed. The selection is persisted either way;
-  **restarting the app loads the plugin** (the cold composition is
-  correct). Closing sessions before enabling usually lets the hot path
-  succeed — with no dependents the shipped providers release inside the
-  recomposition. Mechanism and repro:
+- **A live enable of this bundle defers the takeover until the outgoing
+  provider releases, instead of failing.** The three root-plane takeovers
+  (`subprocess`, `fs`, `directoryPicker`) replace shipped services under the
+  same names. When the previous provision is still registered during a live
+  recomposition, the plugin's rows stay ACTIVE and register after
+  `internal/service` reports the slot released (`src/service-takeover.ts`), so
+  cordis's duplicate-service error no longer fails the enable. The shipped
+  provider keeps serving until then; `/wsl-doctor`'s `providers.takeover` row
+  names it. If a dependent never releases, restarting the app completes the
+  takeover (the cold composition is correct). Mechanism and repro:
   [UPSTREAM-SERVICE-SWAP.md](UPSTREAM-SERVICE-SWAP.md).
+- **Upgrading through the plugin manager no longer rolls back; the takeover may
+  wait for a restart.** With HMR, `updateBundle` calls `removeBundle` before
+  installing the target. The moment the old layer is removed, this patch's
+  takeover entries (`- id: subprocess` / `disabled: true`, …) disappear with
+  it and the shipped rows re-activate; when the incoming layer arrives, this
+  plugin's rows find the slots occupied and wait for the release, so the
+  manager sees a success and keeps the target version. If a shipped provider is
+  never released (a dependent outlives the recomposition), the takeover
+  completes at the next restart, and `providers.takeover` names the shipped
+  provider meanwhile. The host-side remove→install window remains an upstream
+  issue ([deepseek-harness#12510](https://github.com/deepseek-ai/deepseek-harness/discussions/12510))
+  that can still fail other bundles; this plugin no longer triggers a rollback.
+  [#39](https://github.com/Big-Dao/dsh-plugin-wsl-env/issues/39) records the
+  actual `0.24.0 → 0.26.2` behavior.
 
 ## Host "Open in app"
 

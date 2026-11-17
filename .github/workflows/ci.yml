@@ -364,3 +364,40 @@ jobs:
           run_or_skip picker harness picker.sh
           run_or_skip missing-wsl harness missing-wsl.sh
           run_or_skip native-session harness native-session.sh
+          # Evidence only exists when the topology above was real; the early
+          # skip paths return before this line. The heartbeat job consumes it.
+          echo "probe suite completed at $(date -u +%Y-%m-%dT%H:%M:%SZ) on ${RUNNER_NAME:-unknown}" > probe-evidence.txt
+      - name: Keep the probe evidence for the nightly heartbeat
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: probe-evidence-${{ github.run_id }}
+          path: probe-evidence.txt
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # A hosted Windows runner with no WSL reports the probes job green while
+  # doing nothing, and the self-hosted runner being offline is otherwise
+  # invisible in the schedule. This job turns "no evidence" into a failure.
+  probe-heartbeat:
+    name: probe evidence freshness
+    if: github.event_name == 'schedule'
+    needs: probes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Require a real-machine probe artifact from the last three days
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cutoff="$(date -u -d '3 days ago' +%Y-%m-%dT%H:%M:%SZ)"
+          artifacts="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" --jq '.artifacts[] | select(.name | startswith("probe-evidence-")) | "\(.created_at) \(.name)"')"
+          printf '%s\n' "$artifacts"
+          if ! printf '%s\n' "$artifacts" | awk -v cutoff="$cutoff" '$1 >= cutoff { found = 1 } END { exit found ? 0 : 1 }'; then
+            echo "::error::no real-machine probe evidence since ${cutoff}; the self-hosted Windows+WSL runner has not completed a nightly suite. Dispatch the probes job on a development machine, or fix the runner."
+            exit 1
+          fi

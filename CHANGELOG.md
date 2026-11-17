@@ -45,6 +45,15 @@ were part of the record.
 
 ### Changed
 
+- **Release and CI hardening (#52).** The release workflow now compares the
+  registry's `dist.integrity` with the local `npm pack` product, not just the
+  file count and readme name; the scheduled probes job writes an evidence
+  artifact after a real run and a new `probe-heartbeat` job fails the schedule
+  when none appeared in three days; the stale `0.2.1-rc.2` entries were removed
+  from `minimumReleaseAgeExclude` and the restore condition is recorded; and
+  `docs/RELEASING.md` now names the two repository settings the gates cannot
+  verify (`npm-publish` required reviewers and the shared `windows-latest`
+  runner label).
 - **The filesystem and shell providers share their runtime bookkeeping and
   config narrowing (#54).** The two classes kept identical maps for distro
   homes, held session runtimes, the session-runtime preflight, and the `auto`
@@ -253,6 +262,15 @@ it; the README/docs pass that leads with the desktop-app path ships too.
 
 ### Changed
 
+- **Release and CI hardening (#52).** The release workflow now compares the
+  registry's `dist.integrity` with the local `npm pack` product, not just the
+  file count and readme name; the scheduled probes job writes an evidence
+  artifact after a real run and a new `probe-heartbeat` job fails the schedule
+  when none appeared in three days; the stale `0.2.1-rc.2` entries were removed
+  from `minimumReleaseAgeExclude` and the restore condition is recorded; and
+  `docs/RELEASING.md` now names the two repository settings the gates cannot
+  verify (`npm-publish` required reviewers and the shared `windows-latest`
+  runner label).
 - **The filesystem and shell providers share their runtime bookkeeping and
   config narrowing (#54).** The two classes kept identical maps for distro
   homes, held session runtimes, the session-runtime preflight, and the `auto`
@@ -985,6 +1003,15 @@ behaviour change owes the release notes.
 
 ### Changed
 
+- **Release and CI hardening (#52).** The release workflow now compares the
+  registry's `dist.integrity` with the local `npm pack` product, not just the
+  file count and readme name; the scheduled probes job writes an evidence
+  artifact after a real run and a new `probe-heartbeat` job fails the schedule
+  when none appeared in three days; the stale `0.2.1-rc.2` entries were removed
+  from `minimumReleaseAgeExclude` and the restore condition is recorded; and
+  `docs/RELEASING.md` now names the two repository settings the gates cannot
+  verify (`npm-publish` required reviewers and the shared `windows-latest`
+  runner label).
 - **The filesystem and shell providers share their runtime bookkeeping and
   config narrowing (#54).** The two classes kept identical maps for distro
   homes, held session runtimes, the session-runtime preflight, and the `auto`
@@ -1137,6 +1164,15 @@ path is documented with its operator rule.
 
 ### Changed
 
+- **Release and CI hardening (#52).** The release workflow now compares the
+  registry's `dist.integrity` with the local `npm pack` product, not just the
+  file count and readme name; the scheduled probes job writes an evidence
+  artifact after a real run and a new `probe-heartbeat` job fails the schedule
+  when none appeared in three days; the stale `0.2.1-rc.2` entries were removed
+  from `minimumReleaseAgeExclude` and the restore condition is recorded; and
+  `docs/RELEASING.md` now names the two repository settings the gates cannot
+  verify (`npm-publish` required reviewers and the shared `windows-latest`
+  runner label).
 - **The filesystem and shell providers share their runtime bookkeeping and
   config narrowing (#54).** The two classes kept identical maps for distro
   homes, held session runtimes, the session-runtime preflight, and the `auto`
@@ -3287,6 +3323,15 @@ Metadata and one documentation addition. No behaviour change.
 
 ### Changed
 
+- **Release and CI hardening (#52).** The release workflow now compares the
+  registry's `dist.integrity` with the local `npm pack` product, not just the
+  file count and readme name; the scheduled probes job writes an evidence
+  artifact after a real run and a new `probe-heartbeat` job fails the schedule
+  when none appeared in three days; the stale `0.2.1-rc.2` entries were removed
+  from `minimumReleaseAgeExclude` and the restore condition is recorded; and
+  `docs/RELEASING.md` now names the two repository settings the gates cannot
+  verify (`npm-publish` required reviewers and the shared `windows-latest`
+  runner label).
 - **The filesystem and shell providers share their runtime bookkeeping and
   config narrowing (#54).** The two classes kept identical maps for distro
   homes, held session runtimes, the session-runtime preflight, and the `auto`
@@ -3344,6 +3389,15 @@ No runtime change.
 
 ### Changed
 
+- **Release and CI hardening (#52).** The release workflow now compares the
+  registry's `dist.integrity` with the local `npm pack` product, not just the
+  file count and readme name; the scheduled probes job writes an evidence
+  artifact after a real run and a new `probe-heartbeat` job fails the schedule
+  when none appeared in three days; the stale `0.2.1-rc.2` entries were removed
+  from `minimumReleaseAgeExclude` and the restore condition is recorded; and
+  `docs/RELEASING.md` now names the two repository settings the gates cannot
+  verify (`npm-publish` required reviewers and the shared `windows-latest`
+  runner label).
 - **The filesystem and shell providers share their runtime bookkeeping and
   config narrowing (#54).** The two classes kept identical maps for distro
   homes, held session runtimes, the session-runtime preflight, and the `auto`
@@ -3392,6 +3446,15 @@ One correctness fix and the error-code reference the closure review asked for.
 
 ### Changed
 
+- **Release and CI hardening (#52).** The release workflow now compares the
+  registry's `dist.integrity` with the local `npm pack` product, not just the
+  file count and readme name; the scheduled probes job writes an evidence
+  artifact after a real run and a new `probe-heartbeat` job fails the schedule
+  when none appeared in three days; the stale `0.2.1-rc.2` entries were removed
+  from `minimumReleaseAgeExclude` and the restore condition is recorded; and
+  `docs/RELEASING.md` now names the two repository settings the gates cannot
+  verify (`npm-publish` required reviewers and the shared `windows-latest`
+  runner label).
 - **The filesystem and shell providers share their runtime bookkeeping and
   config narrowing (#54).** The two classes kept identical maps for distro
   homes, held session runtimes, the session-runtime preflight, and the `auto`
@@ -3456,6 +3519,15 @@ Three probes that close coverage gaps a closure review named, the documentation 
 
 ### Changed
 
+- **Release and CI hardening (#52).** The release workflow now compares the
+  registry's `dist.integrity` with the local `npm pack` product, not just the
+  file count and readme name; the scheduled probes job writes an evidence
+  artifact after a real run and a new `probe-heartbeat` job fails the schedule
+  when none appeared in three days; the stale `0.2.1-rc.2` entries were removed
+  from `minimumReleaseAgeExclude` and the restore condition is recorded; and
+  `docs/RELEASING.md` now names the two repository settings the gates cannot
+  verify (`npm-publish` required reviewers and the shared `windows-latest`
+  runner label).
 - **The filesystem and shell providers share their runtime bookkeeping and
   config narrowing (#54).** The two classes kept identical maps for distro
   homes, held session runtimes, the session-runtime preflight, and the `auto`
@@ -3513,6 +3585,15 @@ could not work, and one where the cause of a failure was invisible.
 
 ### Changed
 
+- **Release and CI hardening (#52).** The release workflow now compares the
+  registry's `dist.integrity` with the local `npm pack` product, not just the
+  file count and readme name; the scheduled probes job writes an evidence
+  artifact after a real run and a new `probe-heartbeat` job fails the schedule
+  when none appeared in three days; the stale `0.2.1-rc.2` entries were removed
+  from `minimumReleaseAgeExclude` and the restore condition is recorded; and
+  `docs/RELEASING.md` now names the two repository settings the gates cannot
+  verify (`npm-publish` required reviewers and the shared `windows-latest`
+  runner label).
 - **The filesystem and shell providers share their runtime bookkeeping and
   config narrowing (#54).** The two classes kept identical maps for distro
   homes, held session runtimes, the session-runtime preflight, and the `auto`

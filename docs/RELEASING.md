@@ -118,6 +118,22 @@ read it on its own, so add `env: NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` to i
 Configure required reviewers on the `npm-publish` environment to put a second
 person in front of every publish.
 
+### Repository settings the workflow cannot verify
+
+Two settings live in GitHub's UI, not in this repository, and the gates cannot
+see them:
+
+- **`npm-publish` required reviewers.** Without them a tag push publishes
+  automatically; the environment exists on first use, so its mere presence in
+  `release.yml` proves nothing. Add at least one reviewer before the next
+  release, then push a prerelease tag to confirm the approval prompt appears.
+- **The self-hosted runner's label.** The development machine currently
+  answers `windows-latest`, so unit-matrix Windows legs (and scheduled probes)
+  run on it. Rename the runner's label (for example `self-hosted-wsl`) and
+  repoint the two `windows-latest` consumers in `ci.yml`; until then, fork PRs
+  stay gated off those steps and the probes heartbeat is the evidence that the
+  machine actually ran the suite.
+
 ### Manual fallback
 
 Use this when the workflow cannot run. On a trusted machine, authenticate with

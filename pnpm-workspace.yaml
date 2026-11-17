@@ -14,35 +14,6 @@ overrides:
 # peer pins name one exact release candidate, so pnpm records the whole closure
 # it had to exempt; the list moves with the pins, as pnpm rewrites it.
 minimumReleaseAgeExclude:
-  - '@deepseek-ai/cordis@4.0.5'
-  - '@deepseek-ai/cosmokit@1.8.6'
-  - '@deepseek-ai/dsh-agent@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-api-workspace-files@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-bash-local@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-brand@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-deque@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-fs-local@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-fs-sandbox@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-fs@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-host-directory-picker@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-http-proxy@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-lazy-require@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-llm@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-sandbox-policy@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-sandbox@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-scope@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-session-projection@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-session@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-shell@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-subprocess-local@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-subprocess@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-system-prompt@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-timeout@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-typert-protocol@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-util-crypto@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-util-values@0.2.1-rc.2'
-  - '@deepseek-ai/dsh-win32-process@0.2.1-rc.2'
-  - '@deepseek-ai/schemastery@3.18.5'
   - '@deepseek-ai/cordis@4.1.0'
   - '@deepseek-ai/cosmokit@1.9.0'
   - '@deepseek-ai/dsh-agent@0.2.2-rc.2'
@@ -80,4 +51,10 @@ minimumReleaseAgeExclude:
 # script does (CI hit this on the v0.18.0 release). The check is redundant
 # after a real install and reads no config, so it is off; `pnpm install`
 # itself still enforces the policies it can.
+#
+# RESTORE CONDITION (tracked by #52): once pnpm honors this list during the
+# lockfile re-verification, delete `--config.minimum-release-age=0` from the
+# seven CI installs (ci.yml five, release.yml one, peer-canary.yml one) and
+# turn this back on; until then the exact pins plus the lockfile hash are the
+# 24h-window defense.
 verifyDepsBeforeRun: false

@@ -253,10 +253,19 @@ from a fork is skipped on those legs (`ci.yml`'s step-level fork gate), but the
 durable fix is renaming the runner's label to something unambiguous (for
 example `self-hosted-wsl`) in the runner's settings and repointing the two
 `windows-latest` consumers in `ci.yml` at it — until then, treat the label as
-shared infrastructure, not hosted capacity. Also note the install steps carry
-`--config.minimum-release-age=0` (pnpm 11.7's lockfile re-verification ignores
-`minimumReleaseAgeExclude`; the flag is the documented remedy in
-`release.yml`).
+shared infrastructure, not hosted capacity. The release-side equivalent
+(`npm-publish` required reviewers) is a repository setting, not a file; both
+are listed in [RELEASING.md](docs/RELEASING.md#repository-settings-the-workflow-cannot-verify).
+
+The scheduled probes job now writes a `probe-evidence-<run>` artifact after a
+real run, and the `probe-heartbeat` job fails the schedule when no such artifact
+appeared in the last three days. A hosted-runner no-op therefore alerts instead
+of staying green; the artifact is the evidence, not the job status.
+
+Also note the install steps carry `--config.minimum-release-age=0` (pnpm 11.7's
+lockfile re-verification ignores `minimumReleaseAgeExclude`; the flag is the
+documented remedy in `release.yml`). The restore condition and all seven call
+sites are recorded in `pnpm-workspace.yaml` and tracked by #52.
 
 ## Adding a test
 

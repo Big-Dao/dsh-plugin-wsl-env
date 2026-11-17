@@ -213,6 +213,7 @@ terminal if you would rather not see the prompt.
 | `pnpm run probe:fs-routing` | the root-plane router: distro coordinate, host plane, cross-distro fence | yes |
 | `pnpm run probe:mode` | which POSIX-mode facts survive the share | no; Windows Node |
 | `pnpm run probe:sandbox-off` | the documented opt-out on both providers | yes |
+| `pnpm run probe:session-sandbox` | the ADR 0001 primitives: user manager, transient scope lifetime, `/tmp` sharing and `--unshare-pid` behavior | no; from a real WSL terminal, not inside DSH |
 
 Every script above is wired in `package.json`. `pnpm test` runs `lint:style`,
 `lint:links`, `lint:requirements`, `lint:docs`, `test:syntax`, `lint:build`,

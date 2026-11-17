@@ -107,6 +107,7 @@ pnpm run sync:windows
 | `pnpm run probe:fs-routing` | 根平面路由器：发行版坐标、宿主平面、跨发行版围栏 | 是 |
 | `pnpm run probe:mode` | 哪些 POSIX 模式事实能在共享中保留 | 否；Windows Node |
 | `pnpm run probe:sandbox-off` | 两个 provider 上文档说明的退出选项 | 是 |
+| `pnpm run probe:session-sandbox` | ADR 0001 的原语：user manager、transient scope 生命周期、`/tmp` 共享与 `--unshare-pid` 行为 | 否；在真实 WSL 终端运行，不在 DSH 内 |
 
 上述每个脚本都在 `package.json` 中定义。`pnpm test` 按顺序运行 `lint:style`、`lint:links`、`lint:requirements`、`lint:docs`、`test:syntax`、`lint:build`、`lint:types` 和 `test:unit`。`prepublishOnly` 在发布时再次运行 `pnpm test`，因此损坏的检查会在上传前阻止发布。
 

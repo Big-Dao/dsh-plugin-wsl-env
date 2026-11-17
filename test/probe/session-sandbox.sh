@@ -4,7 +4,10 @@
 # Run from a real WSL distro terminal — NOT from inside DSH: the app's own
 # shell tool runs under bwrap with --unshare-pid, so the user manager's bus is
 # unreachable there and every process check would describe the sandbox, not
-# the session.
+# the session. Deliberately NOT in run-all-when-closed.sh for the same reason:
+# a detached suite process can inherit the harness sandbox's PID namespace, and
+# the reachability checks would then describe the harness rather than the
+# session. docs/MIGRATION.md carries this script as its own release-gate row.
 #
 #   bash test/probe/session-sandbox.sh
 #

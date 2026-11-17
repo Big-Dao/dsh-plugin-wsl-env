@@ -1,4 +1,5 @@
 import type { SandboxExecutionPolicy } from "@deepseek-ai/dsh-sandbox";
+import type { SessionRuntimeEntry } from "./session-runtime.js";
 interface DistroHomeOwner {
     config: unknown;
     resolvedDistro: string;
@@ -55,4 +56,25 @@ export declare function sessionRuntimeWanted(value: boolean | "auto", distro: st
     usable: boolean;
     checkedAt: number;
 }>): Promise<boolean>;
+/**
+ * The per-provider bookkeeping the filesystem and shell providers share.
+ *
+ * Both rows cache distro homes, hold session runtimes by registry key, cache
+ * the session-runtime preflight that succeeded per distro, and cache the
+ * `auto` preflight verdict. Own the state in one place so a semantic change
+ * (the last one was the session-runtime move) is made once, not twice.
+ */
+export declare class ProviderRuntimeBook {
+    /** Per-distro homes, so two concurrent distros cannot share one. */
+    readonly homes: Map<string, string>;
+    /** The runtimes this provider holds, by registry key. */
+    readonly sessionRuntimeEntries: Map<string, SessionRuntimeEntry>;
+    /** Distros whose session-runtime preflight has succeeded. */
+    readonly sessionRuntimePreflight: Set<string>;
+    /** Per-distro `auto` verdicts, re-probed when they were negative and stale. */
+    readonly autoSessionScope: Map<string, {
+        usable: boolean;
+        checkedAt: number;
+    }>;
+}
 export {};

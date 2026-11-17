@@ -520,8 +520,8 @@ checks.push(["the FS budget scales with the content a write or move must handle"
   const fake = {
     protocolVersion: 7,
     caps: new Set(),
-    fs: async (/** @type {{ op: string, timeoutMs: number }} */ request) => {
-      budgets.push(request.timeoutMs);
+    fs: async (/** @type {{ op: string, timeoutMs?: number }} */ request) => {
+      budgets.push(request.timeoutMs ?? 0);
       return {
         exitCode: 0,
         stdout: request.op === "move"

@@ -1,5 +1,6 @@
 import { canonicalPath, SandboxInvalidRootError, writableRoots } from "@deepseek-ai/dsh-sandbox";
 import type { SandboxExecutionPolicy } from "@deepseek-ai/dsh-sandbox";
+import type { SessionRuntimeEntry } from "./session-runtime.js";
 import { isWslUnc, posixToUnc, toLinuxPath } from "./paths.js";
 import { distroOfUnc, isDefaultDistro, pinnedDistro } from "./distro-route.js";
 import { linuxHomePath } from "./wsl.js";
@@ -135,4 +136,23 @@ export async function sessionRuntimeWanted(
     cache.set(distro, { usable: false, checkedAt: Date.now() });
     return false;
   }
+}
+
+/**
+ * The per-provider bookkeeping the filesystem and shell providers share.
+ *
+ * Both rows cache distro homes, hold session runtimes by registry key, cache
+ * the session-runtime preflight that succeeded per distro, and cache the
+ * `auto` preflight verdict. Own the state in one place so a semantic change
+ * (the last one was the session-runtime move) is made once, not twice.
+ */
+export class ProviderRuntimeBook {
+  /** Per-distro homes, so two concurrent distros cannot share one. */
+  readonly homes = new Map<string, string>();
+  /** The runtimes this provider holds, by registry key. */
+  readonly sessionRuntimeEntries = new Map<string, SessionRuntimeEntry>();
+  /** Distros whose session-runtime preflight has succeeded. */
+  readonly sessionRuntimePreflight = new Set<string>();
+  /** Per-distro `auto` verdicts, re-probed when they were negative and stale. */
+  readonly autoSessionScope = new Map<string, { usable: boolean, checkedAt: number }>();
 }

@@ -17,7 +17,7 @@ import type { AgentBackend } from "./native-agent.js";
 import type { SessionRuntimeEntry } from "./session-runtime.js";
 import { defaultDistro, defaultShell, runCapture, shellArgs, workdirFailure, wslErrorCode } from "./wsl.js";
 import { validateWritableRootsConfig } from "./writable-roots.js";
-import { configuredCwd, distroHome, effectiveMaskWindowsDrive, effectiveWritableRoots, resolveOperationDistro, sessionRuntimeWanted } from "./provider-common.js";
+import { ProviderRuntimeBook, configuredCwd, distroHome, effectiveMaskWindowsDrive, effectiveWritableRoots, resolveOperationDistro, sessionRuntimeWanted } from "./provider-common.js";
 import type { Context } from "@deepseek-ai/cordis";
 import type { ConfinedSandboxMode, SandboxExecutionPolicy, SandboxMode } from "@deepseek-ai/dsh-sandbox";
 import type { SubprocessSpawnSpec } from "@deepseek-ai/dsh-subprocess";
@@ -294,32 +294,43 @@ export class WslShellExecutor
   declare resolvedShells: Map<string, string>;
   /** Cached distro-user home, the workdir when `cwd` is empty. */
   declare resolvedHome: string | undefined;
-  /** Per-distro homes, so two concurrent distros cannot share one. */
-  declare resolvedHomes: Map<string, string>;
+  /** Shared per-provider bookkeeping (homes, session runtimes, preflight caches). */
+  declare runtimeBook: ProviderRuntimeBook;
   /** The default mode — the capability fact the tool layer reads. */
   declare mode: SandboxMode | undefined;
   /** The distro-side confinement, or nothing when the operator opted out. */
   declare sandbox: InstanceType<typeof WslSandbox> | undefined;
   /** The session-runtime registry; tests substitute it. */
   declare sessionRuntimes: SessionRuntimes;
-  /** The runtimes this executor holds, by registry key. */
-  declare sessionRuntimeEntries: Map<string, SessionRuntimeEntry>;
   /** Isolates calls that have no session identity. */
   declare sessionRuntimeOwner: string;
   /** The preflight's host runner; tests substitute it. */
   declare sessionScopeProbe: (argv: string[]) => Promise<string>;
   /** The one-time writable-root check's runner; tests substitute it. */
   declare writableRootsProbe: (argv: string[]) => Promise<string>;
-  /** Distros whose session-runtime preflight has succeeded. */
-  declare sessionRuntimePreflight: Set<string>;
-  /** Per-distro `auto` verdicts, re-probed when they were negative and stale. */
-  declare autoSessionScope: Map<string, { usable: boolean, checkedAt: number }>;
   /**
    * Per-process confinement facts retained until settlement. Overlapping calls
    * can carry different policies, so a shared latest-wrap value would classify
    * a process against the wrong facts. Unconfined processes have no entry.
    */
   declare processFacts: Map<ShellExecution, ProcessFacts>;
+
+  /**
+   * Per-distro homes, delegated to the shared runtime book: `provider-common`'s
+   * `distroHome` reads this view, and tests pin the cache through it.
+   */
+  get resolvedHomes(): Map<string, string> {
+    return this.runtimeBook.homes;
+  }
+
+  /**
+   * The row's config without the peer's volatile wrapper. The schema validates
+   * the plain shape; the wrapper only widens the type, so one accessor states
+   * the cast instead of every method repeating it.
+   */
+  private get wslConfig(): WslShellExecutorConfig {
+    return this.config as unknown as WslShellExecutorConfig;
+  }
 
   /**
    * @param ctx - the composition context.
@@ -334,19 +345,16 @@ export class WslShellExecutor
     this.resolvedShell = config.shell;
     this.resolvedShells = new Map();
     this.resolvedHome = undefined;
-    this.resolvedHomes = new Map();
+    this.runtimeBook = new ProviderRuntimeBook();
     this.mode = config.sandbox ? ctx.sandboxPolicy.defaultMode : undefined;
     this.sandbox = config.sandbox
       ? new WslSandbox({ wslPath: config.wslPath, maskWindowsDrive: effectiveMaskWindowsDrive(config) })
       : undefined;
     this.processFacts = new Map();
     this.sessionRuntimes = sessionRuntimes;
-    this.sessionRuntimeEntries = new Map();
     this.sessionRuntimeOwner = randomUUID();
     this.sessionScopeProbe = (argv) => runCapture(argv);
     this.writableRootsProbe = (argv) => runCapture(argv);
-    this.sessionRuntimePreflight = new Set();
-    this.autoSessionScope = new Map();
     // The preset realm disposes when the session ends; the scope must go with
     // it, or a dev server outlives the session that started it.
     ctx.effect(() => () => this.disposeSessionRuntimes().catch(() => {}), "wsl session runtimes");
@@ -371,7 +379,7 @@ export class WslShellExecutor
    * @returns the distro name.
    */
   async distro(): Promise<string> {
-    const config = this.config as unknown as WslShellExecutorConfig;
+    const config = this.wslConfig;
     if (this.resolvedDistro.length === 0) this.resolvedDistro = await defaultDistro({ wslPath: config.wslPath });
     return this.resolvedDistro;
   }
@@ -386,7 +394,7 @@ export class WslShellExecutor
    * @returns the distro name.
    */
   async distroFor(workdir?: string, cwd?: string): Promise<string> {
-    const config = this.config as unknown as WslShellExecutorConfig;
+    const config = this.wslConfig;
     return resolveOperationDistro(config.distro, [workdir, cwd ?? configuredCwd(this.config)], () => this.distro());
   }
 
@@ -420,7 +428,7 @@ export class WslShellExecutor
    *   shell — the failure is not cached, so the next call re-probes.
    */
   async shellFor(distro: string): Promise<string> {
-    const config = this.config as unknown as WslShellExecutorConfig;
+    const config = this.wslConfig;
     if (config.shell.length > 0) return config.shell;
     if (this.resolvedDistro.length > 0 && distro === this.resolvedDistro) return this.shell();
     const cached = this.resolvedShells.get(distro);
@@ -440,7 +448,7 @@ export class WslShellExecutor
    *   shell — the failure is not cached, so the next call re-probes.
    */
   async shell(): Promise<string> {
-    const config = this.config as unknown as WslShellExecutorConfig;
+    const config = this.wslConfig;
     if (this.resolvedShell.length === 0) {
       const distro = await this.distro();
       // An unresolvable shell fails the command loudly: the probes both came
@@ -461,7 +469,7 @@ export class WslShellExecutor
    * @returns the host directory to spawn in.
    */
   hostCwd(): string {
-    const config = this.config as unknown as WslShellExecutorConfig;
+    const config = this.wslConfig;
     return config.hostCwd.get() ?? process.env.SystemRoot ?? process.cwd();
   }
 
@@ -491,13 +499,13 @@ export class WslShellExecutor
     distro: string,
     writableRoots: readonly string[] = [],
   ): SessionRuntimeEntry | undefined {
-    const config = this.config as unknown as WslShellExecutorConfig;
+    const config = this.wslConfig;
     if (!config.sessionSandbox) return undefined;
     const mode = policy?.mode ?? "danger-full-access";
     const workspaceRoot = policy?.workspaceRoot ?? (configuredCwd(this.config) || resolved.workdir);
     const sessionId = policy?.sessionId || resolved.dshEnv?.DSH_SESSION_ID || this.sessionRuntimeOwner;
     const key = SessionRuntimes.key({ sessionId, distro, workspaceRoot, mode, maskWindowsDrive: effectiveMaskWindowsDrive(config), writableRoots });
-    const held = this.sessionRuntimeEntries.get(key);
+    const held = this.runtimeBook.sessionRuntimeEntries.get(key);
     if (held !== undefined) return held;
     const entry = this.sessionRuntimes.acquire({
       sessionId,
@@ -508,7 +516,7 @@ export class WslShellExecutor
       maskWindowsDrive: effectiveMaskWindowsDrive(config),
       writableRoots,
     });
-    this.sessionRuntimeEntries.set(key, entry);
+    this.runtimeBook.sessionRuntimeEntries.set(key, entry);
     return entry;
   }
 
@@ -525,12 +533,12 @@ export class WslShellExecutor
    * @throws {Error} with the remedy when it cannot.
    */
   async ensureSessionRuntimeUsable(distro: string): Promise<void> {
-    if (this.sessionRuntimePreflight.has(distro)) return;
-    const config = this.config as unknown as WslShellExecutorConfig;
+    if (this.runtimeBook.sessionRuntimePreflight.has(distro)) return;
+    const config = this.wslConfig;
     const problem = await probeSessionRuntime({ wslPath: config.wslPath, distro, run: this.sessionScopeProbe });
     if (problem !== null) throw new Error(problem);
     await ensureNativeSessionAgent({ wslPath: config.wslPath, distro, setNative: setSessionNativeAgent });
-    this.sessionRuntimePreflight.add(distro);
+    this.runtimeBook.sessionRuntimePreflight.add(distro);
   }
 
   /**
@@ -542,8 +550,8 @@ export class WslShellExecutor
    * @returns whether to acquire the per-session scope.
    */
   async wantsSessionRuntime(distro: string): Promise<boolean> {
-    const config = this.config as unknown as WslShellExecutorConfig;
-    return sessionRuntimeWanted(config.sessionSandbox, distro, () => this.ensureSessionRuntimeUsable(distro), this.autoSessionScope);
+    const config = this.wslConfig;
+    return sessionRuntimeWanted(config.sessionSandbox, distro, () => this.ensureSessionRuntimeUsable(distro), this.runtimeBook.autoSessionScope);
   }
 
   /**
@@ -554,8 +562,8 @@ export class WslShellExecutor
    * @returns resolved once every runtime is torn down.
    */
   async disposeSessionRuntimes(): Promise<void> {
-    const entries = [...this.sessionRuntimeEntries.values()];
-    this.sessionRuntimeEntries.clear();
+    const entries = [...this.runtimeBook.sessionRuntimeEntries.values()];
+    this.runtimeBook.sessionRuntimeEntries.clear();
     for (const entry of entries) await this.sessionRuntimes.release(entry.key);
   }
 
@@ -570,7 +578,7 @@ export class WslShellExecutor
    * @returns the distro-side argv.
    */
   distroArgv(spec: ShellExecSpec, shell: string): string[] {
-    const config = this.config as unknown as WslShellExecutorConfig;
+    const config = this.wslConfig;
     return [shell, ...shellArgs(shell, config.loginShell), spec.command];
   }
 
@@ -588,7 +596,7 @@ export class WslShellExecutor
    * @returns the argv to spawn.
    */
   argv(spec: ShellExecSpec, distro: string, shell: string, inner?: string[]): string[] {
-    const config = this.config as unknown as WslShellExecutorConfig;
+    const config = this.wslConfig;
     const distroArgs = distro.length > 0 ? ["-d", distro] : [];
     return [
       config.wslPath,
@@ -625,7 +633,7 @@ export class WslShellExecutor
    * @returns the subprocess spawn spec.
    */
   spawnSpec(spec: ShellExecSpec, argv: string[], stdoutMaxBytes: number, signal?: AbortSignal): SubprocessSpawnSpec {
-    const config = this.config as unknown as WslShellExecutorConfig;
+    const config = this.wslConfig;
     const base = inheritedSpawnSpec.call(this, spec, argv, stdoutMaxBytes, signal);
     const forward = new Set([...SAFE_FORWARD, ...config.forwardEnv]);
     const forwarded = Object.keys(base.env ?? {}).filter(
@@ -671,7 +679,7 @@ export class WslShellExecutor
    * @returns the fully-resolved spec.
    */
   resolve(request: ShellExecRequest): WslExecSpec {
-    const config = this.config as unknown as WslShellExecutorConfig;
+    const config = this.wslConfig;
     const spec = super.resolve(request);
     const sandboxPolicy = this.sandbox === undefined ? undefined : (request?.sandboxPolicy ?? this.ctx.sandboxPolicy.resolve());
     const workdir = typeof request?.workdir === "string" ? request.workdir : undefined;
@@ -812,7 +820,7 @@ export class WslShellExecutor
    * @throws {SandboxInvalidRootError} when an entry cannot be granted or checked.
    */
   async writableRootsFor(distro: string, policy: SandboxExecutionPolicy | undefined, signal?: AbortSignal): Promise<string[]> {
-    const config = this.config as unknown as WslShellExecutorConfig;
+    const config = this.wslConfig;
     if (!config.sandbox || policy === undefined || policy.mode !== "workspace-write") return [];
     if ((config.writableRoots?.length ?? 0) === 0 && (policy.additionalWritableRoots?.length ?? 0) === 0) return [];
     // Only a `~` entry needs the distro home. Policy entries are absolute
@@ -846,7 +854,7 @@ export class WslShellExecutor
    * @returns the live shell process handle.
    */
   async execute(spec: ShellExecSpec): Promise<ShellExecution> {
-    const config = this.config as unknown as WslShellExecutorConfig;
+    const config = this.wslConfig;
     const resolved = await this.withDefaultWorkdir(spec);
     const distro = await this.distroFor(resolved.workdir, configuredCwd(config));
     const shell = await this.shellFor(distro);
@@ -892,7 +900,7 @@ export class WslShellExecutor
    * @returns the decorated execution result.
    */
   async executeViaAgent(resolved: WslExecSpec, distro: string, shell: string, writableRoots: readonly string[] = []): Promise<ShellExecution> {
-    const config = this.config as unknown as WslShellExecutorConfig;
+    const config = this.wslConfig;
     const policy = resolved.sandboxPolicy;
     const confined = this.sandbox !== undefined && policy !== undefined && policy.mode !== "danger-full-access"
       ? await this.sandbox.confine(this.distroArgv(resolved, shell), { ...policy, mode: policy.mode }, { distro, signal: resolved.signal, writableRoots })

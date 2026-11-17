@@ -9,6 +9,7 @@ import type { SessionRuntimeEntry } from "./session-runtime.js";
 import type { Context } from "@deepseek-ai/cordis";
 import type { FileSystem, FsDeleteOutcome, FsDirEntry, FsEditOutcome, FsEditRequest, FsInfo, FsMoveOutcome, FsPathInfo, FsTarget, FsVersion, FsWriteIntent, FsWriteOutcome } from "@deepseek-ai/dsh-fs";
 import type { SandboxExecutionPolicy, SandboxMode } from "@deepseek-ai/dsh-sandbox";
+import { ProviderRuntimeBook } from "./provider-common.js";
 type PatchHunks = Parameters<FileSystem["patchText"]>[1];
 type MoveFileOptions = Parameters<FileSystem["moveFile"]>[2];
 /**
@@ -246,8 +247,8 @@ export declare class WslFileSystem extends LocalFileSystem {
     resolvedDistro: string;
     /** Cached distro-user home, the base for relative input when `cwd` is empty. */
     resolvedHome: string | undefined;
-    /** Per-distro homes, so two concurrent distros cannot share one. */
-    resolvedHomes: Map<string, string>;
+    /** Shared per-provider bookkeeping (homes, session runtimes, preflight caches). */
+    runtimeBook: ProviderRuntimeBook;
     /** The deployment default mode — the capability fact the tool layer reads. */
     defaultMode: SandboxMode;
     /** The lazy default-distro substrate, kept for the legacy accessor and tests. */
@@ -262,21 +263,23 @@ export declare class WslFileSystem extends LocalFileSystem {
     agentInstances: Map<string, WslAgent>;
     /** The session-runtime registry; tests substitute it. */
     sessionRuntimes: SessionRuntimes;
-    /** The runtimes this provider holds, by registry key. */
-    sessionRuntimeEntries: Map<string, SessionRuntimeEntry>;
     /** Isolates calls that have no session identity. */
     sessionRuntimeOwner: string;
     /** The preflight's host runner; tests substitute it. */
     sessionScopeProbe: (argv: string[]) => Promise<string>;
     /** The one-time writable-root check's runner; tests substitute it. */
     writableRootsProbe: (argv: string[]) => Promise<string>;
-    /** Distros whose session-runtime preflight has succeeded. */
-    sessionRuntimePreflight: Set<string>;
-    /** Per-distro `auto` verdicts, re-probed when they were negative and stale. */
-    autoSessionScope: Map<string, {
-        usable: boolean;
-        checkedAt: number;
-    }>;
+    /**
+     * Per-distro homes, delegated to the shared runtime book: `provider-common`'s
+     * `distroHome` reads this view, and tests pin the cache through it.
+     */
+    get resolvedHomes(): Map<string, string>;
+    /**
+     * The row's config without the peer's volatile wrapper. The schema validates
+     * the plain shape; the wrapper only widens the type, so one accessor states
+     * the cast instead of every method repeating it.
+     */
+    private get wslConfig();
     /**
      * @param ctx - the composition context.
      * @param config - the validated plugin config.

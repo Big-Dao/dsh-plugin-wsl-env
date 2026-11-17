@@ -5,6 +5,7 @@ import type { WslAgent } from "./agent.js";
 import { SessionRuntimes } from "./session-runtime.js";
 import type { AgentBackend } from "./native-agent.js";
 import type { SessionRuntimeEntry } from "./session-runtime.js";
+import { ProviderRuntimeBook } from "./provider-common.js";
 import type { Context } from "@deepseek-ai/cordis";
 import type { SandboxExecutionPolicy, SandboxMode } from "@deepseek-ai/dsh-sandbox";
 import type { SubprocessSpawnSpec } from "@deepseek-ai/dsh-subprocess";
@@ -354,35 +355,37 @@ export declare class WslShellExecutor extends LocalBashExecutor {
     resolvedShells: Map<string, string>;
     /** Cached distro-user home, the workdir when `cwd` is empty. */
     resolvedHome: string | undefined;
-    /** Per-distro homes, so two concurrent distros cannot share one. */
-    resolvedHomes: Map<string, string>;
+    /** Shared per-provider bookkeeping (homes, session runtimes, preflight caches). */
+    runtimeBook: ProviderRuntimeBook;
     /** The default mode — the capability fact the tool layer reads. */
     mode: SandboxMode | undefined;
     /** The distro-side confinement, or nothing when the operator opted out. */
     sandbox: InstanceType<typeof WslSandbox> | undefined;
     /** The session-runtime registry; tests substitute it. */
     sessionRuntimes: SessionRuntimes;
-    /** The runtimes this executor holds, by registry key. */
-    sessionRuntimeEntries: Map<string, SessionRuntimeEntry>;
     /** Isolates calls that have no session identity. */
     sessionRuntimeOwner: string;
     /** The preflight's host runner; tests substitute it. */
     sessionScopeProbe: (argv: string[]) => Promise<string>;
     /** The one-time writable-root check's runner; tests substitute it. */
     writableRootsProbe: (argv: string[]) => Promise<string>;
-    /** Distros whose session-runtime preflight has succeeded. */
-    sessionRuntimePreflight: Set<string>;
-    /** Per-distro `auto` verdicts, re-probed when they were negative and stale. */
-    autoSessionScope: Map<string, {
-        usable: boolean;
-        checkedAt: number;
-    }>;
     /**
      * Per-process confinement facts retained until settlement. Overlapping calls
      * can carry different policies, so a shared latest-wrap value would classify
      * a process against the wrong facts. Unconfined processes have no entry.
      */
     processFacts: Map<ShellExecution, ProcessFacts>;
+    /**
+     * Per-distro homes, delegated to the shared runtime book: `provider-common`'s
+     * `distroHome` reads this view, and tests pin the cache through it.
+     */
+    get resolvedHomes(): Map<string, string>;
+    /**
+     * The row's config without the peer's volatile wrapper. The schema validates
+     * the plain shape; the wrapper only widens the type, so one accessor states
+     * the cast instead of every method repeating it.
+     */
+    private get wslConfig();
     /**
      * @param ctx - the composition context.
      * @param config - the validated plugin config.

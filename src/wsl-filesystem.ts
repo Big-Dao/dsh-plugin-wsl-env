@@ -23,7 +23,7 @@ import { validateWritableRootsConfig } from "./writable-roots.js";
 import type { Context } from "@deepseek-ai/cordis";
 import type { FileSystem, FsDeleteOutcome, FsDirEntry, FsEditOutcome, FsEditRequest, FsErrorCode, FsInfo, FsMoveOutcome, FsPathInfo, FsTarget, FsVersion, FsWriteIntent, FsWriteOutcome } from "@deepseek-ai/dsh-fs";
 import type { ConfinedSandboxMode, SandboxExecutionPolicy, SandboxMode } from "@deepseek-ai/dsh-sandbox";
-import { distroHome, effectiveWritableRoots, resolveOperationDistro, sessionRuntimeWanted, wslWritableRoots } from "./provider-common.js";
+import { ProviderRuntimeBook, distroHome, effectiveWritableRoots, resolveOperationDistro, sessionRuntimeWanted, wslWritableRoots } from "./provider-common.js";
 
 type PatchHunks = Parameters<FileSystem["patchText"]>[1];
 type MoveFileOptions = Parameters<FileSystem["moveFile"]>[2];
@@ -185,8 +185,8 @@ export class WslFileSystem extends LocalFileSystem {
   declare resolvedDistro: string;
   /** Cached distro-user home, the base for relative input when `cwd` is empty. */
   declare resolvedHome: string | undefined;
-  /** Per-distro homes, so two concurrent distros cannot share one. */
-  declare resolvedHomes: Map<string, string>;
+  /** Shared per-provider bookkeeping (homes, session runtimes, preflight caches). */
+  declare runtimeBook: ProviderRuntimeBook;
   /** The deployment default mode — the capability fact the tool layer reads. */
   declare defaultMode: SandboxMode;
   /** The lazy default-distro substrate, kept for the legacy accessor and tests. */
@@ -201,18 +201,29 @@ export class WslFileSystem extends LocalFileSystem {
   declare agentInstances: Map<string, WslAgent>;
   /** The session-runtime registry; tests substitute it. */
   declare sessionRuntimes: SessionRuntimes;
-  /** The runtimes this provider holds, by registry key. */
-  declare sessionRuntimeEntries: Map<string, SessionRuntimeEntry>;
   /** Isolates calls that have no session identity. */
   declare sessionRuntimeOwner: string;
   /** The preflight's host runner; tests substitute it. */
   declare sessionScopeProbe: (argv: string[]) => Promise<string>;
   /** The one-time writable-root check's runner; tests substitute it. */
   declare writableRootsProbe: (argv: string[]) => Promise<string>;
-  /** Distros whose session-runtime preflight has succeeded. */
-  declare sessionRuntimePreflight: Set<string>;
-  /** Per-distro `auto` verdicts, re-probed when they were negative and stale. */
-  declare autoSessionScope: Map<string, { usable: boolean, checkedAt: number }>;
+
+  /**
+   * Per-distro homes, delegated to the shared runtime book: `provider-common`'s
+   * `distroHome` reads this view, and tests pin the cache through it.
+   */
+  get resolvedHomes(): Map<string, string> {
+    return this.runtimeBook.homes;
+  }
+
+  /**
+   * The row's config without the peer's volatile wrapper. The schema validates
+   * the plain shape; the wrapper only widens the type, so one accessor states
+   * the cast instead of every method repeating it.
+   */
+  private get wslConfig(): WslFileSystemConfig {
+    return this.config as unknown as WslFileSystemConfig;
+  }
 
   /**
    * @param ctx - the composition context.
@@ -229,7 +240,7 @@ export class WslFileSystem extends LocalFileSystem {
     installMessagesLocale(ctx);
     this.resolvedDistro = pinnedDistro(config.distro) ?? "";
     this.resolvedHome = undefined;
-    this.resolvedHomes = new Map();
+    this.runtimeBook = new ProviderRuntimeBook();
     this.defaultMode = ctx.sandboxPolicy.defaultMode;
     this.agentSubstrateInstance = undefined;
     this.agentSubstrates = new Map();
@@ -237,12 +248,9 @@ export class WslFileSystem extends LocalFileSystem {
     this.agentInstance = undefined;
     this.agentInstances = new Map();
     this.sessionRuntimes = sessionRuntimes;
-    this.sessionRuntimeEntries = new Map();
     this.sessionRuntimeOwner = randomUUID();
     this.sessionScopeProbe = (argv) => runCapture(argv);
     this.writableRootsProbe = (argv) => runCapture(argv);
-    this.sessionRuntimePreflight = new Set();
-    this.autoSessionScope = new Map();
     // The preset's disposer releases the runtime; the shell executor's effect
     // releases its own reference, so the scope stops after the last one.
     ctx.effect(() => () => this.disposeSessionRuntimes().catch(() => {}), "wsl fs session runtimes");
@@ -257,7 +265,7 @@ export class WslFileSystem extends LocalFileSystem {
    * @returns the deployment default mode, or `undefined` when unfenced.
    */
   get sandboxMode(): SandboxMode | undefined {
-    const config = this.config as unknown as WslFileSystemConfig;
+    const config = this.wslConfig;
     return config.sandbox ? this.defaultMode : undefined;
   }
 
@@ -298,7 +306,7 @@ export class WslFileSystem extends LocalFileSystem {
    * @returns the substrate.
    */
   async agentSubstrate(): Promise<AgentSubstrate> {
-    const config = this.config as unknown as WslFileSystemConfig;
+    const config = this.wslConfig;
     if (this.agentSubstrateInstance === undefined) {
       this.agentSubstrateInstance = new AgentSubstrate({
         agent: await this.publicationAgent(),
@@ -323,7 +331,7 @@ export class WslFileSystem extends LocalFileSystem {
     if (this.resolvedDistro.length > 0 && distro === this.resolvedDistro) return this.agentSubstrate();
     const cached = this.agentSubstrates.get(distro);
     if (cached !== undefined) return cached;
-    const config = this.config as unknown as WslFileSystemConfig;
+    const config = this.wslConfig;
     const substrate = new AgentSubstrate({
       agent: await this.publicationAgentFor(distro),
       distro,
@@ -356,7 +364,7 @@ export class WslFileSystem extends LocalFileSystem {
    * @throws {SandboxInvalidRootError} when an entry cannot be granted or checked.
    */
   async writableRootsFor(distro: string, policy: { mode: string, workspaceRoot: string, additionalWritableRoots?: readonly string[] } | undefined, check = true): Promise<string[]> {
-    const config = this.config as unknown as WslFileSystemConfig;
+    const config = this.wslConfig;
     if (!config.sandbox || policy === undefined || policy.mode !== "workspace-write") return [];
     if ((config.writableRoots?.length ?? 0) === 0 && (policy.additionalWritableRoots?.length ?? 0) === 0) return [];
     // Only a `~` entry needs the distro home. Policy entries are absolute
@@ -388,12 +396,12 @@ export class WslFileSystem extends LocalFileSystem {
    * @returns the runtime entry, or undefined when the mode is off.
    */
   sessionRuntimeFor(policy: { mode: string, workspaceRoot: string, sessionId?: string }, distro: string, writableRoots: readonly string[] = []): SessionRuntimeEntry | undefined {
-    const config = this.config as unknown as WslFileSystemConfig;
+    const config = this.wslConfig;
     if (!config.sessionSandbox) return undefined;
     const workspaceRoot = policy.workspaceRoot || config.cwd;
     const sessionId = policy.sessionId || this.sessionRuntimeOwner;
     const key = SessionRuntimes.key({ sessionId, distro, workspaceRoot, mode: policy.mode, maskWindowsDrive: config.maskWindowsDrive, writableRoots });
-    const held = this.sessionRuntimeEntries.get(key);
+    const held = this.runtimeBook.sessionRuntimeEntries.get(key);
     if (held !== undefined) return held;
     const entry = this.sessionRuntimes.acquire({
       sessionId,
@@ -404,7 +412,7 @@ export class WslFileSystem extends LocalFileSystem {
       maskWindowsDrive: config.maskWindowsDrive,
       writableRoots,
     });
-    this.sessionRuntimeEntries.set(key, entry);
+    this.runtimeBook.sessionRuntimeEntries.set(key, entry);
     return entry;
   }
 
@@ -417,12 +425,12 @@ export class WslFileSystem extends LocalFileSystem {
    * @throws {Error} with the remedy when it cannot.
    */
   async ensureSessionRuntimeUsable(distro: string): Promise<void> {
-    if (this.sessionRuntimePreflight.has(distro)) return;
-    const config = this.config as unknown as WslFileSystemConfig;
+    if (this.runtimeBook.sessionRuntimePreflight.has(distro)) return;
+    const config = this.wslConfig;
     const problem = await probeSessionRuntime({ wslPath: config.wslPath, distro, run: this.sessionScopeProbe });
     if (problem !== null) throw new Error(problem);
     await ensureNativeSessionAgent({ wslPath: config.wslPath, distro, setNative: setSessionNativeAgent });
-    this.sessionRuntimePreflight.add(distro);
+    this.runtimeBook.sessionRuntimePreflight.add(distro);
   }
 
   /**
@@ -434,8 +442,8 @@ export class WslFileSystem extends LocalFileSystem {
    * @returns whether to acquire the per-session scope.
    */
   async wantsSessionRuntime(distro: string): Promise<boolean> {
-    const config = this.config as unknown as WslFileSystemConfig;
-    return sessionRuntimeWanted(config.sessionSandbox, distro, () => this.ensureSessionRuntimeUsable(distro), this.autoSessionScope);
+    const config = this.wslConfig;
+    return sessionRuntimeWanted(config.sessionSandbox, distro, () => this.ensureSessionRuntimeUsable(distro), this.runtimeBook.autoSessionScope);
   }
 
   /**
@@ -445,8 +453,8 @@ export class WslFileSystem extends LocalFileSystem {
    * @returns resolved once every reference is released.
    */
   async disposeSessionRuntimes(): Promise<void> {
-    const entries = [...this.sessionRuntimeEntries.values()];
-    this.sessionRuntimeEntries.clear();
+    const entries = [...this.runtimeBook.sessionRuntimeEntries.values()];
+    this.runtimeBook.sessionRuntimeEntries.clear();
     for (const entry of entries) await this.sessionRuntimes.release(entry.key);
   }
 
@@ -466,7 +474,7 @@ export class WslFileSystem extends LocalFileSystem {
    * @returns the agent to publish through.
    */
   async mutationAgent(policy: { mode: string, workspaceRoot: string, sessionId?: string, additionalWritableRoots?: readonly string[] } | undefined, forDistro?: string): Promise<WslAgent> {
-    const config = this.config as unknown as WslFileSystemConfig;
+    const config = this.wslConfig;
     const distro = forDistro ?? await this.distroForPolicy(policy);
     if (!isConfinedMutation({ policy, sandboxEnabled: config.sandbox })) {
       return this.publicationAgentFor(distro);
@@ -528,7 +536,7 @@ export class WslFileSystem extends LocalFileSystem {
    * @returns the distro name.
    */
   async distro(): Promise<string> {
-    const config = this.config as unknown as WslFileSystemConfig;
+    const config = this.wslConfig;
     if (this.resolvedDistro.length === 0) this.resolvedDistro = await defaultDistro({ wslPath: config.wslPath });
     return this.resolvedDistro;
   }
@@ -543,7 +551,7 @@ export class WslFileSystem extends LocalFileSystem {
    * @returns the distro name.
    */
   async distroForPath(path: string, cwd?: string): Promise<string> {
-    const config = this.config as unknown as WslFileSystemConfig;
+    const config = this.wslConfig;
     return resolveOperationDistro(config.distro, [path, cwd ?? config.cwd], () => this.distro());
   }
 
@@ -566,7 +574,7 @@ export class WslFileSystem extends LocalFileSystem {
    * @returns the distro name.
    */
   async distroForPolicy(policy: { mode: string, workspaceRoot: string } | undefined): Promise<string> {
-    const config = this.config as unknown as WslFileSystemConfig;
+    const config = this.wslConfig;
     return resolveOperationDistro(config.distro, [policy?.workspaceRoot, config.cwd], () => this.distro());
   }
 
@@ -578,7 +586,7 @@ export class WslFileSystem extends LocalFileSystem {
    * @returns the host path to operate on.
    */
   async worldPath(path: string, cwd?: string): Promise<string> {
-    const config = this.config as unknown as WslFileSystemConfig;
+    const config = this.wslConfig;
     const distro = await this.distroForPath(path, cwd);
     let base = cwd ?? config.cwd;
     if (String(base ?? "").trim().length === 0 && isRelativeWorldPath(path)) {
@@ -640,7 +648,7 @@ export class WslFileSystem extends LocalFileSystem {
    * @throws {FsError} with `FS_SANDBOX_DENIED` when the policy refuses it.
    */
   async checkedTarget(target: FsTarget, sandboxPolicy?: SandboxExecutionPolicy): Promise<FsTarget> {
-    const config = this.config as unknown as WslFileSystemConfig;
+    const config = this.wslConfig;
     if (!config.sandbox) return target;
     const policy = sandboxPolicy ?? this.ctx.sandboxPolicy.resolve();
     const modeRefusal = mutationModeRefusal(policy.mode, target.displayPath);
@@ -802,7 +810,7 @@ export class WslFileSystem extends LocalFileSystem {
    *   mapped with what is already known.
    */
   processPathFromHostPath(hostPath: string): string | undefined {
-    const config = this.config as unknown as WslFileSystemConfig;
+    const config = this.wslConfig;
     const choice = selectDistro({
       configured: config.distro,
       candidates: [hostPath, config.cwd],
@@ -838,7 +846,7 @@ export class WslFileSystem extends LocalFileSystem {
    */
   async watch(target: FsTarget, changed: (error?: Error) => void, signal: AbortSignal): Promise<() => Promise<void>> {
     signal.throwIfAborted();
-    const config = this.config as unknown as WslFileSystemConfig;
+    const config = this.wslConfig;
     const parsed = uncToPosix(target.targetKey);
     if (parsed === undefined) {
       throw new FsError(`cannot watch "${target.displayPath}": not a path inside the distro`, "FS_IO_ERROR");

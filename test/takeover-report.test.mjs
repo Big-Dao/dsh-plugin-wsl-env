@@ -137,7 +137,9 @@ check("the report does not load the provider implementation graph", () => {
     seen.add(name);
     const text = readFileSync(file, "utf8");
     for (const match of text.matchAll(/from "\.\/([^"]+\.js)"/g)) {
-      const target = resolve(dirname(file), match[1]);
+      const specifier = match[1];
+      assert.ok(specifier !== undefined, "the import regex captures a specifier");
+      const target = resolve(dirname(file), specifier);
       if (target.startsWith(here)) walk(target);
     }
   };

@@ -45,6 +45,14 @@ were part of the record.
 
 ### Changed
 
+- **The filesystem and shell providers share their runtime bookkeeping and
+  config narrowing (#54).** The two classes kept identical maps for distro
+  homes, held session runtimes, the session-runtime preflight, and the `auto`
+  verdicts; a semantic change had to be made twice. Those four now live in
+  `ProviderRuntimeBook` (`provider-common.ts`), and the 30 repeated
+  `this.config as unknown as …` casts collapse to one private `wslConfig`
+  accessor per row. No behavior change; the provider, session-runtime, and
+  boot suites pin the existing semantics.
 - **The takeover report identifies providers by a symbol brand, not
   `instanceof` (#53).** `takeover-report` used to import the three provider
   classes to tell this plugin's `subprocess`/`fs`/`directoryPicker` from the
@@ -245,6 +253,14 @@ it; the README/docs pass that leads with the desktop-app path ships too.
 
 ### Changed
 
+- **The filesystem and shell providers share their runtime bookkeeping and
+  config narrowing (#54).** The two classes kept identical maps for distro
+  homes, held session runtimes, the session-runtime preflight, and the `auto`
+  verdicts; a semantic change had to be made twice. Those four now live in
+  `ProviderRuntimeBook` (`provider-common.ts`), and the 30 repeated
+  `this.config as unknown as …` casts collapse to one private `wslConfig`
+  accessor per row. No behavior change; the provider, session-runtime, and
+  boot suites pin the existing semantics.
 - **The takeover report identifies providers by a symbol brand, not
   `instanceof` (#53).** `takeover-report` used to import the three provider
   classes to tell this plugin's `subprocess`/`fs`/`directoryPicker` from the
@@ -969,6 +985,14 @@ behaviour change owes the release notes.
 
 ### Changed
 
+- **The filesystem and shell providers share their runtime bookkeeping and
+  config narrowing (#54).** The two classes kept identical maps for distro
+  homes, held session runtimes, the session-runtime preflight, and the `auto`
+  verdicts; a semantic change had to be made twice. Those four now live in
+  `ProviderRuntimeBook` (`provider-common.ts`), and the 30 repeated
+  `this.config as unknown as …` casts collapse to one private `wslConfig`
+  accessor per row. No behavior change; the provider, session-runtime, and
+  boot suites pin the existing semantics.
 - **The takeover report identifies providers by a symbol brand, not
   `instanceof` (#53).** `takeover-report` used to import the three provider
   classes to tell this plugin's `subprocess`/`fs`/`directoryPicker` from the
@@ -1113,6 +1137,14 @@ path is documented with its operator rule.
 
 ### Changed
 
+- **The filesystem and shell providers share their runtime bookkeeping and
+  config narrowing (#54).** The two classes kept identical maps for distro
+  homes, held session runtimes, the session-runtime preflight, and the `auto`
+  verdicts; a semantic change had to be made twice. Those four now live in
+  `ProviderRuntimeBook` (`provider-common.ts`), and the 30 repeated
+  `this.config as unknown as …` casts collapse to one private `wslConfig`
+  accessor per row. No behavior change; the provider, session-runtime, and
+  boot suites pin the existing semantics.
 - **The takeover report identifies providers by a symbol brand, not
   `instanceof` (#53).** `takeover-report` used to import the three provider
   classes to tell this plugin's `subprocess`/`fs`/`directoryPicker` from the
@@ -3255,6 +3287,14 @@ Metadata and one documentation addition. No behaviour change.
 
 ### Changed
 
+- **The filesystem and shell providers share their runtime bookkeeping and
+  config narrowing (#54).** The two classes kept identical maps for distro
+  homes, held session runtimes, the session-runtime preflight, and the `auto`
+  verdicts; a semantic change had to be made twice. Those four now live in
+  `ProviderRuntimeBook` (`provider-common.ts`), and the 30 repeated
+  `this.config as unknown as …` casts collapse to one private `wslConfig`
+  accessor per row. No behavior change; the provider, session-runtime, and
+  boot suites pin the existing semantics.
 - **The takeover report identifies providers by a symbol brand, not
   `instanceof` (#53).** `takeover-report` used to import the three provider
   classes to tell this plugin's `subprocess`/`fs`/`directoryPicker` from the
@@ -3304,6 +3344,14 @@ No runtime change.
 
 ### Changed
 
+- **The filesystem and shell providers share their runtime bookkeeping and
+  config narrowing (#54).** The two classes kept identical maps for distro
+  homes, held session runtimes, the session-runtime preflight, and the `auto`
+  verdicts; a semantic change had to be made twice. Those four now live in
+  `ProviderRuntimeBook` (`provider-common.ts`), and the 30 repeated
+  `this.config as unknown as …` casts collapse to one private `wslConfig`
+  accessor per row. No behavior change; the provider, session-runtime, and
+  boot suites pin the existing semantics.
 - **The takeover report identifies providers by a symbol brand, not
   `instanceof` (#53).** `takeover-report` used to import the three provider
   classes to tell this plugin's `subprocess`/`fs`/`directoryPicker` from the
@@ -3344,6 +3392,14 @@ One correctness fix and the error-code reference the closure review asked for.
 
 ### Changed
 
+- **The filesystem and shell providers share their runtime bookkeeping and
+  config narrowing (#54).** The two classes kept identical maps for distro
+  homes, held session runtimes, the session-runtime preflight, and the `auto`
+  verdicts; a semantic change had to be made twice. Those four now live in
+  `ProviderRuntimeBook` (`provider-common.ts`), and the 30 repeated
+  `this.config as unknown as …` casts collapse to one private `wslConfig`
+  accessor per row. No behavior change; the provider, session-runtime, and
+  boot suites pin the existing semantics.
 - **The takeover report identifies providers by a symbol brand, not
   `instanceof` (#53).** `takeover-report` used to import the three provider
   classes to tell this plugin's `subprocess`/`fs`/`directoryPicker` from the
@@ -3400,6 +3456,14 @@ Three probes that close coverage gaps a closure review named, the documentation 
 
 ### Changed
 
+- **The filesystem and shell providers share their runtime bookkeeping and
+  config narrowing (#54).** The two classes kept identical maps for distro
+  homes, held session runtimes, the session-runtime preflight, and the `auto`
+  verdicts; a semantic change had to be made twice. Those four now live in
+  `ProviderRuntimeBook` (`provider-common.ts`), and the 30 repeated
+  `this.config as unknown as …` casts collapse to one private `wslConfig`
+  accessor per row. No behavior change; the provider, session-runtime, and
+  boot suites pin the existing semantics.
 - **The takeover report identifies providers by a symbol brand, not
   `instanceof` (#53).** `takeover-report` used to import the three provider
   classes to tell this plugin's `subprocess`/`fs`/`directoryPicker` from the
@@ -3449,6 +3513,14 @@ could not work, and one where the cause of a failure was invisible.
 
 ### Changed
 
+- **The filesystem and shell providers share their runtime bookkeeping and
+  config narrowing (#54).** The two classes kept identical maps for distro
+  homes, held session runtimes, the session-runtime preflight, and the `auto`
+  verdicts; a semantic change had to be made twice. Those four now live in
+  `ProviderRuntimeBook` (`provider-common.ts`), and the 30 repeated
+  `this.config as unknown as …` casts collapse to one private `wslConfig`
+  accessor per row. No behavior change; the provider, session-runtime, and
+  boot suites pin the existing semantics.
 - **The takeover report identifies providers by a symbol brand, not
   `instanceof` (#53).** `takeover-report` used to import the three provider
   classes to tell this plugin's `subprocess`/`fs`/`directoryPicker` from the

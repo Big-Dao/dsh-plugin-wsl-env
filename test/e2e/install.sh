@@ -12,6 +12,9 @@
 #   2. Upgrading from the previous minor over an existing profile keeps that
 #      profile's `cordis.patch.yml` (a marker line is preserved), lands the new
 #      version, and the installed CHANGELOG carries the migration note.
+#   3. Upgrading from the newest published stable and BOOTING the profile with
+#      an overlay probe: all three root-plane takeovers are this plugin's
+#      classes, so the bundle composes AND mounts (not just --dump-config).
 #
 # It never touches the real DSH home: every command runs with a fresh DSH_HOME
 # under %TEMP%, removed afterwards. `--skip-upgrade` skips the network leg;
@@ -77,6 +80,15 @@ run_cli() {
   local home="$1"; shift
   [ -n "$home" ] || { echo "e2e: refusing to run the CLI without DSH_HOME" >&2; exit 1; }
   env -u DSH_HOME -u DSH_PROFILE -u DSH_PROFILE_DIR -u DSH_SESSION_ID -u DSH_SHELL -u DSH_WEB_URL \
+    DSH_HOME="$home" WSLENV="DSH_HOME:ELECTRON_RUN_AS_NODE" ELECTRON_RUN_AS_NODE=1 \
+    "$APP/DeepSeek Harness.exe" --expose-internals "$CLI" "$@"
+}
+
+# Boot one profile under a wall-clock deadline. `timeout` cannot run the
+# run_cli shell function, so this mirrors it with the executable directly.
+boot_cli() {
+  local seconds="$1" home="$2"; shift 2
+  timeout "$seconds" env -u DSH_HOME -u DSH_PROFILE -u DSH_PROFILE_DIR -u DSH_SESSION_ID -u DSH_SHELL -u DSH_WEB_URL \
     DSH_HOME="$home" WSLENV="DSH_HOME:ELECTRON_RUN_AS_NODE" ELECTRON_RUN_AS_NODE=1 \
     "$APP/DeepSeek Harness.exe" --expose-internals "$CLI" "$@"
 }
@@ -201,6 +213,58 @@ elif npm pack "$PKG_NAME@$PREVIOUS" --pack-destination "$SCRATCH" >"$LOGS/pack-p
   fi
 else
   skip "upgrade from $PREVIOUS (npm pack failed; network or version unavailable)"
+fi
+
+# 4. Upgrade from the newest published release, then boot the result and
+#    assert the root-plane takeovers are this plugin's classes. The dump-config
+#    legs prove the composition; this proves it mounts.
+VERSIONS_JSON="$(npm view "$PKG_NAME" versions --json 2>/dev/null || true)"
+FROM_PUBLISHED=""
+if [ -n "$VERSIONS_JSON" ]; then
+  FROM_PUBLISHED="$(printf '%s' "$VERSIONS_JSON" | node -e '
+    let input = "";
+    process.stdin.on("data", (chunk) => { input += chunk; });
+    process.stdin.on("end", () => {
+      const current = process.argv[1];
+      const stable = JSON.parse(input || "[]").filter((version) => version !== current && !version.includes("-"));
+      stable.sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+      process.stdout.write(stable.at(-1) ?? "");
+    });
+  ' "$CURRENT")"
+fi
+if [ -z "$FROM_PUBLISHED" ]; then
+  skip "boot after upgrading the newest published release (no published stable other than $CURRENT)"
+else
+  HOME_C="$(new_home "dsh-e2e-boot-$$")"
+  HOMES+=("$HOME_C")
+  copy_tarball "$HOME_C" "$CURRENT_TGZ" "current.tgz"
+  if run_cli "$HOME_C" --profile e2e --from-default-profile web --dump-config >"$LOGS/boot-init.log" 2>&1 \
+    && run_cli "$HOME_C" plugin --profile e2e add "$PKG_NAME@$FROM_PUBLISHED" >"$LOGS/boot-from.log" 2>&1 \
+    && run_cli "$HOME_C" plugin --profile e2e add "$HOME_C\current.tgz" >"$LOGS/boot-to.log" 2>&1; then
+    INSTALLED_BOOT="$(node -p "require('$(wslpath -u "$HOME_C")/profiles/e2e/node_modules/$PKG_NAME/package.json').version")"
+    if [ "$INSTALLED_BOOT" = "$CURRENT" ]; then
+      ok "upgraded $FROM_PUBLISHED -> $CURRENT for the boot leg"
+    else
+      bad "the boot leg landed $INSTALLED_BOOT, expected $CURRENT"
+    fi
+    PROBE_YML="$SCRATCH/takeover-probe.yml"
+    printf -- "- insert:\n    - id: e2e-takeover-probe\n      name: '%s'\n" "$UNC\\test\\e2e\\takeover-probe.mjs" > "$PROBE_YML"
+    powershell.exe -NoProfile -Command "Copy-Item -LiteralPath '$UNC\\test\\e2e\\.scratch\\takeover-probe.yml' -Destination '$HOME_C\\takeover-probe.yml' -Force" >/dev/null 2>&1
+    if boot_cli 180 "$HOME_C" --profile e2e --patch "$HOME_C\takeover-probe.yml" --no-open --port 0 >"$LOGS/boot-bundle.log" 2>&1; then
+      if grep -q 'DSH_E2E_TAKEOVER {"subprocess":"WslSubprocessRuntime","fs":"WslRoutingFileSystem","directoryPicker":"WslDirectoryPicker"}' "$LOGS/boot-bundle.log"; then
+        ok "the booted profile serves all three takeovers from this plugin"
+      else
+        bad "the booted profile did not serve the three takeovers"
+        grep 'DSH_E2E_TAKEOVER' "$LOGS/boot-bundle.log" >&2 || tail -20 "$LOGS/boot-bundle.log" >&2
+      fi
+    else
+      bad "booting the upgraded profile with the takeover probe"
+      tail -20 "$LOGS/boot-bundle.log" >&2
+    fi
+  else
+    bad "preparing the boot leg ($FROM_PUBLISHED -> $CURRENT)"
+    tail -10 "$LOGS/boot-init.log" "$LOGS/boot-from.log" "$LOGS/boot-to.log" >&2 2>/dev/null || true
+  fi
 fi
 
 echo ""

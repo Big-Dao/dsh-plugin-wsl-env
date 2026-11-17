@@ -89,7 +89,7 @@ pnpm run sync:windows
 | `pnpm run lint:style` | 风格与 lint 规则 | 否 |
 | `pnpm run lint:build` | 构建新鲜度检查：每个源码都有产物，且提交的字节匹配真实构建 | 否 |
 | `pnpm run lint:types` | 对 `test/**` 和环境类型声明的 TypeScript 检查（`tsc --noEmit`） | 否 |
-| `pnpm run e2e:install` | 在临时 `DSH_HOME` 中安装/升级/卸载打包 tarball | 是；Windows + WSL |
+| `pnpm run e2e:install` | 在临时 `DSH_HOME` 中安装/升级/卸载打包 tarball；“最新已发布版 → 当前版本”leg 会用 overlay 探针启动 profile，断言三个接管实际挂载 | 是；Windows + WSL |
 | `pnpm run doctor` | 环境前置项、peer 和缓存（脚本使用 `--json`；`diagnose` 是只读别名） | 否；在发行版内 |
 | `pnpm run probe` | 针对真实发行版的文件系统行为 | 是 |
 | `pnpm run probe:sandbox` | bubblewrap 隔离了什么、没有隔离什么 | 否 |

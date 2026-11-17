@@ -499,6 +499,58 @@ checkReg("the watchdog starts at the dequeue ACK, so queue time never spends the
   await agent.close();
 });
 
+checkReg("a frame written but never ACKed trips the dispatch watchdog", async () => {
+  const child = new FakeAgentProcess();
+  child.silent = true; // the process stays alive, but it never dequeues
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport, dispatchTimeoutMs: 5000 });
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const settled = agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }).then(
+      () => {
+        throw new Error("should not have resolved");
+      },
+      (error) => error,
+    );
+    await flush();
+    mock.timers.tick(4999);
+    assert.equal(child.killed, false, "the dispatch ceiling has not run out yet");
+    mock.timers.tick(1);
+    assert.equal(child.killed, true, "a resident that never ACKs is killed instead of holding the queue");
+    const error = await settled;
+    assert.ok(error instanceof AgentUnavailableError);
+    assert.match(error.message, /state is unknown/, "the killed transport cannot prove the request did not run");
+  } finally {
+    mock.timers.reset();
+  }
+  await agent.close();
+});
+
+checkReg("the ACK disarms the dispatch watchdog", async () => {
+  const child = new FakeAgentProcess();
+  child.silent = true; // ACK is scripted below; the answer never comes
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport, dispatchTimeoutMs: 5000 });
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const settled = agent.exec({ cwd: "/", argv: ["sleep", "100"], timeoutMs: 0 }).then(
+    () => {
+      throw new Error("should not have resolved");
+    },
+    (error) => error,
+  );
+  try {
+    await flush();
+    child.stdout.write("ACK|r0\n");
+    await flush();
+    mock.timers.tick(60_000);
+    assert.equal(child.killed, false, "an ACKed request with no budget may run indefinitely");
+  } finally {
+    mock.timers.reset();
+  }
+  await agent.close();
+  assert.match((await settled).message, /closed/);
+});
+
 checkReg("an abort after the relay kills the request under its relabelled id", async () => {
   const dying = new FakeAgentProcess({ dieOnRequest: true });
   const healthy = new FakeAgentProcess();

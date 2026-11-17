@@ -16,6 +16,17 @@ were part of the record.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A written request that is never ACKed no longer hangs the agent queue
+  (#49).** The execution watchdog was armed only by the dequeue `ACK`, so a
+  resident that stayed alive but stopped dequeuing (a wedged `wait`, a blocked
+  stdin pipe) left the request pending forever and the serial queue behind it
+  blocked. A separate, looser frame-written ceiling (120 s) now turns that
+  state into a transport failure: the resident is killed, the request fails as
+  unknown-state/`AgentUnavailableError`, and the caller's usual fallback
+  applies. An ACK replaces it with the existing execution budget.
+
 ## [0.26.3] - 2026-11-17
 
 Promotes 0.26.3-rc.0 after the HMR gate passed: a 0.26.1 profile with a live

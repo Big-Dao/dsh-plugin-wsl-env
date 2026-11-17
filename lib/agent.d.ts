@@ -23,9 +23,12 @@
  *    behind a dead `wsl.exe`. The host-side watchdog is armed on the agent's
  *    `ACK` — the dequeue signal — so it measures EXECUTION, never the queue
  *    wait: a short-budget request queued behind a long one can no longer
- *    kill the shared transport for a stall that was never its own. It still
- *    catches an agent that accepted a request and then stopped answering at
- *    all.
+ *    kill the shared transport for a stall that was never its own. A second,
+ *    much looser ceiling starts when the frame is WRITTEN: a resident that
+ *    stays alive but never dequeues the request (a wedged `wait`, a blocked
+ *    pipe) otherwise stranded it, and the serial queue behind it, forever. It
+ *    still catches an agent that accepted a request and then stopped answering
+ *    at all.
  * 3. **Idle agents go away.** `idleMs` after the last exchange the process is
  *    killed; the next call starts a fresh one. WSL VMs are shared, but every
  *    process is a promise someone has to keep.
@@ -103,6 +106,11 @@ interface PendingRequest {
     answered: boolean;
     /** The delayed cancel signal, so it can be dropped when the request settles. */
     signalTimer: NodeJS.Timeout | null;
+    /**
+     * The frame-written watchdog timer: a resident that never ACKs is wedged,
+     * and the ACK-armed watchdog alone would never start.
+     */
+    dispatchWatchdog: NodeJS.Timeout | null;
 }
 /** Per-kind request metrics. */
 interface RequestMetrics {
@@ -250,6 +258,8 @@ export declare class WslAgent {
     serialRequests: boolean;
     /** The maximum requests allowed in flight on this resident. */
     maxPending: number;
+    /** How long a written frame may await the agent's ACK. */
+    dispatchTimeoutMs: number;
     /** The live resident process, when any. */
     process: ChildProcess | null;
     /** The lifecycle state. */
@@ -331,6 +341,11 @@ export declare class WslAgent {
         serialRequests?: boolean;
         /** Hard ceiling in bytes on one stdout protocol line; defaults to {@link MAX_FRAME_BYTES}. */
         frameCapBytes?: number;
+        /**
+         * How long a written frame may await the agent's ACK before the transport
+         * is killed. Defaults to {@link DISPATCH_TIMEOUT_MS}; tests shorten it.
+         */
+        dispatchTimeoutMs?: number;
         /** Injectable process factory for tests. */
         spawnTransport?: (options: {
             wslPath: string;
@@ -564,8 +579,29 @@ export declare class WslAgent {
      * @param signal - the caller's cancellation.
      */
     private attachCancellation;
-    /** Send a tracked request, recording dispatch before synchronous responses. */
+    /**
+     * Send a tracked request, recording dispatch before synchronous responses.
+     * A written frame starts the dispatch watchdog: the ACK that arms the
+     * execution budget is not guaranteed to arrive at all.
+     *
+     * @param pending - the request to send.
+     * @returns whether the frame was written.
+     */
     private sendPending;
+    /**
+     * Arm the frame-written watchdog: a resident that stays alive without
+     * dequeuing the request is a wedged transport, not a slow command.
+     *
+     * @param pending - the sent request.
+     */
+    private armDispatchWatchdog;
+    /**
+     * Release the frame-written watchdog once the ACK proves the resident
+     * dequeued the request.
+     *
+     * @param pending - the acknowledged request.
+     */
+    private releaseDispatchWatchdog;
     /** Dispatch the next shell request only after the preceding answer. */
     private dispatchQueued;
     /**

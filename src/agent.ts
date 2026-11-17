@@ -23,9 +23,12 @@
  *    behind a dead `wsl.exe`. The host-side watchdog is armed on the agent's
  *    `ACK` — the dequeue signal — so it measures EXECUTION, never the queue
  *    wait: a short-budget request queued behind a long one can no longer
- *    kill the shared transport for a stall that was never its own. It still
- *    catches an agent that accepted a request and then stopped answering at
- *    all.
+ *    kill the shared transport for a stall that was never its own. A second,
+ *    much looser ceiling starts when the frame is WRITTEN: a resident that
+ *    stays alive but never dequeues the request (a wedged `wait`, a blocked
+ *    pipe) otherwise stranded it, and the serial queue behind it, forever. It
+ *    still catches an agent that accepted a request and then stopped answering
+ *    at all.
  * 3. **Idle agents go away.** `idleMs` after the last exchange the process is
  *    killed; the next call starts a fresh one. WSL VMs are shared, but every
  *    process is a promise someone has to keep.
@@ -107,6 +110,11 @@ interface PendingRequest {
   answered: boolean;
   /** The delayed cancel signal, so it can be dropped when the request settles. */
   signalTimer: NodeJS.Timeout | null;
+  /**
+   * The frame-written watchdog timer: a resident that never ACKs is wedged,
+   * and the ACK-armed watchdog alone would never start.
+   */
+  dispatchWatchdog: NodeJS.Timeout | null;
 }
 /** One request the transport is asked to run. */
 interface TrackRequest {
@@ -207,6 +215,16 @@ const HANDSHAKE_TIMEOUT_MS = 15000;
 
 /** Extra time the host watchdog waits past the request's own in-distro timeout. */
 const WATCHDOG_GRACE_MS = 13000;
+/**
+ * How long a written frame may wait for the agent's dequeue `ACK`. The ACK is
+ * one line the resident prints before it runs anything, so this is not an
+ * execution budget; it exists to turn a resident that is alive but no longer
+ * dequeuing (a wedged `wait`, a blocked stdin pipe) into a bounded failure
+ * instead of an entry that holds the serial queue forever. Generous on
+ * purpose: a legitimately busy foreground command is ACKed as soon as it is
+ * dequeued, and only the queue wait precedes that.
+ */
+const DISPATCH_TIMEOUT_MS = 120_000;
 /**
  * How many times a resident that reached `dead` may be revived before the
  * failure becomes permanent. Each revival gets the one permitted rebuild.
@@ -365,6 +383,8 @@ export class WslAgent {
   declare serialRequests: boolean;
   /** The maximum requests allowed in flight on this resident. */
   declare maxPending: number;
+  /** How long a written frame may await the agent's ACK. */
+  declare dispatchTimeoutMs: number;
   /** The live resident process, when any. */
   declare process: ChildProcess | null;
   /** The lifecycle state. */
@@ -447,6 +467,11 @@ export class WslAgent {
     serialRequests?: boolean,
     /** Hard ceiling in bytes on one stdout protocol line; defaults to {@link MAX_FRAME_BYTES}. */
     frameCapBytes?: number,
+    /**
+     * How long a written frame may await the agent's ACK before the transport
+     * is killed. Defaults to {@link DISPATCH_TIMEOUT_MS}; tests shorten it.
+     */
+    dispatchTimeoutMs?: number,
     /** Injectable process factory for tests. */
     spawnTransport?: (options: { wslPath: string, distro: string, scriptPath: string, argvPrefix: string[], leaseMs: number }) => ChildProcess,
     /**
@@ -477,6 +502,7 @@ export class WslAgent {
     this.configuredSignal = config.signalTransport;
     this.configuredLease = config.leaseMs;
     this.maxPending = config.maxPending ?? MAX_PENDING_REQUESTS;
+    this.dispatchTimeoutMs = config.dispatchTimeoutMs ?? DISPATCH_TIMEOUT_MS;
     this.agentPid = undefined;
     this.process = null;
     this.state = "idle";
@@ -829,6 +855,7 @@ export class WslAgent {
     if (pending === undefined) return;
     pending.started = true;
     this.lastAckedSeq = pending.seq;
+    this.releaseDispatchWatchdog(pending);
     this.recordAck(pending);
     if (pending.cancelled) this.armCancelSignal(pending);
     pending.armWatchdog?.();
@@ -966,6 +993,9 @@ export class WslAgent {
           clearTimeout(pending.watchdog);
           pending.watchdog = null;
         }
+        // The rebuilt agent gets a fresh ACK window too; a timer bound to the
+        // dead transport must not survive the relay.
+        this.releaseDispatchWatchdog(pending);
         relayable.push(pending);
       } else {
         this.clearPending(pending);
@@ -1114,6 +1144,7 @@ export class WslAgent {
       settled: false,
       answered: false,
       signalTimer: null,
+      dispatchWatchdog: null,
       armWatchdog:
         timeoutMs > 0
           ? () => {
@@ -1177,10 +1208,54 @@ export class WslAgent {
     };
     signal.addEventListener("abort", pending.onAbort, { once: true });
   }
-  /** Send a tracked request, recording dispatch before synchronous responses. */
+  /**
+   * Send a tracked request, recording dispatch before synchronous responses.
+   * A written frame starts the dispatch watchdog: the ACK that arms the
+   * execution budget is not guaranteed to arrive at all.
+   *
+   * @param pending - the request to send.
+   * @returns whether the frame was written.
+   */
   private sendPending(pending: PendingRequest): boolean {
     pending.sent = true;
-    return this.writeLines(pending.lines);
+    if (!this.writeLines(pending.lines)) return false;
+    this.armDispatchWatchdog(pending);
+    return true;
+  }
+
+  /**
+   * Arm the frame-written watchdog: a resident that stays alive without
+   * dequeuing the request is a wedged transport, not a slow command.
+   *
+   * @param pending - the sent request.
+   */
+  private armDispatchWatchdog(pending: PendingRequest): void {
+    if (pending.dispatchWatchdog) return;
+    const child = this.process;
+    if (!child) return;
+    pending.dispatchWatchdog = setTimeout(() => {
+      // Bind the timer to the generation it was armed on, exactly as the
+      // ACK-armed watchdog does.
+      if (this.process !== child) return;
+      this.lastError = `agent did not acknowledge request ${pending.id} within ${this.dispatchTimeoutMs}ms of its dispatch`;
+      child.kill();
+    }, this.dispatchTimeoutMs);
+    // The transport's child process (and its pipes) already keeps the loop
+    // alive while there is something to time out; an idle host that has let
+    // every other handle go must not be held open by this diagnostic timer.
+    pending.dispatchWatchdog.unref?.();
+  }
+
+  /**
+   * Release the frame-written watchdog once the ACK proves the resident
+   * dequeued the request.
+   *
+   * @param pending - the acknowledged request.
+   */
+  private releaseDispatchWatchdog(pending: PendingRequest): void {
+    if (!pending.dispatchWatchdog) return;
+    clearTimeout(pending.dispatchWatchdog);
+    pending.dispatchWatchdog = null;
   }
 
   /** Dispatch the next shell request only after the preceding answer. */
@@ -1550,6 +1625,7 @@ export class WslAgent {
    */
   private clearPending(pending: PendingRequest): void {
     if (pending.watchdog) clearTimeout(pending.watchdog);
+    this.releaseDispatchWatchdog(pending);
     if (pending.signalTimer) clearTimeout(pending.signalTimer);
     pending.signalTimer = null;
     if (pending.signal && pending.onAbort) pending.signal.removeEventListener("abort", pending.onAbort);

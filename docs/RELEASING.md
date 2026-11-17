@@ -115,24 +115,28 @@ publish credential, so no npm token is stored in the repository.
 If trusted publishing is not configured, add an `NPM_TOKEN` repository secret and
 hand it to the Publish step in `.github/workflows/release.yml` — the step does not
 read it on its own, so add `env: NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` to it.
-Configure required reviewers on the `npm-publish` environment to put a second
-person in front of every publish.
+The `npm-publish` environment is the trusted-publishing binding and the audit
+anchor for each run. **Required reviewers are deliberately not configured.**
+This is a single-maintainer repository; the full gate chain and the tag/version
+check still run before the upload, and the owner accepts that a mistaken tag can
+publish without a second pair of eyes. Revisit the decision if a second
+maintainer joins the release rotation.
 
 ### Repository settings the workflow cannot verify
 
-Two settings live in GitHub's UI, not in this repository, and the gates cannot
-see them:
+One setting lives in GitHub's UI, not in this repository, and the gates cannot
+see it:
 
-- **`npm-publish` required reviewers.** Without them a tag push publishes
-  automatically; the environment exists on first use, so its mere presence in
-  `release.yml` proves nothing. Add at least one reviewer before the next
-  release, then push a prerelease tag to confirm the approval prompt appears.
 - **The self-hosted runner's label.** The development machine currently
   answers `windows-latest`, so unit-matrix Windows legs (and scheduled probes)
   run on it. Rename the runner's label (for example `self-hosted-wsl`) and
   repoint the two `windows-latest` consumers in `ci.yml`; until then, fork PRs
   stay gated off those steps and the probes heartbeat is the evidence that the
   machine actually ran the suite.
+
+The `npm-publish` environment has no required reviewers by decision, not by
+oversight: see the paragraph above. Its presence is still required for npm
+trusted publishing, so do not delete it while removing approval gates.
 
 ### Manual fallback
 

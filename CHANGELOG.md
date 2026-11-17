@@ -51,9 +51,9 @@ were part of the record.
   artifact after a real run and a new `probe-heartbeat` job fails the schedule
   when none appeared in three days; the stale `0.2.1-rc.2` entries were removed
   from `minimumReleaseAgeExclude` and the restore condition is recorded; and
-  `docs/RELEASING.md` now names the two repository settings the gates cannot
-  verify (`npm-publish` required reviewers and the shared `windows-latest`
-  runner label).
+  `docs/RELEASING.md` now names the remaining repository setting the gates
+  cannot verify (the shared `windows-latest` runner label) and records the
+  deliberate decision to run `npm-publish` without required reviewers.
 - **The filesystem and shell providers share their runtime bookkeeping and
   config narrowing (#54).** The two classes kept identical maps for distro
   homes, held session runtimes, the session-runtime preflight, and the `auto`

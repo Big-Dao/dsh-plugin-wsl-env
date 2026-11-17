@@ -253,9 +253,11 @@ from a fork is skipped on those legs (`ci.yml`'s step-level fork gate), but the
 durable fix is renaming the runner's label to something unambiguous (for
 example `self-hosted-wsl`) in the runner's settings and repointing the two
 `windows-latest` consumers in `ci.yml` at it — until then, treat the label as
-shared infrastructure, not hosted capacity. The release-side equivalent
-(`npm-publish` required reviewers) is a repository setting, not a file; both
-are listed in [RELEASING.md](docs/RELEASING.md#repository-settings-the-workflow-cannot-verify).
+shared infrastructure, not hosted capacity. This is the remaining repository
+setting listed in
+[RELEASING.md](docs/RELEASING.md#repository-settings-the-workflow-cannot-verify);
+the release workflow's `npm-publish` environment intentionally has no required
+reviewers (single-maintainer decision).
 
 The scheduled probes job now writes a `probe-evidence-<run>` artifact after a
 real run, and the `probe-heartbeat` job fails the schedule when no such artifact

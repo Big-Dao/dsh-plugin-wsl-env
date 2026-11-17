@@ -28,9 +28,10 @@ jobs:
     name: publish and release
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Add required reviewers to this environment in the repository settings to put a
-    # second pair of eyes in front of every publish. The environment is created on
-    # first use, so this does not block until you configure it.
+    # The environment is npm's trusted-publishing binding (repository + workflow
+    # file + environment) and the audit anchor for each run. Required reviewers
+    # are deliberately NOT configured: this is a single-maintainer repository and
+    # the owner accepted tag-push auto-publish; see docs/RELEASING.md.
     environment: npm-publish
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

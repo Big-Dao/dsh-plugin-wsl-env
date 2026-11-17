@@ -16,6 +16,14 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.26.3] - 2026-11-17
+
+Promotes 0.26.3-rc.0 after the HMR gate passed: a 0.26.1 profile with a live
+session upgraded through the plugin manager returned `application: applied`
+with no rollback, and after a restart the three takeover services were this
+plugin's classes. No code changes since the release candidate; its notes
+follow.
+
 ## [0.26.3-rc.0] - 2026-11-17
 
 First release candidate for 0.26.3: a live enable or HMR upgrade no longer

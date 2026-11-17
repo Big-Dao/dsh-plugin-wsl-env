@@ -326,13 +326,16 @@ export class WslDirectoryPicker extends DirectoryPicker {
    * @returns the category listing.
    */
   async categoryLevel(signal?: AbortSignal): Promise<DirectoryListing> {
+    const preferred = await this.preferredDistro(signal);
+    const home = preferred.length > 0 ? await this.homeOf(preferred, signal) : homedir();
+    // Build every label after the awaits: installMessagesLocale can learn the
+    // app's stored preference while this call waits, and labels captured on
+    // either side of that switch used to render one level in two languages.
     const entries: DirectoryEntry[] = [];
     // The key historically meant "also offer Windows paths"; it now gates the
     // whole Windows branch, whose walk starts at the drives.
     if (this.config.includeHostHome) entries.push({ name: t("pickerWindowsPaths", {}), path: HOST_ROOT, hidden: false });
     entries.push({ name: t("pickerWslDistros", {}), path: UNC_PROVIDER_ROOT, hidden: false });
-    const preferred = await this.preferredDistro(signal);
-    const home = preferred.length > 0 ? await this.homeOf(preferred, signal) : homedir();
     return {
       path: homedir(),
       home,

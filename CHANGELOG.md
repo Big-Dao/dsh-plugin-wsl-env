@@ -18,6 +18,12 @@ were part of the record.
 
 ### Fixed
 
+- **The picker's first category level no longer mixes two languages.** The
+  entries were labelled before `preferredDistro`/`homeOf` awaited, while the
+  crumbs were labelled after; if the harness's stored locale preference
+  arrived during those awaits, one level rendered half in the default OS
+  language and half in the chosen one. Build every label after the awaits so
+  one response uses one catalog.
 - **Protocol hardening for the v7 FS frame (#55).** Four independent gaps:
   an out-of-order FSB record is now refused as `FS_IO_ERROR` instead of being
   attributed to the next op by line position; the FS budget grows with the

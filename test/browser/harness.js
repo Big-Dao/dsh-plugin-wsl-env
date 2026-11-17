@@ -183,7 +183,15 @@ const render = (config = {}) => {
   window.fetch = async (/** @type {any} */ input, /** @type {any} */ init = {}) => {
     const url = String(input);
     records.fetches.push({ url, method: init.method ?? "GET", body: init.body ?? null });
-    if (url.startsWith("/api/wsl-env/status")) return json(config.status ?? WINDOWS_STATUS);
+    if (url.startsWith("/api/wsl-env/status")) {
+      const method = String(init.method ?? "GET").toUpperCase();
+      // A POST is the repair run; a GET with a `distro` is a manual or
+      // background check; the bare GET is the list-with-cached-results call.
+      if (method === "POST") return json(config.repair ?? config.status ?? WINDOWS_STATUS);
+      const distro = new URL(url, "http://harness").searchParams.get("distro");
+      if (distro !== null) return json(config.statusFor?.[distro] ?? config.status ?? WINDOWS_STATUS);
+      return json(config.status ?? WINDOWS_STATUS);
+    }
     if (url === "/api/wsl-env/open-in-app") return json(config.openInApp ?? { ok: true });
     return json({ error: `unexpected fetch ${url}` }, 500);
   };

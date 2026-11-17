@@ -303,3 +303,88 @@ test("the browser wraps the warning inside a narrow composer without horizontal 
     await page.close();
   }
 });
+
+/** One blocked quick-check result, as the status route stores it. */
+const BLOCKED_VIEW = {
+  distro: "Ubuntu",
+  verdict: "blocked",
+  repaired: false,
+  repairs: [],
+  repairable: ["runtime.scopes"],
+  checkedAt: Date.now() - 120_000,
+  cached: true,
+  source: "user",
+  counts: { ok: 1, warn: 1, fail: 1, info: 0, skipped: 0, unknown: 0 },
+  sections: [{ section: "sandbox", ok: 0, warn: 0, fail: 1, unknown: 0 }],
+  failures: [{ id: "sandbox.bwrap", detail: "bwrap 缺失", remedy: "安装 bubblewrap" }],
+  warnings: [
+    { id: "runtime.scopes", detail: "1 个残留 session scope" },
+    { id: "session.linger", detail: "Linger 未启用" },
+  ],
+  checks: [
+    { id: "sandbox.bwrap", title: "bubblewrap", status: "fail", detail: "bwrap 缺失", remedy: "安装 bubblewrap", section: "sandbox" },
+    { id: "session.linger", title: "Linger", status: "warn", detail: "Linger 未启用", section: "session" },
+  ],
+  notRun: 3,
+  blockers: ["sandbox.bwrap"],
+};
+
+test("the browser panel renders a blocked verdict, its rows and its remedies", async () => {
+  const page = await open();
+  try {
+    await render(page, {
+      slots: ["panel"],
+      paths: [],
+      status: { distros: ["Ubuntu"], running: [], cached: [BLOCKED_VIEW] },
+      statusFor: { Ubuntu: BLOCKED_VIEW },
+    });
+    await page.getByText("异常 · 1 项", { exact: true }).waitFor({ state: "visible" });
+    await page.getByText("待修项（1）", { exact: true }).waitFor({ state: "visible" });
+    await page.getByText("sandbox.bwrap", { exact: true }).first().waitFor({ state: "visible" });
+    await page.getByText("可自动修复", { exact: true }).waitFor({ state: "visible" });
+    await page.getByRole("button", { name: "修复", exact: true }).waitFor({ state: "visible" });
+    await page.getByText("查看检查详情（2 项）", { exact: true }).click();
+    await page.getByText(/处理：安装 bubblewrap/).waitFor({ state: "visible" });
+    const callsNow = await calls(page);
+    assert.ok(callsNow.fetches.some((entry) => entry.url === "/api/wsl-env/status" && entry.method === "GET"), "the panel read the status list");
+  } finally {
+    await page.close();
+  }
+});
+
+test("the browser repair action posts the full run and renders its before/after rows", async () => {
+  const page = await open();
+  try {
+    const repaired = {
+      ...BLOCKED_VIEW,
+      verdict: "ready",
+      repaired: true,
+      repairs: [{ id: "runtime.scopes", title: "Session scope", status: "ok", detail: "removed 1 stale scope" }],
+      repairable: [],
+      counts: { ok: 2, warn: 0, fail: 0, info: 0, skipped: 0, unknown: 0 },
+      failures: [],
+      warnings: [],
+      checks: [],
+      notRun: 0,
+      cached: false,
+      source: "user",
+    };
+    await render(page, {
+      slots: ["panel"],
+      paths: [],
+      status: { distros: ["Ubuntu"], running: [], cached: [BLOCKED_VIEW] },
+      statusFor: { Ubuntu: BLOCKED_VIEW },
+      repair: repaired,
+    });
+    await page.getByRole("button", { name: "修复", exact: true }).click();
+    await page.getByText("已在 Ubuntu 修复 1 项；复检通过。", { exact: true }).waitFor({ state: "visible" });
+    await page.getByText(/removed 1 stale scope/).waitFor({ state: "visible" });
+    await page.getByRole("button", { name: "完整检查", exact: true }).waitFor({ state: "visible" });
+    const callsNow = await calls(page);
+    const post = callsNow.fetches.find((entry) => entry.method === "POST");
+    assert.ok(post, "the repair posted the full run");
+    assert.equal(post.url, "/api/wsl-env/status?distro=Ubuntu", "the POST names the distro");
+  } finally {
+    await page.close();
+  }
+});

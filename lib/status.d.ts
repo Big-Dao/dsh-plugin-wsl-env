@@ -46,6 +46,7 @@
  */
 import z from "@deepseek-ai/schemastery";
 import { type DoctorDigest } from "./wsl-doctor-tool.js";
+import { type TakeoverSnapshot } from "./takeover-report.js";
 export declare const name = "wsl-status";
 /** The one route the panel fetches; it must live under the `/api` channel. */
 export declare const STATUS_PATH = "/api/wsl-env/status";
@@ -237,6 +238,12 @@ export interface StatusHandlerOptions {
     statePath?: string;
     /** Running distro names, for the panel's background refresh. */
     running?: () => Promise<string[]>;
+    /**
+     * The effective takeover providers this process sees; the panel adds them
+     * as the `providers.takeover` check. Absent keeps the panel's historical
+     * shape (the route tests and the standalone CLI path).
+     */
+    providers?: () => readonly TakeoverSnapshot[];
 }
 /**
  * Build the route handler.

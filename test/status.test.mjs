@@ -181,6 +181,22 @@ await check("a quick check runs the scoped doctor and answers the digested verdi
   assert.deepEqual(calls[0], ["--json", "--quick", "--distro", "Ubuntu"]);
 });
 
+await check("the effective-provider snapshot adds the takeover row", async () => {
+  const { handler } = handlerFor({
+    providers: () => [
+      { service: "subprocess", state: "other", provider: "LocalSubprocessRuntime" },
+      { service: "fs", state: "plugin" },
+      { service: "directoryPicker", state: "plugin" },
+    ],
+  });
+  const { body } = await get(handler, "?distro=Ubuntu");
+  const row = /** @type {import("../lib/status.js").StatusCheck[]} */ (body.checks).find((entry) => entry.id === "providers.takeover");
+  assert.ok(row, "the panel carries the takeover row");
+  assert.equal(row.status, "warn");
+  assert.match(String(row.detail), /subprocess=LocalSubprocessRuntime/);
+  assert.match(String(row.remedy), /restart DSH/);
+});
+
 await check("the structure counts every status the run answered and skips the catalog rows", async () => {
   const { handler } = handlerFor({ runCli: async () => JSON.stringify(BLOCKED) });
   const { body } = await get(handler, "?distro=Debian");

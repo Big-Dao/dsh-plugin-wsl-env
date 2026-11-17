@@ -333,6 +333,17 @@ await check("formatDoctorReport digests the CLI's versioned JSON", () => {
   assert.match(text, /Environment auto-binding/);
 });
 
+await check("formatDoctorReport carries the effective takeover providers", () => {
+  const text = formatDoctorReport(FIXTURE_REPORT, "missing", [
+    { service: "subprocess", state: "other", provider: "LocalSubprocessRuntime" },
+    { service: "fs", state: "plugin" },
+    { service: "directoryPicker", state: "plugin" },
+  ]);
+  assert.match(text, /providers\.takeover/, "the in-process provider check is merged into the command's report");
+  assert.match(text, /subprocess=LocalSubprocessRuntime/);
+  assert.match(text, /WSL service takeovers/);
+});
+
 await check("the real runner rejects stdout that is not a JSON report", async () => {
   const help = spawnSync(process.execPath, [DOCTOR_SCRIPT, "--help"], { encoding: "utf8", timeout: 60_000 });
   assert.notEqual(help.status, null);

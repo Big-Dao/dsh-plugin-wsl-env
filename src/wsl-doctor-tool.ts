@@ -28,6 +28,7 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 import { distroOfUnc } from "./distro-route.js";
 import { t } from "./messages.js";
 import { doctorReport } from "./doctor-report.js";
+import { mergeTakeoverReport, takeoverSnapshot } from "./takeover-report.js";
 
 export const name = "wsl-doctor-tool";
 
@@ -497,16 +498,16 @@ export async function apply(ctx: WslDoctorToolContext): Promise<void> {
       const quick = argv.section === undefined || argv.section.length === 0 ? argv.depth !== "full" : false;
       const sections = argv.section !== undefined && argv.section.length > 0 ? [argv.section] : undefined;
       const doctor = await doctorCollector(ctx);
-      const digest = digestReport(
-        await doctor(distro, {
-          ...(quick ? { quick: true } : {}),
-          ...(sections !== undefined ? { sections } : {}),
-          // The run is a subprocess: the caller's cancellation (Esc on the
-          // tool call) kills it instead of leaving it to finish unwatched.
-          ...(exec.signal === undefined ? {} : { signal: exec.signal }),
-        }),
-        distro,
-      );
+      const report = await doctor(distro, {
+        ...(quick ? { quick: true } : {}),
+        ...(sections !== undefined ? { sections } : {}),
+        // The run is a subprocess: the caller's cancellation (Esc on the
+        // tool call) kills it instead of leaving it to finish unwatched.
+        ...(exec.signal === undefined ? {} : { signal: exec.signal }),
+      });
+      // The CLI cannot see live services; this row mounts in the app, so it
+      // adds the effective-provider check for the three root-plane takeovers.
+      const digest = digestReport(mergeTakeoverReport(report, takeoverSnapshot(ctx)), distro);
       return { verdict: digest.verdict, blockers: digest.blockers.join(", "), report: renderDigest(digest) };
     }
   }));

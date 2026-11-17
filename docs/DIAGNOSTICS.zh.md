@@ -100,6 +100,19 @@ harness 安装留下的树——并比较那棵树的版本。现在查找在第
 映射为空或只有部分项——缺失项说明宿主没有解析到，doctor 记作 unchecked，不再
 回退到插件目录旁的本地副本。
 
+### 生效的 provider（仅 in-app）
+
+三个根面接管（`subprocess`、`fs`、`directoryPicker`）可能在运行中的重组里
+激活失败——HMR 插件升级是最常见的情形
+（[UPSTREAM-SERVICE-SWAP.md](UPSTREAM-SERVICE-SWAP.md)）。独立 CLI 在自己的
+进程里运行、看不到这些服务，因此 in-app 入口（`wsl_doctor` 工具、
+`/wsl-doctor`、侧栏面板）会追加 `providers.takeover` 行，列出每个服务当前由
+哪个类提供：`ok` 表示三个都由本插件的 provider 提供；`warn` 会点名仍在位上的
+随包 provider，并带上重启的补救。接管处于延迟状态（本插件的行在等旧提供者
+释放，见 `src/service-takeover.ts`）正是这条警告；旧 provider 释放后它会自行
+消失，若一直存在，重启应用即完成接管。看不到任何一个服务的上下文（preset
+realm、独立 CLI 运行）不会加这一行。
+
 ## 地图
 
 类别图例：

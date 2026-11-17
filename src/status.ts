@@ -53,6 +53,7 @@ import { listDistros, listRunningDistros } from "./wsl.js";
 import { digestReport, sectionOf, type DoctorDigest, type DoctorReportLike } from "./wsl-doctor-tool.js";
 import { runDoctorCli } from "./wsl-doctor-command.js";
 import { mergeAutoPresetSeam } from "./doctor-live.js";
+import { mergeTakeoverReport, takeoverSnapshot, type TakeoverSnapshot } from "./takeover-report.js";
 
 export const name = "wsl-status";
 
@@ -312,6 +313,12 @@ export interface StatusHandlerOptions {
   statePath?: string;
   /** Running distro names, for the panel's background refresh. */
   running?: () => Promise<string[]>;
+  /**
+   * The effective takeover providers this process sees; the panel adds them
+   * as the `providers.takeover` check. Absent keeps the panel's historical
+   * shape (the route tests and the standalone CLI path).
+   */
+  providers?: () => readonly TakeoverSnapshot[];
 }
 
 /**
@@ -498,7 +505,8 @@ export function createStatusHandler(options: StatusHandlerOptions): StatusHandle
         : ["--json", "--quick", "--distro", distro];
       const raw = await options.runCli(argv, undefined, options.timeoutMs);
       const report = JSON.parse(raw) as DoctorReportLike;
-      view = viewOf(digestReport(mergeAutoPresetSeam(report), distro), distro, at, repair, source);
+      const live = mergeTakeoverReport(mergeAutoPresetSeam(report), options.providers?.() ?? []);
+      view = viewOf(digestReport(live, distro), distro, at, repair, source);
     } catch (error) {
       view = {
         distro,
@@ -579,7 +587,7 @@ export function createStatusHandler(options: StatusHandlerOptions): StatusHandle
  * @param config - the schema-validated config.
  * @returns handler options.
  */
-function optionsFor(config: StatusConfig): StatusHandlerOptions {
+function optionsFor(config: StatusConfig, providers?: () => readonly TakeoverSnapshot[]): StatusHandlerOptions {
   const wslPath = config.wslPath ?? "wsl.exe";
   return {
     cacheMs: config.cacheMs ?? 15_000,
@@ -587,6 +595,7 @@ function optionsFor(config: StatusConfig): StatusHandlerOptions {
     distros: () => listDistros({ wslPath }),
     running: () => listRunningDistros({ wslPath }),
     runCli: runDoctorCli,
+    ...(providers === undefined ? {} : { providers }),
   };
 }
 
@@ -604,7 +613,7 @@ export function apply(ctx: StatusContext, config: StatusConfig = {}): void {
   ctx.inject(["connection"], (scope) => {
     const connection = scope.connection ?? (scope.get?.("connection") as ConnectionFace | undefined);
     if (connection === undefined) return;
-    const handler = createStatusHandler(optionsFor(config));
+    const handler = createStatusHandler(optionsFor(config, () => takeoverSnapshot(ctx)));
     const dispose = connection.fetch.register({
       path: STATUS_PATH,
       methods: ["GET", "POST"],

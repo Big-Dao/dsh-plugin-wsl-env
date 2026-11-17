@@ -16,6 +16,18 @@ were part of the record.
 
 ## [Unreleased]
 
+### Added
+
+- **The in-app doctor names the provider actually serving the three takeover
+  services.** `providers.takeover` (the `wsl_doctor` tool, `/wsl-doctor`, and
+  the sidebar panel) reports which class serves `subprocess`, `fs`, and
+  `directoryPicker`; a failed live takeover — the HMR upgrade that renders
+  `service "subprocess" has been registered at <LocalSubprocessRuntime>` and
+  rolls back (#39) — now shows as a warning with the restart/install remedy
+  instead of a silently healthy report. The standalone CLI cannot observe live
+  services, so the row exists only on the in-app surfaces. See
+  [DIAGNOSTICS.md](docs/DIAGNOSTICS.md#effective-providers-in-app-only).
+
 ## [0.26.2] - 2026-11-17
 
 One theme: a broken distro's failures surface as the program's own —

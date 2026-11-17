@@ -1,3 +1,4 @@
+import { type TakeoverSnapshot } from "./takeover-report.js";
 export declare const name = "wsl-doctor-command";
 /**
  * No required inject: a headless deployment has no commands registry, and a
@@ -120,9 +121,11 @@ export declare function runDoctorCli(argv: string[], signal?: AbortSignal, timeo
  *
  * @param json - the CLI's stdout, one versioned JSON report.
  * @param distro - the distro the run named, for the session-distro markers.
+ * @param providers - the effective takeover providers this host process sees
+ *   ({@link takeoverSnapshot}); the standalone CLI cannot observe them.
  * @returns the rendered report text.
  */
-export declare function formatDoctorReport(json: string, distro: string): string;
+export declare function formatDoctorReport(json: string, distro: string, providers?: readonly TakeoverSnapshot[]): string;
 /**
  * Mount the command.
  *

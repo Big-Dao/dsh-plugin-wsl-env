@@ -34,6 +34,7 @@ import { distroOfUnc } from "./distro-route.js";
 import { withHostPeerVersions } from "./peer-versions.js";
 import { digestReport, renderDigest, SECTIONS, type DoctorDigest, type DoctorReportLike } from "./wsl-doctor-tool.js";
 import { mergeAutoPresetSeam } from "./doctor-live.js";
+import { mergeTakeoverReport, takeoverSnapshot, type TakeoverSnapshot } from "./takeover-report.js";
 
 export const name = "wsl-doctor-command";
 
@@ -389,11 +390,14 @@ async function resolveDistro(ctx: WslDoctorCommandContext, invocation: WslDoctor
  *
  * @param json - the CLI's stdout, one versioned JSON report.
  * @param distro - the distro the run named, for the session-distro markers.
+ * @param providers - the effective takeover providers this host process sees
+ *   ({@link takeoverSnapshot}); the standalone CLI cannot observe them.
  * @returns the rendered report text.
  */
-export function formatDoctorReport(json: string, distro: string): string {
+export function formatDoctorReport(json: string, distro: string, providers: readonly TakeoverSnapshot[] = []): string {
   const report = JSON.parse(json) as DoctorReportLike;
-  const digest: DoctorDigest = digestReport(mergeAutoPresetSeam(report), distro.length > 0 ? distro : undefined);
+  const live = mergeTakeoverReport(mergeAutoPresetSeam(report), providers);
+  const digest: DoctorDigest = digestReport(live, distro.length > 0 ? distro : undefined);
   return renderDigest(digest);
 }
 
@@ -442,7 +446,7 @@ export async function apply(ctx: WslDoctorCommandContext): Promise<void> {
       const budget = distro.length > 0 ? DOCTOR_CLI_TIMEOUT_MS : DOCTOR_CLI_SWEEP_TIMEOUT_MS;
       try {
         const json = await runCli(argv, invocation.signal, budget);
-        return { kind: "success", text: formatDoctorReport(json, distro) };
+        return { kind: "success", text: formatDoctorReport(json, distro, takeoverSnapshot(ctx)) };
       } catch (error) {
         const target = distro.length > 0
           ? `发行版 ${distro}`

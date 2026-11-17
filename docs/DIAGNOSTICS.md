@@ -134,6 +134,21 @@ the map is partial or empty: the peers it omits could not be resolved by the
 host, so they are unchecked rather than looked up again in the plugin's
 physical tree.
 
+### Effective providers (in-app only)
+
+The three root-plane takeovers (`subprocess`, `fs`, `directoryPicker`) can fail
+to activate on a live recomposition — a HMR plugin upgrade is the common case
+([UPSTREAM-SERVICE-SWAP.md](UPSTREAM-SERVICE-SWAP.md)). The standalone CLI runs
+in its own process and cannot see them, so the in-app surfaces (the `wsl_doctor`
+tool, `/wsl-doctor`, and the sidebar panel) append `providers.takeover`: it
+names the class serving each service. `ok` means this plugin's providers serve
+all three; `warn` names the shipped provider still in place and carries the
+restart remedy. A deferred takeover — the plugin's row waiting for an outgoing
+provision to release (`src/service-takeover.ts`) — is exactly this warning, and
+it clears by itself when the old provider drains; if it persists, restarting
+the app applies the takeover. A context that cannot see any of the three (a
+preset realm, the standalone run) adds no row.
+
 ## The map
 
 Class legend:

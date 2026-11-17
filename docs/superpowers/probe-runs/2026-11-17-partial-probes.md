@@ -77,19 +77,29 @@ AUTOPRESET creation="wsl" agent=null error=null
 AUTOPRESET OK preset=wsl
 ```
 
+## 单次 18/18 重跑（2026-11-17 20:16）
+
+修复后的整套重跑通过：
+
+```
+probe suite: 18 probes — pass 18, fail 0, skipped 0, not run 0
+FULL PASS: every probe in the suite ran and passed
+```
+
+auto-preset 段落：`seam=installed`、`default="standard"`、
+`creation="wsl"`、`AUTOPRESET OK preset=wsl`。完整日志
+`test/probe/.scratch/full-probe.Msf5gY.log`。
+
 ## 结论
 
-全套证据为 **17/18（套件）+ auto-preset 单独通过**，合计 18/18，与
-2026-11-06 `two-distro.sh` 的“套件内失败、修复后单独通过”先例一致。重跑一次
-整套以获得单次 18/18 仍可选：
-
-```bash
-# 退出 DSH 全部进程后
-bash test/probe/run-all-when-closed.sh --include-fs
-```
+当日证据链：首次关闭应用 17/18（探针组合问题）→ 修复后单独通过 → 20:16
+单次 **18/18, FULL PASS**。此前“17 + 单独通过”的拆分证据保留为过程记录，不再
+是最终结论。
 
 ## 原始日志
 
+- `test/probe/.scratch/full-probe.Msf5gY.log`（20:16 单次 18/18）
+- `test/probe/.scratch/full-probe.c02ODs.log`（首次 17/18）
 - `test/probe/.scratch/full-probe.ERBHXj.log`（被中断的套件启动：run.sh PASS，
   terminal.sh 开始后中止）
 - `test/probe/.scratch/suite-2026-11-17.log`（套件的等待/启动输出）

@@ -28,6 +28,7 @@ this page is the quick tour.
 | `./paths` | `uncToPosix`, `toLinuxPath`, `toWorldPath`, … | the coordinate mappers |
 | `./picker` | `WslDirectoryPicker` | the distro-aware directory picker |
 | `./auto-preset` | the `auto-preset` row | first-run profile bootstrap |
+| `./open-in-app` | the `wsl-open-in-app` row | the authenticated route behind the session-header menu: launches VS Code at the workspace's `vscode-remote` URI with `ELECTRON_RUN_AS_NODE` scrubbed from the editor child only |
 | `./shell-env` | the `wsl-shell-env` row | the `DSH_WSL_*` facts registry |
 | `./update-check` | the `wsl-update-check` row | the once-a-day update notice (fact store + host-delegated check) |
 

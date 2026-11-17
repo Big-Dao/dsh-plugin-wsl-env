@@ -8,7 +8,7 @@
 |---|---|
 | 操作系统 | Windows 10 与 Windows 11 |
 | Linux 侧 | WSL2，至少一个发行版；随包的会话 runtime 需要 systemd 作为 PID 1，并启用 lingering 用户管理器（`loginctl enable-linger`）。若要在 preset 中保留逐命令沙箱，请在 `wsl-shell` 和 `wsl-fs` 上都设置 `sessionSandbox: false` |
-| DSH 包 | `peerDependencies` 声明 `0.2.2-rc.1` 下限；更新的版本需要兼容性验证 |
+| DSH 包 | `peerDependencies` 声明 `0.2.2-rc.2` 下限；更新的版本需要兼容性验证 |
 | 插件版本 | 仅最新发布版本 |
 | Node | 22.19+（`^22.19.0`），或 24 及以后（`>=24.0.0`） |
 
@@ -54,7 +54,7 @@ https://github.com/Big-Dao/dsh-plugin-wsl-env/issues/new/choose
 
 ## 兼容性预期
 
-DSH peer 区间从 `0.2.2-rc.1` 开始；开发依赖为测试精确钉定该版本。Cordis 与
+DSH peer 区间从 `0.2.2-rc.2` 开始；开发依赖为测试精确钉定该版本。Cordis 与
 Schemastery 使用 caret peer 区间。接受的区间并不保证与每个更新的版本兼容：
 上游变更可能需要本插件发布新版本。
 

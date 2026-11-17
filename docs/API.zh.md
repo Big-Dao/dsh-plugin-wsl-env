@@ -27,6 +27,7 @@
 | `./paths` | `uncToPosix`、`toLinuxPath`、`toWorldPath`、… | 坐标映射器 |
 | `./picker` | `WslDirectoryPicker` | 能感知发行版的目录选择器 |
 | `./auto-preset` | `auto-preset` 行 | 首次运行的 profile 引导 |
+| `./open-in-app` | `wsl-open-in-app` 行 | 会话页头菜单背后的认证路由：以工作区的 `vscode-remote` URI 启动 VS Code，只从编辑器子进程环境中删除 `ELECTRON_RUN_AS_NODE` |
 | `./shell-env` | `wsl-shell-env` 行 | `DSH_WSL_*` 事实注册表 |
 | `./update-check` | `wsl-update-check` 行 | 每天一次的更新提示（事实存储 + 委托宿主的检查） |
 

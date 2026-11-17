@@ -31,7 +31,7 @@
  * @module dsh-plugin-wsl-env/fs-substrate
  */
 import type { PatchHunk } from "@deepseek-ai/dsh-fs-patch";
-import { ResolvedTarget } from "./fsio-agent.js";
+import { type ResolvedTarget } from "./fsio-agent.js";
 import { DistroFs } from "./fsio-agent.js";
 import type { WslAgent } from "./agent.js";
 /**

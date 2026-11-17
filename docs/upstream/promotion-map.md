@@ -83,7 +83,7 @@ C:\ 工作区与 `\\wsl.localhost` 工作区（`WorkspaceRegistry` 多条目并�
 ## 4. 已就绪件的清点（晋升时可直接迁移）
 
 - **常驻 agent 协议**：行协议（`|` 分隔字段 + 单行 base64 负载）的
-  EXEC/ACK/RES/KILL、watchdog 在 ACK 后计时、空闲自杀、一次重建、CwdError 合成
+  EXEC/ACK/RES/KILL、帧写出后的 ACK 握手超时、ACK 后的执行 watchdog、空闲自杀、一次重建、CwdError 合成
   relay stderr（`lib/agent.js`、`lib/agent-protocol.js`）
 - **bwrap 组装器**：`lib/bwrap.js` 单一 builder 服务两个 confinement 点；probe
   进程级缓存、fail-closed（`lib/sandbox-core.js`）

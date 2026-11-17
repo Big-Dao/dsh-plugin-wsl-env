@@ -33,16 +33,12 @@
 
 import { applyHunks } from "@deepseek-ai/dsh-fs-patch";
 import type { PatchHunk } from "@deepseek-ai/dsh-fs-patch";
-import{ reasonToCode, ResolvedTarget } from "./fsio-agent.js";
+import { reasonToCode, type ResolvedTarget } from "./fsio-agent.js";
 import { applyLiteralEdit, FsCodedError, normalizeLineEndings, restoreLineEndings } from "./fsio-text.js";
 import { DistroFs } from "./fsio-agent.js";
 import { posixToUnc, uncToPosix } from "./paths.js";
 import type { WslAgent } from "./agent.js";
 
-/**
- * A resolved target: the Linux spelling the model sees and the UNC identity
- * the harness keys on, as returned by {@linkcode AgentSubstrate#resolve}.
- */
 /**
  * The provider's stat/lstat row, type-spelled the way the tool layer reads it.
  *
@@ -479,19 +475,15 @@ export class AgentSubstrate {
       let destinationRow: { version: string };
       let sourceFailure: { reason: string, message: string } | undefined;
       if (options.hunks !== undefined) {
-        try {
-          await this.fs.writeFileAtomic(destinationPath, content, {
-            mode: sourceInfo.mode,
-            createIfAbsent: options.expectedDestination?.kind === "createIfAbsent" ? { displayPath: destination.displayPath } : undefined,
-            expectedVersion: options.expectedDestination?.kind === "replaceIfVersion" ? options.expectedDestination.version : undefined,
-            signal,
-            agent: mutationAgent,
-          });
-          const published = await this.fs.stat(destinationPath, { signal });
-          destinationRow = { version: published ? published.version : `missing:${destination.targetKey}` };
-        } catch (error) {
-          throw error;
-        }
+        await this.fs.writeFileAtomic(destinationPath, content, {
+          mode: sourceInfo.mode,
+          createIfAbsent: options.expectedDestination?.kind === "createIfAbsent" ? { displayPath: destination.displayPath } : undefined,
+          expectedVersion: options.expectedDestination?.kind === "replaceIfVersion" ? options.expectedDestination.version : undefined,
+          signal,
+          agent: mutationAgent,
+        });
+        const published = await this.fs.stat(destinationPath, { signal });
+        destinationRow = { version: published ? published.version : `missing:${destination.targetKey}` };
         try {
           await this.fs.removeFile(sourcePath, sourceInfo.version, signal, mutationAgent);
         } catch (error) {

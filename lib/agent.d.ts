@@ -717,20 +717,6 @@ export declare class WslAgent {
      */
     ping(signal?: AbortSignal): Promise<void>;
     /**
-     * Deliver an out-of-band signal to the resident shell. The serial stdin loop
-     * cannot consume a frame while a command runs, so cancellation is a signal;
-     * a second `wsl.exe` is the only channel that reaches the agent while it is
-     * blocked in `wait`.
-     *
-     * Only an agent that shares the distro's PID namespace is addressable: the
-     * plain agent, or a session runtime (its prefix is a scope plus mounts, but
-     * no PID namespace). A confined resident runs inside a PID namespace whose
-     * PIDs do not exist in the distro, so signalling its HELLO PID could hit an
-     * unrelated process; there the KILL frame remains the (delayed) fallback.
-     *
-     * @param signal - the signal to deliver (`SIGUSR1` is the cancel trap).
-     */
-    /**
      * The cumulative request metrics: queue wait (submission -> ACK) and execution
      * time (ACK -> settle) per request kind, plus the peak in-flight count.
      *
@@ -762,6 +748,20 @@ export declare class WslAgent {
      * @param error - the failure, when any.
      */
     private recordSettle;
+    /**
+     * Deliver an out-of-band signal to the resident shell. The serial stdin loop
+     * cannot consume a frame while a command runs, so cancellation is a signal;
+     * a second `wsl.exe` is the only channel that reaches the agent while it is
+     * blocked in `wait`.
+     *
+     * Only an agent that shares the distro's PID namespace is addressable: the
+     * plain agent, or a session runtime (its prefix is a scope plus mounts, but
+     * no PID namespace). A confined resident runs inside a PID namespace whose
+     * PIDs do not exist in the distro, so signalling its HELLO PID could hit an
+     * unrelated process; there the KILL frame remains the (delayed) fallback.
+     *
+     * @param signal - the signal to deliver (`SIGUSR1` is the cancel trap).
+     */
     private signalAgent;
     /**
      * Shut the agent down: SHUTDOWN first, then kill after a short grace. The

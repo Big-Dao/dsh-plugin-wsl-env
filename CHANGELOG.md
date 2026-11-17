@@ -35,6 +35,18 @@ were part of the record.
   unknown-state/`AgentUnavailableError`, and the caller's usual fallback
   applies. An ACK replaces it with the existing execution budget.
 
+### Documentation
+
+- **Documentation and comment drift swept, with the peer floor now checked
+  mechanically (#51).** SUPPORT advertised the old `0.2.2-rc.1` peer floor;
+  `lint:docs` now compares the support page's version literals with
+  `package.json` and fails on a stale one. API and CONFIGURATION gained the
+  `./open-in-app` / `wsl-open-in-app` surface, CONFIGURATION documents the
+  host `directory-picker-browse-surface` row and the command-only scope of
+  `/mnt` masking, REQUIREMENTS' R20 test count and R29/R30 baselines are
+  current, the roadmap and parity notes state their real baselines, and four
+  displaced or duplicated source comments were put back on their declarations.
+
 ## [0.26.3] - 2026-11-17
 
 Promotes 0.26.3-rc.0 after the HMR gate passed: a 0.26.1 profile with a live

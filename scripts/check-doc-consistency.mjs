@@ -140,6 +140,26 @@ for (const name of SCOPE_FILES) {
   }
 }
 
+// R6 — the support page's peer floor is the manifest's floor. SUPPORT is the
+// operator-facing statement of the `peerDependencies` ranges, and a floor bump
+// that skipped it left the page advertising a version the package no longer
+// accepted; the values are read from package.json, not restated here.
+{
+  const pkg = JSON.parse(read(join(ROOT, "package.json")));
+  const floors = new Set(
+    Object.entries(pkg.peerDependencies ?? {})
+      .filter(([name]) => name.startsWith("@deepseek-ai/dsh-"))
+      .map(([, range]) => String(range).replace(/^>=\s*/u, "")),
+  );
+  for (const name of ["SUPPORT.md", "SUPPORT.zh.md"]) {
+    for (const match of stripFences(read(join(ROOT, name))).matchAll(/\b(0\.\d+\.\d+-rc\.\d+)\b/g)) {
+      if (!floors.has(match[1])) {
+        report("R6", `${name}: peer version ${match[1]} is not the package.json floor (${[...floors].join(", ")})`);
+      }
+    }
+  }
+}
+
 // R2 — the advertised surface is one line, and the docs that own it repeat
 // it in full. A flag added to the doctor without taking its docs along,
 // or a synopsis listing a flag the help no longer prints, both fail here.

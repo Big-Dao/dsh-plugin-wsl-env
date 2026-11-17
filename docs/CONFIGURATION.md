@@ -173,6 +173,12 @@ The root router is app-level, not session-owned, so it does not use
 | | `hostCwd` | Unset | Windows workdir for the `wsl.exe` process. Defaults to `%SystemRoot%` when available. |
 | | `forwardEnv` | `[]` | Additional host environment names to forward through `WSLENV`. |
 
+The bundle also inserts the host row `directory-picker-browse-surface`
+(`@deepseek-ai/dsh-client-ui-directory-picker-browse`). It supplies the
+browser dialog itself; `directory-picker-wsl` supplies the backend that dialog
+calls, so disabling the picker row does not remove the dialog. The host row
+takes no configuration.
+
 ### Other top-level rows
 
 | Row | Key | Default | Description |
@@ -184,6 +190,8 @@ The root router is app-level, not session-owned, so it does not use
 | `wsl-status` | `cacheMs` | `15000` | How long one distro's verdict stays fresh in memory, in milliseconds (the last result is persisted separately). |
 | | `timeoutMs` | `90000` | Deadline for one check or repair run, in milliseconds. |
 | | `wslPath` | `wsl.exe` | `wsl.exe` used to list the distros. |
+| `wsl-open-in-app` | `executable` | `''` | Editor executable for the session-header "open in app" action. Empty resolves VS Code from its usual Windows install locations, then `Code.exe` on `PATH`. |
+| | `watchMs` | `1500` | Early-failure watch window per launch, in milliseconds; an editor that exits inside it is reported as a launch failure. |
 | `wsl-preflight` | `distro` | `''` | Distro to check. Empty or `auto` follows the session workspace. |
 | | `wslPath` | `wsl.exe` | Path to `wsl.exe`. |
 | | `sandbox` | `true` | Run the session-start `bwrap` check. |
@@ -270,6 +278,12 @@ gives the `visible` behavior.
 | `visible` | Leaves `/mnt` visible. Confined commands can read Windows files and launch Windows executables through WSL interop. |
 | `masked` | Mounts an empty tmpfs over `/mnt` in confined profiles. Commands cannot access paths under `/mnt`; other mounts and unrestricted file reads are not covered. |
 | `disabled` | Applies the same `/mnt` mask as `masked`; it does not disable interop or edit `wsl.conf`. Configure the distro separately as described below. |
+
+**The mask is a command-path boundary, not a filesystem boundary.** Confined
+commands cannot see `/mnt`; the file tools' unrestricted read side still
+reaches `/mnt/c` through the shared read agent (the "Unrestricted read" row
+below is the same fact, stated per surface). Do not read `masked` as "the
+distro cannot reach Windows".
 
 `maskWindowsDrive: true` is equivalent to `interopVisibility: masked`.
 When `interopVisibility` is set, it takes precedence over

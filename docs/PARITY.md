@@ -10,7 +10,9 @@ protocol v4, 2026-10-06. These rows are not a fresh verification of the current
 release or protocol; see [PEER-PARITY.md](PEER-PARITY.md) for the peer
 comparison. The peer pin moved to `0.2.1-rc.2` on 2026-10-17 with every
 seam package's shipped artifact byte-identical to the ones these rows were
-measured against; the real-machine probes were not re-run in that move.
+measured against; it moved again to `0.2.2-rc.2` on 2026-11-12, and the
+real-machine probes were not re-run in either move. Treat every row below as
+the 0.8.0 measurement plus later delta notes, not a fresh verification.
 
 ## What parity means here
 

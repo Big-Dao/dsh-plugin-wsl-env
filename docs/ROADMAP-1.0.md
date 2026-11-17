@@ -1,6 +1,8 @@
 # Roadmap 1.0: the WSL plugin the DSH ecosystem should have
 
-Status: working plan, last refreshed 2026-11-09 against `0.22.0` (the WSL-316 doctor loop and the 0.21/0.22 GUI/localization line; the §2 area tables remain the 0.15.0 baseline and are explicitly historical).
+Status: working plan, last refreshed 2026-11-17 against `0.26.3` (the HMR
+takeover, in-app provider check, and locale-coverage line; the §2 area tables
+remain the 0.15.0 baseline and are explicitly historical).
 The 0.12.0 baseline that motivated the plan is kept below as history.
 Audience: maintainers and contributors. This is a plan, not a release promise.
 The short version: **from "the only WSL plugin" to "the default WSL plugin"** —

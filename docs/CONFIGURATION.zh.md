@@ -164,6 +164,11 @@ Loader 在挂载该行之前会校验宿主和发行版设置；
 | | `hostCwd` | 未设置 | `wsl.exe` 进程的 Windows 工作目录。可用时默认为 `%SystemRoot%`。 |
 | | `forwardEnv` | `[]` | 额外通过 `WSLENV` 转发的宿主环境变量名。 |
 
+随包还会注入宿主行 `directory-picker-browse-surface`
+（`@deepseek-ai/dsh-client-ui-directory-picker-browse`）。它提供浏览器里的
+对话框本体；`directory-picker-wsl` 提供该对话框调用的后端，所以禁用选择器
+行并不会移除对话框。宿主行不接受配置。
+
 ### 其他顶层行
 
 | 行 | 键 | 默认值 | 说明 |
@@ -175,6 +180,8 @@ Loader 在挂载该行之前会校验宿主和发行版设置；
 | `wsl-status` | `cacheMs` | `15000` | 单个发行版判定在内存中的新鲜时间，单位毫秒（最后一次结果另行持久化）。 |
 | | `timeoutMs` | `90000` | 单次检查或修复运行的死线，单位毫秒。 |
 | | `wslPath` | `wsl.exe` | 列出发行版用的 `wsl.exe`。 |
+| `wsl-open-in-app` | `executable` | `''` | 会话页头“在应用中打开”动作使用的编辑器可执行文件。空则从常见的 Windows 安装位置解析 VS Code，再回退到 `PATH` 上的 `Code.exe`。 |
+| | `watchMs` | `1500` | 每次启动的早期失败观察窗口，单位毫秒；编辑器在该窗口内退出会报告为启动失败。 |
 | `wsl-preflight` | `distro` | `''` | 要检查的发行版。空或 `auto` 跟随会话工作区。 |
 | | `wslPath` | `wsl.exe` | `wsl.exe` 的路径。 |
 | | `sandbox` | `true` | 运行会话启动时的 `bwrap` 检查。 |
@@ -259,6 +266,11 @@ unset _fnm_env
 | `visible` | 保持 `/mnt` 可见。受限命令可以读取 Windows 文件，并通过 WSL interop 启动 Windows 可执行文件。 |
 | `masked` | 在受限 profile 中，把空的 tmpfs 挂载到 `/mnt` 上。命令无法访问 `/mnt` 下的路径；其他挂载与不受限的文件读取不在覆盖范围内。 |
 | `disabled` | 施加与 `masked` 相同的 `/mnt` 遮蔽；它不会禁用 interop，也不会修改 `wsl.conf`。请按下文单独配置发行版。 |
+
+**遮蔽是命令路径的边界，不是文件系统的边界。** 受限命令看不见 `/mnt`，
+但文件工具的非受限读取面仍会经共享读 agent 访问 `/mnt/c`（下文“非受限
+文件读取”一行是同一事实的分面表述）。不要把 `masked` 理解为“发行版无法
+触达 Windows”。
 
 `maskWindowsDrive: true` 等价于 `interopVisibility: masked`。
 设置了 `interopVisibility` 时，它优先于

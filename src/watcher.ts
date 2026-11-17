@@ -18,7 +18,7 @@
  * rename-over or an in-place write is seen), and a positive `maxDepth` keeps
  * the polling scan because inotify cannot bound its own walk.
  *
- * The loop speaks three one-letter lines, the watcher protocol:
+ * The loop speaks five one-letter lines, the watcher protocol:
  *
  *   - `R` — READY: the activation barrier; the host resolves the watch promise
  *     on it, never before.

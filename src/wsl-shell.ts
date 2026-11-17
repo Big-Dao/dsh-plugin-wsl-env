@@ -146,8 +146,6 @@ interface ProcessFacts {
 
 /**
  * The refusal both shell resolvers share: the probes named no shell, and the
- * command must not quietly run under some other interpreter.
- * the probes named no shell, and the
  * command must not quietly run under some other interpreter. The wording is
  * the one `runInDistro` already throws with.
  *
@@ -205,19 +203,6 @@ export class WslShellExecutor
      */
     sandbox: z.boolean().default(true),
     /**
-     * Shadow `/mnt` with an empty tmpfs in every confined profile, hiding the
-     * Windows drive from confined commands: its files cannot be read or
-     * exfiltrated and its executables cannot be launched through interop —
-     * the hole that lets a "sandboxed" command reach your full Windows token.
-     * A narrowing, not a closure (a command can still write an executable
-     * into the workspace and run it — binfmt dispatches on content, not
-     * location), so enforcement stays `partial` and the sandbox fact reports
-     * `windowsDrive: "masked"`. Costs: confined commands cannot read or touch
-     * anything under `/mnt`, and tools that probe the drive degrade. The
-     * complete closure is distro-level: `[interop] enabled=false` in
-     * `wsl.conf`.
-     */
-    /**
      * The interop stance in one key (WSL-314), expanding to the per-key
      * values the measured matrix documents:
      *
@@ -237,6 +222,20 @@ export class WslShellExecutor
      * boolean answer); the boolean remains for existing profiles.
      */
     interopVisibility: z.union(["visible", "masked", "disabled"]),
+    /**
+     * Shadow `/mnt` with an empty tmpfs in every confined profile, hiding the
+     * Windows drive from confined commands: its files cannot be read or
+     * exfiltrated and its executables cannot be launched through interop —
+     * the hole that lets a "sandboxed" command reach your full Windows token.
+     * A narrowing, not a closure (a command can still write an executable
+     * into the workspace and run it — binfmt dispatches on content, not
+     * location), so enforcement stays `partial` and the sandbox fact reports
+     * `windowsDrive: "masked"`. Costs: confined commands cannot read or touch
+     * anything under `/mnt`, and tools that probe the drive degrade. The
+     * complete closure is distro-level: `[interop] enabled=false` in
+     * `wsl.conf`. The mask covers the COMMAND path only; the file tools'
+     * read side still reaches `/mnt` through the shared read agent.
+     */
     maskWindowsDrive: z.boolean().default(false),
     /**
      * Extra directories under `workspace-write`, in distro spelling. The

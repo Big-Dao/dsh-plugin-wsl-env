@@ -7,7 +7,8 @@ docs/ 各篇里的行为承诺登记成带编号的需求条目，并给每条�
 三个问题：**有哪些需求、在哪里规定、靠什么验证**。
 
 **基线**：本文核对于 `main` 2026-10-19（基线 0.12.0）；0.22.0（2026-11-08）
-复核了 doctor 与更新检查线（新增 R26–R28，R20 的测试文件数随发版刷新），
+复核了 doctor 与更新检查线（新增 R26–R28，R20 的测试文件数随发版刷新）；
+R29 的基线为 0.25.0（2026-11-11），R30 的基线为 0.26.0（2026-11-12）。
 其余条目仍以上次全表核验为准。每次发版，或 CI 配置、
 覆盖率阈值等可核验项变更后，本表须重新核验；一切以仓库现状为准。
 
@@ -50,10 +51,10 @@ docs/ 各篇里的行为承诺登记成带编号的需求条目，并给每条�
 | R14 | bootstrap：bwrap/ripgrep 等的就地体检与安装 | README「Install」「Troubleshooting」；CONFIGURATION | ①②⑤：`--install` 与只读体检两式、体检对象、错误消息补救指引成文 | 0.7.4 起脚本随包（`files` 收录，补救指引在 npm 安装下可用） | 脚本本身无 CI 腿（真机排错路径覆盖） |
 | R15 | 错误码方言：每个 `FS_*` 码给出抛出者、含义、解除条件；`wsl.exe` 自身失败显式收编 | ARCHITECTURE「Error codes」表 | ①②：逐码三列成表；两类历史隐形失败（UTF-16 stdout、cwd 回退 exit 0）收编；`FS_OUTSIDE_DISTRO` 独立成码的理由明文 | `fs-decisions.test.mjs`、`fsio-agent.test.mjs`、`fs-substrate.test.mjs`、`provider.test.mjs`（断言码与消息） | — |
 | R16 | 对端 parity 合同：fsio 文本机制逐字节复刻钉死的对端版本 | PEER-PARITY 全文 | ①④⑥：钉版、验证方法（npm pack 逐函数比对）、验证日期、刻意分歧逐条声明、bump 钉版即重跑的维护规则 | `fsio-agent.test.mjs`（distro 内半区 canary）；对端比对为手动方法 | 钉版升级后需重跑比对（维护规则） |
-| R17 | 常驻 agent 协议：ACK 计时看门狗、只读帧才重放、逐流输出上限、sha256 部署校验、租约存活、进程组两段杀 | CHANGELOG 0.3.0/0.6.0/0.7.3；PARITY Phase 1/Phase 3 | ①②④：每条健壮性属性有规格出处与实证记录；「EXEC/变异 FS 帧禁止盲重发」是写明的不变量 | `agent-protocol.test.mjs`（HELLO 版本+摘要）、`agent.test.mjs`、`agent-exec.test.mjs`（truncated 旗标）、`agent-fs-script.test.mjs`；probe:agent、probe:exec | — |
+| R17 | 常驻 agent 协议：帧写出后的 ACK 握手超时与 ACK 计时执行看门狗、只读帧才重放、逐流输出上限、sha256 部署校验、租约存活、进程组两段杀 | CHANGELOG 0.3.0/0.6.0/0.7.3；PARITY Phase 1/Phase 3 | ①②④：每条健壮性属性有规格出处与实证记录；「EXEC/变异 FS 帧禁止盲重发」是写明的不变量 | `agent-protocol.test.mjs`（HELLO 版本+摘要）、`agent.test.mjs`、`agent-exec.test.mjs`（truncated 旗标）、`agent-fs-script.test.mjs`；probe:agent、probe:exec | — |
 | R18 | 配置面：每键默认值成文；层组合语义（整行替换、不深合并、后层胜） | CONFIGURATION；`cordis.patch.yml` 头注 | ⑤：随发键成表、未列表键点名；覆盖方式的正确心智模型（整行替换）成文 | `composition.test.mjs`（层组合）；`style.mjs`（`files` 契约） | — |
 | R19 | 非目标集：不做什么与为什么 | LIMITATIONS 开篇原则；PARITY「Not applicable」 | ③：已知极限入册；不适用项「记下来免得像遗漏」 | —（文档性） | — |
-| R20 | 验证策略：三层（fake → 真脚本过真线 → 真机探针）+ CI 矩阵 + 覆盖率阈值 | ARCHITECTURE「Test layers」；README「Development」 | ④：CI 在 Node 22/24 × Linux/Windows 上跑 `pnpm test`，`pnpm run test:coverage` 只在 Node 24 上跑（门槛旗标需 Node 22.8）；Node 20 有意排除（`engines` 下限）；覆盖率阈值 85/84/70（行/分支/函数），测量集合覆盖 `test/` 下 50 个测试文件，且 `lib/*.js` 必须逐个实测或带理由豁免 | `pnpm test`、`pnpm run test:coverage`；CI（ci.yml） | 真机验证依赖 Windows 和可用的 WSL 发行版；非功能无量化目标（OI-1） |
+| R20 | 验证策略：三层（fake → 真脚本过真线 → 真机探针）+ CI 矩阵 + 覆盖率阈值 | ARCHITECTURE「Test layers」；README「Development」 | ④：CI 在 Node 22/24 × Linux/Windows 上跑 `pnpm test`，`pnpm run test:coverage` 只在 Node 24 上跑（门槛旗标需 Node 22.8）；Node 20 有意排除（`engines` 下限）；覆盖率阈值 85/84/70（行/分支/函数），测量集合覆盖 `test/` 下 60 个测试文件，且 `lib/*.js` 必须逐个实测或带理由豁免 | `pnpm test`、`pnpm run test:coverage`；CI（ci.yml） | 真机验证依赖 Windows 和可用的 WSL 发行版；非功能无量化目标（OI-1） |
 | R21 | 安全过程：范围内外、响应时限、partial 属设计边界、凭据政策 | SECURITY 全文 | ②③⑥：范围、3/10/30 个工作日时限（标注「目标非合同」）、partial 定性、凭据零容忍成文 | —（过程性） | — |
 | R22 | 支持矩阵：Windows 10/11 + WSL2 + Node `^22.19.0 \|\| >=24.0.0` + peer 版本范围 | SUPPORT 全文 | ⑥：支持与不受支持清单、peer 范围及精确开发依赖成文；Node 20 在范围外（理由见 SUPPORT，`engines` 为准） | `peerDependencies`、`devDependencies` 与 `engines`（`package.json`）；CI 矩阵（ci.yml） | 新 peer 版本仍需验证 |
 | R23 | 根平面 `ctx.fs` 按坐标路由：发行版 UNC 由发行版内 agent 服务（inotify 或轮询 watch），盘符路径留在宿主；接替随发的 `fs-sandbox` 行 | README「Architecture」；ARCHITECTURE「The root-plane filesystem takeover」；CONFIGURATION `fs-routing` 行；root-fs-routing.md（设计） | ①②③⑤：路由判定与接替理由（写围栏在根平面无消费者）成文；`distro` 的 `auto`/`default`/pin 三态、每个 UNC 目标由自身 distro 服务、pin 下拒外来路径，以及 `distroCwd`/`restrictToDistro`/`sandbox`/`maskWindowsDrive`/`watchMaxDepth` 逐键成表，且自成一行、不与会话级行联动；`sandbox` 失败关闭成文 | `fs-routing.test.mjs`（纯谓词与路径助手）、`provider.test.mjs`（per-distro substrate/worldPath） | 类本体无单测（需 DSH peers 与实机）；由组合测试与真机探针覆盖 |
@@ -63,7 +64,6 @@ docs/ 各篇里的行为承诺登记成带编号的需求条目，并给每条�
 | R27 | doctor CLI 独立性：不加载 peer 依赖与宿主服务，插件运行时本身损坏时仍可诊断；固定骨架本地化（Windows 区域设置检测，`--locale`/`DSH_WSL_DOCTOR_LOCALE` 覆盖），逐项事实保持英文，`--json` 语言无关 | DIAGNOSTICS「The surfaces」；CONFIGURATION「Message language」；LIMITATIONS「消息本地化」条 | ①②④：peer-free 内联与防漂移对拍成文；catalog 键 parity 与占位符行为有测试 | `doctor.test.mjs`（inlining parity、locale catalog、检测与覆盖） | 语言检测需 Windows registry（非 Windows 上回退英文，`run` 不抛错） |
 | R28 | 每日更新检查经宿主插件管理器委托，不自取；事实进 `DSH_WSL_PLUGIN_UPDATE`；`wsl-update-check.enabled: false` 可关闭 | README「Install」；CONFIGURATION `wsl-update-check` 行 | ①②⑤：委托路径、TTL、关闭开关成文 | `update-check.test.mjs` | doctor 不再自行查询 registry：更新提示只走这条委托路径 |
 | R29 | `workspace-write` 的额外可写目录：`writableRoots`（两行同列表）与共享 `additionalWritableRoots` 解析为同一组 Linux 根，经一次物理目录检查后绑定进命令、受限写入 resident 与 session runtime；已被工作区/临时区覆盖或嵌套的条目不绑定 | CONFIGURATION「工具链缓存与额外可写目录」；ARCHITECTURE「Sandbox」；LIMITATIONS「workspace-write 默认不授予…」 | ①②③⑤⑥：`~` 展开、UNC/Linux 拼写、跨发行版/盘符拒绝、together-grant、cached key、安全代价与 `partial` 成文 | `writable-roots.test.mjs`、`agent.test.mjs`（bwrap argv）、`provider.test.mjs`（围栏与命令两条路径）、`session-runtime.test.mjs`（key 与前缀）；probe:sandbox 的授权根腿 | 真机端到端 `pnpm install` 尚未纳入探针套件；`additionalWritableRoots` 的宿主会话语义仍由上游策略决定 |
-
 | R30 | 发行版工作区落在非 WSL 环境时可见：会话内常驻警示（空白会话可一键切换、已开始则修正 `windowsWorkspaces`）、页头 **WSL工作区正以Windows模式打开** 标记、面板列出 Windows 访问目录，且 `auto-preset` 以日志与模型运行时上下文说明 PowerShell/9p 环境 | README「Using it」；QUICKSTART「Open a WSL workspace」；CONFIGURATION `auto-preset` 行；UPSTREAM-SESSION-NOTICE.md | ①②③⑤：判定口径（UNC 工作区 + 投影 preset 与 `auto-preset.preset` 不同）、两种成因与各自动作、投影缺失时不猜测、子代理不重复播报成文 | `auto-preset.test.mjs`（宿主侧告警与子代理/锁定/预设缺失分支）、`preset-choice.test.mjs`（访问目录判定）、`client.test.mjs`（加载器级警示状态机：显示/隐藏、切换/收起/忘记动作、badge 同步、面板目录列表）；`test/browser/` 下的 Chromium 套件覆盖布局、可见性、点击与 badge 时序 | Desktop 外壳的真实装配仍靠真机探针；通用 notice 接缝仍缺（UPSTREAM-SESSION-NOTICE） |
 
 登记覆盖面：上表登记 README 与 docs/ 中对外成文的行为承诺（含随发的服务面）。

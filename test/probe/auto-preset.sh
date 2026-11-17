@@ -44,15 +44,18 @@ env -u DSH_HOME -u DSH_PROFILE -u DSH_PROFILE_DIR -u DSH_SESSION_ID \
 STATUS=$?
 set -e
 
+mkdir -p "$HERE/.scratch"
 if [ -f "$REPORT" ]; then
   cat "$REPORT"
 else
-  echo "no report was written; harness output follows" >&2
+  cp "$LOG" "$HERE/.scratch/auto-preset-boot.log" 2>/dev/null || true
+  echo "no report was written; harness output follows (kept at $HERE/.scratch/auto-preset-boot.log)" >&2
   tail -20 "$LOG" >&2
   exit 1
 fi
 if grep -q "AUTOPRESET FAIL" "$REPORT"; then
-  echo "auto-preset probe reported a failing check" >&2
+  cp "$LOG" "$HERE/.scratch/auto-preset-boot.log" 2>/dev/null || true
+  echo "auto-preset probe reported a failing check; boot log: $HERE/.scratch/auto-preset-boot.log" >&2
   exit 1
 fi
 if [ "$STATUS" -ne 0 ]; then

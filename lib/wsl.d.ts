@@ -53,6 +53,20 @@ export declare const DEFAULT_WSL_DEADLINE_MS = 60000;
  */
 export declare function runCapture(argv: string[], signal?: AbortSignal, deadlineMs?: number): Promise<string>;
 /**
+ * Run one host command and capture UTF-8 output with NUL bytes preserved.
+ *
+ * `runCapture` strips NULs because `wsl.exe` writes its own diagnostics as
+ * UTF-16LE; a distro command's `find -print0` output is NUL-separated data, and
+ * stripping it corrupts every name after the first. Callers that consume NUL
+ * separators use this variant instead.
+ *
+ * @param argv - executable plus arguments, spawned without a shell.
+ * @param signal - optional cancellation.
+ * @param deadlineMs - kill the call after this many milliseconds.
+ * @returns captured stdout, NUL separators intact.
+ */
+export declare function runCaptureRaw(argv: string[], signal?: AbortSignal, deadlineMs?: number): Promise<string>;
+/**
  * List installed distros with `wsl.exe -l -q`.
  *
  * @param options - the `wsl.exe` path and optional cancellation.

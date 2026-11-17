@@ -12,7 +12,7 @@
  *   node test/wsl.test.mjs
  */
 import assert from "node:assert/strict";
-import { runCapture, DEFAULT_WSL_DEADLINE_MS, parseDistroList, parseHomePath } from "../lib/wsl.js";
+import { runCapture, runCaptureRaw, DEFAULT_WSL_DEADLINE_MS, parseDistroList, parseHomePath } from "../lib/wsl.js";
 
 /**
  * A Node child that outlives any deadline the checks use.
@@ -119,6 +119,18 @@ checks.push(["an aborted capture is cancellation, not a wedged service", async (
     (error) => !/no completion within/.test(/** @type {Error} */ (error).message),
     "the deadline hint stays off an abort",
   );
+}]);
+
+checks.push(["runCapture strips NUL bytes from UTF-16LE diagnostics", async () => {
+  const nul = ["a", "b", "c"].join("\u0000");
+  const out = await runCapture([process.execPath, "-e", `process.stdout.write(${JSON.stringify(nul)})`]);
+  assert.equal(out, "abc", "the UTF-16LE diagnostic spelling collapses to its text");
+}]);
+
+checks.push(["runCaptureRaw preserves NUL separators", async () => {
+  const nul = ["/home/andy/a", "/home/andy/b", ""].join("\u0000");
+  const out = await runCaptureRaw([process.execPath, "-e", `process.stdout.write(${JSON.stringify(nul)})`]);
+  assert.equal(out, nul, "a find -print0 listing keeps its separators");
 }]);
 
 for (const [name, fn] of checks) await check(name, fn);

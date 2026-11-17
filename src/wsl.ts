@@ -59,6 +59,36 @@ export const DEFAULT_WSL_DEADLINE_MS = 60_000;
  * @throws the execFile error, with a hint attached when the cause is the sandbox.
  */
 export function runCapture(argv: string[], signal?: AbortSignal, deadlineMs = DEFAULT_WSL_DEADLINE_MS): Promise<string> {
+  return runCaptureWith(argv, signal, deadlineMs, true);
+}
+
+/**
+ * Run one host command and capture UTF-8 output with NUL bytes preserved.
+ *
+ * `runCapture` strips NULs because `wsl.exe` writes its own diagnostics as
+ * UTF-16LE; a distro command's `find -print0` output is NUL-separated data, and
+ * stripping it corrupts every name after the first. Callers that consume NUL
+ * separators use this variant instead.
+ *
+ * @param argv - executable plus arguments, spawned without a shell.
+ * @param signal - optional cancellation.
+ * @param deadlineMs - kill the call after this many milliseconds.
+ * @returns captured stdout, NUL separators intact.
+ */
+export function runCaptureRaw(argv: string[], signal?: AbortSignal, deadlineMs = DEFAULT_WSL_DEADLINE_MS): Promise<string> {
+  return runCaptureWith(argv, signal, deadlineMs, false);
+}
+
+/**
+ * The shared body of {@link runCapture} and {@link runCaptureRaw}.
+ *
+ * @param argv - executable plus arguments.
+ * @param signal - optional cancellation.
+ * @param deadlineMs - kill the call after this many milliseconds.
+ * @param stripNulls - drop NUL bytes (UTF-16LE diagnostics) before returning.
+ * @returns captured stdout.
+ */
+function runCaptureWith(argv: string[], signal: AbortSignal | undefined, deadlineMs: number, stripNulls: boolean): Promise<string> {
   const [file, ...args] = argv;
   if (file === undefined) throw new Error("wsl: runCapture needs a program to run");
   return new Promise((resolve, reject) => {
@@ -93,7 +123,8 @@ export function runCapture(argv: string[], signal?: AbortSignal, deadlineMs = DE
           reject(error);
           return;
         }
-        resolve(String(stdout ?? "").replace(/\u0000/g, ""));
+        const text = String(stdout ?? "");
+        resolve(stripNulls ? text.replace(/\u0000/g, "") : text);
       },
     );
   });

@@ -58,7 +58,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import type { DirectoryEntry, DirectoryListing, DirectoryPickerBrowseCapability } from "@deepseek-ai/dsh-host-directory-picker";
 import { UNC_PROVIDER_ROOT, distroRoot, isProviderRoot, isWslUnc, uncToPosix } from "./paths.js";
 import { breadcrumbs, boundedInsert, dirListingArgv, distroMkdirArgv, fullyQualified, parseDirListing } from "./listing.js";
-import { listDistros, linuxHome, runCapture } from "./wsl.js";
+import { listDistros, linuxHome, runCapture, runCaptureRaw } from "./wsl.js";
 import { sharedAgent } from "./agent-shared.js";
 import { mountTakeover } from "./service-takeover.js";
 import { AgentUnavailableError, CwdError, SpawnError } from "./agent-errors.js";
@@ -465,7 +465,9 @@ export class WslDirectoryPicker extends DirectoryPicker {
     } catch (error) {
       if (error instanceof AgentUnavailableError) {
         try {
-          stdout = await runCapture(
+          // `find -print0` output is NUL-separated; the generic capture strips
+          // NULs for UTF-16 diagnostics and would collapse the rows into one.
+          stdout = await runCaptureRaw(
             [this.config.wslPath, "-d", parsed.distro, "--cd", linuxDir, "--exec", ...dirListingArgv(linuxDir)],
             signal,
           );

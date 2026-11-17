@@ -68,7 +68,8 @@
 | `pnpm run test:coverage` | 行 85 / 分支 84 / 函数 70 | CI（Node 24，Ubuntu） |
 | `pnpm run test:browser` | 无头 Chromium 中的插件 web bundle（布局、点击、badge 时序）；安装一次 Chromium | CI（`browser` job，Ubuntu）与发布的 `Gates` |
 | peer 版本线受测 | 下限 `>=0.2.2-rc.2`；`peer-canary` 工作流解析 `next` 并运行临时升级 | CI 定时/手动 |
-| 打包安装/升级/卸载 | `pnpm run e2e:install`（临时 `DSH_HOME`，0.17.1 → 当前版本，跨 peer 下限抬升，marker） | 手动，本机（2026-11-06 为 10/10；起点从 0.11.0 移至 0.17.1，因为 dsh 0.2.2-rc.1 正确拒绝了精确钉版时期） |
+| 打包安装/升级/卸载 | `pnpm run e2e:install`（临时 `DSH_HOME`，0.17.1 → 当前版本，跨 peer 下限抬升，marker；**宿主关闭路径，不含 HMR 更新**） | 手动，本机（2026-11-06 为 10/10；起点从 0.11.0 移至 0.17.1，因为 dsh 0.2.2-rc.1 正确拒绝了精确钉版时期） |
+| HMR 更新路径（运行中 profile） | 临时 `DSH_HOME` 安装上一个已发布版本 → 启动桌面应用并保留活动会话 → 经插件管理升级到候选版本；断言 `application: applied`、无回滚，重启后 `subprocess`/`fs`/`directoryPicker` 由本插件的类提供（升级当时可能处于延迟接管，`providers.takeover` 为 warn） | 手动，本机（**尚未运行**；#39/#12510 漏测的正是这条路径） |
 | 真机探针套件 | `test/probe/run-all-when-closed.sh --include-fs`（需要应用关闭） | 手动；2026-10-31 与 2026-11-05 均为 15/15（docs/superpowers/probe-runs/）；套件在 2026-11-06 增至 17 项——同日首次 17 项运行通过 16 项，新的 `two-distro.sh` 因断言载体错误而失败（会话作用域的 `DSH_WSL_DISTRO` 在直接 `ctx.shell` 接缝上不存在）；将探针改为按发行版的 `/tmp` 标记后单独通过，使本机 17 项探针全部通过（2026-11-06-probe-suite.md）；2026-11-12 针对 rc.2 宿主再次 17/17 |
 | 干净 Win11 + Ubuntu 首次运行 ≤ 5 分钟 | 干净机器、秒表 | **未运行**（项目机器已配置） |
 | aarch64 已执行 | CI 中 qemu 下的 native 18 项检查套件 | **已在 CI 运行**（物理 aarch64 WSL 不在范围内；见 COMPATIBILITY.md） |

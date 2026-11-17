@@ -1,0 +1,13 @@
+# Auto-preset probe overlay, applied on top of the throwaway `wslfs` profile
+# that `test/probe/run.sh` documents. It inserts only the probe module; the
+# profile already composes this checkout's bundle, including the `wsl` preset
+# and the `auto-preset` row.
+#
+# TEMPLATE: `auto-preset.sh` substitutes @WORKSPACE_UNC@, @PROBE_UNC@ and
+# @REPORT_UNC@ into a generated copy beside it.
+- insert:
+    - id: auto-preset-probe
+      name: '@PROBE_UNC@'
+      config:
+        workspaceCwd: '@WORKSPACE_UNC@'
+        report: '@REPORT_UNC@'

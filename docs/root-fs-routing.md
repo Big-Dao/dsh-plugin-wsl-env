@@ -165,7 +165,7 @@ export `./fs-routing`）。config 承载两侧旋钮：宿主侧 `cwd`/`diffBasi
   服务代理覆盖。该文件自 2026-10-19 起已在 `test:unit` 与 `test:coverage`
   清单里（`docs/REQUIREMENTS.zh.md` 的 OI-7，已解决）。
 - 真机探针全套（`test/probe/run-all-when-closed.sh --include-fs`，16 项常规
-  + `run.sh` 共 17 项，2026-11-06 起）覆盖 agent、watch、substrate 等底座，并包含本路由的
+  + `run.sh` 共 18 项，2026-11-06 起；`auto-preset.sh` 2026-11-17 加入）覆盖 agent、watch、substrate 等底座，并包含本路由的
   `test/probe/fs-routing.sh`：临时 profile 以本路由为根 `fs`，经 UNC 坐标读
   distro 内 ext4 文件、经盘符路径读 Windows 文件，并拒绝另一 distro 的 UNC。
 

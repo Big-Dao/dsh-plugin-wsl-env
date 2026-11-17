@@ -402,6 +402,19 @@ checkPosix("creating a directory in the distro goes through the one-shot mkdir",
   );
 });
 
+check("a broken wsl.exe does not stop a host listing", async () => {
+  // The preferred distro is only the dialog's Home affordance. A machine whose
+  // WSL cannot answer must still browse Windows directories; the failure the
+  // caller sees is the host walk's, not a spawn error from the distro lookup.
+  const { row } = await mountPicker({ wslPath: "/nonexistent/wsl.exe" });
+  await assert.rejects(
+    () => row.list("C:\\no-such-host-dir\\missing"),
+    (error) => error instanceof DirectoryPickerError
+      && error.code === "directory-unreadable"
+      && !/wsl\.exe.*(failed|ENOENT)/i.test(error.message),
+  );
+});
+
 check("an unqualified path is refused with the picker's own code", async () => {
   const { row } = await mountPicker();
   await assert.rejects(

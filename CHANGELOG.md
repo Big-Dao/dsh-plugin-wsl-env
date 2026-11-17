@@ -39,6 +39,14 @@ were part of the record.
 
 ### Fixed
 
+- **The directory picker browses Windows directories even when WSL is
+  unavailable.** `list()` resolved the preferred distro before the host walk;
+  on a machine where `wsl.exe` cannot answer (not installed, broken, or a
+  failing probe) a Windows folder could not be listed at all. The preferred
+  distro is only the dialog's Home affordance, so its failure now falls back to
+  the host home while a cancelled call still cancels; distro levels still
+  surface their own error. Caught by the Windows CI leg of
+  `test/provider-takeover.test.mjs`, which now pins the fallback.
 - **The directory picker's one-shot fallback listed an empty directory.**
   `runCapture` strips NUL bytes because `wsl.exe` writes its own diagnostics as
   UTF-16LE, but the fallback feeds it `find -print0` output, whose NUL

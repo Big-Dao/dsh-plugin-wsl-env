@@ -16,6 +16,13 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.26.3-rc.0] - 2026-11-17
+
+First release candidate for 0.26.3: a live enable or HMR upgrade no longer
+rolls back on the three same-name takeovers, the in-app doctor names the
+provider that is actually serving them, and the directory picker survives a
+WSL that cannot answer.
+
 ### Added
 
 - **The in-app doctor names the provider actually serving the three takeover

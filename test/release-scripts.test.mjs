@@ -75,7 +75,7 @@ const runCheck = async (name, fn) => {
 check("check-release-tag accepts the matching tag and rejects every other", () => {
   const good = run("check-release-tag.mjs", [`v${PKG.version}`]);
   assert.equal(good.status, 0, good.stderr);
-  assert.match(good.stdout, /PASS  tag v[\d.]+ matches/);
+  assert.ok(good.stdout.includes(`PASS  tag v${PKG.version} matches`), good.stdout);
 
   const wrong = run("check-release-tag.mjs", ["v0.0.1"]);
   assert.equal(wrong.status, 1, "a mismatched tag exits 1");

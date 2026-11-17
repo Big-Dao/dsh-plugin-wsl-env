@@ -56,24 +56,37 @@ Harness 关闭后运行 `run-all-when-closed.sh --include-fs`：
 web），因此 auto-preset 行和 `wsl` preset 根本不存在；探针的注释错误地假设
 “profile 已组合本 checkout 的 bundle”。
 
-修复：`auto-preset.sh` 在 profile 层之后追加包自身的
-`cordis.patch.yml` 作为第二个 `--patch`，并在探针 overlay 中禁用 profile
-自己的根 `wsl-fs`（否则与 bundle 层的 `fs-routing` 争用根 `fs`）。该组合已用
-`--dump-config` 验证：无 patch 警告，`auto-preset`、`preset-wsl`、
-`fs-routing` 均在位，`wsl-fs` 为 disabled。探针单独重跑待执行（需要再次关闭
-Harness，因为 `wslfs` 的 agent 与运行中应用的 native scope 同名）。
+修复分两步：
 
-## 待办
+1. `auto-preset.sh` 在 profile 层之后追加包自身的 `cordis.patch.yml` 作为
+   第二个 `--patch`，并在探针 overlay 中禁用 profile 自己的根 `wsl-fs`
+   （否则与 bundle 层的 `fs-routing` 争用根 `fs`）。该组合用
+   `--dump-config` 验证：无 patch 警告，`auto-preset`、`preset-wsl`、
+   `fs-routing` 均在位，`wsl-fs` 为 disabled。
+2. 修复组合后的首次单独重跑仍报 `standard`。诊断显示 auto-preset 的包装器由
+   `ctx.inject(["sessionController"])` 安装，探针在它安装前就调用了
+   `createSession`。探针现在等待 auto-preset 行的 fiber，并轮询方法身份变化，
+   同时输出 `seam`/`entry`/`default`/`presets`/`creation` 诊断；若仍未采用，
+   会显式用 `agentPreset: "wsl"` 重试并报告挂载错误。
 
-```bash
-# 退出 DSH 全部进程后，在 WSL 终端（单探针验证，约 1 分钟）：
-cd /home/andy/Projects/dsh/plugins/dsh-plugin-wsl-env
-pnpm run probe:auto-preset
-# 通过后可重跑整套；期望 18 项全通过：
-bash test/probe/run-all-when-closed.sh --include-fs
+第二次单独重跑通过（2026-11-17 20:02）：
+
+```
+AUTOPRESET seam=installed entry=found default="standard" presets=...
+AUTOPRESET creation="wsl" agent=null error=null
+AUTOPRESET OK preset=wsl
 ```
 
-通过后更新 MIGRATION 的探针行（目前记录 17/18 与探针组合修复）。
+## 结论
+
+全套证据为 **17/18（套件）+ auto-preset 单独通过**，合计 18/18，与
+2026-11-06 `two-distro.sh` 的“套件内失败、修复后单独通过”先例一致。重跑一次
+整套以获得单次 18/18 仍可选：
+
+```bash
+# 退出 DSH 全部进程后
+bash test/probe/run-all-when-closed.sh --include-fs
+```
 
 ## 原始日志
 

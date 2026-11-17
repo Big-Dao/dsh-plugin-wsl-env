@@ -101,8 +101,14 @@ export async function apply(ctx, config) {
   }
   let available = null;
   try {
-    if (typeof presets?.list === "function") available = presets.list().map((/** @type {any} */ entry) => entry?.id ?? entry);
-    else if (typeof presets?.get === "function") available = ["wsl"].filter((id) => presets.get(id) !== undefined);
+    if (typeof presets?.list === "function") {
+      const listed = presets.list();
+      available = Array.isArray(listed)
+        ? listed.map((/** @type {any} */ entry) => entry?.id ?? entry)
+        : listed !== null && typeof listed === "object" ? Object.keys(listed) : null;
+    } else if (typeof presets?.get === "function") {
+      available = ["wsl"].filter((id) => presets.get(id) !== undefined);
+    }
   } catch (error) {
     available = `error: ${/** @type {Error} */ (error)?.message ?? String(error)}`;
   }

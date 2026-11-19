@@ -31,6 +31,7 @@ test/probe/sandbox-off-report.txt
 test/probe/two-distro-report.txt
 test/probe/agent-restart-report.txt
 test/probe/auto-preset-report.txt
+test/probe/hmr-gate-report.txt
 test/probe/.scratch/
 
 # ZCode session scratch (plan-mode drafts live under plans/).

@@ -121,6 +121,11 @@ profile 层；检测到时会打印应使用的块。`--out` 会整体替换目�
   或 Linux 拼写），但它作用于整个 profile；同一 profile 里还有 Windows 会话时，
   用上面的插件键更安全。
 
+doctor 的 `sandbox.grants` 行会列出两行配置的根、`~` 展开后的绝对路径与物理
+检查结果，并在两行列表不一致时告警；它不创建目录，也不修改配置。
+`pnpm run probe:cache-write` 在真机上验证授予根可写、未授予的兄弟目录仍为
+`EROFS`，覆盖 per-command profile 与 session runtime 两种形态。
+
 ### `fs-routing`
 
 这个顶层行为根级 `ctx.fs` 调用提供服务。它把发行版 UNC 路径

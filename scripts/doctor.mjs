@@ -72,6 +72,7 @@ import { fileURLToPath } from "node:url";
 import { parseDistroList } from "../lib/wsl.js";
 import { AGENT_NAME, PROTOCOL_VERSION, encodeExecFrame, encodeFsbFrame, parseAgentLine } from "../lib/agent-protocol.js";
 import { bwrapArgvPrefix } from "../lib/bwrap.js";
+import { validateWritableRootsConfig, writableRootsCheckArgv } from "../lib/writable-roots.js";
 import { sessionScopeSweepScript } from "../lib/session-scope.js";
 import { parseListeningPorts, procNetScript } from "../lib/ports.js";
 
@@ -347,6 +348,8 @@ const QUICK_SECTIONS = ["host", "session", "sandbox"];
  * @property {string} sandbox - the fs-routing confinement stance.
  * @property {string} maskWindowsDrive - the drive-masking stance (when `interopVisibility` is unset).
  * @property {string} interopVisibility - the one-key stance (`""` unset, `visible`, `masked` or `disabled`); when set it takes precedence over `maskWindowsDrive`.
+ * @property {string[]} writableRoots - the `wsl-shell` row's extra `workspace-write` grants (the command plane).
+ * @property {string[]} writableRootsFs - the `wsl-fs` row's grants; the two rows must agree.
  * @property {string} source - where the values came from.
  * @property {string[]} overrides - the profile layers that changed keys, "`<name>`: `<keys>`".
  */
@@ -548,6 +551,48 @@ export function rowKey(block, key) {
 }
 
 /**
+ * The list one key sets inside a row block, accepting the two YAML spellings
+ * the documentation uses: a flow list (`writableRoots: ['~/.npm', '~/.cache']`)
+ * or a block list (the key line, then indented `- value` lines). Anything else
+ * is a scalar and is returned as a one-item list, so a mistaken single value
+ * still reaches the validation rather than disappearing.
+ * @param {string} block - the row block's text.
+ * @param {string} key - the YAML key.
+ * @returns {string[] | undefined} the items (`[]` for an empty list), or undefined when unset.
+ */
+export function rowList(block, key) {
+  const lines = block.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = new RegExp(`^(\\s*)${key}:\\s*(.*)$`).exec(/** @type {string} */ (lines[index]));
+    if (match === null) continue;
+    const indent = (match[1] ?? "").length;
+    const value = (match[2] ?? "").replace(/\s+#.*$/u, "").trim();
+    if (value.startsWith("[")) {
+      const inner = value.slice(1, value.endsWith("]") ? -1 : undefined);
+      /** @type {string[]} */
+      const items = [];
+      for (const item of inner.matchAll(/'([^']*)'|"([^"]*)"|([^,\s][^,]*)/gu)) {
+        const raw = (item[1] ?? item[2] ?? item[3] ?? "").trim();
+        if (raw.length > 0) items.push(raw.replace(/^['"]|['"]$/g, ""));
+      }
+      return items;
+    }
+    if (value.length > 0) return [value.replace(/^['"]|['"]$/g, "")];
+    /** @type {string[]} */
+    const items = [];
+    for (let next = index + 1; next < lines.length; next += 1) {
+      const line = /** @type {string} */ (lines[next]);
+      if (line.trim().length === 0 || line.trim().startsWith("#")) continue;
+      const item = /^(\s*)-\s+(.*)$/.exec(line);
+      if (item === null || (item[1] ?? "").length <= indent) break;
+      items.push((item[2] ?? "").trim().replace(/^['"]|['"]$/g, ""));
+    }
+    return items;
+  }
+  return undefined;
+}
+
+/**
  * Read the configuration the blocking verdict must answer under: the shipped
  * preset's values, overlaid by every profile layer under `$DSH_HOME/profiles/*`
  * that carries a `preset-wsl` row (the preset helper's output shape) or an
@@ -561,11 +606,13 @@ export function rowKey(block, key) {
  */
 export function effectiveConfig(dshHome, root) {
   /** @type {EffectiveConfig} */
-  let config = { distro: "auto", sessionSandbox: "true", agentBackend: "auto", sandbox: "true", maskWindowsDrive: "false", interopVisibility: "", source: "the shipped preset", overrides: [] };
+  let config = { distro: "auto", sessionSandbox: "true", agentBackend: "auto", sandbox: "true", maskWindowsDrive: "false", interopVisibility: "", writableRoots: [], writableRootsFs: [], source: "the shipped preset", overrides: [] };
   let recognized = false;
   const shipped = readFileSync(join(root, "cordis.patch.yml"), "utf8");
   const preset = rowBlock(shipped, "preset-wsl");
   const routing = rowBlock(shipped, "fs-routing");
+  config.writableRoots = rowList(rowBlock(preset, "wsl-shell"), "writableRoots") ?? [];
+  config.writableRootsFs = rowList(rowBlock(preset, "wsl-fs"), "writableRoots") ?? [];
   const distro = rowKey(preset, "distro");
   const sessionSandbox = rowKey(preset, "sessionSandbox");
   const agentBackend = rowKey(preset, "agentBackend");
@@ -587,6 +634,8 @@ export function effectiveConfig(dshHome, root) {
       sandbox: sandbox ?? "true",
       maskWindowsDrive: maskWindowsDrive ?? "false",
       interopVisibility: rowKey(routing, "interopVisibility") ?? "",
+      writableRoots: config.writableRoots,
+      writableRootsFs: config.writableRootsFs,
       source: "the shipped preset",
       overrides: [],
     };
@@ -603,6 +652,16 @@ export function effectiveConfig(dshHome, root) {
     const next = { ...config };
     const layerPreset = rowBlock(text, "preset-wsl");
     const layerRouting = rowBlock(text, "fs-routing");
+    const layerShellRoots = rowList(rowBlock(layerPreset, "wsl-shell"), "writableRoots");
+    const layerFsRoots = rowList(rowBlock(layerPreset, "wsl-fs"), "writableRoots");
+    if (layerShellRoots !== undefined && JSON.stringify(layerShellRoots) !== JSON.stringify(next.writableRoots)) {
+      next.writableRoots = layerShellRoots;
+      changed.push("writableRoots");
+    }
+    if (layerFsRoots !== undefined && JSON.stringify(layerFsRoots) !== JSON.stringify(next.writableRootsFs)) {
+      next.writableRootsFs = layerFsRoots;
+      changed.push("writableRoots (wsl-fs)");
+    }
     for (const [block, keys] of [[layerPreset, ["distro", "sessionSandbox", "agentBackend", "sandbox"]], [layerRouting, ["sandbox", "maskWindowsDrive"]]]) {
       const source = /** @type {string} */ (block);
       /** The scalar keys the overlay may change; `source`/`overrides` are bookkeeping, not overlay inputs. */
@@ -1331,6 +1390,104 @@ async function main(options) {
           bwrapUsable = true;
         } else check("sandbox.bwrap-usable", "fail", "bubblewrap usability", "installed but the read-only profile failed", "the kernel likely disables unprivileged user namespaces; reinstalling will not help — see docs/LIMITATIONS.md");
       }
+      }
+    }
+
+    // ---- writable roots ------------------------------------------------------
+    // `workspace-write` grants the workspace and the temp areas; the toolchain
+    // caches under `$HOME` need `writableRoots`. The bwrap rows above prove the
+    // fence can run; this row names the extra roots the fence will bind and the
+    // physical-path problems the runtime's one-time check refuses. It reads the
+    // effective profile rows and runs one in-distro stat: it writes nothing and
+    // creates no directory.
+    if (!want("sandbox")) {
+      // sandbox section out of scope
+    } else if (sandboxDisabled) {
+      check("sandbox.grants", "skipped", "Writable roots", "skipped: the sandbox is disabled; no extra roots are bound");
+    } else {
+      const shellRoots = effective.writableRoots;
+      const fsRoots = effective.writableRootsFs;
+      const mismatch = JSON.stringify([...shellRoots].sort()) !== JSON.stringify([...fsRoots].sort());
+      /** @type {string[]} */
+      const configured = [...new Set([...shellRoots, ...fsRoots])];
+      /** Normalize one Linux path the way the runtime's resolver does.
+       * @param {string} root - the raw path.
+       * @returns {string} the absolute normalized path. */
+      const normalize = (root) => {
+        /** @type {string[]} */
+        const parts = [];
+        for (const part of root.split("/")) {
+          if (part.length === 0 || part === ".") continue;
+          if (part === "..") parts.pop();
+          else parts.push(part);
+        }
+        return `/${parts.join("/")}`;
+      };
+      if (configured.length === 0) {
+        check("sandbox.grants", "ok", "Writable roots", "none configured — workspace, /tmp and /dev/shm only; toolchain caches under $HOME need writableRoots");
+      } else {
+        /** @type {string | undefined} */
+        let failure;
+        /** @type {string | undefined} */
+        let remedy;
+        try {
+          validateWritableRootsConfig(shellRoots);
+          validateWritableRootsConfig(fsRoots);
+        } catch (error) {
+          failure = error instanceof Error ? error.message : String(error);
+          remedy = "fix the writableRoots entry on both rows — an absolute Linux path or ~/...; see docs/CONFIGURATION.md#toolchain-caches-and-extra-writable-roots";
+        }
+        /** @type {string[]} */
+        let roots = [];
+        if (failure === undefined) {
+          /** @type {string} */
+          let home = "";
+          if (configured.some((root) => root === "~" || root.startsWith("~/"))) {
+            const homeAnswer = await probe('printf %s "$HOME"');
+            if (homeAnswer.ok) home = homeAnswer.stdout.trim();
+            if (home.length === 0 || !home.startsWith("/")) {
+              failure = "the distro home did not answer, so ~ in writableRoots cannot be resolved";
+              remedy = `run "wsl.exe -d ${target} --exec sh -c 'printf %s \\"$HOME\\"'" and retry`;
+            }
+          }
+          if (failure === undefined) {
+            roots = configured.map((root) => normalize(root === "~" ? home : root.startsWith("~/") ? `${home}/${root.slice(2)}` : root));
+            const answer = await run(writableRootsCheckArgv(WSL, target, roots));
+            if (!answer.ok) {
+              const match = /(\d+)\|(missing|unreadable|symlink)(?: -> (.*))?/u.exec(`${answer.stdout}\n${answer.stderr}`);
+              const index = match === null ? -1 : Number(match[1] ?? -1);
+              const root = roots[index];
+              if (root === undefined) {
+                const first = answer.stderr.trim().split(/\r?\n/u)[0] ?? "";
+                failure = `the writable-root check did not answer${first.length > 0 ? `: ${first.slice(0, 120)}` : ""}`;
+                remedy = "rerun the doctor; if it persists, check that wsl.exe can run a command in the distro";
+              } else {
+                const reason = match?.[2];
+                failure = reason === "missing"
+                  ? `${root} is missing`
+                  : reason === "unreadable"
+                    ? `${root} is unreadable`
+                    : `${root} is a symlink to ${match?.[3] ?? "another path"}`;
+                remedy = reason === "missing"
+                  ? `create the directory inside "${target}" (mkdir -p ${root}) or remove it from writableRoots`
+                  : reason === "unreadable"
+                    ? `make ${root} readable and physically inside "${target}", or remove it from writableRoots`
+                    : `use the physical path ${match?.[3] ?? ""} in writableRoots; symlinked grants are not supported`;
+              }
+            }
+          }
+        }
+        const listed = roots.length === configured.length ? roots : configured;
+        const detail = mismatch
+          ? `wsl-shell: ${shellRoots.length === 0 ? "(none)" : shellRoots.join(", ")}; wsl-fs: ${fsRoots.length === 0 ? "(none)" : fsRoots.join(", ")}`
+          : `${listed.length} root(s): ${listed.join(", ")}`;
+        if (failure !== undefined) {
+          check("sandbox.grants", "warn", "Writable roots", `${detail} — ${failure}`, remedy);
+        } else if (mismatch) {
+          check("sandbox.grants", "warn", "Writable roots", `${detail} — the command and write rows bind different roots`, "put the same writableRoots list on wsl-shell and wsl-fs; see docs/CONFIGURATION.md#toolchain-caches-and-extra-writable-roots");
+        } else {
+          check("sandbox.grants", "ok", "Writable roots", `${detail} — all usable`);
+        }
       }
     }
 

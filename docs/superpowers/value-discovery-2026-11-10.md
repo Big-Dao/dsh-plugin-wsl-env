@@ -18,6 +18,11 @@
 > `interopVisibility: visible` 本就把“用户级写穿”列为 `partial` 的一部分，
 > 不值得为它改变默认行为；其余候选没有新增痛感证据。
 
+> 2026-11-19 后续：R1 草案第 5、6 项已落地（Unreleased）——`pnpm run probe:cache-write`
+> 覆盖 per-command 与 session runtime 两条路径，doctor 新增 `sandbox.grants`
+> （两行 `writableRoots` 的格式与物理检查；`additionalWritableRoots` 的跨世界判定仍在首次使用）。
+> R2 仍未做。
+
 ## 结论
 
 本轮只有一条**有真机证据**的高价值需求（R1）；另有一条已在真机复现、但触发

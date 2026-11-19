@@ -93,6 +93,7 @@ pnpm run sync:windows
 | `pnpm run doctor` | 环境前置项、peer 和缓存（脚本使用 `--json`；`diagnose` 是只读别名） | 否；在发行版内 |
 | `pnpm run probe` | 针对真实发行版的文件系统行为 | 是 |
 | `pnpm run probe:sandbox` | bubblewrap 隔离了什么、没有隔离什么 | 否 |
+| `pnpm run probe:cache-write` | 通过 per-command profile 与 session runtime 验证可写根授权 | 否；在发行版内 |
 | `pnpm run probe:sandbox-shell` | 通过真实启动验证受限执行器 | 是 |
 | `pnpm run probe:interop-shell` | 对盘符可执行文件和复制出的可执行文件进行驻留式与一次性互操作，含/不含 `/mnt` 掩码 | 是 |
 | `pnpm run probe:terminal` | 终端 provider | 是 |
@@ -146,7 +147,7 @@ import 固定版本 `@deepseek-ai/*` 包的测试也进入同样的列表，无�
 
 先运行一次 `pnpm exec playwright install chromium`，再运行测试套件：`pnpm run test:browser`。CI 的 `browser` 任务在 `ubuntu-latest` 上做同样的事；`pnpm test` 不依赖浏览器，因此没有浏览器的检出仍能运行常规检查。
 
-探针是 shell 脚本，外加它们加载的小型插件文件：同目录下的 `*-probe.mjs` 和 `*-probe.yml`。harness 探针包括 `run.sh`、`terminal.sh`、`sandbox-shell.sh`、`interop-shell.sh`、`picker.sh`、`fs-routing.sh`、`missing-wsl.sh` 和 `sandbox-off.sh`，它们使用一次性 profile，其设置记录在 `test/probe/run.sh` 的文件头中。发行版探针（`substrate.sh`、`watch.sh`、`agent.sh`、`exec.sh`）不启动 harness：它们从发行版终端运行，并通过 `wsl.exe` 互操作传输驱动驻留 agent。`sandbox.sh` 和 `mode.sh` 既不需要启动 harness，也不需要 profile。
+探针是 shell 脚本，外加它们加载的小型插件文件：同目录下的 `*-probe.mjs` 和 `*-probe.yml`。harness 探针包括 `run.sh`、`terminal.sh`、`sandbox-shell.sh`、`interop-shell.sh`、`picker.sh`、`fs-routing.sh`、`missing-wsl.sh` 和 `sandbox-off.sh`，它们使用一次性 profile，其设置记录在 `test/probe/run.sh` 的文件头中。发行版探针（`substrate.sh`、`watch.sh`、`agent.sh`、`exec.sh`、`cache-write.sh`）不启动 harness：它们从发行版终端运行，并通过 `wsl.exe` 互操作传输驱动驻留 agent；`cache-write.sh` 还会自行启动一个 session runtime scope 与一个 per-command profile，以验证可写根授权。`sandbox.sh` 和 `mode.sh` 既不需要启动 harness，也不需要 profile。
 
 保持探针输出幂等。若干探针会在开始时删除自己的临时文件，因为早先运行遗留的文件会改变结果。
 

@@ -131,6 +131,13 @@ Rules:
   UNC or Linux spelling), but it applies to the whole profile. When the same
   profile also serves Windows sessions, prefer the plugin key above.
 
+The doctor's `sandbox.grants` row lists both rows' configured roots, the
+`~`-expanded absolute paths, and the physical check result, and warns when the
+two lists differ; it creates no directory and edits no configuration.
+`pnpm run probe:cache-write` proves the same path on a real machine — the
+granted root is writable, an ungranted sibling stays `EROFS` — for both the
+per-command profile and the session runtime.
+
 ### `fs-routing`
 
 This top-level row serves root-level `ctx.fs` calls. It routes distro UNC paths

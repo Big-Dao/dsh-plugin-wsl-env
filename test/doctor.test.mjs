@@ -119,6 +119,7 @@ case "$all" in
   *"--exec sh -c"*)
     case "$all" in
       *'.dsh-doctor-XXXXXXXX'*) printf '%s' "\${FAKE_HOME_PROBE:-ok}" ;;
+      *'printf %s "$HOME"'*) printf '%s' "\${FAKE_DISTRO_HOME:-/home/andy}" ;;
       *'printf %s ok'*)
         if [ "$FAKE_FLAKE" = always ]; then printf 'connection attempt failed because the connected party did not properly respond Wsl/Service/WSAETIMEDOUT\n' >&2; exit 1; fi
         if [ "$FAKE_FLAKE" = once ] && [ ! -f "\${FAKE_STATE_DIR:-/nonexistent}/flake-once" ]; then : > "\${FAKE_STATE_DIR:-/nonexistent}/flake-once"; printf 'connection attempt failed because the connected party did not properly respond Wsl/Service/WSAETIMEDOUT\n' >&2; exit 1; fi
@@ -131,6 +132,12 @@ case "$all" in
         printf 'found inotifywait /usr/bin/inotifywait\\n' ;;
       *'for f in apt-get'*) printf 'apt-get' ;;
       *'apt-get install'*) : > "\${FAKE_STATE_DIR:-/nonexistent}/installed-bwrap"; exit 0 ;;
+      *'wsl-writable-roots'*)
+        case "\${FAKE_GRANTS:-ok}" in
+          missing) printf '0|missing\\n'; exit 3 ;;
+          unreadable) printf '0|unreadable\\n'; exit 4 ;;
+          symlink) printf '0|symlink -> /real/path\\n'; exit 5 ;;
+        esac ;;
       *'command -v bwrap'*) [ -f "\${FAKE_STATE_DIR:-/nonexistent}/installed-bwrap" ] && printf '/usr/bin/bwrap' || { [ "\${FAKE_BWRAP:-yes}" = no ] || printf '/usr/bin/bwrap'; } ;;
       *'bwrap --ro-bind'*)
         case "$all" in
@@ -284,10 +291,45 @@ try {
     assert.equal(bwrap?.status, "warn");
     assert.match(String(bwrap?.detail), /UNCONFINED/);
     assert.equal(report.checks.find((entry) => entry.id === "sandbox.bwrap-usable")?.status, "skipped");
+    assert.equal(report.checks.find((entry) => entry.id === "sandbox.grants")?.status, "skipped");
     assert.equal(report.checks.find((entry) => entry.id === "functional.sandbox")?.status, "skipped");
     assert.equal(report.verdict, "ready", "the opt-out is a warning, not a blocker");
     assert.equal(run.status, 0);
     rmSync(profile, { recursive: true, force: true });
+  });
+
+  await check("sandbox.grants names the configured roots and warns on an unusable one", () => {
+    const profile = join(home, "profiles", "grants");
+    mkdirSync(profile, { recursive: true });
+    try {
+      writeFileSync(join(profile, "cordis.patch.yml"), "- id: preset-wsl\n  config:\n    plugins:\n      - id: wsl-shell\n        config:\n          writableRoots: ['/home/andy/.npm']\n      - id: wsl-fs\n        config:\n          writableRoots: ['/home/andy/.npm']\n");
+      const healthy = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
+      const ok = healthy.checks.find((entry) => entry.id === "sandbox.grants");
+      assert.equal(ok?.status, "ok");
+      assert.match(String(ok?.detail), /home\/andy\/\.npm/);
+      assert.deepEqual(healthy.config?.writableRoots, ["/home/andy/.npm"]);
+
+      const broken = /** @type {Report} */ (JSON.parse(doctor(["--json"], { FAKE_GRANTS: "missing" }).stdout));
+      const warn = broken.checks.find((entry) => entry.id === "sandbox.grants");
+      assert.equal(warn?.status, "warn");
+      assert.match(String(warn?.detail), /missing/);
+      assert.match(String(warn?.detail), /home\/andy\/\.npm/);
+      assert.match(String(warn?.remedy), /mkdir -p/);
+
+      writeFileSync(join(profile, "cordis.patch.yml"), "- id: preset-wsl\n  config:\n    plugins:\n      - id: wsl-shell\n        config:\n          writableRoots: ['/home/andy/.npm']\n      - id: wsl-fs\n        config:\n          writableRoots:\n            - '/home/andy/.cargo'\n");
+      const mismatchReport = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
+      const mismatch = mismatchReport.checks.find((entry) => entry.id === "sandbox.grants");
+      assert.equal(mismatch?.status, "warn");
+      assert.match(String(mismatch?.detail), /different roots/);
+
+      writeFileSync(join(profile, "cordis.patch.yml"), "- id: preset-wsl\n  config:\n    plugins:\n      - id: wsl-shell\n        config:\n          writableRoots: ['~/.npm']\n      - id: wsl-fs\n        config:\n          writableRoots: ['~/.npm']\n");
+      const tildeReport = /** @type {Report} */ (JSON.parse(doctor(["--json"], { FAKE_DISTRO_HOME: "/home/andy" }).stdout));
+      const tilde = tildeReport.checks.find((entry) => entry.id === "sandbox.grants");
+      assert.equal(tilde?.status, "ok");
+      assert.match(String(tilde?.detail), /home\/andy\/\.npm/);
+    } finally {
+      rmSync(profile, { recursive: true, force: true });
+    }
   });
 
   await check("the identity check names a broken passwd entry", () => {

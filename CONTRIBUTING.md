@@ -199,6 +199,7 @@ terminal if you would rather not see the prompt.
 | `pnpm run doctor` | the environment prerequisites, peers and caches (`--json` for scripts; `diagnose` is the read-only alias) | no; inside the distro |
 | `pnpm run probe` | filesystem behaviour against a real distro | yes |
 | `pnpm run probe:sandbox` | what bubblewrap confines and what it does not | no |
+| `pnpm run probe:cache-write` | the writable-root grants through the per-command profile and the session runtime | no; inside the distro |
 | `pnpm run probe:sandbox-shell` | the confined executor through a real boot | yes |
 | `pnpm run probe:interop-shell` | resident and one-shot interop for drive and copied executables, with and without the `/mnt` mask | yes |
 | `pnpm run probe:terminal` | the terminal provider | yes |
@@ -326,9 +327,11 @@ and `*-probe.yml` files in the same directory. Harness probes including `run.sh`
 `terminal.sh`, `sandbox-shell.sh`, `interop-shell.sh`, `picker.sh`,
 `fs-routing.sh`, `missing-wsl.sh` and `sandbox-off.sh` use the throwaway profile
 whose setup is documented in the header of `test/probe/run.sh`. The distro probes
-(`substrate.sh`, `watch.sh`, `agent.sh`, `exec.sh`) boot no harness: they run
-from a distro terminal and drive the resident agent through the `wsl.exe` interop
-transport. `sandbox.sh` and `mode.sh` need neither a harness boot nor a profile.
+(`substrate.sh`, `watch.sh`, `agent.sh`, `exec.sh`, `cache-write.sh`) boot no
+harness: they run from a distro terminal and drive the resident agent through the
+`wsl.exe` interop transport; `cache-write.sh` additionally starts its own session
+runtime scope and a per-command profile to prove the writable-root grants.
+`sandbox.sh` and `mode.sh` need neither a harness boot nor a profile.
 
 Keep probe output idempotent. Several probes delete their scratch files at the
 start, because a leftover file from an earlier run changes the result.

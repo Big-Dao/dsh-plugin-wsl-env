@@ -214,6 +214,7 @@ export const CHECK_CATALOG: readonly string[] = [
   "runtime.scopes",
   "sandbox.bwrap",
   "sandbox.bwrap-usable",
+  "sandbox.grants",
   "session.linger",
   "session.systemd",
   "session.systemd-run",

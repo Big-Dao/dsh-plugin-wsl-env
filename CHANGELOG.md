@@ -37,6 +37,15 @@ were part of the record.
   when `wsl.exe` or the doctor is unavailable; the panel disables it while a
   check is in flight so an answer cannot restore a cleared row.
 
+- **The doctor names the effective `workspace-write` writable roots, and a
+  real-machine probe proves them.** `sandbox.grants` lists the `writableRoots`
+  configured on both nested rows, expands `~`, checks the physical-directory
+  rule, names a missing, unreadable or symlinked root with its remedy, and
+  warns when `wsl-shell` and `wsl-fs` disagree. `pnpm run probe:cache-write`
+  drives the per-command bwrap profile and the session runtime with a temporary
+  cache root: the granted directory is writable and an ungranted sibling stays
+  `EROFS`.
+
 ### Changed
 
 - **The panel's check actions are two fixed buttons: 快速检查 and 完整检查.**

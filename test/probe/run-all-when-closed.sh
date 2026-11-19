@@ -14,7 +14,7 @@
 # --include-fs also runs run.sh, the filesystem-mutation probe (the slowest,
 # and the one that needs the throwaway wslfs profile set up per its header).
 # Without it: the fast behavioural set — the SUITE array below is the
-# authoritative list (16 names plus run.sh under --include-fs). native-session.sh needs
+# authoritative list (18 names plus run.sh under --include-fs). native-session.sh needs
 # the packaged native binary and exercises its own session scope (the app may
 # be running; the probe releases the scope it creates).
 
@@ -32,7 +32,7 @@ LOG="$(mktemp "$SCRATCH/full-probe.XXXXXX.log")"
 
 echo "full probe suite; log: $LOG" >&2
 
-declare -a SUITE=(terminal.sh mode.sh missing-wsl.sh sandbox.sh sandbox-shell.sh interop-shell.sh sandbox-off.sh picker.sh two-distro.sh fs-routing.sh agent.sh agent-restart.sh watch.sh substrate.sh exec.sh native-session.sh auto-preset.sh)
+declare -a SUITE=(terminal.sh mode.sh missing-wsl.sh sandbox.sh cache-write.sh sandbox-shell.sh interop-shell.sh sandbox-off.sh picker.sh two-distro.sh fs-routing.sh agent.sh agent-restart.sh watch.sh substrate.sh exec.sh native-session.sh auto-preset.sh)
 if [ "${1:-}" = "--include-fs" ]; then
   SUITE=("run.sh" "${SUITE[@]}")
 fi

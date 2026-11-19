@@ -369,7 +369,7 @@ peer 投影到安装处的同一份副本，因此镜像与运行中的应用共
 | 文档一致性 | [`scripts/check-doc-consistency.mjs`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/scripts/check-doc-consistency.mjs) | 否；覆盖重复事实、doctor 面与双语对完整性 |
 | 沙箱探针 | [`test/probe/sandbox.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/sandbox.sh) | 否；它直接应用 profile 参数 |
 | Harness 探针 | [`test/probe/run.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/run.sh)、`terminal.sh`、`sandbox-shell.sh`、`interop-shell.sh`、`picker.sh`、`fs-routing.sh`、`missing-wsl.sh`、`sandbox-off.sh`、`native-session.sh` | 是：Windows、WSL2、已挂载的 profile 和链接的检出目录 |
-| 发行版探针 | [`test/probe/substrate.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/substrate.sh)、`watch.sh`、`agent.sh`、`exec.sh`、`session-sandbox.sh`、`gui-preview.sh`、`file-reference-9p.sh` | 需要 Windows 和 WSL2，但不需要启动 harness，也不需要 profile：它们在装有 Node 的发行版终端中运行，经 interop 触达 `wsl.exe` |
+| 发行版探针 | [`test/probe/substrate.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/substrate.sh)、`watch.sh`、`agent.sh`、`exec.sh`、`session-sandbox.sh`、`cache-write.sh`、`gui-preview.sh`、`file-reference-9p.sh` | 需要 Windows 和 WSL2，但不需要启动 harness，也不需要 profile：它们在装有 Node 的发行版终端中运行，经 interop 触达 `wsl.exe` |
 | 宿主探针 | [`test/probe/mode.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/mode.sh) | Windows Node，无 harness |
 | 探针插件 | `test/probe/` 中的 `*-probe.mjs` 与 `*-probe.yml` 文件（以及诸如 `gui-preview.mjs`、`native-session.mjs`、`fs-probe.mjs`、`fs-queue.mjs` 之类的独立测量器） | 由上述脚本加载或调用 |
 

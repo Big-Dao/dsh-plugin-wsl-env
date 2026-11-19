@@ -29,31 +29,57 @@ SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # `cd` on both sides so a symlinked path cannot make the two look identical.
 [ "$(cd "$SRC" && pwd -P)" != "$(cd "$DST" && pwd -P)" ] || { echo "source and destination are the same directory: $SRC" >&2; exit 1; }
 
+# The confined shell's bind of /mnt/c is read-only; a plain terminal or a
+# danger-full-access run sees the host's writable mount. Fail with the remedy
+# instead of letting tar's EROFS surface as a content mismatch.
+WRITE_PROBE="$DST/.dsh-sync-write-probe"
+if ! ( : > "$WRITE_PROBE" ) 2>/dev/null; then
+  echo "sync-to-windows: $DST is not writable; the confined shell sees /mnt/c read-only." >&2
+  echo "sync-to-windows: run with danger-full-access or from a plain distro terminal." >&2
+  exit 1
+fi
+rm -f "$WRITE_PROBE"
+
 # `.scratch` is the probes' own run scratch — including the full suite's live
-# log, which is appended to while this runs. Nothing at runtime reads it and
-# git ignores it, so it is not copied at all.
+# log, which is appended to while this runs. `.v2c` and `.video_agent` are
+# untracked agent artifacts (the former can contain a socket), not part of the
+# plugin. Nothing at runtime reads them, so they are not copied at all.
 #
-# The mirror is a best-effort copy by design ("additive on purpose ... nothing
-# here needs the mirror to be exact") and every probe re-syncs, so a file that
-# changes while tar reads it — GNU tar's exit 1, `file changed as we read it`,
-# observed with the full suite running — is re-copied on the next probe rather
-# than failing this one on `set -e`. A real tar failure (exit 2) and any
-# extraction failure still abort.
+# `/mnt/c` is drvfs: utime, chmod, chown and unlink on the mirror can fail with
+# "Read-only file system" even though the bytes land, and an existing file may
+# be reported as `Cannot open: File exists` when GNU tar tries to replace it.
+# The extraction therefore skips that metadata and does not unlink; the content
+# diff below is the source of truth, so metadata-only tar errors are tolerated
+# while a stale or missing file still fails the sync.
+TAR_ERR="$(mktemp "${TMPDIR:-/tmp}/dsh-sync-tar.XXXXXX")"
+trap 'rm -f "$TAR_ERR"' EXIT
 set +e
-tar -C "$SRC" --exclude=./.git --exclude=./node_modules --exclude=./test/probe/.scratch -cf - . | tar -C "$DST" -xf -
+tar -C "$SRC" --exclude=./.git --exclude=./node_modules --exclude=./test/probe/.scratch --exclude=./.v2c --exclude=./.video_agent -cf - . 2>>"$TAR_ERR" | tar -C "$DST" -xf - --no-overwrite-dir --touch --no-same-owner --no-same-permissions 2>>"$TAR_ERR"
 STATUS=("${PIPESTATUS[@]}")
 set -e
-if [ "${STATUS[1]}" -ne 0 ] || [ "${STATUS[0]}" -gt 1 ]; then
-  echo "sync-to-windows: tar exited ${STATUS[0]}/${STATUS[1]}" >&2
+
+# The mirror is additive: files only in the destination are allowed. A file
+# that the source has but the mirror lacks or differs from is a real failure,
+# even when tar reported only drvfs metadata errors.
+DIFF="$(diff -rq -x .git -x node_modules -x .scratch -x .v2c -x .video_agent "$SRC" "$DST" 2>&1 || true)"
+PROBLEMS="$(printf '%s\n' "$DIFF" | grep -v -F "Only in $DST" || true)"
+if [ -n "$PROBLEMS" ]; then
+  echo "sync-to-windows: content mismatch after copy" >&2
+  printf '%s\n' "$PROBLEMS" >&2
+  if [ -s "$TAR_ERR" ]; then
+    echo "sync-to-windows: tar diagnostics:" >&2
+    head -20 "$TAR_ERR" >&2
+  fi
   exit 1
 fi
 
 echo "synced $SRC -> $DST"
-if diff -rq -x .git -x node_modules "$SRC" "$DST" >/dev/null; then
-  echo "mirror identical"
-else
-  echo "note: the mirror holds files this checkout does not (additive sync never deletes):" >&2
-  # `diff` exits 1 on a difference, which `pipefail` would turn into a failed
-  # sync; the note is informational, so its status is deliberately dropped.
-  { diff -rq -x .git -x node_modules "$SRC" "$DST" || true; } | head -20 >&2
+if [ -s "$TAR_ERR" ]; then
+  echo "sync-to-windows: drvfs metadata warnings ignored (content verified)" >&2
+  head -10 "$TAR_ERR" >&2
 fi
+if printf '%s\n' "$DIFF" | grep -q -F "Only in $DST"; then
+  echo "note: the mirror holds files this checkout does not (additive sync never deletes):" >&2
+  printf '%s\n' "$DIFF" | grep -F "Only in $DST" | head -20 >&2
+fi
+echo "mirror content verified"

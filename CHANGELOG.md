@@ -16,6 +16,16 @@ were part of the record.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`pnpm run sync:windows` verifies the Windows mirror's content and tolerates
+  the drvfs metadata.** The script excludes the untracked agent artifacts
+  (`.v2c`, `.video_agent`), skips the utime/chmod/chown calls the `/mnt/c`
+  mirror rejects, tolerates the additive mirror's extra files, and fails only
+  when a source file is missing or differs. A confined shell's read-only
+  `/mnt/c` now reports the `danger-full-access`/plain-terminal remedy instead
+  of a tar error.
+
 ## [0.27.0] - 2026-11-19
 
 Minor release: harden the opt-in sandbox's process-authority surface and add the diagnostics and panel upgrades around it.

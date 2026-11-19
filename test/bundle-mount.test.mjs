@@ -45,6 +45,7 @@ const EXPECTED_ROWS = [
   "dsh-plugin-wsl-env/fs-routing",
   "dsh-plugin-wsl-env/open-in-app",
   "dsh-plugin-wsl-env/picker",
+  "dsh-plugin-wsl-env/plugin-update",
   "dsh-plugin-wsl-env/preflight",
   "dsh-plugin-wsl-env/shell-env",
   "dsh-plugin-wsl-env/status",
@@ -218,6 +219,7 @@ check("every inserted row imports, applies and stays active", async () => {
     assert.equal(raw(context.get("fs")) instanceof WslRoutingFileSystem, true, "the root filesystem takeover registered");
     assert.equal(raw(context.get("directoryPicker")) instanceof WslDirectoryPicker, true, "the picker takeover registered");
     assert.equal(registeredRoutes.includes("/api/wsl-env/status"), true, "the status row registered its route");
+    assert.equal(registeredRoutes.includes("/api/wsl-env/plugin-update"), true, "the plugin-update row registered its route");
     assert.equal(registeredRoutes.length >= 2, true, "the open-in-app row registered its route too");
     assert.equal(registeredCommands.length, 1, "the /wsl-doctor command registered");
     assert.equal(registeredTools.length >= 1, true, "the cwd-prompt tool row registered its tool");

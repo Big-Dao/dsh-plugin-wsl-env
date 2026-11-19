@@ -23,7 +23,8 @@
 | `./file-reference-wsl` | `traversalArgv`、`parseTraversalListing`、`FileReferenceTraversal`、… | 用于 `@` 补全的发行版侧遍历策略（纯库——已构建并测试，尚未接入行；见 ARCHITECTURE） |
 | `./wsl-doctor-tool` | `wsl-doctor-tool` 行 | `wsl_doctor` 模型工具：带作用域（`depth`、`section`）的进程内诊断 |
 | `./wsl-doctor-command` | `wsl-doctor-command` 行 | `/wsl-doctor` UI 命令：启动独立 doctor CLI，渲染结果不进入模型历史 |
-| `./status` | `wsl-status` 行 | 侧栏面板经 `/api` 的路由：已安装发行版、单个发行版的快速 doctor，以及 `--fix-owned` 完整运行（可修复时修复，否则完整检查）；最近结果跨重载保留，运行中发行版的已存结果在后台刷新 |
+| `./status` | `wsl-status` 行 | 侧栏面板经 `/api` 的路由：已安装发行版、单个发行版的快速 doctor，以及 `--fix-owned` 完整检查（同时修复插件自有状态）；最近结果跨重载保留，运行中发行版的已存结果在后台刷新；`DELETE` 清除单个（`?distro=<名称>`）或全部已存结果，不枚举、不探测发行版 |
+| `./plugin-update` | `wsl-plugin-update` 行 | 面板经 `/api` 的版本与升级路由：已安装/运行中的插件版本、最新的可安装稳定版及其兼容性，以及点击确认后的一键 `updateBundle` |
 | `./paths` | `uncToPosix`、`toLinuxPath`、`toWorldPath`、… | 坐标映射器 |
 | `./picker` | `WslDirectoryPicker` | 能感知发行版的目录选择器 |
 | `./auto-preset` | `auto-preset` 行 | 首次运行的 profile 引导 |

@@ -10,8 +10,9 @@
  * the host's `pluginManager` for this package's version list and, when the
  * stable channel has moved, publishes one fact. Applying the update stays a
  * user action — a plugin that silently replaces its own code under a running
- * harness is a posture this plugin rejects, and the harness has no HMR, so
- * even a correct swap needs a restart to take effect.
+ * harness is a posture this plugin rejects. The sidebar's plugin-update row
+ * exposes the same answer and a confirmed one-click upgrade; this module owns
+ * the check itself and the fact the shell-env row serves.
  *
  * Delegation is the whole network story: the check spawns nothing and fetches
  * nothing itself. `pluginManager` is read with `ctx.get`, the sanctioned read
@@ -33,7 +34,7 @@ import type { Context } from "@deepseek-ai/cordis";
 export const name = "wsl-update-check";
 
 /** The checked package: this plugin, by its npm name. */
-const PACKAGE = "dsh-plugin-wsl-env";
+export const PACKAGE = "dsh-plugin-wsl-env";
 
 /** The interval the row ships with. */
 export const DEFAULT_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -56,7 +57,7 @@ interface UpdateCheckConfig {
 }
 
 /** One published version, reduced to what the fact reads (host plugin-manager types). */
-interface ListedVersion {
+export interface ListedVersion {
   readonly version: string;
   readonly publishedAt?: string;
   readonly tags: readonly string[];
@@ -75,7 +76,7 @@ export type VersionList =
   | {
     readonly status: "listed";
     readonly installed: string;
-    readonly registry: string;
+    readonly registry: string | null;
     readonly attempts: readonly unknown[];
     /** Published versions newer than `installed`, newest first. */
     readonly versions: readonly ListedVersion[];
@@ -86,6 +87,36 @@ export type VersionList =
     readonly problem: "not-updatable" | "not-found" | "network" | "unknown";
     readonly reason: string;
     readonly attempts: readonly unknown[];
+  };
+
+/** Why a check could not produce a version list. */
+export type VersionProblem = "no-manager" | Extract<VersionList, { status: "refused" }>["problem"];
+
+/**
+ * What one version check learned, for the panel's version card. Unlike
+ * {@link UpdateFact}, this keeps the "up to date" answer and the reasons a
+ * check learned nothing, so the panel can say which of the three happened.
+ */
+export type VersionCheck =
+  | {
+    readonly status: "available";
+    readonly installed: string;
+    readonly checkedAt: number;
+    readonly registry: string | null;
+    readonly latest: ListedVersion;
+  }
+  | {
+    readonly status: "current";
+    readonly installed: string;
+    readonly checkedAt: number;
+    readonly registry: string | null;
+  }
+  | {
+    readonly status: "unavailable";
+    readonly installed: string;
+    readonly checkedAt: number;
+    readonly problem: VersionProblem;
+    readonly reason: string;
   };
 
 /**
@@ -184,42 +215,102 @@ export function updateTarget(list: Extract<VersionList, { status: "listed" }>): 
 }
 
 /**
- * Run one check against the host's plugin-manager and publish the fact.
+ * Run one version check and publish (or clear) the shell-environment fact.
  *
- * Every non-answer is quiet by design: a missing manager, a linked checkout
- * (`not-updatable`), a registry the host cannot reach (`network`), or a stable
- * channel that has not moved all leave the previous fact (or none) standing —
- * an update check must never become the noisiest thing in the app.
+ * The fact is the only observable for the periodic check, so the three
+ * outcomes are handled together: an available target publishes it, an
+ * up-to-date list clears a stale one, and a non-answer (no manager, a refused
+ * list, a throwing service) leaves the previous fact standing. A check must
+ * never become the noisiest thing in the app, so none of these throws.
+ *
+ * @param manager - the host plugin-manager, or undefined when the host has none.
+ * @param installed - the installed version to name when the host has no manager.
+ * @param now - the check's timestamp, injectable for tests.
+ * @returns what the check learned.
+ */
+export async function inspectVersions(
+  manager: PluginManagerSlice | undefined,
+  installed: string,
+  now: number = Date.now(),
+): Promise<VersionCheck> {
+  if (manager === undefined) {
+    return {
+      status: "unavailable",
+      installed,
+      checkedAt: now,
+      problem: "no-manager",
+      reason: "the host has no plugin-manager",
+    };
+  }
+  let list: VersionList;
+  try {
+    list = await manager.listVersions(PACKAGE);
+  } catch (error) {
+    // `listVersions` resolves refusals into its result; a throw means the
+    // service itself is broken. The next tick retries; nothing is published.
+    return {
+      status: "unavailable",
+      installed,
+      checkedAt: now,
+      problem: "unknown",
+      reason: messageOf(error),
+    };
+  }
+  if (list.status !== "listed") {
+    // A linked checkout (`not-updatable`), an unreachable registry, or an
+    // unreadable listing is not news; the previous fact stays.
+    return {
+      status: "unavailable",
+      installed,
+      checkedAt: now,
+      problem: list.problem,
+      reason: list.reason,
+    };
+  }
+  const target = updateTarget(list);
+  if (target !== undefined) {
+    const next: UpdateFact = {
+      installed: list.installed,
+      latest: target.version,
+      ...(target.publishedAt === undefined ? {} : { publishedAt: target.publishedAt }),
+      incompatible: target.incompatible !== undefined,
+      ...(target.deprecated === undefined ? {} : { deprecated: target.deprecated }),
+      checkedAt: now,
+    };
+    setUpdateFact(next);
+    return { status: "available", installed: list.installed, checkedAt: now, registry: list.registry, latest: target };
+  }
+  // A `latest` tag the update could not install is a registry state worth
+  // naming: saying "up to date" would imply the installed version is newest.
+  const latest = list.versions.find((version) => version.tags.includes("latest"));
+  if (latest !== undefined && !latest.bundle) {
+    setUpdateFact(undefined);
+    return {
+      status: "unavailable",
+      installed: list.installed,
+      checkedAt: now,
+      problem: "unknown",
+      reason: `the registry's latest release ${latest.version} declares no dsh.bundle`,
+    };
+  }
+  setUpdateFact(undefined);
+  return { status: "current", installed: list.installed, checkedAt: now, registry: list.registry };
+}
+
+/** The error text behind an unknown thrown value. */
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Run one check against the host's plugin-manager and publish the fact.
  *
  * @param manager - the host plugin-manager, or undefined when the host has none.
  * @returns the published fact, or undefined when the check learned nothing.
  */
 export async function checkForUpdate(manager: PluginManagerSlice | undefined): Promise<UpdateFact | undefined> {
-  if (manager === undefined) return undefined;
-  let list: VersionList;
-  try {
-    list = await manager.listVersions(PACKAGE);
-  } catch {
-    // `listVersions` resolves refusals into its result; a throw means the
-    // service itself is broken. The next tick retries; nothing is published.
-    return undefined;
-  }
-  if (list.status !== "listed") return undefined;
-  const target = updateTarget(list);
-  if (target === undefined) {
-    setUpdateFact(undefined);
-    return undefined;
-  }
-  const next: UpdateFact = {
-    installed: list.installed,
-    latest: target.version,
-    ...(target.publishedAt === undefined ? {} : { publishedAt: target.publishedAt }),
-    incompatible: target.incompatible !== undefined,
-    ...(target.deprecated === undefined ? {} : { deprecated: target.deprecated }),
-    checkedAt: Date.now(),
-  };
-  setUpdateFact(next);
-  return next;
+  const check = await inspectVersions(manager, "unknown");
+  return check.status === "available" ? currentUpdateFact() : undefined;
 }
 
 /**

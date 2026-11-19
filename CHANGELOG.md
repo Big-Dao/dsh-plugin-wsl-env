@@ -16,6 +16,36 @@ were part of the record.
 
 ## [Unreleased]
 
+### Added
+
+- **The WSL environment panel now shows the plugin's version and upgrades it
+  in one click.** A **插件版本** card reports the installed and running
+  versions, asks the host's plugin manager (`listVersions`) for the newest
+  installable stable release, and labels a newer compatible release with a
+  reminder. **一键升级** posts to the new `wsl-plugin-update` route, which calls
+  the host's `updateBundle` only after that click; the panel reports
+  `applied`, `restart-required`, rollback, pending build scripts, and a
+  `not-updatable`/old-host fallback instead of claiming success. The route
+  caches its read for `wsl-plugin-update.cacheMs` (ten minutes by default), and
+  the periodic check remains read-only.
+
+- **The WSL environment panel clears stored check results.** Each checked row
+  offers **清除** and the card offers **清除全部**: both `DELETE`
+  `/api/wsl-env/status` (with or without `?distro=<name>`), which drops the
+  in-memory and persisted verdict so the next load shows "not checked" again.
+  Clearing is host-local — it lists and probes no distro — so it still works
+  when `wsl.exe` or the doctor is unavailable; the panel disables it while a
+  check is in flight so an answer cannot restore a cleared row.
+
+### Changed
+
+- **The panel's check actions are two fixed buttons: 快速检查 and 完整检查.**
+  No row relabels its action to **重新检查** after a result, and the full run
+  no longer appears as **修复** when it can repair plugin-owned state. Both
+  buttons are present before and after a check, and every click runs the doctor
+  again; **完整检查** still performs the `--fix-owned` run and shows its
+  before → after rows.
+
 ## [0.26.4] - 2026-11-18
 
 Patch release: bound a wedged resident agent's request, localize the remaining

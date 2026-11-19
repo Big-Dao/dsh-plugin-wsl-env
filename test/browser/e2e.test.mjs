@@ -231,6 +231,42 @@ test("the browser panel lists the recorded Windows-access directories", async ()
   }
 });
 
+test("the browser panel offers the one-click upgrade and reports the result", async () => {
+  const page = await open();
+  try {
+    await render(page, {
+      slots: ["panel"],
+      status: { distros: [], cached: [], running: [] },
+      plugin: {
+        installed: "0.26.4",
+        running: "0.26.4",
+        status: "available",
+        checkedAt: 1,
+        cached: false,
+        updateSupported: true,
+        canUpdate: true,
+        latest: {
+          version: "0.27.0",
+          tags: ["latest"],
+          prerelease: false,
+          bundle: true,
+          publishedAt: "2026-11-19T00:00:00.000Z",
+        },
+      },
+    });
+    await page.getByText("插件新版本 0.27.0 可用", { exact: true }).waitFor({ state: "visible" });
+    await page.getByRole("button", { name: "一键升级", exact: true }).click();
+    await page.getByText("已升级到 0.27.0；刷新页面后加载新版本的面板。", { exact: true }).waitFor({ state: "visible" });
+    const callsNow = await calls(page);
+    assert.ok(
+      callsNow.fetches.some((entry) => entry.url === "/api/wsl-env/plugin-update" && entry.method === "POST"),
+      "the click posted to the upgrade route",
+    );
+  } finally {
+    await page.close();
+  }
+});
+
 test("the browser keeps the warning when the settings read throws", async () => {
   const page = await open();
   try {
@@ -342,7 +378,22 @@ test("the browser panel renders a blocked verdict, its rows and its remedies", a
     await page.getByText("待修项（1）", { exact: true }).waitFor({ state: "visible" });
     await page.getByText("sandbox.bwrap", { exact: true }).first().waitFor({ state: "visible" });
     await page.getByText("可自动修复", { exact: true }).waitFor({ state: "visible" });
-    await page.getByRole("button", { name: "修复", exact: true }).waitFor({ state: "visible" });
+    await page.getByRole("button", { name: "快速检查", exact: true }).waitFor({ state: "visible" });
+    await page.getByRole("button", { name: "完整检查", exact: true }).waitFor({ state: "visible" });
+    assert.equal(await page.getByRole("button", { name: "重新检查", exact: true }).count(), 0, "the quick action keeps its name after a result");
+    assert.equal(await page.getByRole("button", { name: "修复", exact: true }).count(), 0, "the full action is labeled as a check");
+    await page.getByRole("button", { name: "快速检查", exact: true }).click();
+    await page.waitForFunction(() => {
+      const e2e = /** @type {any} */ (globalThis).__E2E__;
+      const fetches = /** @type {Array<{ url: string }>} */ (e2e.records.fetches);
+      return fetches.filter((entry) => entry.url.endsWith("refresh=1")).length === 1;
+    });
+    await page.getByRole("button", { name: "快速检查", exact: true }).click();
+    await page.waitForFunction(() => {
+      const e2e = /** @type {any} */ (globalThis).__E2E__;
+      const fetches = /** @type {Array<{ url: string }>} */ (e2e.records.fetches);
+      return fetches.filter((entry) => entry.url.endsWith("refresh=1")).length === 2;
+    });
     await page.getByText("查看检查详情（2 项）", { exact: true }).click();
     await page.getByText(/处理：安装 bubblewrap/).waitFor({ state: "visible" });
     const callsNow = await calls(page);
@@ -352,7 +403,48 @@ test("the browser panel renders a blocked verdict, its rows and its remedies", a
   }
 });
 
-test("the browser repair action posts the full run and renders its before/after rows", async () => {
+test("the browser clears one distro's verdict and then all of them", async () => {
+  const page = await open();
+  try {
+    const debian = { ...BLOCKED_VIEW, distro: "Debian" };
+    await render(page, {
+      slots: ["panel"],
+      paths: [],
+      status: { distros: ["Ubuntu", "Debian"], running: [], cached: [BLOCKED_VIEW, debian] },
+    });
+    const rowClear = page.getByRole("button", { name: "清除", exact: true });
+    assert.equal(await rowClear.count(), 2, "each checked row offers clear");
+    await rowClear.first().click();
+    await page.getByText("已清除 Ubuntu 的检测结果；需要时可再次检查。", { exact: true }).waitFor({ state: "visible" });
+    assert.equal(await page.getByRole("button", { name: "清除", exact: true }).count(), 1, "Debian keeps its result");
+    await page.getByText("尚未检查：点击“快速检查”（约 10 秒）或“完整检查”；两者都会启动停止的发行版。", { exact: true }).waitFor({ state: "visible" });
+    await page.getByRole("button", { name: "清除全部", exact: true }).click();
+    await page.getByText("已清除全部检测结果（1 项）；发行版需要再次检查。", { exact: true }).waitFor({ state: "visible" });
+    assert.equal(await page.getByRole("button", { name: "清除", exact: true }).count(), 0, "no row has a verdict left");
+    assert.equal(
+      await page.getByText("尚未检查：点击“快速检查”（约 10 秒）或“完整检查”；两者都会启动停止的发行版。", { exact: true }).count(),
+      2,
+      "both rows return to the unchecked state",
+    );
+    assert.equal(await page.getByRole("button", { name: "快速检查", exact: true }).count(), 2, "both rows offer quick check");
+    assert.equal(await page.getByRole("button", { name: "完整检查", exact: true }).count(), 2, "both rows offer full check");
+    assert.equal(await page.getByRole("button", { name: "检查", exact: true }).count(), 0, "there is no generic check button");
+    assert.ok(await page.getByRole("button", { name: "清除全部", exact: true }).isDisabled(), "clear-all is disabled without results");
+    const callsNow = await calls(page);
+    assert.ok(
+      callsNow.fetches.some((entry) => entry.url === "/api/wsl-env/status?distro=Ubuntu" && entry.method === "DELETE"),
+      "the row clear deletes the named distro",
+    );
+    assert.ok(
+      callsNow.fetches.some((entry) => entry.url === "/api/wsl-env/status" && entry.method === "DELETE"),
+      "clear-all deletes every stored verdict",
+    );
+  } finally {
+    await page.close();
+  }
+});
+
+test("the browser full-check action posts the full run and runs again on a second click", async () => {
   const page = await open();
   try {
     const repaired = {
@@ -376,14 +468,19 @@ test("the browser repair action posts the full run and renders its before/after 
       statusFor: { Ubuntu: BLOCKED_VIEW },
       repair: repaired,
     });
-    await page.getByRole("button", { name: "修复", exact: true }).click();
-    await page.getByText("已在 Ubuntu 修复 1 项；复检通过。", { exact: true }).waitFor({ state: "visible" });
+    await page.getByRole("button", { name: "完整检查", exact: true }).click();
+    await page.getByText("完整检查完成：已在 Ubuntu 修复 1 项；复检通过。", { exact: true }).waitFor({ state: "visible" });
     await page.getByText(/removed 1 stale scope/).waitFor({ state: "visible" });
-    await page.getByRole("button", { name: "完整检查", exact: true }).waitFor({ state: "visible" });
+    await page.getByRole("button", { name: "完整检查", exact: true }).click();
+    await page.waitForFunction(() => {
+      const e2e = /** @type {any} */ (globalThis).__E2E__;
+      const fetches = /** @type {Array<{ method: string }>} */ (e2e.records.fetches);
+      return fetches.filter((entry) => entry.method === "POST").length === 2;
+    });
     const callsNow = await calls(page);
-    const post = callsNow.fetches.find((entry) => entry.method === "POST");
-    assert.ok(post, "the repair posted the full run");
-    assert.equal(post.url, "/api/wsl-env/status?distro=Ubuntu", "the POST names the distro");
+    const posts = callsNow.fetches.filter((entry) => entry.method === "POST");
+    assert.equal(posts.length, 2, "the full action re-runs on every click");
+    assert.equal(posts[0]?.url, "/api/wsl-env/status?distro=Ubuntu", "the POST names the distro");
   } finally {
     await page.close();
   }

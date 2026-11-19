@@ -167,17 +167,32 @@
     # installed distros and, for one named distro, runs the quick doctor CLI
     # and returns its digested verdict; `POST` on the same route runs the full
     # doctor with `--fix-owned` (stale scopes and a broken agent cache only,
-    # both re-verified) and answers with the fix rows. The route rides the
-    # authenticated /api channel (`ctx.connection.fetch`), so only the owner
-    # browser reads it; a composition without the Web connection leaves this
-    # row inert. Probing a stopped distro boots it, so a check or repair only
-    # ever starts from an explicit click — never from listing.
+    # both re-verified) and answers with the fix rows. `DELETE` clears one
+    # named distro's stored verdict, or every stored verdict when no distro is
+    # named; clearing is local and never lists or probes distros. The route
+    # rides the authenticated /api channel (`ctx.connection.fetch`), so only
+    # the owner browser reads it; a composition without the Web connection
+    # leaves this row inert. Probing a stopped distro boots it, so a check or
+    # repair only ever starts from an explicit click — never from listing.
     - id: wsl-status
       name: 'dsh-plugin-wsl-env/status'
       config:
         cacheMs: 15000
         timeoutMs: 90000
         wslPath: wsl.exe
+
+    # Version information and one-click upgrade for the same sidebar panel.
+    # The route answers with the installed/running plugin versions, the latest
+    # stable release that can replace them, and the last check's outcome; the
+    # host's plugin-manager owns the registry lookup (`listVersions`) and the
+    # install (`updateBundle`). A click in the panel is the only thing that
+    # starts an update — the row never upgrades on its own. The update installs
+    # the new package and lets the host's HMR/restart policy decide when it
+    # takes effect; the panel reports restart-required and rollback outcomes.
+    - id: wsl-plugin-update
+      name: 'dsh-plugin-wsl-env/plugin-update'
+      config:
+        cacheMs: 600000
 
     # The human-facing `/wsl-doctor` command (the composer button's target):
     # registered globally so any session can run the diagnosis, not only WSL
@@ -256,11 +271,12 @@
     # Update check: on a slow timer (first check 2-10 minutes after boot, then
     # once a day) ask the host's plugin-manager whether a newer stable release
     # of this package exists, and publish one fact the shell-env row serves as
-    # DSH_WSL_PLUGIN_UPDATE. Advisory only: it never installs, never fetches on
-    # its own (the host's plugin-manager does the registry work), and a host
-    # without the service — or a bundle loaded from a linked checkout — skips
-    # the check quietly. Upgrading stays manual; the harness has no HMR, so a
-    # fresh version needs a restart to take effect.
+    # DSH_WSL_PLUGIN_UPDATE. Delegated only: it never fetches the registry on
+    # its own (the host's plugin-manager does the registry work) and never
+    # installs; the one-click upgrade is the separate wsl-plugin-update row's
+    # explicit POST. A host without the service — or a bundle loaded from a
+    # linked checkout — skips the check quietly. A fresh version takes effect
+    # after HMR or the next DSH restart, as the host reports.
     - id: wsl-update-check
       name: 'dsh-plugin-wsl-env/update-check'
       config:

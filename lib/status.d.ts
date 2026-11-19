@@ -1,5 +1,5 @@
 /**
- * The sidebar panel's diagnostic route (`GET`/`POST /api/wsl-env/status`).
+ * The sidebar panel's diagnostic route (`GET`/`POST`/`DELETE /api/wsl-env/status`).
  *
  * The panel is a status/config surface, and the authoritative environment
  * verdict is the doctor's. A browser plugin cannot reach a plugin-private Host
@@ -7,26 +7,32 @@
  * it can reach an **authenticated exact Fetch route** on the `/api` channel:
  * `ctx.connection.fetch.register` is the same seam the shipped Session-log and
  * file routes use, it admits only the owner Peer, and it needs no generated
- * wire schema. This row therefore publishes two answers:
+ * wire schema. This row therefore publishes three answers:
  *
  *   - `GET /api/wsl-env/status` — the installed distros (from `wsl.exe -l -q`,
  *     which starts nothing) plus the last successful verdict per distro,
  *     restored from the store below;
  *   - `GET /api/wsl-env/status?distro=<name>` — one distro's quick doctor
  *     report, digested to the same shape the `/wsl-doctor` command renders;
- *   - `POST /api/wsl-env/status?distro=<name>` — the panel's repair action: a
- *     full doctor run with `--fix-owned`, which sweeps stale session scopes
+ *   - `POST /api/wsl-env/status?distro=<name>` — the panel's full-check action:
+ *     a full doctor run with `--fix-owned`, which sweeps stale session scopes
  *     and purges a broken agent cache, then re-verifies both and answers with
  *     the same digest plus the `fix.*` rows. Nothing outside the plugin's own
  *     state is touched (no packages, no Windows git config), so the panel
- *     stays a diagnostic surface that can heal its own residue.
+ *     stays a diagnostic surface that can heal its own residue;
+ *   - `DELETE /api/wsl-env/status[?distro=<name>]` — the panel's clear action:
+ *     drops one distro's stored verdict, or every stored verdict when no distro
+ *     is named, and answers `{ cleared: <count> }`. Clearing is host-local on
+ *     purpose: it reads no distro list and probes nothing, so it still works
+ *     while `wsl.exe` or the doctor is unavailable. The next GET runs the
+ *     doctor again instead of serving a removed entry.
  *
  * The doctor runs as the standalone CLI subprocess, exactly as the command row
  * runs it, so a diagnosis still answers when the plugin's own module graph is
  * what is broken. Runs are cached per distro for `cacheMs`; `refresh=1` drops
  * the entry. A check is only ever started by an explicit click in the panel:
  * probing a stopped distro boots it, which a page load must not do to every
- * installed distro.
+ * installed distro. Clearing starts nothing.
  *
  * The last result per distro — success or failure — is persisted to
  * `$DSH_HOME/cache/dsh-plugin-wsl-env/status.json` (falling back to `~/.dsh`),
@@ -34,7 +40,7 @@
  * when. `source` records whether that run came from an explicit panel action
  * or from the page-load background refresh; a failed background run overwrites
  * the stored result exactly as it was observed. Results are never labeled
- * expired: the timestamp is the timestamp, and the row's check button is the
+ * expired: the timestamp is the timestamp, and the row's check buttons are the
  * next step. Writing is best-effort — a read-only home degrades to the
  * in-memory cache rather than failing the diagnosis.
  *
@@ -119,7 +125,7 @@ export interface DistroStatusView {
     distro: string;
     /** `ready` and `blocked` come from the report; `error` means the run failed. */
     verdict: "ready" | "blocked" | "error";
-    /** Whether this answer came from the repair action (a full `--fix-owned` run). */
+    /** Whether this answer came from the full-check action (a full `--fix-owned` run). */
     repaired: boolean;
     /** The doctor's fix rows: what the repair did and whether it verified. */
     repairs: StatusRepair[];
@@ -189,6 +195,13 @@ export interface DistroListReply {
     running: string[];
     /** The last stored verdict per installed distro, complete so a reload keeps its details. */
     cached: DistroStatusView[];
+}
+/** The answer to a clear request. */
+export interface ClearReply {
+    /** How many stored verdicts the request removed; 0 when the entry was already absent. */
+    cleared: number;
+    /** The distro whose verdict was removed; absent when every stored verdict was removed. */
+    distro?: string;
 }
 /** The route handler this module publishes. */
 export type StatusHandler = (request: Request) => Promise<Response>;

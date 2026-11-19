@@ -137,7 +137,7 @@ const en = {
 
   /** `wsl-status`: the route's method guard. */
   statusMethodNotAllowed: (): string =>
-    "Only GET and POST are supported",
+    "Only GET, POST and DELETE are supported",
   /** `wsl-status`: `wsl.exe -l -q` did not answer. */
   statusDistroListFailed: ({ detail }: { detail: string }): string =>
     `Cannot read the distro list: ${detail}`,
@@ -325,7 +325,7 @@ const zh: typeof en = {
     `不要在此假设 Linux 命令、路径或工具；操作者可运行 /wsl-doctor 诊断该 profile。`,
 
   statusMethodNotAllowed: () =>
-    "只支持 GET 与 POST",
+    "只支持 GET、POST 与 DELETE",
   statusDistroListFailed: ({ detail }) =>
     `无法读取发行版清单：${detail}`,
   statusRepairNeedsDistro: () =>

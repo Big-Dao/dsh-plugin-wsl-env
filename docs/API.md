@@ -24,7 +24,8 @@ this page is the quick tour.
 | `./file-reference-wsl` | `traversalArgv`, `parseTraversalListing`, `FileReferenceTraversal`, … | the distro-side traversal strategy for `@` completion (pure library — built and tested, not yet wired to a row; see ARCHITECTURE) |
 | `./wsl-doctor-tool` | the `wsl-doctor-tool` row | the `wsl_doctor` model tool: in-process diagnosis with scoping (`depth`, `section`) |
 | `./wsl-doctor-command` | the `wsl-doctor-command` row | the `/wsl-doctor` UI command: spawns the standalone doctor CLI, renders detached from model history |
-| `./status` | the `wsl-status` row | the sidebar panel's route over `/api`: installed distros, one distro's quick doctor, and the `--fix-owned` full run (repair when repairable, full check otherwise); the last result persists across reloads and running distros' stored results refresh in the background |
+| `./status` | the `wsl-status` row | the sidebar panel's route over `/api`: installed distros, one distro's quick doctor, and the `--fix-owned` full check (which also repairs plugin-owned state); the last result persists across reloads and running distros' stored results refresh in the background; `DELETE` clears one stored result (`?distro=<name>`) or every result without enumerating or probing a distro |
+| `./plugin-update` | the `wsl-plugin-update` row | the panel's version and upgrade route over `/api`: installed/running plugin versions, the newest installable stable release and its compatibility, and the confirmed one-click `updateBundle` action |
 | `./paths` | `uncToPosix`, `toLinuxPath`, `toWorldPath`, … | the coordinate mappers |
 | `./picker` | `WslDirectoryPicker` | the distro-aware directory picker |
 | `./auto-preset` | the `auto-preset` row | first-run profile bootstrap |

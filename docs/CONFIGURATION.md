@@ -12,10 +12,11 @@ rows and values shipped by this plugin.
 A profile layer can target a top-level row by `id`. Plugin rows at that level
 include `fs-routing`, `directory-picker-wsl`, `subprocess-wsl`, `wsl-shell-env`,
 `wsl-preflight`, `auto-preset`, `wsl-cwd-prompt`, `wsl-cwd-prompt-tool`,
-`wsl-update-check`, `wsl-doctor-command`, `wsl-status`, `wsl-env-client-host`, and
-`preset-wsl`. The `wsl-shell`, `wsl-fs` and `wsl-doctor-tool` rows are nested
-inside `preset-wsl.config.plugins`; a profile entry targeting those ids directly
-is ignored with a `patch: entry <id> not found` warning.
+`wsl-update-check`, `wsl-doctor-command`, `wsl-status`, `wsl-plugin-update`,
+`wsl-env-client-host`, and `preset-wsl`. The `wsl-shell`, `wsl-fs` and
+`wsl-doctor-tool` rows are nested inside `preset-wsl.config.plugins`; a profile
+entry targeting those ids directly is ignored with a `patch: entry <id> not
+found` warning.
 
 A root-level `- id: wsl-shell` / `wsl-fs` entry patches a top-level row that
 does not exist in the shipped composition, so it is ignored with a warning.
@@ -200,8 +201,9 @@ takes no configuration.
 | `wsl-shell-env` | `distro` | `''` | Distro used to populate the `DSH_WSL_*` environment facts. |
 | | `portsRefreshMs` | `10000` | Listening-port snapshot interval, in milliseconds. |
 | `wsl-cwd-prompt` | `enabled` | `true` (shipped) | Rewrite the runtime context's working-directory entry to the distro's POSIX form. |
-| `wsl-update-check` | `enabled` | `true` | Whether the plugin checks the app's plugin manager for a newer stable release. The result is served as `DSH_WSL_PLUGIN_UPDATE`; the check never installs. |
+| `wsl-update-check` | `enabled` | `true` | Whether the plugin checks the app's plugin manager for a newer stable release. The result is served as `DSH_WSL_PLUGIN_UPDATE`; the background check never installs (the panel's one-click upgrade is a separate explicit POST). |
 | | `intervalMs` | `86400000` | Check interval, in milliseconds (first check 2–10 minutes after startup); floored at one minute. |
+| `wsl-plugin-update` | `cacheMs` | `600000` | How long the panel's version answer stays fresh, in milliseconds. The card shows the installed/running plugin versions and the newest installable stable release; **一键升级** calls the host plugin manager's `updateBundle` only on a click. |
 
 The GUI file tree and previews use the bundled `workspace-files` row through
 `fs-routing`; they do not use a separate WSL provider row. To change its
@@ -445,7 +447,7 @@ error-code map. Whether a row override applied, read from the profile's
 `cordis.patch.yml` and the Plugins page: the desktop app has no `dsh` command,
 so the composed profile has no command-line view.
 The sidebar's **WSL environment** panel renders the same quick digest over
-`GET /api/wsl-env/status` and posts the full-run action to the same route: a
+`GET /api/wsl-env/status` and posts the full-check action to the same route: a
 doctor run with `--fix-owned`, which sweeps stale session scopes and purges a
 broken agent cache, then re-verifies both. Each row states when the check ran, its source (manual or background) and its
 result structure (per-status totals and per-section tallies). The last result
@@ -453,11 +455,20 @@ per distro is stored at `$DSH_HOME/cache/dsh-plugin-wsl-env/status.json`
 (`~/.dsh/...` when the host names no home), so a page reload or app restart
 still shows it. On load, a stored result for a distro that is currently
 running is re-checked in the background; a failed background run overwrites
-the stored result. Nothing is labeled expired — delete the file to reset the
-panel's history. The label follows the report: **修复** when
-such a repairable finding is present, **完整检查** otherwise; every other
-warning keeps its manual remedy. It never installs packages or rewrites
-Windows-owned or user configuration.
+the stored result. Nothing is labeled expired — each checked row offers
+**清除** and the card offers **清除全部**; both `DELETE` the same route
+(optionally with `?distro=`) to drop the stored verdict without enumerating,
+probing or modifying a distro. Deleting the file still resets the panel's
+history equivalently. Every row offers **快速检查** and **完整检查**: the
+latter is the full doctor with `--fix-owned`, which repairs plugin-owned state
+(stale session scopes or a broken agent cache) and re-verifies it. Both keep
+their names after a result and run again on every click; every other warning
+keeps its manual remedy. It never installs packages or rewrites Windows-owned
+or user configuration.
+Above the distro rows, the **Plugin version** card reads the installed and
+running plugin versions and the newest installable stable release; its
+**一键升级** button posts to `/api/wsl-env/plugin-update`, and only that click
+asks the host plugin manager's `updateBundle` to install.
 Use `scripts/bootstrap.sh <distro>` to inspect distro prerequisites.
 
 | Symptom | Result | Action |

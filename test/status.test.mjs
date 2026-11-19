@@ -1,14 +1,15 @@
 // status.test.mjs — the sidebar panel's diagnostic route.
 //
 // The route is the panel's only Host data channel: a list answer, a
-// per-distro quick-doctor answer, and the repair action (a full
-// `--fix-owned` doctor run). These checks pin the wire shape the client
-// consumes, the cache/refresh policy (a check boots a stopped distro, so it
-// must run only when asked), the failure posture, and the registration that
-// makes the route reachable at all.
+// per-distro quick-doctor answer, the repair action (a full `--fix-owned`
+// doctor run), and the clear action (a local `DELETE` that never probes).
+// These checks pin the wire shape the client consumes, the cache/refresh
+// policy (a check boots a stopped distro, so it must run only when asked),
+// the failure posture, and the registration that makes the route reachable at
+// all.
 
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -303,8 +304,9 @@ await check("a repair POST naming an unknown distro is refused before anything r
 
 await check("an unsupported method is refused", async () => {
   const { handler, calls } = handlerFor();
-  const { status } = await send(handler, "", "DELETE");
+  const { status, body } = await send(handler, "", "PUT");
   assert.equal(status, 405);
+  assert.match(body.error, /GET, POST and DELETE/);
   assert.equal(calls.length, 0);
 });
 
@@ -351,6 +353,59 @@ await check("the last successful result survives a handler reload (page refresh)
   const stored = JSON.parse(readFileSync(statePath, "utf8"));
   assert.equal(stored.version, 1);
   assert.equal(stored.distros.Ubuntu.verdict, "ready");
+});
+
+await check("a DELETE clears one distro's stored verdict and persists the removal", async () => {
+  const statePath = join(scratch, "clear-one.json");
+  const first = handlerFor({ statePath });
+  await get(first.handler, "?distro=Ubuntu");
+  await get(first.handler, "?distro=Debian");
+  const { status, body } = await send(first.handler, "?distro=Ubuntu", "DELETE");
+  assert.equal(status, 200);
+  assert.deepEqual(body, { cleared: 1, distro: "Ubuntu" });
+  const list = await get(first.handler);
+  const remaining = /** @type {import("../lib/status.js").DistroStatusView[]} */ (list.body.cached);
+  assert.deepEqual(remaining.map((entry) => entry.distro), ["Debian"], "only the named verdict left the store");
+  const second = handlerFor({ statePath });
+  const reloaded = await get(second.handler);
+  const restored = /** @type {import("../lib/status.js").DistroStatusView[]} */ (reloaded.body.cached);
+  assert.deepEqual(restored.map((entry) => entry.distro), ["Debian"], "a reload does not restore the cleared verdict");
+  const recheck = await get(first.handler, "?distro=Ubuntu");
+  assert.equal(recheck.body.cached, false, "the removed verdict is not served");
+  assert.equal(first.calls.length, 3, "the cleared distro runs the doctor again");
+});
+
+await check("clearing works while the distro list is unavailable and never runs the doctor", async () => {
+  const statePath = join(scratch, "clear-offline.json");
+  const first = handlerFor({ statePath });
+  await get(first.handler, "?distro=Ubuntu");
+  const offline = handlerFor({
+    statePath,
+    distros: async () => { throw new Error("wsl.exe missing"); },
+    running: async () => { throw new Error("wsl.exe missing"); },
+  });
+  const { status, body } = await send(offline.handler, "?distro=Ubuntu", "DELETE");
+  assert.equal(status, 200, "clearing is host-local and does not depend on wsl.exe");
+  assert.deepEqual(body, { cleared: 1, distro: "Ubuntu" });
+  assert.equal(offline.calls.length, 0, "clearing never starts a check");
+  assert.equal(existsSync(statePath), false, "the empty store file is removed");
+});
+
+await check("a DELETE without a distro clears every stored verdict and is idempotent", async () => {
+  const statePath = join(scratch, "clear-all.json");
+  const { handler } = handlerFor({ statePath });
+  await get(handler, "?distro=Ubuntu");
+  await get(handler, "?distro=Debian");
+  const { status, body } = await send(handler, "", "DELETE");
+  assert.equal(status, 200);
+  assert.deepEqual(body, { cleared: 2 });
+  const list = await get(handler);
+  assert.deepEqual(list.body.cached, []);
+  assert.equal(existsSync(statePath), false, "no empty store is left behind");
+  const again = await send(handler, "", "DELETE");
+  assert.deepEqual(again.body, { cleared: 0 }, "a repeated clear is idempotent");
+  const unknown = await send(handler, "?distro=Arch", "DELETE");
+  assert.deepEqual(unknown.body, { cleared: 0, distro: "Arch" }, "a stale name is cleared without a 400");
 });
 
 await check("a background run is labeled with its source", async () => {
@@ -470,7 +525,7 @@ await check("apply registers one authenticated exact route on the connection", a
   const route = routes[0];
   assert.ok(route);
   assert.equal(route.path, STATUS_PATH);
-  assert.deepEqual(route.methods, ["GET", "POST"]);
+  assert.deepEqual(route.methods, ["GET", "POST", "DELETE"]);
   assert.equal(route.requestBody, "buffered");
   assert.equal(typeof route.fetch, "function");
 });

@@ -67,11 +67,12 @@ GUI 文件树与预览保留随包的 `workspace-files` 行。它的客户端半
 | `dsh-plugin-wsl-env/shell-env` | `wsl-shell-env` | [`lib/shell-env.js`](../lib/shell-env.js) | 向受管的 `DSH_*` 命名空间贡献 `DSH_WSL_DISTRO`、`DSH_WSL_SHELL`、`DSH_WSL_HOME` 和 `DSH_WSL_PORTS`，并选取会话工作区所属的发行版（默认/钉死的事实于挂载时探测；其他发行版在其会话出现时预热）。端口列表是每个活跃发行版的快照，每 `portsRefreshMs`（默认 10000）刷新一次，因此刚启动的服务器可能尚未列出。 |
 | `dsh-plugin-wsl-env/preflight` | `wsl-preflight` | [`lib/preflight.js`](../lib/preflight.js) | 在会话开始时运行环境提示——若 `startup: true`（默认值），还在插件加载时运行一次——把 doctor 风格的判定作为不阻断的警告呈现。 |
 | `dsh-plugin-wsl-env/update-check` | `wsl-update-check` | [`lib/update-check.js`](../lib/update-check.js) | 大约每天一次向应用的插件管理器询问是否有更新的稳定版本，并把该事实带在 `DSH_WSL_PLUGIN_UPDATE` 中；自身从不抓取。 |
+| `dsh-plugin-wsl-env/plugin-update` | `wsl-plugin-update` | [`lib/plugin-update.js`](../lib/plugin-update.js) | 侧边栏面板的版本与升级路由（`GET`/`POST /api/wsl-env/plugin-update`）：经宿主插件管理器的 `listVersions` 报告已安装/运行中的插件版本与最新的可安装稳定版，按 `cacheMs` 缓存；只有点击后 `POST` 才调用 `updateBundle`，并报告宿主的重启、回滚或拒绝结果。 |
 | `dsh-plugin-wsl-env/cwd-prompt` | `wsl-cwd-prompt` | [`lib/cwd-prompt.js`](../lib/cwd-prompt.js) | 把运行时上下文的工作目录条目改写为发行版的 POSIX 形式；新增一句 `wsl:shell` 说明；把 `sandbox:policy` 替换为仅 POSIX 的渲染；并在 WSL 会话中抑制宿主的 `harness:source` 值。后三项是临时适配器，跟踪于 [UPSTREAM-PROMPT-ADAPTERS.md](UPSTREAM-PROMPT-ADAPTERS.md)。 |
 | `dsh-plugin-wsl-env/cwd-prompt-tool` | `wsl-cwd-prompt-tool` | [`lib/cwd-prompt-tool.js`](../lib/cwd-prompt-tool.js) | 以 harness 随包提供的相同语义提供模型的 read/`cd` 工具，把返回的 `cwd` 改写为发行版的 POSIX 形式。 |
 | `dsh-plugin-wsl-env/wsl-doctor-tool` | `wsl-doctor-tool` | [`lib/wsl-doctor-tool.js`](../lib/wsl-doctor-tool.js) | `wsl_doctor` 模型工具：进程内的 doctor（合并活跃常驻 agent 的状态），按 `depth`/`section` 限定范围，渲染为逐项摘要。 |
 | `dsh-plugin-wsl-env/wsl-doctor-command` | `wsl-doctor-command` | [`lib/wsl-doctor-command.js`](../lib/wsl-doctor-command.js) | `/wsl-doctor` UI 命令：把独立的 doctor CLI 作为宿主子进程启动，并在与模型历史分离的界面中渲染同一份摘要。 |
-| `dsh-plugin-wsl-env/status` | `wsl-status` | [`lib/status.js`](../lib/status.js) | 侧边栏面板的路由（`GET /api/wsl-env/status`）：列出已安装的发行版，并对其中一个发行版运行 quick doctor；同一路由上的 `POST` 以 `--fix-owned` 运行完整 doctor（当陈旧的 scope 或损坏的 agent 缓存可修复时标为修复，否则为完整检查；两者都会重新验证）。响应经 Host 连接已认证的 exact-Fetch 通道返回；每个发行版的最近结果持久化在 `$DSH_HOME/cache/dsh-plugin-wsl-env/status.json`，运行中发行版的已存结果会在后台刷新。 |
+| `dsh-plugin-wsl-env/status` | `wsl-status` | [`lib/status.js`](../lib/status.js) | 侧边栏面板的路由（`GET /api/wsl-env/status`）：列出已安装的发行版，并对其中一个发行版运行 quick doctor；同一路由上的 `POST` 运行 `--fix-owned` 完整检查（同时修复陈旧的 scope 或损坏的 agent 缓存并重新验证）；同一路由上的 `DELETE` 清除单个（`?distro=<名称>`）或全部已存结果，不枚举、不探测发行版。响应经 Host 连接已认证的 exact-Fetch 通道返回；每个发行版的最近结果持久化在 `$DSH_HOME/cache/dsh-plugin-wsl-env/status.json`，运行中发行版的已存结果会在后台刷新。 |
 | `dsh-plugin-wsl-env`（裸名） | `wsl-env-client-host` | [`lib/client-host.js`](../lib/client-host.js) | 有意为之的空操作宿主半边；它的裸名挂载让 web 客户端名册能够提供 `./client`：侧边栏的 WSL 环境面板，以及添加后的访问模式提示。 |
 
 三个路径与 interop 助手不导入任何 DSH 包。
@@ -97,7 +98,7 @@ YAML 数组；桌面应用通过侧边栏 **Plugins** 页面（**Add plugin**）
 | `subprocess-wsl` | 在应用层（即组合层）；随包的 `subprocess` 行被禁用 | 因为没有会话标识能到达终端控制器，见下文 |
 | `workspace-files` | 随包、未替换 | 其客户端半边是侧边栏预览所需的浏览器 `file` 资源提供者；它通过被路由的根文件系统读取 WSL 路径 |
 | `fs-routing` | 在应用层；随包的 `fs-sandbox` 行被禁用 | 根 `ctx.fs` 无会话，且其写围栏在根平面没有消费者 |
-| `directory-picker-wsl`、`wsl-shell-env`、`auto-preset`、`wsl-preflight`、`wsl-update-check`、`wsl-cwd-prompt`、`wsl-cwd-prompt-tool`、`wsl-doctor-command`、`wsl-status`、`wsl-env-client-host` | 在应用层 | 它们回答的问题不限定于单个 preset；`shell-env` 按会话工作区解析其事实，而提示/诊断类行必须在会话从未打开时也能应答 |
+| `directory-picker-wsl`、`wsl-shell-env`、`auto-preset`、`wsl-preflight`、`wsl-update-check`、`wsl-cwd-prompt`、`wsl-cwd-prompt-tool`、`wsl-doctor-command`、`wsl-status`、`wsl-plugin-update`、`wsl-env-client-host` | 在应用层 | 它们回答的问题不限定于单个 preset；`shell-env` 按会话工作区解析其事实，而提示/诊断类行必须在会话从未打开时也能应答 |
 | `wsl-doctor-tool` | 位于 `preset-wsl` 内（面向模型） | 工具面跟随 preset：在 Windows 文件夹上的会话保留随包工具 |
 
 preset 挂载需要隔离域。缺少时，registry 以
@@ -464,6 +465,7 @@ src/messages.ts              the en/zh message catalogs and the host-locale wiri
 src/native-agent.ts          native binary selection and preparation
 src/paths.ts                 pure conversion between the three path formats
 src/picker.ts                WslDirectoryPicker (ctx.directoryPicker)
+src/plugin-update.ts         the panel's version and one-click upgrade route
 src/ports.ts                 the listening-port snapshot behind DSH_WSL_PORTS
 src/preflight.ts             session-start environment advisories
 src/preset-choice.ts         whether a new session adopts the WSL preset (pure)
@@ -521,7 +523,7 @@ peer 下限、新 agent 握手和陈旧的会话 scope，并报告带版本的 `
 同一份报告通过三个界面应答：这个独立 CLI（设计上无 peer 依赖，因此插件自身
 运行时损坏时它仍能启动）、`/wsl-doctor` UI 命令（在宿主侧启动 CLI，渲染与
 模型历史分离），以及 `wsl_doctor` 模型工具（进程内，通过 `lib/doctor-live.js`
-合并活跃常驻 agent 的状态）。侧边栏面板以同样方式渲染快速摘要并提交修复动作
+合并活跃常驻 agent 的状态）。侧边栏面板以同样方式渲染快速摘要并提交完整检查动作
 （`--fix-owned`：仅插件自有状态）。运行可以限定范围（CLI 上的 `--quick`、
 `--sections <csv>`；工具上的 `depth` / `section`），报告按发行版分组逐项列出
 每项检查。各界面与判定契约见 [DIAGNOSTICS.zh.md](DIAGNOSTICS.zh.md)。

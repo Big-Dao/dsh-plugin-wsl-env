@@ -43,7 +43,7 @@
 | systemd + Linger（默认会话沙箱需要） | `/etc/wsl.conf` 设 `[boot] systemd=true`，`wsl --shutdown`，执行一次 `loginctl enable-linger "$USER"`；无 systemd 时设 `sessionSandbox` 为 `auto` 或 `false` |
 | 可选：`ripgrep`、`git`、`inotify-tools` | `pnpm run bootstrap <发行版>` 打印安装命令 |
 
-插件不修改已安装的 `resources/app.asar`。升级 = 重新安装后重启；卸载在 Plugins 页面，之后可删 `~/.cache/dsh-wsl`。细节见 [QUICKSTART.zh.md](QUICKSTART.zh.md)。
+插件不修改已安装的 `resources/app.asar`。侧栏 **WSL 环境** 面板显示已安装与运行中的插件版本，经宿主的插件管理器检查 registry，并在有更新的稳定版时提供一键升级；在 Plugins 页重新安装仍是备用路径。升级在重启后生效；宿主报告 HMR 已应用时，刷新页面即可。卸载在 Plugins 页面，之后可删 `~/.cache/dsh-wsl`。细节见 [QUICKSTART.zh.md](QUICKSTART.zh.md)。
 
 ## 需要这个插件吗？
 

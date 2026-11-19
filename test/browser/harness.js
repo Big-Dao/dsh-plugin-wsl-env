@@ -183,12 +183,40 @@ const render = (config = {}) => {
   window.fetch = async (/** @type {any} */ input, /** @type {any} */ init = {}) => {
     const url = String(input);
     records.fetches.push({ url, method: init.method ?? "GET", body: init.body ?? null });
+    if (url.startsWith("/api/wsl-env/plugin-update")) {
+      const method = String(init.method ?? "GET").toUpperCase();
+      if (method === "POST") {
+        return json(config.pluginUpdate ?? {
+          updated: true,
+          application: "applied",
+          from: "0.26.4",
+          to: "0.27.0",
+          step: "install",
+          installed: "0.27.0",
+          running: "0.26.4",
+          checkedAt: 5,
+        });
+      }
+      return json(config.plugin ?? {
+        installed: "0.26.4",
+        running: "0.26.4",
+        status: "current",
+        checkedAt: 1,
+        cached: false,
+        updateSupported: true,
+        canUpdate: false,
+      });
+    }
     if (url.startsWith("/api/wsl-env/status")) {
       const method = String(init.method ?? "GET").toUpperCase();
-      // A POST is the repair run; a GET with a `distro` is a manual or
-      // background check; the bare GET is the list-with-cached-results call.
-      if (method === "POST") return json(config.repair ?? config.status ?? WINDOWS_STATUS);
       const distro = new URL(url, "http://harness").searchParams.get("distro");
+      // A DELETE clears the stored verdict; a POST is the repair run; a GET
+      // with a `distro` is a manual or background check; the bare GET is the
+      // list-with-cached-results call.
+      if (method === "DELETE") {
+        return json(config.clear ?? (distro === null ? { cleared: 1 } : { cleared: 1, distro }));
+      }
+      if (method === "POST") return json(config.repair ?? config.status ?? WINDOWS_STATUS);
       if (distro !== null) return json(config.statusFor?.[distro] ?? config.status ?? WINDOWS_STATUS);
       return json(config.status ?? WINDOWS_STATUS);
     }

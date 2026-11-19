@@ -12,7 +12,7 @@ profile 设置存放在 `$DSH_HOME/profiles/<name>/cordis.patch.yml`。可以用
 profile 层可以按 `id` 指向顶层行。这一层的插件行包括 `fs-routing`、
 `directory-picker-wsl`、`subprocess-wsl`、`wsl-shell-env`、`wsl-preflight`、
 `auto-preset`、`wsl-cwd-prompt`、`wsl-cwd-prompt-tool`、`wsl-update-check`、
-`wsl-doctor-command`、`wsl-status`、`wsl-env-client-host` 和 `preset-wsl`。
+`wsl-doctor-command`、`wsl-status`、`wsl-plugin-update`、`wsl-env-client-host` 和 `preset-wsl`。
 `wsl-shell`、`wsl-fs` 与 `wsl-doctor-tool` 嵌套在
 `preset-wsl.config.plugins` 内；直接按这些 id 配置的 profile 条目会被忽略，
 并产生 `patch: entry <id> not found` 警告。
@@ -190,8 +190,9 @@ Loader 在挂载该行之前会校验宿主和发行版设置；
 | `wsl-shell-env` | `distro` | `''` | 用于填充 `DSH_WSL_*` 环境事实的发行版。 |
 | | `portsRefreshMs` | `10000` | 监听端口快照的刷新间隔，单位毫秒。 |
 | `wsl-cwd-prompt` | `enabled` | `true`（shipped） | 把 runtime context 的工作目录条目改写为发行版的 POSIX 形式。 |
-| `wsl-update-check` | `enabled` | `true` | 插件是否向应用的插件管理器查询更新的稳定版。结果经 `DSH_WSL_PLUGIN_UPDATE` 送达；该检查从不安装。 |
+| `wsl-update-check` | `enabled` | `true` | 插件是否向应用的插件管理器查询更新的稳定版。结果经 `DSH_WSL_PLUGIN_UPDATE` 送达；后台检查从不安装（面板的一键升级是独立的显式 POST）。 |
 | | `intervalMs` | `86400000` | 检查间隔，单位毫秒（启动后 2–10 分钟首查）；下限一分钟。 |
+| `wsl-plugin-update` | `cacheMs` | `600000` | 面板内版本答案的新鲜时间，单位毫秒。卡片显示已安装/运行中的插件版本与最新的可安装稳定版；「一键升级」只在点击时调用宿主插件管理器的 `updateBundle`。 |
 
 GUI 文件树和预览通过 `fs-routing` 使用随包的 `workspace-files` 行；
 它们不使用单独的 WSL 提供者行。要修改其 peer 定义的限额，
@@ -403,14 +404,20 @@ profile 补丁与废弃键陷阱——每个失败附可复制的修复。运行
 某行的覆盖是否生效，直接查看 profile 的 `cordis.patch.yml` 与 Plugins 页面：
 桌面应用没有 `dsh` 命令，合成后的 profile 没有命令行视图。
 侧边栏的 **WSL 环境** 面板经 `GET /api/wsl-env/status` 渲染同一份快速摘要，
-并把完整运行动作提交到同一路由：以 `--fix-owned` 运行 doctor，清扫残留
+并把“完整检查”动作提交到同一路由：以 `--fix-owned` 运行 doctor，清扫残留
 session scope、清理损坏的 agent 缓存并逐一复检。行内显示上次检查时间、来源（手动或后台）与结果结构（各状态计数与分区分布）。
 每个发行版的最后一次结果存放在 `$DSH_HOME/cache/dsh-plugin-wsl-env/status.json`
 （宿主未指定 home 时为 `~/.dsh/...`），页面刷新或应用重启后仍可见。加载时会对
-正在运行的发行版在后台复核；后台失败会覆盖已存结果。不标记“已过期”——删除该
-文件即可重置面板历史。按钮标签随报告切换：
-存在这类可自动修复项时显示“修复”，否则显示“完整检查”；其余告警保留各自的
-手动处理办法。它不会安装软件包，也不会改写 Windows 或用户所有的配置。
+正在运行的发行版在后台复核；后台失败会覆盖已存结果。不标记“已过期”——每个
+已检查行提供“清除”、卡片头部提供“清除全部”，经同一路由的 `DELETE`（可带
+`?distro=`）删除本地保存的结果，不枚举、不探测也不修改发行版；直接删除该文件
+仍可等效重置面板历史。每行固定提供“快速检查”和“完整检查”两个检查动作：后者
+以 `--fix-owned` 运行完整 doctor，会修复插件自有状态（残留 session scope、
+损坏的 agent 缓存）并复检；两个按钮在结果出现后仍保持原名，再次点击即再次执行。
+其余告警保留各自的手动处理办法。它不会安装软件包，也不会改写 Windows 或用户所有的配置。
+在发行版行上方，「插件版本」卡片读取已安装与运行中的插件版本及最新的可安装稳定版；
+它的「一键升级」提交到 `/api/wsl-env/plugin-update`，只有这次点击会调用宿主插件
+管理器的 `updateBundle` 执行安装。
 使用 `scripts/bootstrap.sh <distro>` 检查发行版前置依赖。
 
 | 现象 | 结果 | 处理 |

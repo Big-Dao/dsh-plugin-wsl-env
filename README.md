@@ -43,7 +43,7 @@ Remaining prerequisites (no Node.js needed inside the distro):
 | systemd + Linger (default session sandbox) | `[boot] systemd=true` in `/etc/wsl.conf`, `wsl --shutdown`, run `loginctl enable-linger "$USER"` once; without systemd set `sessionSandbox` to `auto` or `false` |
 | Optional: `ripgrep`, `git`, `inotify-tools` | `pnpm run bootstrap <distro>` prints the install commands |
 
-The plugin never edits the installed `resources/app.asar`. Upgrade = install again and restart; uninstall on the Plugins page, then `~/.cache/dsh-wsl` can be deleted. Details in [docs/QUICKSTART.md](docs/QUICKSTART.md).
+The plugin never edits the installed `resources/app.asar`. The sidebar **WSL environment** panel shows the installed and running plugin versions, checks the registry through the host's plugin manager, and offers a one-click upgrade when a newer stable release exists; installing again from the Plugins page remains the fallback. An upgrade takes effect after a restart, or after a page reload when the host reports HMR applied it. Uninstall on the Plugins page, then `~/.cache/dsh-wsl` can be deleted. Details in [docs/QUICKSTART.md](docs/QUICKSTART.md).
 
 ## Do I need this plugin?
 

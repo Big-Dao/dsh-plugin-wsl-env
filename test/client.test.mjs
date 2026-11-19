@@ -1,7 +1,7 @@
 /**
  * Loader-level checks for the web client: the module's identity, the slots it
- * registers, the session-header "open in VS Code (WSL)" item, and the
- * new-workspace access prompt.
+ * registers, the session-header "open in VS Code (WSL)" item, the
+ * new-workspace access prompt, and the panel's clear actions.
  *
  * The client is a browser bundle: it registers through
  * `window.__ModuleLoader__.load` and receives React through `require`. These
@@ -204,7 +204,9 @@ const findElement = (node, predicate) => {
     return undefined;
   }
   if (predicate(node)) return node;
-  return findElement(node.props?.children, predicate);
+  // `actions` is a rendered prop of the `Card` primitive (the head buttons),
+  // not one of its children, so a button search must walk it too.
+  return findElement(node.props?.actions, predicate) ?? findElement(node.props?.children, predicate);
 };
 
 /**
@@ -787,6 +789,142 @@ test("the panel lists the recorded Windows-access directories", async () => {
   const shown = texts(tree).join("\n");
   assert.ok(shown.includes(WSL), "the recorded workspace is listed");
   assert.ok(shown.includes(legacy), "every recorded directory is listed");
+  panel.unmount();
+});
+
+test("the panel clears one stored verdict and then all of them", async () => {
+  const harness = accessHarness({});
+  /** @type {Array<{ url: string, method: string }>} */
+  const calls = [];
+  /** One stored verdict, complete enough for the row summary. */
+  const view = (/** @type {string} */ distro) => ({
+    distro,
+    verdict: "ready",
+    repaired: false,
+    repairs: [],
+    repairable: [],
+    checkedAt: Date.now(),
+    cached: true,
+    source: "user",
+    counts: { ok: 1, warn: 0, fail: 0, info: 0, skipped: 0, unknown: 0 },
+    sections: [],
+    failures: [],
+    warnings: [],
+    checks: [],
+    notRun: 0,
+    blockers: [],
+  });
+  harness.sandbox.fetch = async (/** @type {string} */ input, /** @type {{ method?: string }} */ init = {}) => {
+    const url = String(input);
+    const method = init.method ?? "GET";
+    calls.push({ url, method });
+    if (method === "DELETE") {
+      return new Response(JSON.stringify(url.includes("distro=") ? { cleared: 1, distro: "Ubuntu" } : { cleared: 1 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.startsWith("/api/wsl-env/status")) {
+      return new Response(JSON.stringify({
+        distros: ["Ubuntu", "Debian"],
+        cached: [view("Ubuntu"), view("Debian")],
+        running: [],
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response(JSON.stringify({ status: "current", installed: "0.26.4", running: "0.26.4", checkedAt: 1 }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const main = harness.slotOf("main");
+  const element = main.render({});
+  assert.equal(typeof element?.type, "function", "the main slot renders the panel");
+  const panel = mountComponent(element.type, element.props);
+  await panel.settle(40);
+  assert.equal(buttonOf(panel.current(), "清除")?.props?.disabled, false, "a checked row offers clear");
+  assert.equal(buttonOf(panel.current(), "清除全部")?.props?.disabled, false, "the card offers clear-all");
+  click(panel.current(), "清除");
+  await panel.settle(40);
+  let shown = texts(panel.current()).join("\n");
+  assert.match(shown, /已清除 Ubuntu 的检测结果/u);
+  assert.ok(
+    calls.some((entry) => entry.method === "DELETE" && entry.url === "/api/wsl-env/status?distro=Ubuntu"),
+    "the row clear names its distro",
+  );
+  assert.ok(buttonOf(panel.current(), "清除") !== undefined, "Debian keeps its clear action");
+  click(panel.current(), "清除全部");
+  await panel.settle(40);
+  shown = texts(panel.current()).join("\n");
+  assert.match(shown, /已清除全部检测结果（1 项）/u);
+  assert.ok(
+    calls.some((entry) => entry.method === "DELETE" && entry.url === "/api/wsl-env/status"),
+    "clear-all does not name a distro",
+  );
+  assert.equal(buttonOf(panel.current(), "清除"), undefined, "no row has a verdict left");
+  assert.equal(buttonOf(panel.current(), "清除全部")?.props?.disabled, true, "clear-all is disabled without results");
+  assert.equal((shown.match(/尚未检查：点击“快速检查”（约 10 秒）或“完整检查”/g) ?? []).length, 2, "both rows return to the unchecked state");
+  panel.unmount();
+});
+
+test("the panel shows the plugin version and upgrades after a click", async () => {
+  const harness = accessHarness({});
+  /** @type {Array<{ url: string, method: string }>} */
+  const calls = [];
+  harness.sandbox.fetch = async (/** @type {string} */ input, /** @type {{ method?: string }} */ init = {}) => {
+    const url = String(input);
+    const method = init.method ?? "GET";
+    calls.push({ url, method });
+    if (url.startsWith("/api/wsl-env/plugin-update")) {
+      if (method === "POST") {
+        return new Response(JSON.stringify({
+          updated: true,
+          application: "applied",
+          from: "0.26.4",
+          to: "0.27.0",
+          step: "install",
+          installed: "0.27.0",
+          running: "0.26.4",
+          checkedAt: 5,
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return new Response(JSON.stringify({
+        installed: "0.26.4",
+        running: "0.26.4",
+        status: "available",
+        checkedAt: 1,
+        cached: false,
+        updateSupported: true,
+        canUpdate: true,
+        latest: {
+          version: "0.27.0",
+          tags: ["latest"],
+          prerelease: false,
+          bundle: true,
+          publishedAt: "2026-11-19T00:00:00.000Z",
+        },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response(JSON.stringify({ distros: [], cached: [], running: [] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const main = harness.slotOf("main");
+  const element = main.render({});
+  const panel = mountComponent(element.type, element.props);
+  await panel.settle(40);
+  const shown = texts(panel.current()).join("\n");
+  assert.match(shown, /dsh-plugin-wsl-env/u);
+  assert.match(shown, /已安装 0\.26\.4/u);
+  assert.match(shown, /插件新版本 0\.27\.0 可用/u, "the update reminder is visible");
+  assert.ok(buttonOf(panel.current(), "一键升级") !== undefined);
+  click(panel.current(), "一键升级");
+  await panel.settle(40);
+  assert.ok(
+    calls.some((entry) => entry.method === "POST" && entry.url.startsWith("/api/wsl-env/plugin-update")),
+    "the click posts to the upgrade route",
+  );
+  assert.match(texts(panel.current()).join("\n"), /已升级到 0\.27\.0/u);
   panel.unmount();
 });
 

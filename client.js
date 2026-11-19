@@ -11,18 +11,33 @@
  * can reach it without a generated client Remote. Checks run only when asked:
  * probing a stopped distro boots it, so a page load lists without probing.
  *
- * A checked row's second action is a full doctor run with `--fix-owned`
- * (`POST` on the same route). Its label follows what it can do: **修复** when
- * the report carries a finding the plugin can repair (a stale session scope or
- * a broken agent cache), **完整检查** otherwise. It never installs packages or
- * rewrites Windows-owned configuration; every other warning stays manual, and
- * the `fix.*` rows carry the before → after state.
+ * A separate **插件版本** card answers the plugin's own version question over
+ * `GET /api/wsl-env/plugin-update`: the installed and running versions, the
+ * newest installable stable release, and whether the host plugin manager can
+ * perform the update. A newer release raises a visible reminder, and
+ * **一键升级** posts to the same route; the route calls the host's
+ * `updateBundle` only for that explicit click and the card reports the host's
+ * applied/restart-required/rollback outcome.
+ *
+ * Every distro row offers two check actions: **快速检查** (the scoped quick
+ * doctor, `GET` on the status route) and **完整检查** (the full doctor with
+ * `--fix-owned`, `POST` on the same route). Both run again on every click —
+ * there is no persistent "recheck" label. The full run also repairs plugin-owned
+ * state (a stale session scope or a broken agent cache) and answers with its
+ * `fix.*` before → after rows; it never installs packages or rewrites
+ * Windows-owned configuration. Every other warning stays manual.
  *
  * The last result is persisted Host-side, so a page reload (or an app restart)
  * still shows the last guidance and when it ran. On load, a stored result for
  * a distro that is currently running is re-checked in the background (never a
  * stopped one: a probe boots it); the result is labeled with its source, and
  * a failed background run overwrites the stored result truthfully.
+ *
+ * A checked row offers **清除** and the card offers **清除全部**: they `DELETE`
+ * the same route (with and without `?distro=`), which drops the stored verdict
+ * so the next load shows "not checked" again. Clearing is local housekeeping —
+ * it lists and probes nothing — and the panel disables it while a check is in
+ * flight so an answer cannot arrive after the clear and restore the row.
  *
  * The panel opens no workspace and runs no session: adding a workspace still
  * happens where it always did. The only other surface is the access-mode
@@ -46,8 +61,10 @@ window.__ModuleLoader__.load({
     const useState = React.useState;
     const useEffect = React.useEffect;
 
-    /** The plugin's status route (checks on GET, repair on POST); the row registers this exact path. */
+    /** The plugin's status route (checks on GET, the full check on POST, clear on DELETE); the row registers this exact path. */
     const STATUS_PATH = "/api/wsl-env/status";
+    /** The plugin version/upgrade route: GET reads, POST performs the confirmed upgrade. */
+    const PLUGIN_UPDATE_PATH = "/api/wsl-env/plugin-update";
     /** The launch route for opening a distro workspace in VS Code through Remote-WSL. */
     const OPEN_IN_APP_PATH = "/api/wsl-env/open-in-app";
     /** Sidebar panel id and order: below the shipped plugin/schedule entries. */
@@ -75,18 +92,38 @@ window.__ModuleLoader__.load({
     const samePath = (a, b) => typeof a === "string" && typeof b === "string" && normalize(a) === normalize(b);
 
     /**
-     * Fetch the route and decode its JSON answer.
+     * Fetch one exact route and decode its JSON answer.
+     * @param path - the route's absolute path.
      * @param query - the query string, including `?`, or empty.
-     * @param method - `GET` for a check, `POST` for the repair action.
+     * @param method - `GET` to read, `POST` to act, `DELETE` to clear.
      * @returns the decoded body.
      * @throws with the route's own error message.
      */
-    const statusRequest = async (query, method = "GET") => {
-      const answer = await fetch(STATUS_PATH + (query ?? ""), { method });
+    const jsonRequest = async (path, query, method = "GET") => {
+      const answer = await fetch(path + (query ?? ""), { method });
       const body = await answer.json().catch(() => ({}));
-      if (!answer.ok) throw new Error(body.error ?? `状态接口返回 ${answer.status}`);
+      if (!answer.ok) throw new Error(body.error ?? `接口返回 ${answer.status}`);
       return body;
     };
+
+    /**
+     * The doctor route: list/quick check on GET, the full check (which also
+     * repairs plugin-owned state) on POST, and clearing stored results on
+     * DELETE.
+     * @param query - the query string, including `?`, or empty.
+     * @param method - `GET` for a check, `POST` for the full-check action,
+     *   `DELETE` to clear one distro's result (named by `distro`) or all.
+     * @returns the decoded body.
+     */
+    const statusRequest = (query, method = "GET") => jsonRequest(STATUS_PATH, query, method);
+
+    /**
+     * The plugin version route: read on GET, confirmed one-click upgrade on POST.
+     * @param query - the query string, including `?`, or empty.
+     * @param method - `GET` for a check, `POST` for the upgrade.
+     * @returns the decoded body.
+     */
+    const pluginRequest = (query, method = "GET") => jsonRequest(PLUGIN_UPDATE_PATH, query, method);
 
     // ── Access-mode records ────────────────────────────────────────────────
     // The choice lives in the auto-preset row so the host can honor it without
@@ -476,7 +513,23 @@ window.__ModuleLoader__.load({
         gap: 18,
       },
       title: { fontSize: 20, fontWeight: 600, letterSpacing: 0.2 },
+      titleRow: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
       subtitle: { fontSize: 12, opacity: 0.6, marginTop: 2 },
+      updateBanner: {
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "10px 14px",
+        borderRadius: 10,
+        border: "1px solid rgba(224, 176, 74, 0.55)",
+        background: "rgba(224, 176, 74, 0.12)",
+        fontSize: 12,
+        lineHeight: 1.45,
+      },
+      updateBannerBody: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 },
+      updateBannerTitle: { fontWeight: 600, fontSize: 12.5 },
+      updateBannerText: { opacity: 0.82, wordBreak: "break-word" },
+      versionValue: { fontFamily: "var(--dsh-font-family-code, ui-monospace, monospace)", fontWeight: 600 },
       card: {
         border: "1px solid rgba(128, 128, 128, 0.28)",
         borderRadius: 10,
@@ -501,8 +554,10 @@ window.__ModuleLoader__.load({
         borderRadius: 6,
         border: "1px solid rgba(128, 128, 128, 0.16)",
       },
-      rowHead: { display: "flex", alignItems: "center", gap: 10 },
-      rowName: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+      // Three actions can share the row with the distro name and its pill; let
+      // them wrap instead of overflowing a narrow sidebar.
+      rowHead: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" },
+      rowName: { flex: "1 1 120px", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
       empty: { fontSize: 12, opacity: 0.55, padding: "4px 2px" },
       notice: { fontSize: 12, color: "#ff8f6b" },
       noticeOk: { fontSize: 12, color: "#5ecf86" },
@@ -686,12 +741,12 @@ window.__ModuleLoader__.load({
      */
     function CheckPill({ state }) {
       if (state === undefined || state.phase === undefined) return h(Pill, { label: "未检查", tone: "idle" });
-      if (state.phase === "checking") return h(Pill, { label: "检查中…", tone: "idle" });
-      if (state.phase === "repairing") {
+      if (state.phase === "checking") return h(Pill, { label: "快速检查中…", tone: "idle" });
+      if (state.phase === "fullChecking") {
         return h(Pill, {
-          label: state.mode === "full" ? "检查中…" : "修复中…",
+          label: "完整检查中…",
           tone: "idle",
-          title: state.mode === "full" ? "正在运行完整检查（无可自动修复项）" : "正在运行完整检查并修复插件自有状态",
+          title: "正在运行完整检查并修复插件自有状态",
         });
       }
       if (state.phase === "refreshing") return h(Pill, { label: "复核中…", tone: "idle", title: "面板正在后台复核上次结果" });
@@ -708,7 +763,7 @@ window.__ModuleLoader__.load({
     /**
      * A numbered list of doctor findings.
      * @param props - heading, findings, whether they block, and the ids the
-     *   repair action can act on.
+     *   full check can repair.
      * @returns the list, or null when there is nothing to show.
      */
     function IssueList({ heading, items, severity, repairable }) {
@@ -736,8 +791,8 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The repair action's own rows: what the doctor did, with its status mark.
-     * @param props - the `fix.*` rows the repair answered with.
+     * The full check's repair rows: what the doctor did, with its status mark.
+     * @param props - the `fix.*` rows the full run answered with.
      * @returns the list, or null when the run has no repair rows.
      */
     function RepairList({ items }) {
@@ -913,6 +968,7 @@ window.__ModuleLoader__.load({
       const [checks, setChecks] = useState({});
       const [notice, setNotice] = useState(null);
       const [accessPaths, setAccessPaths] = useState(null);
+      const [plugin, setPlugin] = useState({ phase: "loading" });
 
       /** Re-read the Windows-access record (best effort; the panel still works without it). */
       const loadAccessPaths = async () => {
@@ -921,6 +977,85 @@ window.__ModuleLoader__.load({
           setAccessPaths(current.ok === true ? current.paths : []);
         } catch {
           setAccessPaths([]);
+        }
+      };
+
+      /**
+       * Read the plugin version route. The first load and any load after the
+       * host's cache TTL ask the host's plugin-manager for a fresh answer; a
+       * click forces one. The installed version stays visible while a later
+       * check fails, so the card never turns into a bare error.
+       * @param refresh - whether to bypass the host's version cache.
+       */
+      const loadPlugin = async (refresh = false) => {
+        setPlugin((previous) => ({
+          ...previous,
+          phase: previous.phase === "ready" || previous.phase === "error" ? "refreshing" : "loading",
+        }));
+        try {
+          const answer = await pluginRequest(refresh ? "?refresh=1" : "");
+          setPlugin({ phase: "ready", ...answer });
+        } catch (error) {
+          setPlugin((previous) => ({ ...previous, phase: "error", error: messageOf(error) }));
+        }
+      };
+
+      /**
+       * Perform the confirmed one-click upgrade. The host decides whether the
+       * latest release can replace the installed one and reports every step;
+       * a lost response means the plugin may already be restarting, so the
+       * panel says so instead of claiming failure.
+       */
+      const upgrade = async () => {
+        setNotice(null);
+        setPlugin((previous) => ({ ...previous, phase: "updating" }));
+        try {
+          const answer = await pluginRequest("", "POST");
+          if (answer.updated === true) {
+            setPlugin((previous) => ({
+              ...previous,
+              phase: "ready",
+              status: "current",
+              installed: typeof answer.installed === "string" ? answer.installed : previous.installed,
+              running: typeof answer.running === "string" ? answer.running : previous.running,
+              checkedAt: typeof answer.checkedAt === "number" ? answer.checkedAt : Date.now(),
+              cached: false,
+              canUpdate: false,
+              latest: undefined,
+              upgrade: answer,
+            }));
+            const target = typeof answer.to === "string" ? answer.to : "新版本";
+            const running = typeof answer.running === "string" ? answer.running : "";
+            setNotice({
+              kind: answer.application === "applied" ? "ok" : "info",
+              text: answer.application === "restart-required"
+                ? `已安装 ${target}；当前仍运行 ${running || "旧版本"}，重启 DSH 后生效。`
+                : answer.application === "overridden"
+                  ? `已安装 ${target}；profile 中更高优先级的配置覆盖了 bundle 选择，请检查配置后重启 DSH。`
+                  : `已升级到 ${target}；刷新页面后加载新版本的面板。`,
+            });
+          } else {
+            const reason = answer.error?.diagnostic ?? answer.error?.code ?? "宿主未完成升级";
+            const restoreFailure = answer.restoreError?.diagnostic ?? answer.restoreError?.code;
+            const tail = answer.restored === true
+              ? "已回滚到原版本。"
+              : restoreFailure !== undefined
+                ? `回滚也失败：${restoreFailure}；请在 Plugins 页确认当前状态。`
+                : answer.step === "remove"
+                  ? "移除旧版本失败；请在 Plugins 页确认当前状态。"
+                  : "未安装目标版本。";
+            const builds = Array.isArray(answer.pendingBuilds) && answer.pendingBuilds.length > 0
+              ? ` 需在 Plugins 页批准依赖脚本：${answer.pendingBuilds.join("、")}。`
+              : "";
+            setPlugin((previous) => ({ ...previous, phase: "ready", upgrade: answer }));
+            setNotice({ kind: "error", text: `升级到 ${answer.to ?? "新版本"} 失败：${reason}。${tail}${builds}` });
+          }
+        } catch (error) {
+          setPlugin((previous) => ({ ...previous, phase: "ready" }));
+          setNotice({
+            kind: "info",
+            text: `升级请求未完成：${messageOf(error)}。插件可能正在重启；请刷新页面后确认版本。`,
+          });
         }
       };
 
@@ -981,9 +1116,12 @@ window.__ModuleLoader__.load({
 
       useEffect(() => {
         // The first load may refresh stored results for running distros; the
-        // manual 刷新 button only re-reads the list.
+        // manual 刷新 button only re-reads the list. The version read is
+        // separate: it may consult the registry once, while the distro list
+        // starts nothing.
         void loadDistros(true);
         void loadAccessPaths();
+        void loadPlugin();
       }, []);
 
       const check = async (distro) => {
@@ -998,14 +1136,15 @@ window.__ModuleLoader__.load({
       };
 
       /**
-       * Run the full doctor with `--fix-owned`: the row labels it `修复` when a
-       * repairable finding exists and `完整检查` otherwise, but it is the same
-       * run. Only the plugin's own state is touched.
+       * Run the full doctor with `--fix-owned`. The button is always
+       * **完整检查**: the run may repair plugin-owned state on the way, but the
+       * row does not relabel itself as a separate repair action. Only the
+       * plugin's own state is touched.
        * @param distro - the distro to run against.
        */
-      const repair = async (distro, mode = "repair") => {
+      const fullCheck = async (distro) => {
         setNotice(null);
-        setChecks((previous) => ({ ...previous, [distro]: { ...previous[distro], phase: "repairing", mode } }));
+        setChecks((previous) => ({ ...previous, [distro]: { ...previous[distro], phase: "fullChecking" } }));
         try {
           const answer = await statusRequest(`?distro=${encodeURIComponent(distro)}`, "POST");
           setChecks((previous) => ({ ...previous, [distro]: { phase: "done", ...answer } }));
@@ -1016,11 +1155,11 @@ window.__ModuleLoader__.load({
           setNotice({
             kind: fixed > 0 || remaining === 0 ? "ok" : "info",
             text: fixed > 0 && remaining > 0
-              ? `已在 ${distro} 修复 ${String(fixed)} 项；仍有 ${String(remaining)} 项需按下方处理办法手动处理。`
+              ? `完整检查完成：已在 ${distro} 修复 ${String(fixed)} 项；仍有 ${String(remaining)} 项需按下方处理办法手动处理。`
               : fixed > 0
-                ? `已在 ${distro} 修复 ${String(fixed)} 项；复检通过。`
+                ? `完整检查完成：已在 ${distro} 修复 ${String(fixed)} 项；复检通过。`
                 : rows.length > 0
-                  ? `尝试修复 ${String(rows.length)} 项但未通过复检；请按下方处理办法手动处理。`
+                  ? `完整检查完成：尝试修复 ${String(rows.length)} 项但未通过复检；请按下方处理办法手动处理。`
                   : remaining > 0
                     ? `完整检查完成；没有可自动修复项，${String(remaining)} 项需按下方处理办法手动处理。`
                     : `已在 ${distro} 完成完整检查，未发现待修项。`,
@@ -1029,6 +1168,94 @@ window.__ModuleLoader__.load({
           setChecks((previous) => ({ ...previous, [distro]: { ...previous[distro], phase: "error", error: messageOf(error) } }));
         }
       };
+
+      /**
+       * Drop stored detection results through the status route. Clearing is
+       * host-local housekeeping: it lists and probes nothing, so it works even
+       * when `wsl.exe` or the doctor is unavailable. The rows are removed only
+       * after the route confirms, so a failed request leaves the last result
+       * visible with the reason.
+       * @param distro - the distro whose result is cleared, or null for all.
+       */
+      const clearResults = async (distro) => {
+        setNotice(null);
+        const query = distro === null ? "" : `?distro=${encodeURIComponent(distro)}`;
+        try {
+          const answer = await statusRequest(query, "DELETE");
+          const cleared = typeof answer.cleared === "number" ? answer.cleared : 0;
+          setChecks((previous) => {
+            if (distro === null) return {};
+            if (previous[distro] === undefined) return previous;
+            const next = { ...previous };
+            delete next[distro];
+            return next;
+          });
+          setNotice({
+            kind: "ok",
+            text: distro === null
+              ? cleared > 0
+                ? `已清除全部检测结果（${String(cleared)} 项）；发行版需要再次检查。`
+                : "没有已保存的检测结果。"
+              : cleared > 0
+                ? `已清除 ${distro} 的检测结果；需要时可再次检查。`
+                : `没有找到 ${distro} 已保存的检测结果。`,
+          });
+        } catch (error) {
+          setNotice({ kind: "error", text: `清除检测结果失败：${messageOf(error)}` });
+        }
+      };
+
+      const latest = plugin.latest !== null && typeof plugin.latest === "object" ? plugin.latest : undefined;
+      const pluginAvailable = plugin.status === "available" && latest !== undefined && typeof latest.version === "string";
+      const pluginBusy = plugin.phase === "loading" || plugin.phase === "refreshing" || plugin.phase === "updating";
+      const runningDiffers = typeof plugin.installed === "string"
+        && typeof plugin.running === "string"
+        && plugin.installed !== plugin.running;
+      const published = latest !== undefined && typeof latest.publishedAt === "string"
+        && !Number.isNaN(new Date(latest.publishedAt).getTime())
+        ? new Date(latest.publishedAt).toLocaleDateString()
+        : undefined;
+      let pluginStatusLine;
+      if (plugin.phase === "loading") {
+        pluginStatusLine = "正在读取版本信息…";
+      } else if (plugin.phase === "updating") {
+        pluginStatusLine = "正在通过宿主插件管理器升级…";
+      } else if (plugin.phase === "refreshing") {
+        pluginStatusLine = "正在检查更新…";
+      } else if (plugin.phase === "error") {
+        pluginStatusLine = `版本接口不可用：${plugin.error ?? "未响应"}`;
+      } else if (pluginAvailable && latest !== undefined) {
+        const parts = [`最新稳定版 ${latest.version}`];
+        if (published !== undefined) parts.push(`发布于 ${published}`);
+        if (latest.incompatible !== undefined) parts.push("需要更高的 DSH 版本");
+        if (typeof latest.deprecated === "string") parts.push(`已弃用：${latest.deprecated}`);
+        pluginStatusLine = parts.join("；");
+      } else if (plugin.status === "current") {
+        pluginStatusLine = typeof plugin.checkedAt === "number" ? `已是最新（检查于 ${checkedLabel(plugin.checkedAt)}）` : "已是最新";
+      } else if (plugin.status === "unavailable") {
+        pluginStatusLine = `无法检查更新：${plugin.reason ?? "宿主未提供原因"}`;
+      } else {
+        pluginStatusLine = "尚未检查更新";
+      }
+      const updateText = latest === undefined ? "" : [
+        `当前安装 ${plugin.installed ?? "未知"}${runningDiffers ? `（运行中 ${plugin.running}）` : ""}。`,
+        latest.incompatible !== undefined
+          ? "该版本要求更高的 DSH，请先升级 DeepSeek Harness。"
+          : typeof latest.deprecated === "string"
+            ? `该版本已被标记为弃用：${latest.deprecated}。`
+            : plugin.updateSupported !== true
+              ? "当前宿主的插件管理器不支持一键升级；请在 Plugins 页升级。"
+              : "升级通过宿主插件管理器安装并启用；完成后按提示刷新页面或重启 DSH。",
+      ].join("");
+      // A clear must not race an in-flight check: the late answer would put
+      // the row back. Any busy row therefore blocks "clear all", and each
+      // row's own clear is disabled while that row is busy.
+      const busyAny = distros.some((distro) => {
+        const state = checks[distro];
+        return state !== undefined
+          && (state.phase === "checking" || state.phase === "fullChecking" || state.phase === "refreshing");
+      });
+      const hasAnyResult = distros.some((distro) => checks[distro] !== undefined);
 
       return h(
         "div",
@@ -1039,24 +1266,95 @@ window.__ModuleLoader__.load({
           h(
             "header",
             null,
-            h("div", { style: styles.title }, "WSL 环境"),
-            h("div", { style: styles.subtitle }, "诊断与安全修复：已安装的发行版、快速检查，以及插件自有状态的修复。"),
+            h(
+              "div",
+              { style: styles.titleRow },
+              h("div", { style: styles.title }, "WSL 环境"),
+              typeof plugin.installed === "string" ? h(Pill, { label: `v${plugin.installed}`, tone: "idle", title: "已安装的插件版本" }) : null,
+              pluginAvailable ? h(Pill, { label: `可升级 ${latest.version}`, tone: "blocked", title: "发现新的插件版本" }) : null,
+            ),
+            h("div", { style: styles.subtitle }, "诊断、版本与安全修复：已安装的发行版、快速检查、插件升级，以及插件自有状态的修复。"),
           ),
+          pluginAvailable ? h(
+            "div",
+            { style: styles.updateBanner },
+            h(
+              "div",
+              { style: styles.updateBannerBody },
+              h("div", { style: styles.updateBannerTitle }, `插件新版本 ${latest.version} 可用`),
+              h("div", { style: styles.updateBannerText }, updateText),
+            ),
+            plugin.canUpdate === true
+              ? h(Btn, {
+                label: plugin.phase === "updating" ? "升级中…" : "一键升级",
+                primary: true,
+                disabled: pluginBusy,
+                onClick: () => { void upgrade(); },
+              })
+              : null,
+          ) : null,
           notice === null ? null : h("div", { style: notice.kind === "ok" ? styles.noticeOk : notice.kind === "info" ? styles.noticeInfo : styles.notice }, notice.text),
           h(
             Card,
             {
-              title: "发行版与环境状态",
+              title: "插件版本",
               actions: h(Btn, {
-                label: "刷新",
+                label: plugin.phase === "updating" ? "升级中…" : plugin.phase === "refreshing" ? "检查中…" : "检查更新",
                 small: true,
-                onClick: () => { void loadDistros(false); void loadAccessPaths(); },
+                disabled: pluginBusy,
+                onClick: () => { void loadPlugin(true); },
               }),
             },
             h(
               "div",
+              { style: styles.row },
+              h(
+                "div",
+                { style: styles.rowHead },
+                h("span", { style: styles.rowName, title: "dsh-plugin-wsl-env" }, "dsh-plugin-wsl-env"),
+                typeof plugin.installed === "string" ? h("span", { style: styles.versionValue }, `已安装 ${plugin.installed}`) : null,
+                runningDiffers ? h(Pill, { label: `运行中 ${plugin.running}`, tone: "blocked", title: "重启 DSH 后运行新版本" }) : null,
+                pluginAvailable ? h(Pill, { label: "有更新", tone: "blocked" }) : null,
+                plugin.status === "current" ? h(Pill, { label: "已是最新", tone: "ready" }) : null,
+                plugin.status === "unavailable" ? h(Pill, { label: "无法检查", tone: "idle" }) : null,
+              ),
+              h("div", { style: styles.detail }, h("span", { style: { wordBreak: "break-word" } }, pluginStatusLine)),
+            ),
+            plugin.status === "unavailable" && plugin.problem === "not-updatable"
+              ? h("div", { style: styles.hint }, "当前安装不是可由 registry 替换的 profile 依赖（例如链接安装或本地镜像）；请改用 Plugins 页的安装路径，或同步本地副本后重启 DSH。")
+              : pluginAvailable && plugin.updateSupported !== true
+                ? h("div", { style: styles.hint }, "当前宿主的插件管理器不支持一键升级；请在 Plugins 页升级。")
+                : null,
+            h(
+              "div",
               { style: styles.hint },
-              "“检查”运行一次 doctor 的快速检查（与 /wsl-doctor 同源）：验证该发行版的 bwrap、systemd 与 Linger 等前置项。右侧按钮按结果切换：存在可自动修复项时显示“修复”，只修复插件自有状态（残留 session scope、损坏的 agent 缓存）并复检、显示 before→after；否则显示“完整检查”，运行完整 doctor 以发现更多项。自动修复不安装软件包、不改写 Windows 配置；其余告警按各自处理办法手动处理。手动检查/修复会让停止的发行版启动，所以只在点击时执行；页面加载的后台复核只针对正在运行的发行版，失败会按实际观测覆盖并标为“后台”来源。",
+              "版本检查委托给宿主的插件管理器（与 Plugins 页同源）：读取 registry、弃用标记与 DSH/peer 兼容性。一键升级只在点击后执行，不会自动安装；完成后按提示刷新页面或重启 DSH。无法自动升级时，请在 Plugins 页手动安装新版本。",
+            ),
+          ),
+          h(
+            Card,
+            {
+              title: "发行版与环境状态",
+              actions: h(
+                "div",
+                { style: styles.titleRow },
+                h(Btn, {
+                  label: "清除全部",
+                  small: true,
+                  disabled: phase !== "ready" || !hasAnyResult || busyAny,
+                  onClick: () => { void clearResults(null); },
+                }),
+                h(Btn, {
+                  label: "刷新",
+                  small: true,
+                  onClick: () => { void loadDistros(false); void loadAccessPaths(); },
+                }),
+              ),
+            },
+            h(
+              "div",
+              { style: styles.hint },
+              "“快速检查”运行一次 doctor 的快速检查（与 /wsl-doctor 同源）：验证该发行版的 bwrap、systemd 与 Linger 等前置项。“完整检查”运行完整 doctor，并只修复插件自有状态（残留 session scope、损坏的 agent 缓存）后复检、显示 before→after。两个按钮都可在结果出现后再次点击，每次都重新执行。自动修复不安装软件包、不改写 Windows 配置；其余告警按各自处理办法手动处理。检查会让停止的发行版启动，所以只在点击时执行；页面加载的后台复核只针对正在运行的发行版，失败会按实际观测覆盖并标为“后台”来源。“清除”删除该发行版本机保存的检测结果，“清除全部”清空所有结果；两者都不探测、不修改发行版，但清除后需再次检查。",
             ),
             phase === "loading"
               ? h("div", { style: styles.empty }, "加载中…")
@@ -1068,9 +1366,10 @@ window.__ModuleLoader__.load({
                     const state = checks[distro];
                     const done = state !== undefined && state.phase === "done";
                     const checking = state !== undefined && state.phase === "checking";
-                    const repairing = state !== undefined && state.phase === "repairing";
+                    const fullChecking = state !== undefined && state.phase === "fullChecking";
                     const refreshing = state !== undefined && state.phase === "refreshing";
-                    const busy = checking || repairing || refreshing;
+                    const busy = checking || fullChecking || refreshing;
+                    const hasResult = state !== undefined && (state.phase === "done" || state.phase === "error");
                     const repairable = Array.isArray(state?.repairable) ? state.repairable : [];
                     const canRepair = done && repairable.length > 0;
                     const findings = done
@@ -1086,29 +1385,33 @@ window.__ModuleLoader__.load({
                         h("span", { style: styles.rowName, title: distro }, distro),
                         h(CheckPill, { state }),
                         h(Btn, {
-                          label: checking ? "检查中…" : refreshing ? "后台检查中…" : done ? "重新检查" : "检查",
+                          label: checking ? "快速检查中…" : refreshing ? "后台检查中…" : "快速检查",
                           small: true,
                           primary: state === undefined,
                           disabled: busy,
                           onClick: () => { void check(distro); },
                         }),
-                        done || repairing
+                        h(Btn, {
+                          label: fullChecking ? "完整检查中…" : "完整检查",
+                          small: true,
+                          disabled: busy,
+                          onClick: () => { void fullCheck(distro); },
+                        }),
+                        hasResult
                           ? h(Btn, {
-                            label: repairing ? (state?.mode === "full" ? "完整检查中…" : "修复中…") : canRepair ? "修复" : "完整检查",
+                            label: "清除",
                             small: true,
                             disabled: busy,
-                            onClick: () => { void repair(distro, canRepair ? "repair" : "full"); },
+                            onClick: () => { void clearResults(distro); },
                           })
                           : null,
                       ),
                       state === undefined
-                        ? h("div", { style: styles.hint }, "尚未检查：点击“检查”运行快速 doctor（约 10 秒；会启动停止的发行版）。")
+                        ? h("div", { style: styles.hint }, "尚未检查：点击“快速检查”（约 10 秒）或“完整检查”；两者都会启动停止的发行版。")
                         : state.phase === "checking"
                           ? h("div", { style: styles.hint }, "正在运行快速检查…（会启动停止的发行版）")
-                          : state.phase === "repairing"
-                            ? h("div", { style: styles.hint }, state?.mode === "full"
-                              ? "正在运行完整检查（按上次结果没有可自动修复项）…"
-                              : "正在运行完整检查并修复插件自有状态…")
+                          : state.phase === "fullChecking"
+                            ? h("div", { style: styles.hint }, "正在运行完整检查，并修复插件自有状态（残留 session scope、损坏的 agent 缓存）…")
                             : state.phase === "error"
                               ? h("div", { style: styles.detail }, h("span", { style: styles.failure }, state.error))
                               : h(
@@ -1133,7 +1436,7 @@ window.__ModuleLoader__.load({
                                 }),
                                 findings > 0
                                   ? h("div", { style: styles.hint }, canRepair
-                                    ? "标有“可自动修复”的项会由“修复”处理；其余项目需按处理办法手动处理。"
+                                    ? "标有“可自动修复”的项会由“完整检查”处理；其余项目需按处理办法手动处理。"
                                     : "以上项目没有可自动修复项，需按各自处理办法手动处理。自动修复只覆盖残留 session scope 与损坏的 agent 缓存。")
                                   : null,
                                 h(CheckDetails, { state }),

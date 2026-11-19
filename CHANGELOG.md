@@ -16,6 +16,10 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-11-19
+
+Minor release: harden the opt-in sandbox's process-authority surface and add the diagnostics and panel upgrades around it.
+
 ### Added
 
 - **The WSL environment panel now shows the plugin's version and upgrades it

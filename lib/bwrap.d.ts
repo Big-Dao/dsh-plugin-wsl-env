@@ -56,6 +56,14 @@ interface BwrapProfileOptions {
      * symlinked path fails in bwrap, so this module never invents one.
      */
     socketMasks?: readonly string[];
+    /**
+     * Shadow `/run/WSL` with an empty tmpfs: the WSL interop transport. `/init`
+     * stays executable and the kernel keeps its binfmt handler, but the host
+     * bridge socket is gone, so a PE executed inside the profile fails at
+     * `connect`. The complete distro-wide closure is still `[interop]
+     * enabled=false`; this is the command-profile narrowing.
+     */
+    maskInterop?: boolean;
 }
 /**
  * Build the bwrap profile arguments for one file-effect policy, exactly as

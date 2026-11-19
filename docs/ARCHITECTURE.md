@@ -291,15 +291,18 @@ serve. Both providers report their mode through `sandboxMode`. The tool layer
 and the Permissions selector read that value.
 
 **Socket isolation.** `bwrapProfileArgs` also accepts `socketMasks`: existing
-socket paths bound `/dev/null` after the read-only root. The confined providers
-(`wsl-shell`, `wsl-fs`, `fs-routing`) resolve them from their `socketIsolation`
-stance — `session-bus` masks the user systemd manager's bus and private socket,
-`strict` adds the system bus and the container sockets the distro user can
-reach. The masks close the process-authority path the mount profile leaves
-open; they do not change the file hierarchy, and same-user `/proc`, interop and
-other IPC remain. The in-distro probe that finds the paths lives in
-`lib/socket-isolation.js`; a probe failure refuses the command instead of
-running unmasked.
+socket paths bound `/dev/null` after the read-only root, plus `maskInterop`,
+which mounts an empty tmpfs over `/run/WSL` — the WSL interop transport. The
+confined providers (`wsl-shell`, `wsl-fs`, `fs-routing`) resolve them from
+their `socketIsolation` stance — `session-bus` masks
+the user systemd manager's bus and private socket, `strict` adds the system bus
+and the container sockets the distro user can reach; `strict` also sets the
+interop mask, so a copied PE fails at the host bridge. The masks close the
+process-authority path the mount profile leaves open; they do not change the
+file hierarchy, and same-user `/proc` and other IPC remain (the interop
+closure for the rest of the distro is still `[interop] enabled=false`). The
+in-distro probe that finds the paths lives in `lib/socket-isolation.js`; a
+probe failure refuses the command instead of running unmasked.
 
 ### Reported enforcement
 

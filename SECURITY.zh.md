@@ -101,10 +101,13 @@ WSL interop 启动 Windows 程序，例如 `/mnt/c/.../*.exe`。该程序在 Lin
 `/dev/null` 绑到
 `$XDG_RUNTIME_DIR/bus` 与 `$XDG_RUNTIME_DIR/systemd/private`（受限 profile
 内的 `systemd-run --user` 失败），`strict` 还会遮蔽
-`/run/dbus/system_bus_socket` 与发行版用户可触达的容器 socket。doctor 的
-`sandbox.isolation` 行报告生效档位与探测到的面。默认值是
-`off`：除非 operator 选择档位，逃逸仍然可达；遮蔽是用户级收窄，不是关闭——
-同用户 `/proc`、interop 传输与其他 IPC 仍在，`enforcement` 仍是 `partial`。
+`/run/dbus/system_bus_socket`、发行版用户可触达的容器 socket 与 `/run/WSL`
+（WSL interop 传输）；strict 下复制进工作区的可执行文件仍会失败，因为
+`/init` 连不到 host bridge。doctor 的 `sandbox.isolation` 行报告生效档位与
+探测到的面。默认值是 `off`：除非 operator 选择档位，逃逸仍然可达；遮蔽是
+用户级收窄，不是关闭——同用户 `/proc` 与其他 IPC 仍在，`enforcement` 仍是
+`partial`。整发行版开关仍是 `[interop] enabled=false` 加
+`wsl.exe --shutdown`。
 复现步骤仍不公开；具体路径列在
 [docs/CONFIGURATION.zh.md](docs/CONFIGURATION.zh.md#socket-isolation)，因为
 operator 需要知道该键覆盖什么。发现、验证与剩余决定记录在

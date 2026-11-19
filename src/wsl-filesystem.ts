@@ -440,12 +440,12 @@ export class WslFileSystem extends LocalFileSystem {
    * @param writableRoots - the effective extra roots the runtime binds.
    * @returns the runtime entry, or undefined when the mode is off.
    */
-  sessionRuntimeFor(policy: { mode: string, workspaceRoot: string, sessionId?: string }, distro: string, writableRoots: readonly string[] = [], socketMasks: readonly string[] = []): SessionRuntimeEntry | undefined {
+  sessionRuntimeFor(policy: { mode: string, workspaceRoot: string, sessionId?: string }, distro: string, writableRoots: readonly string[] = [], socketMasks: readonly string[] = [], maskInterop = false): SessionRuntimeEntry | undefined {
     const config = this.wslConfig;
     if (!config.sessionSandbox) return undefined;
     const workspaceRoot = policy.workspaceRoot || config.cwd;
     const sessionId = policy.sessionId || this.sessionRuntimeOwner;
-    const key = SessionRuntimes.key({ sessionId, distro, workspaceRoot, mode: policy.mode, maskWindowsDrive: config.maskWindowsDrive, writableRoots, socketMasks });
+    const key = SessionRuntimes.key({ sessionId, distro, workspaceRoot, mode: policy.mode, maskWindowsDrive: config.maskWindowsDrive, writableRoots, socketMasks, maskInterop });
     const held = this.runtimeBook.sessionRuntimeEntries.get(key);
     if (held !== undefined) return held;
     const entry = this.sessionRuntimes.acquire({
@@ -457,6 +457,7 @@ export class WslFileSystem extends LocalFileSystem {
       maskWindowsDrive: config.maskWindowsDrive,
       writableRoots,
       socketMasks,
+      maskInterop,
     });
     this.runtimeBook.sessionRuntimeEntries.set(key, entry);
     return entry;
@@ -531,6 +532,7 @@ export class WslFileSystem extends LocalFileSystem {
     // only; `confinedPolicy` is the same value as `policy`).
     const confinedPolicy = policy as { mode: ConfinedSandboxMode, workspaceRoot: string, sessionId?: string };
     const socketMasks = await this.socketMasksFor(distro, confinedPolicy.mode);
+    const maskInterop = config.sandbox && config.socketIsolation === "strict";
     if (!(await this.sandbox.usable(distro))) {
       // The probe's classified remedy — missing vs present-but-broken, with the
       // distro's own package family — is what every other refusal surfaces;
@@ -541,10 +543,10 @@ export class WslFileSystem extends LocalFileSystem {
       );
     }
     if (await this.wantsSessionRuntime(distro)) {
-      const runtime = this.sessionRuntimeFor(confinedPolicy, distro, writableRoots, socketMasks);
+      const runtime = this.sessionRuntimeFor(confinedPolicy, distro, writableRoots, socketMasks, maskInterop);
       if (runtime !== undefined) return runtime.agent;
     }
-    return confinedAgent({ distro, wslPath: config.wslPath, policy: confinedPolicy, maskWindowsDrive: config.maskWindowsDrive, writableRoots, socketMasks });
+    return confinedAgent({ distro, wslPath: config.wslPath, policy: confinedPolicy, maskWindowsDrive: config.maskWindowsDrive, writableRoots, socketMasks, maskInterop });
   }
 
   /**

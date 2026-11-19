@@ -1524,7 +1524,7 @@ async function main(options) {
           } else if (stance === "session-bus") {
             check("sandbox.isolation", "ok", "Socket isolation", `session-bus — masks ${masks.length === 0 ? "no user-manager socket (none detected)" : masks.join(", ")}; the system bus, container sockets and the interop transport remain; enforcement stays partial`, "use strict to mask the system bus and reachable container sockets; close interop at the distro level");
           } else {
-            check("sandbox.isolation", "ok", "Socket isolation", `strict — masks ${masks.length === 0 ? "no socket (none detected)" : masks.join(", ")}; the WSL interop transport and same-user /proc remain; enforcement stays partial`, "the complete interop closure is the distro-level [interop] enabled=false; same-user /proc is outside the mount profile");
+            check("sandbox.isolation", "ok", "Socket isolation", `strict — masks ${masks.length === 0 ? "no socket (none detected)" : masks.join(", ")}; the WSL interop transport is masked by the profile; same-user /proc remains; enforcement stays partial`, "the distro-level [interop] enabled=false still closes interop for the rest of the distro; same-user /proc is outside the mount profile");
           }
         }
       }

@@ -57,6 +57,14 @@ interface BwrapProfileOptions {
    * symlinked path fails in bwrap, so this module never invents one.
    */
   socketMasks?: readonly string[];
+  /**
+   * Shadow `/run/WSL` with an empty tmpfs: the WSL interop transport. `/init`
+   * stays executable and the kernel keeps its binfmt handler, but the host
+   * bridge socket is gone, so a PE executed inside the profile fails at
+   * `connect`. The complete distro-wide closure is still `[interop]
+   * enabled=false`; this is the command-profile narrowing.
+   */
+  maskInterop?: boolean;
 }
 
 /**
@@ -108,6 +116,9 @@ export function bwrapProfileArgs(policy: { mode: string, workspaceRoot: string }
   // read-only root, so the mount lands over the socket the command would
   // otherwise reach. The paths are existing sockets the caller verified.
   for (const socket of options.socketMasks ?? []) args.push("--ro-bind", "/dev/null", socket);
+  // `/run/WSL` is the interop bridge's directory, so it takes a tmpfs (a
+  // directory cannot be shadowed with the `/dev/null` bind used for sockets).
+  if (options.maskInterop) args.push("--tmpfs", "/run/WSL");
   if (policy.mode === "workspace-write") {
     if (options.realTmp) {
       args.push("--bind", "/tmp", "/tmp");

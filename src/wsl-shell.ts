@@ -528,13 +528,14 @@ export class WslShellExecutor
     distro: string,
     writableRoots: readonly string[] = [],
     socketMasks: readonly string[] = [],
+    maskInterop = false,
   ): SessionRuntimeEntry | undefined {
     const config = this.wslConfig;
     if (!config.sessionSandbox) return undefined;
     const mode = policy?.mode ?? "danger-full-access";
     const workspaceRoot = policy?.workspaceRoot ?? (configuredCwd(this.config) || resolved.workdir);
     const sessionId = policy?.sessionId || resolved.dshEnv?.DSH_SESSION_ID || this.sessionRuntimeOwner;
-    const key = SessionRuntimes.key({ sessionId, distro, workspaceRoot, mode, maskWindowsDrive: effectiveMaskWindowsDrive(config), writableRoots, socketMasks });
+    const key = SessionRuntimes.key({ sessionId, distro, workspaceRoot, mode, maskWindowsDrive: effectiveMaskWindowsDrive(config), writableRoots, socketMasks, maskInterop });
     const held = this.runtimeBook.sessionRuntimeEntries.get(key);
     if (held !== undefined) return held;
     const entry = this.sessionRuntimes.acquire({
@@ -546,6 +547,7 @@ export class WslShellExecutor
       maskWindowsDrive: effectiveMaskWindowsDrive(config),
       writableRoots,
       socketMasks,
+      maskInterop,
     });
     this.runtimeBook.sessionRuntimeEntries.set(key, entry);
     return entry;
@@ -921,16 +923,20 @@ export class WslShellExecutor
     this.throwIfWorkdirInAnotherDistro(resolved.workdir, distro);
     const writableRoots = await this.writableRootsFor(distro, resolved.sandboxPolicy, resolved.signal);
     const socketMasks = await this.socketMasksFor(distro, resolved.sandboxPolicy?.mode, resolved.signal);
+    const maskInterop = config.sandbox
+      && config.socketIsolation === "strict"
+      && resolved.sandboxPolicy !== undefined
+      && resolved.sandboxPolicy.mode !== "danger-full-access";
     if (config.agent) {
       try {
-        return await this.executeViaAgent(resolved, distro, shell, writableRoots, socketMasks);
+        return await this.executeViaAgent(resolved, distro, shell, writableRoots, socketMasks, maskInterop);
       } catch (error) {
         // Only an out-of-service agent falls back; anything else (a cwd
         // refusal, a sandbox refusal) is the command's own verdict.
         if (!(error instanceof AgentUnavailableError)) throw error;
       }
     }
-    return this.executeOneShot(resolved, distro, shell, writableRoots, socketMasks);
+    return this.executeOneShot(resolved, distro, shell, writableRoots, socketMasks, maskInterop);
   }
 
   /**
@@ -960,15 +966,15 @@ export class WslShellExecutor
    * @param shell - the resolved distro shell.
    * @returns the decorated execution result.
    */
-  async executeViaAgent(resolved: WslExecSpec, distro: string, shell: string, writableRoots: readonly string[] = [], socketMasks: readonly string[] = []): Promise<ShellExecution> {
+  async executeViaAgent(resolved: WslExecSpec, distro: string, shell: string, writableRoots: readonly string[] = [], socketMasks: readonly string[] = [], maskInterop = false): Promise<ShellExecution> {
     const config = this.wslConfig;
     const policy = resolved.sandboxPolicy;
     const confined = this.sandbox !== undefined && policy !== undefined && policy.mode !== "danger-full-access"
-      ? await this.sandbox.confine(this.distroArgv(resolved, shell), { ...policy, mode: policy.mode }, { distro, signal: resolved.signal, writableRoots, socketMasks })
+      ? await this.sandbox.confine(this.distroArgv(resolved, shell), { ...policy, mode: policy.mode }, { distro, signal: resolved.signal, writableRoots, socketMasks, maskInterop })
       : undefined;
     const mode = policy?.mode;
     const useScope = await this.wantsSessionRuntime(distro);
-    const runtime = useScope ? this.sessionRuntimeFor(policy, resolved, distro, writableRoots, socketMasks) : undefined;
+    const runtime = useScope ? this.sessionRuntimeFor(policy, resolved, distro, writableRoots, socketMasks, maskInterop) : undefined;
     const agent = runtime !== undefined ? runtime.agent : await this.executionAgent(distro);
     // A session runtime's own bwrap profile applies the mounts, so the
     // command must NOT be wrapped a second time: the per-command probe still
@@ -1053,7 +1059,7 @@ export class WslShellExecutor
       // warning names the directory — the failure path pays the extra spawn,
       // the hot path does not.
       if (error instanceof SpawnError) {
-        return this.executeOneShot(resolved, distro, shell, writableRoots, socketMasks).then((fallback) => fallback.result() as unknown as AgentSettledResult);
+        return this.executeOneShot(resolved, distro, shell, writableRoots, socketMasks, maskInterop).then((fallback) => fallback.result() as unknown as AgentSettledResult);
       }
       throw error;
     });
@@ -1073,7 +1079,7 @@ export class WslShellExecutor
    * @param shell - the resolved distro shell.
    * @returns the decorated execution result.
    */
-  async executeOneShot(resolved: WslExecSpec, distro: string, shell: string, writableRoots: readonly string[] = [], socketMasks: readonly string[] = []): Promise<ShellExecution> {
+  async executeOneShot(resolved: WslExecSpec, distro: string, shell: string, writableRoots: readonly string[] = [], socketMasks: readonly string[] = [], maskInterop = false): Promise<ShellExecution> {
     const policy = resolved.sandboxPolicy;
     if (this.sandbox === undefined || policy === undefined || policy.mode === "danger-full-access") {
       // `executeArgv` resolves to the execution handle, so it has to be awaited
@@ -1107,7 +1113,7 @@ export class WslShellExecutor
     const confinement: { profile: ConfinedProfile | undefined } = { profile: undefined };
     const execution = await this.executeArgv(
       resolved,
-      (signal) => this.prepareConfinedArgv(resolved, distro, shell, policy, mode, confinement, writableRoots, socketMasks, signal),
+      (signal) => this.prepareConfinedArgv(resolved, distro, shell, policy, mode, confinement, writableRoots, socketMasks, maskInterop, signal),
       (process) => this.stampConfinedFacts(resolved, mode, confinement, process),
     );
     return WslShellExecutor.decorateResult(execution, (result) => {
@@ -1135,13 +1141,13 @@ export class WslShellExecutor
    * @param writableRoots - the effective extra roots the profile binds.
    * @param signal - the caller's cancellation.
    */
-  private async prepareConfinedArgv(resolved: WslExecSpec, distro: string, shell: string, policy: SandboxExecutionPolicy, mode: ConfinedSandboxMode, slot: { profile: ConfinedProfile | undefined }, writableRoots: readonly string[], socketMasks: readonly string[], signal: AbortSignal): Promise<readonly string[]> {
+  private async prepareConfinedArgv(resolved: WslExecSpec, distro: string, shell: string, policy: SandboxExecutionPolicy, mode: ConfinedSandboxMode, slot: { profile: ConfinedProfile | undefined }, writableRoots: readonly string[], socketMasks: readonly string[], maskInterop: boolean, signal: AbortSignal): Promise<readonly string[]> {
     // Preparation is async, so it runs under executeArgv's deadline and
     // cancellation handling rather than before them. A distro without a
     // usable runner throws here, before anything is spawned. The outer
     // guard narrowed the sandbox in, but narrowings do not reach closures —
     // so the confined sandbox is asserted here, type-level only.
-    const profile = await (this.sandbox as InstanceType<typeof WslSandbox>).confine(this.distroArgv(resolved, shell), { ...policy, mode }, { distro, signal, writableRoots, socketMasks });
+    const profile = await (this.sandbox as InstanceType<typeof WslSandbox>).confine(this.distroArgv(resolved, shell), { ...policy, mode }, { distro, signal, writableRoots, socketMasks, maskInterop });
     slot.profile = profile;
     signal.throwIfAborted();
     return this.argv(resolved, distro, shell, profile.argv);

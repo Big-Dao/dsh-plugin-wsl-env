@@ -77,6 +77,8 @@ interface ConfinedAgentRequest {
      * because the mount table is fixed for the resident's lifetime.
      */
     socketMasks?: readonly string[];
+    /** Shadow `/run/WSL`, the WSL interop transport, in the resident's profile. */
+    maskInterop?: boolean;
 }
 /**
  * The confined agent for one distro and one resolved policy, created on first
@@ -86,7 +88,7 @@ interface ConfinedAgentRequest {
  * @param request - the confinement request.
  * @returns the confined resident for this key.
  */
-export declare function confinedAgent({ distro, wslPath, policy, maskWindowsDrive, realTmp, writableRoots, socketMasks }: ConfinedAgentRequest): WslAgent;
+export declare function confinedAgent({ distro, wslPath, policy, maskWindowsDrive, realTmp, writableRoots, socketMasks, maskInterop }: ConfinedAgentRequest): WslAgent;
 /** Test hook: forget every confined resident (the plain agent has no factory state). */
 export declare function resetConfinedAgents(): void;
 export {};

@@ -113,13 +113,15 @@ does not narrow this path because it never involves interop. The confined rows'
 (`wsl-shell`, `wsl-fs`, `fs-routing`) `socketIsolation` key masks the path when
 enabled: `session-bus` binds `/dev/null` over `$XDG_RUNTIME_DIR/bus` and
 `$XDG_RUNTIME_DIR/systemd/private` (so `systemd-run --user` fails inside the
-profile), and `strict` also masks `/run/dbus/system_bus_socket` and the
-container sockets the distro user can reach. The doctor's
-`sandbox.isolation` row reports the effective stance and the detected
-surfaces. The default is `off`: the escape remains reachable unless an operator
-chooses a stance, and the masks are a user-level narrowing, not a closure —
-same-user `/proc`, the interop transport and other IPC remain, and
-`enforcement` stays `partial`. The reproduction steps stay private; the exact
+profile), and `strict` also masks `/run/dbus/system_bus_socket`, the container
+sockets the distro user can reach, and `/run/WSL` (the WSL interop transport);
+in strict, an executable copied into the workspace still fails because `/init`
+cannot reach the host bridge. The doctor's `sandbox.isolation` row reports the
+effective stance and the detected surfaces. The default is `off`: the escape
+remains reachable unless an operator chooses a stance, and the masks are a
+user-level narrowing, not a closure — same-user `/proc` and other IPC remain,
+and `enforcement` stays `partial`. The distro-wide switch is still `[interop]
+enabled=false` plus `wsl.exe --shutdown`. The reproduction steps stay private; the exact
 paths are listed in
 [docs/CONFIGURATION.md](docs/CONFIGURATION.md#socket-isolation) because an
 operator must know what the key covers. The finding, its verification and the

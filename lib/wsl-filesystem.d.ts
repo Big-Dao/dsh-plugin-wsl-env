@@ -403,7 +403,7 @@ export declare class WslFileSystem extends LocalFileSystem {
         mode: string;
         workspaceRoot: string;
         sessionId?: string;
-    }, distro: string, writableRoots?: readonly string[], socketMasks?: readonly string[]): SessionRuntimeEntry | undefined;
+    }, distro: string, writableRoots?: readonly string[], socketMasks?: readonly string[], maskInterop?: boolean): SessionRuntimeEntry | undefined;
     /**
      * Run the session runtime's preflight once per provider. Only success is
      * cached, so following the remedy does not need an app restart.

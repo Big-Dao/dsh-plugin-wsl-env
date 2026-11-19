@@ -23,7 +23,8 @@
 # becomes writable only when the profile binds it, and its sibling stays EROFS.
 # The socket-isolation stances are measured through the shipped resolver: the
 # default profile can reach the user manager, `session-bus` cannot, and
-# `strict` also shadows the system bus and the container sockets that exist.
+# `strict` also shadows the system bus, the container sockets that exist and
+# the WSL interop transport (`/run/WSL`), so a copied Windows executable fails.
 #
 # Exit status: 0 when every behavioural expectation holds. The WSL interop
 # escape is reported as INFO, not FAIL — a Linux sandbox cannot govern a
@@ -59,7 +60,8 @@ const maskWindowsDrive = process.argv[3] === "mask";
 const writableRoots = process.argv.slice(4);
 const socketMasks = (process.env.DSH_SOCKET_MASKS ?? "").split("\n").filter(Boolean);
 const pidNamespace = process.env.DSH_NO_PID_NS !== "1";
-console.log(bwrapProfileArgs({ mode, workspaceRoot }, { maskWindowsDrive, writableRoots, socketMasks, pidNamespace }).join("\n"));
+const maskInterop = process.env.DSH_MASK_INTEROP === "1";
+console.log(bwrapProfileArgs({ mode, workspaceRoot }, { maskWindowsDrive, writableRoots, socketMasks, pidNamespace, maskInterop }).join("\n"));
 ' "$1" "$2" "${3:-}" "${@:4}"
 }
 build_socket_profile() { # build_socket_profile <mode> <workspaceRoot> <mask> <masks...> — build_profile plus socket masks, session-runtime pid shape
@@ -194,12 +196,18 @@ if [ -n "$SESSION_MASKS" ] && run SOCKET_BASE systemd-run --user --scope --quiet
     [ -n "$socket" ] && expect_status "session-bus masks $socket" zero SESS test -c "$socket"
   done <<< "$SESSION_MASKS"
   if [ -n "$STRICT_MASKS" ]; then
-    mapfile -t STRICT < <(build_socket_profile workspace-write "$WS" "" $STRICT_MASKS)
+    mapfile -t STRICT < <(DSH_MASK_INTEROP=1 build_socket_profile workspace-write "$WS" "" $STRICT_MASKS)
     expect_status "strict refuses systemd-run --user" nonzero STRICT systemd-run --user --scope --quiet true
     expect_status "strict refuses the system bus" nonzero STRICT systemctl status --no-pager
     while IFS= read -r socket; do
       [ -n "$socket" ] && expect_status "strict masks $socket" zero STRICT test -c "$socket"
     done <<< "$STRICT_MASKS"
+    if [ -x "$CMD_EXE" ]; then
+      expect_status "strict masks the interop transport" zero STRICT sh -c 'test -z "$(ls -A /run/WSL)"'
+      expect_status "strict blocks a Windows executable" nonzero STRICT "$CMD_EXE" /c "echo should-not-run"
+    else
+      report INFO "strict interop legs skipped" "no $CMD_EXE from this shell"
+    fi
   else
     report INFO "strict socket legs skipped" "the probe found no system bus or container socket"
   fi

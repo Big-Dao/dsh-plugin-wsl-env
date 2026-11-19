@@ -114,6 +114,13 @@ await check("socket masks shadow the configured paths", async () => {
   }
 });
 
+await check("maskInterop shadows the WSL interop transport", async () => {
+  const confined = await flipping.confine(["sh", "-c", "true"], policy, { distro: "ubuntu", maskInterop: true });
+  const index = confined.argv.indexOf("/run/WSL");
+  assert.ok(index > 0, "the interop transport is in the profile");
+  assert.deepEqual(confined.argv.slice(index - 1, index + 1), ["--tmpfs", "/run/WSL"]);
+});
+
 await check("read-only mode grants no workspace bind", async () => {
   const confined = await flipping.confine(["sh", "-c", "true"], { ...policy, mode: "read-only" }, { distro: "ubuntu" });
   assert.ok(!confined.argv.includes("--bind"), "read-only must not bind a writable root");

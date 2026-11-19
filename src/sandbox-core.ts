@@ -285,7 +285,7 @@ export interface WslSandboxCoreInstance {
   confine: (
     argv: string[],
     policy: { mode: "read-only" | "workspace-write", workspaceRoot: string },
-    options: { distro: string, signal?: AbortSignal | undefined, writableRoots?: readonly string[] | undefined, socketMasks?: readonly string[] | undefined },
+    options: { distro: string, signal?: AbortSignal | undefined, writableRoots?: readonly string[] | undefined, socketMasks?: readonly string[] | undefined, maskInterop?: boolean | undefined },
   ) => Promise<WslConfined>;
 }
 
@@ -343,7 +343,8 @@ export function createSandboxCore({ SandboxUnavailableError }: {
      * @param options - the distro to run in, optional cancellation, the
      *   resolved extra writable roots (already Linux paths, filtered and
      *   physically checked by the provider), and the existing socket paths
-     *   the profile masks (resolved by the provider).
+     *   the profile masks (resolved by the provider), and whether to shadow
+     *   the WSL interop transport at `/run/WSL`.
      * @returns the wrapped argv plus the settlement-classification facts, in the
      *   seam's `ConfinedArgv` shape.
      * @throws SandboxUnavailableError when the distro has no usable `bwrap`, so a
@@ -352,7 +353,7 @@ export function createSandboxCore({ SandboxUnavailableError }: {
     async confine(
       argv: string[],
       policy: { mode: "read-only" | "workspace-write", workspaceRoot: string },
-      options: { distro: string, signal?: AbortSignal, writableRoots?: readonly string[] | undefined, socketMasks?: readonly string[] | undefined },
+      options: { distro: string, signal?: AbortSignal, writableRoots?: readonly string[] | undefined, socketMasks?: readonly string[] | undefined, maskInterop?: boolean | undefined },
     ): Promise<WslConfined> {
       const { distro, signal } = options;
       if (!(await this.usable(distro, signal))) {
@@ -362,7 +363,7 @@ export function createSandboxCore({ SandboxUnavailableError }: {
         );
       }
       const workspaceRoot = toLinuxPath(policy.workspaceRoot);
-      const prefix = bwrapArgvPrefix({ ...policy, workspaceRoot }, { maskWindowsDrive: this.maskWindowsDrive, writableRoots: options.writableRoots, socketMasks: options.socketMasks });
+      const prefix = bwrapArgvPrefix({ ...policy, workspaceRoot }, { maskWindowsDrive: this.maskWindowsDrive, writableRoots: options.writableRoots, socketMasks: options.socketMasks, maskInterop: options.maskInterop });
       return {
         argv: [...prefix, ...argv],
         enforcement: ENFORCEMENT,

@@ -361,7 +361,7 @@ user's systemd manager to start a unit outside the fence (the escape in
 |---|---|
 | `off` (default) | Nothing masked. The documented `enforcement: partial` includes this path. |
 | `session-bus` | Masks `$XDG_RUNTIME_DIR/bus` and `$XDG_RUNTIME_DIR/systemd/private`; `systemd-run --user` and `systemctl --user` fail inside the command. |
-| `strict` | Adds `/run/dbus/system_bus_socket` and the container sockets (`docker`, `podman`, `containerd`, `crio`) that exist and are reachable by the distro user. |
+| `strict` | Adds `/run/dbus/system_bus_socket`, the container sockets (`docker`, `podman`, `containerd`, `crio`) that exist and are reachable by the distro user, and shadows `/run/WSL` — the WSL interop transport — so a Windows executable fails to start inside the profile. |
 
 The paths are resolved inside the distro and bound `/dev/null`; a path that
 does not exist is not masked. The key applies to every confined profile:
@@ -371,17 +371,22 @@ never model-authored commands, but the masks keep one mount table across the
 command and write planes and defend the resident if that protocol is ever
 compromised. Keep the three rows equal.
 
-The masks are a narrowing, not a closure: same-user `/proc`, the interop
-transport and other IPC remain, so `enforcement` stays `partial`. `strict`
-breaks `systemctl --user`, D-Bus and container clients inside confined
+The masks are a narrowing, not a closure: same-user `/proc` and other IPC
+remain, so `enforcement` stays `partial`. `strict` additionally hides the WSL
+interop transport; a PE copied into the workspace still exists but its
+`/init` cannot reach the host bridge, so it fails at `connect`. That is not
+the distro-wide closure: other distro processes and the Windows side still
+interop, and `[interop] enabled=false` in `/etc/wsl.conf` plus `wsl.exe
+--shutdown` remains the complete switch. `strict` breaks `systemctl --user`,
+D-Bus, container clients and Windows-program launches inside confined
 processes; `off` keeps the previous behavior.
 
 `pnpm run probe:sandbox` measures the stances: the default profile reaches the
 user manager, `session-bus` refuses `systemd-run --user` and masks the user
-bus and private socket, and `strict` also masks the system bus and the
-reachable container sockets. The doctor's `sandbox.isolation` row reports the
-effective stance and the detected surfaces. Configure it on the command and
-write rows:
+bus and private socket, and `strict` also masks the system bus, the reachable
+container sockets and `/run/WSL`, and blocks a copied Windows executable. The
+doctor's `sandbox.isolation` row reports the effective stance and the detected
+surfaces. Configure it on the command and write rows:
 
 ```yaml
               - id: wsl-shell

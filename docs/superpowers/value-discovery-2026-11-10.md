@@ -24,9 +24,11 @@
 > R2 的 socket 档位也已落地（Unreleased）：`socketIsolation` 覆盖
 > `wsl-shell`/`wsl-fs`/`fs-routing` 的 `session-bus`/`strict`，doctor 增加
 > `sandbox.isolation`，`preset --socket-isolation`/`--strict` 写入嵌套行；
-> `probe:sandbox` 的 socket 腿通过。默认仍为 `off`，顶层 `fs-routing` 行需
-> 手工同步；同用户 `/proc`、interop 与其他 IPC 未关闭，`enforcement` 保持
-> `partial`。
+> `strict` 还以 `/run/WSL` 遮蔽 interop 传输（复制进工作区的 PE 失败），
+> `probe:sandbox` 的 socket + interop 腿通过。默认仍为 `off`，顶层
+> `fs-routing` 行需手工同步；同用户 `/proc` 与其他 IPC 未关闭，整发行版
+> interop 开关仍是 `[interop] enabled=false`，`enforcement` 保持 `partial`。
+> 下一步的 PID namespace（关闭 `/proc` 别名）仍未做。
 
 ## 结论
 

@@ -106,14 +106,17 @@ operations never use the 9p share.
   [ARCHITECTURE.md](ARCHITECTURE.md#reported-enforcement).
 - **The mount profile does not govern process authority** — a confined command
   can still reach sockets outside the fence: the user systemd manager (the
-  documented escape), the system bus, and container daemons. The confined
+  documented escape), the system bus, and container daemons; a PE copied into
+  the workspace can also start a Windows process through interop. The confined
   rows' `socketIsolation: "session-bus"` binds `/dev/null` over
   `$XDG_RUNTIME_DIR/bus` and `$XDG_RUNTIME_DIR/systemd/private`; `"strict"`
-  adds `/run/dbus/system_bus_socket` and the container sockets the distro
-  user can reach. The default is `off`; the masks are a narrowing, not a
-  closure (same-user `/proc`, interop and other IPC remain), and
-  `enforcement` stays `partial`. `strict` breaks `systemctl --user`, D-Bus and
-  container clients inside confined commands. Verified by
+  adds `/run/dbus/system_bus_socket`, the container sockets the distro user
+  can reach, and a tmpfs over `/run/WSL` (the interop transport), so a copied
+  PE fails at `connect`. The default is `off`; the masks are a narrowing, not
+  a closure (same-user `/proc` and other IPC remain; the distro-wide interop
+  switch is still `[interop] enabled=false`), and `enforcement` stays
+  `partial`. `strict` breaks `systemctl --user`, D-Bus, container clients and
+  Windows-program launches inside confined commands. Verified by
   `pnpm run probe:sandbox`.
 - **`bubblewrap` must be installed**, or both providers fail with the install
   command; a session-start preflight surfaces the same text as an advisory warning.

@@ -68,6 +68,8 @@ interface SessionRuntimeRequest {
      * the key because the mount table is fixed for the runtime's lifetime.
      */
     socketMasks?: readonly string[];
+    /** Shadow `/run/WSL`, the WSL interop transport, inside the runtime. */
+    maskInterop?: boolean;
     /** The agent's client lease; 0 disables. */
     leaseMs?: number;
 }
@@ -147,7 +149,7 @@ export declare class SessionRuntimes {
      * @param request - the runtime request.
      * @returns the registry key.
      */
-    static key(request: Pick<SessionRuntimeRequest, "distro" | "workspaceRoot" | "mode" | "maskWindowsDrive" | "sessionId" | "writableRoots" | "socketMasks">): string;
+    static key(request: Pick<SessionRuntimeRequest, "distro" | "workspaceRoot" | "mode" | "maskWindowsDrive" | "sessionId" | "writableRoots" | "socketMasks" | "maskInterop">): string;
     /**
      * Acquire the runtime for one key, creating it on first use.
      *

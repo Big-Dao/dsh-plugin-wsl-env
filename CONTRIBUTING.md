@@ -198,7 +198,7 @@ terminal if you would rather not see the prompt.
 | `pnpm run e2e:install` | packed-tarball install/upgrade/uninstall into a temporary `DSH_HOME`; the newest published → current leg boots the profile with an overlay probe and asserts the three takeovers mount | yes; Windows + WSL |
 | `pnpm run doctor` | the environment prerequisites, peers and caches (`--json` for scripts; `diagnose` is the read-only alias) | no; inside the distro |
 | `pnpm run probe` | filesystem behaviour against a real distro | yes |
-| `pnpm run probe:sandbox` | what bubblewrap confines and what it does not, including the socket-isolation stances | no |
+| `pnpm run probe:sandbox` | what bubblewrap confines and what it does not, including the socket-isolation stances and the strict interop-transport mask | no |
 | `pnpm run probe:cache-write` | the writable-root grants through the per-command profile and the session runtime | no; inside the distro |
 | `pnpm run probe:sandbox-shell` | the confined executor through a real boot | yes |
 | `pnpm run probe:interop-shell` | resident and one-shot interop for drive and copied executables, with and without the `/mnt` mask | yes |

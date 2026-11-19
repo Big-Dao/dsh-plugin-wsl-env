@@ -381,6 +381,33 @@ check("a failed socket probe refuses the command as sandbox-unavailable", async 
   );
 });
 
+check("the shell and filesystem runtime profiles honor maskInterop", async () => {
+  const { fs } = makeFs({ sessionSandbox: true, socketIsolation: "strict" });
+  const { executor } = makeExecutor({ sessionSandbox: true, socketIsolation: "strict" });
+  /** @type {Array<{ argvPrefix: string[] }>} */
+  const spawns = [];
+  const registry = new SessionRuntimes({
+    spawnAgent: (options) => {
+      spawns.push(options);
+      return /** @type {WslAgent} */ (/** @type {unknown} */ ({ close: async () => {} }));
+    },
+    stopScope: () => {},
+  });
+  fs.sessionRuntimes = registry;
+  executor.sessionRuntimes = registry;
+  const resolved = /** @type {Parameters<WslShellExecutor["sessionRuntimeFor"]>[1]} */ (/** @type {unknown} */ ({ workdir: WORKSPACE }));
+  const policy = { mode: "workspace-write", workspaceRoot: WORKSPACE, sessionId: "session-interop" };
+  const shell = executor.sessionRuntimeFor(policy, resolved, DISTRO, [], [], true);
+  const fsEntry = fs.sessionRuntimeFor(policy, DISTRO, [], [], true);
+  assert.ok(shell);
+  assert.equal(shell, fsEntry, "the command and write rows share the interop-masked runtime");
+  const prefix = spawns[0]?.argvPrefix ?? [];
+  const index = prefix.indexOf("/run/WSL");
+  assert.ok(index > 0 && prefix[index - 1] === "--tmpfs", "the runtime shadows the interop transport");
+  await executor.disposeSessionRuntimes();
+  await fs.disposeSessionRuntimes();
+});
+
 check("worldPath mints the pinned distro's UNC for a Linux path", async () => {
   const { fs } = makeFs();
   assert.equal(await fs.worldPath("/home/andy/proj/a.ts"), "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj\\a.ts");

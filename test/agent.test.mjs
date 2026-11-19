@@ -780,6 +780,18 @@ checkReg("the confined factory keys the socket masks into the resident's identit
   resetConfinedAgents();
 });
 
+checkReg("the confined factory keys the interop mask into the resident's identity", () => {
+  resetConfinedAgents();
+  const policy = { mode: "workspace-write", workspaceRoot: "/home/u/ws" };
+  const visible = confinedAgent({ distro: "ubuntu", policy });
+  const masked = confinedAgent({ distro: "ubuntu", policy, maskInterop: true });
+  assert.notEqual(visible, masked, "a different interop mount table is a different resident");
+  const index = masked.argvPrefix.indexOf("/run/WSL");
+  assert.ok(index > 0 && masked.argvPrefix[index - 1] === "--tmpfs", "the masked resident's profile shadows the interop transport");
+  assert.equal(visible.argvPrefix.includes("/run/WSL"), false, "the visible resident leaves it in view");
+  resetConfinedAgents();
+});
+
 checkReg("the transport's Windows env is pinned: no user WSLENV forwarding reaches the distro", () => {
   const pinned = pinnedWindowsEnv({
     SystemRoot: "C:\\WINDOWS",

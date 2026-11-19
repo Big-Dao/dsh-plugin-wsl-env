@@ -523,7 +523,7 @@ export declare class WslShellExecutor extends LocalBashExecutor {
         mode: string;
         workspaceRoot: string;
         sessionId?: string;
-    } | undefined, resolved: WslExecSpec, distro: string, writableRoots?: readonly string[], socketMasks?: readonly string[]): SessionRuntimeEntry | undefined;
+    } | undefined, resolved: WslExecSpec, distro: string, writableRoots?: readonly string[], socketMasks?: readonly string[], maskInterop?: boolean): SessionRuntimeEntry | undefined;
     /**
      * Run the session runtime's preflight once per executor. A failure is a
      * configuration verdict, not an agent outage: it is raised as an Error with
@@ -759,7 +759,7 @@ export declare class WslShellExecutor extends LocalBashExecutor {
      * @param shell - the resolved distro shell.
      * @returns the decorated execution result.
      */
-    executeViaAgent(resolved: WslExecSpec, distro: string, shell: string, writableRoots?: readonly string[], socketMasks?: readonly string[]): Promise<ShellExecution>;
+    executeViaAgent(resolved: WslExecSpec, distro: string, shell: string, writableRoots?: readonly string[], socketMasks?: readonly string[], maskInterop?: boolean): Promise<ShellExecution>;
     /**
      * The pre-agent execution path, verbatim: one `wsl.exe` per command through
      * the inherited `executeArgv` machinery. Kept as the permanent fallback for
@@ -770,7 +770,7 @@ export declare class WslShellExecutor extends LocalBashExecutor {
      * @param shell - the resolved distro shell.
      * @returns the decorated execution result.
      */
-    executeOneShot(resolved: WslExecSpec, distro: string, shell: string, writableRoots?: readonly string[], socketMasks?: readonly string[]): Promise<ShellExecution>;
+    executeOneShot(resolved: WslExecSpec, distro: string, shell: string, writableRoots?: readonly string[], socketMasks?: readonly string[], maskInterop?: boolean): Promise<ShellExecution>;
     /**
      * The confined one-shot's argv prepare: confine the distro argv under the
      * policy, keep the resulting profile for the fact-stamper and the settlement

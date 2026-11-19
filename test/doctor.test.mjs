@@ -312,7 +312,7 @@ try {
       assert.match(String(row?.detail), /strict/);
       assert.match(String(row?.detail), /\/run\/user\/1000\/bus/);
       assert.match(String(row?.detail), /\/run\/dbus\/system_bus_socket/);
-      assert.match(String(row?.detail), /interop/);
+      assert.match(String(row?.detail), /interop transport is masked/);
       assert.equal(report.config?.socketIsolation, "strict");
     } finally {
       rmSync(profile, { recursive: true, force: true });

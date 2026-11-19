@@ -120,6 +120,7 @@ export interface WslSandboxCoreInstance {
         signal?: AbortSignal | undefined;
         writableRoots?: readonly string[] | undefined;
         socketMasks?: readonly string[] | undefined;
+        maskInterop?: boolean | undefined;
     }) => Promise<WslConfined>;
 }
 /**

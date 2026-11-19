@@ -111,6 +111,18 @@ check("socket masks are part of the key and bind inside the scope", async () => 
   assert.equal(registry.acquire({ ...request, socketMasks: masks }), masked, "the same masks reuse the runtime");
 });
 
+check("maskInterop is part of the key and shadows /run/WSL", async () => {
+  const { registry, spawns } = harness();
+  const plain = registry.acquire(request);
+  const masked = registry.acquire({ ...request, maskInterop: true });
+  assert.notEqual(plain, masked, "a different interop mount table is a different runtime");
+  const prefix = spawns[1]?.argvPrefix ?? [];
+  const index = prefix.indexOf("/run/WSL");
+  assert.ok(index > 0, "the interop transport is in the profile");
+  assert.deepEqual(prefix.slice(index - 1, index + 1), ["--tmpfs", "/run/WSL"]);
+  assert.equal(registry.acquire({ ...request, maskInterop: true }), masked, "the same mask reuses the runtime");
+});
+
 check("the same key is one runtime, refcounted, with the scope + mount prefix", async () => {
   const { registry, spawns, stops, events } = harness();
   const first = registry.acquire(request);

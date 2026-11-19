@@ -339,7 +339,7 @@ pnpm run preset --sandbox true --mask-windows-drive true
 |---|---|
 | `off`（默认） | 不遮蔽。文档化的 `enforcement: partial` 已包含这条路径。 |
 | `session-bus` | 遮蔽 `$XDG_RUNTIME_DIR/bus` 与 `$XDG_RUNTIME_DIR/systemd/private`；命令内的 `systemd-run --user`、`systemctl --user` 失败。 |
-| `strict` | 追加 `/run/dbus/system_bus_socket`，以及发行版用户可触达的容器 socket（`docker`、`podman`、`containerd`、`crio`）。 |
+| `strict` | 追加 `/run/dbus/system_bus_socket`、发行版用户可触达的容器 socket（`docker`、`podman`、`containerd`、`crio`），并遮蔽 `/run/WSL`——WSL interop 传输——profile 内的 Windows 可执行文件因此无法启动。 |
 
 路径在发行版内解析后以 `/dev/null` 绑定；不存在的路径不遮蔽。该键作用于
 每个受限 profile：`wsl-shell` 命令、`wsl-fs` 写入 resident 与路由根平面的
@@ -347,14 +347,19 @@ pnpm run preset --sandbox true --mask-windows-drive true
 让命令面与写面保持同一张挂载表，并在该协议被攻破时保护 resident。三行应保持
 一致。
 
-遮蔽是收窄，不是关闭：同用户 `/proc`、interop 传输与其他 IPC 仍在，因此
-`enforcement` 仍是 `partial`。`strict` 会打断受限进程内的
-`systemctl --user`、D-Bus 与容器客户端；`off` 保持原行为。
+遮蔽是收窄，不是关闭：同用户 `/proc` 与其他 IPC 仍在，因此 `enforcement`
+仍是 `partial`。`strict` 额外遮蔽 WSL interop 传输；被复制进工作区的 PE
+仍然存在，但它的 `/init` 连不到 host bridge，执行在 `connect` 处失败。这不是
+整发行版关闭：其他 distro 进程与 Windows 侧仍可 interop，完整开关仍是
+`/etc/wsl.conf` 的 `[interop] enabled=false` 加 `wsl.exe --shutdown`。
+`strict` 会打断受限进程内的 `systemctl --user`、D-Bus、容器客户端与 Windows
+程序启动；`off` 保持原行为。
 
 `pnpm run probe:sandbox` 实测各档位：默认 profile 可达用户管理器，
 `session-bus` 拒绝 `systemd-run --user` 并遮蔽总线与 private socket，
-`strict` 还遮蔽系统总线与可达的容器 socket。doctor 的 `sandbox.isolation`
-行报告生效档位与探测到的面。在命令与写入行上配置：
+`strict` 还遮蔽系统总线、可达的容器 socket 与 `/run/WSL`，并阻止复制出的
+Windows 可执行文件。doctor 的 `sandbox.isolation` 行报告生效档位与探测到的
+面。在命令与写入行上配置：
 
 ```yaml
               - id: wsl-shell

@@ -42,15 +42,18 @@ were part of the record.
   (`wsl-shell`, `wsl-fs`, `fs-routing`). `off` keeps the previous behavior;
   `session-bus` binds `/dev/null` over `$XDG_RUNTIME_DIR/bus` and
   `$XDG_RUNTIME_DIR/systemd/private`, so `systemd-run --user`/`systemctl --user`
-  fail inside the profile; `strict` also masks `/run/dbus/system_bus_socket`
-  and the container sockets the distro user can reach. The doctor's
+  fail inside the profile; `strict` also masks `/run/dbus/system_bus_socket`,
+  the container sockets the distro user can reach, and `/run/WSL` — the WSL
+  interop transport — so a Windows executable copied into the workspace fails
+  at the host bridge. The doctor's
   `sandbox.isolation` row reports the effective stance and the detected
   surfaces; `pnpm run preset --socket-isolation` (or `--strict`, which also
   enables the `/mnt` mask) writes the nested rows, and the top-level
   `fs-routing` row takes the same value by hand. The masks are a narrowing,
-  not a closure: same-user `/proc`, interop and other IPC remain,
-  `enforcement` stays `partial`, and `pnpm run probe:sandbox` proves the
-  default reaches the user manager while both stances do not.
+  not a closure: same-user `/proc` and other IPC remain, the distro-wide
+  interop switch is still `[interop] enabled=false`, `enforcement` stays
+  `partial`, and `pnpm run probe:sandbox` proves the default reaches the user
+  manager while both stances do not (and strict blocks a copied PE).
 
 - **The doctor names the effective `workspace-write` writable roots, and a
   real-machine probe proves them.** `sandbox.grants` lists the `writableRoots`

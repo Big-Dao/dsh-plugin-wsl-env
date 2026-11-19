@@ -86,6 +86,8 @@ interface SessionRuntimeRequest {
    * the key because the mount table is fixed for the runtime's lifetime.
    */
   socketMasks?: readonly string[];
+  /** Shadow `/run/WSL`, the WSL interop transport, inside the runtime. */
+  maskInterop?: boolean;
   /** The agent's client lease; 0 disables. */
   leaseMs?: number;
 }
@@ -230,7 +232,7 @@ export class SessionRuntimes {
    * @param request - the runtime request.
    * @returns the registry key.
    */
-  static key(request: Pick<SessionRuntimeRequest, "distro" | "workspaceRoot" | "mode" | "maskWindowsDrive" | "sessionId" | "writableRoots" | "socketMasks">): string {
+  static key(request: Pick<SessionRuntimeRequest, "distro" | "workspaceRoot" | "mode" | "maskWindowsDrive" | "sessionId" | "writableRoots" | "socketMasks" | "maskInterop">): string {
     return [
       request.sessionId ?? "",
       request.distro,
@@ -239,6 +241,7 @@ export class SessionRuntimes {
       request.maskWindowsDrive === true ? "masked" : "visible",
       (request.writableRoots ?? []).join("\u0000"),
       (request.socketMasks ?? []).join("\u0000"),
+      request.maskInterop === true ? "interop-masked" : "interop-visible",
     ].join("\u0000");
   }
 
@@ -261,7 +264,7 @@ export class SessionRuntimes {
     if (request.mode !== "danger-full-access") {
       prefix.push(...bwrapArgvPrefix(
         { mode: request.mode, workspaceRoot: toLinuxPath(request.workspaceRoot) },
-        { maskWindowsDrive: request.maskWindowsDrive, realTmp: true, pidNamespace: false, writableRoots: request.writableRoots, socketMasks: request.socketMasks },
+        { maskWindowsDrive: request.maskWindowsDrive, realTmp: true, pidNamespace: false, writableRoots: request.writableRoots, socketMasks: request.socketMasks, maskInterop: request.maskInterop },
       ));
     }
     const agent = this.spawnAgent({

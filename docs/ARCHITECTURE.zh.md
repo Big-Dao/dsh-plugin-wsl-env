@@ -253,12 +253,14 @@ UNC/Linux 写法），丢弃已在工作区、`/tmp` 或 `/dev/shm` 下可写的
 `sandboxMode` 上报模式。工具层和 Permissions 选择器读取该值。
 
 **Socket 隔离。** `bwrapProfileArgs` 还接受 `socketMasks`：在只读根之后把已存在
-的 socket 路径绑定到 `/dev/null`。受限提供者（`wsl-shell`、`wsl-fs`、
+的 socket 路径绑定到 `/dev/null`，以及 `maskInterop`：在 `/run/WSL`（WSL
+interop 传输）上挂空的 tmpfs。受限提供者（`wsl-shell`、`wsl-fs`、
 `fs-routing`）按各自的 `socketIsolation` 档位解析它们——`session-bus` 遮蔽用户
-systemd 管理器的 bus 与 private socket，`strict` 追加系统总线与发行版用户可
-触达的容器 socket。遮蔽关闭的是挂载 profile 留下的进程权限路径；不改变文件
-层级，同用户 `/proc`、interop 与其他 IPC 仍在。在发行版内寻找这些路径的探针
-位于 `lib/socket-isolation.js`；探针失败时命令被拒绝，而不是无遮蔽运行。
+systemd 管理器的 bus 与 private socket，
+`strict` 追加系统总线与发行版用户可触达的容器 socket。遮蔽关闭的是挂载 profile
+留下的进程权限路径；不改变文件层级，同用户 `/proc`、interop 与其他 IPC 仍在。
+在发行版内寻找这些路径的探针位于 `lib/socket-isolation.js`；探针失败时命令
+被拒绝，而不是无遮蔽运行。
 
 ### 上报的强制程度
 

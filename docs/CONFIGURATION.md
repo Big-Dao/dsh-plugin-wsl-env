@@ -41,7 +41,8 @@ pnpm run preset --distro Ubuntu --session-sandbox false
 ```
 
 Supported edits are `--distro`, `--session-sandbox`, `--sandbox`,
-`--mask-windows-drive`, and `--agent-backend`. Without `--out`, the helper
+`--mask-windows-drive`, `--socket-isolation`, `--strict`, `--agent-backend` and
+`--writable-roots`. Without `--out`, the helper
 prints the full `preset-wsl` block to merge into the profile manually. Use
 `pnpm run preset --check <file>` to detect profile layers that target nested
 rows directly; on detecting them it prints the block to use. `--out` replaces
@@ -67,7 +68,7 @@ values. Re-copy it after a plugin upgrade that changes the preset.
 | `sandbox` | `true` | Confine commands with `bwrap`. A missing or unusable `bwrap` fails closed. `false` runs commands without confinement. |
 | `interopVisibility` | Unset; effective default is `visible` | `visible`, `masked`, or `disabled`. When set, this takes precedence over `maskWindowsDrive`. See [Windows interop](#windows-interop). |
 | `maskWindowsDrive` | `false` | For confined commands, mount an empty tmpfs over `/mnt`. See [Windows interop](#windows-interop). |
-| `socketIsolation` | `off` | Which socket surfaces a confined command cannot reach: `off`, `session-bus`, or `strict`. See [Socket isolation](#socket-isolation). |
+| `socketIsolation` | `off` | Which socket surfaces a confined process cannot reach: `off`, `session-bus`, or `strict`. See [Socket isolation](#socket-isolation). |
 | `writableRoots` | `[]` | Extra distro directories granted read-write under `workspace-write` (`~` allowed), for toolchain caches or a linked worktree's shared Git directory. Each entry must be an existing physical directory; entries already inside the workspace, `/tmp` or `/dev/shm`, or nested inside another grant, are ignored. Put the same list on `wsl-fs`. See [Toolchain caches](#toolchain-caches-and-extra-writable-roots). |
 | `cwd` | `''` | Default workdir. Empty uses the distro user's home. |
 | `timeoutMs` / `maxTimeoutMs` | `120000` / `600000` (shipped) | Default per-call timeout and the maximum timeout a call may request. |
@@ -84,6 +85,7 @@ values. Re-copy it after a plugin upgrade that changes the preset.
 | `sandbox` | `true` | Check writes against the sandbox policy. Confined writes fail closed if `bwrap` is unavailable. |
 | `sessionSandbox` | `false`; shipped `true` | Use the same session runtime as `wsl-shell`. `auto` falls back to a per-policy confined resident when the session runtime is unavailable. |
 | `maskWindowsDrive` | `false` | Hide `/mnt` from confined mutations. Reads are unaffected. |
+| `socketIsolation` | `off` | Same stance as on `wsl-shell`; the confined write resident and its session runtime use it. Keep the command, write and routing rows equal. See [Socket isolation](#socket-isolation). |
 | `writableRoots` | `[]` | Same key and rules as on `wsl-shell`. Confined writes and commands must see one mount table, so configure the same list on both rows. See [Toolchain caches](#toolchain-caches-and-extra-writable-roots). |
 | `substrate` | `agent` (shipped) | File operations use the in-distro agent. The legacy `share` value is refused at startup. |
 | `cwd` | `''` | Base directory for relative paths. Empty uses the distro user's home. |
@@ -154,6 +156,7 @@ field value uses its schema default.
 | `wslPath` | `wsl.exe` (shipped) | Path to `wsl.exe`, used to resolve the default distro. |
 | `sandbox` | `true` (shipped) | Check routed mutations against `ctx.sandboxPolicy`; fail closed if `bwrap` is unavailable. The row reports `sandboxMode: undefined` whether the fence is enabled or disabled. |
 | `maskWindowsDrive` | `false` (shipped) | Hide `/mnt` from confined routed mutations. |
+| `socketIsolation` | `off` (shipped) | Same stance for the routed root's per-policy confined resident. See [Socket isolation](#socket-isolation). |
 | `restrictToDistro` | `true` (shipped) | Refuse paths in another distro's share when `distro` is pinned. |
 | `watchMaxDepth` | `0` (shipped) | Watch the full tree. A positive depth uses bounded polling. |
 | `distroCwd` | `''` | Default distro workdir; empty uses the distro user's home. |
@@ -347,10 +350,11 @@ changes WSL configuration.
 
 ## Socket isolation
 
-`socketIsolation` on the nested `wsl-shell` row decides which socket surfaces
-a confined **command** cannot reach. The mount profile confines file effects,
-not process authority: without this key a command can still ask the user's
-systemd manager to start a unit outside the fence (the escape in
+`socketIsolation` on the confined rows — `wsl-shell` (commands), `wsl-fs`
+(confined writes) and `fs-routing` (the routed root) — decides which socket
+surfaces a confined process cannot reach. The mount profile confines file
+effects, not process authority: without this key a command can still ask the
+user's systemd manager to start a unit outside the fence (the escape in
 [SECURITY.md](../SECURITY.md)), or use a container daemon socket.
 
 | Value | Effect |
@@ -360,23 +364,46 @@ systemd manager to start a unit outside the fence (the escape in
 | `strict` | Adds `/run/dbus/system_bus_socket` and the container sockets (`docker`, `podman`, `containerd`, `crio`) that exist and are reachable by the distro user. |
 
 The paths are resolved inside the distro and bound `/dev/null`; a path that
-does not exist is not masked. The key applies to the command plane only:
-`wsl-fs` and `fs-routing` run this plugin's fsio protocol, never
-model-authored commands. The masks are a narrowing, not a closure: same-user
-`/proc`, the interop transport and other IPC remain, so `enforcement` stays
-`partial`. `strict` breaks `systemctl --user`, D-Bus and container clients
-inside confined commands; `off` keeps the previous behavior.
+does not exist is not masked. The key applies to every confined profile:
+`wsl-shell` commands, the `wsl-fs` write resident, and the routed root's
+per-policy resident. The filesystem rows run this plugin's fsio protocol,
+never model-authored commands, but the masks keep one mount table across the
+command and write planes and defend the resident if that protocol is ever
+compromised. Keep the three rows equal.
+
+The masks are a narrowing, not a closure: same-user `/proc`, the interop
+transport and other IPC remain, so `enforcement` stays `partial`. `strict`
+breaks `systemctl --user`, D-Bus and container clients inside confined
+processes; `off` keeps the previous behavior.
 
 `pnpm run probe:sandbox` measures the stances: the default profile reaches the
 user manager, `session-bus` refuses `systemd-run --user` and masks the user
 bus and private socket, and `strict` also masks the system bus and the
-reachable container sockets. Configure it on the nested `wsl-shell` row:
+reachable container sockets. The doctor's `sandbox.isolation` row reports the
+effective stance and the detected surfaces. Configure it on the command and
+write rows:
 
 ```yaml
               - id: wsl-shell
                 config:
                   socketIsolation: session-bus
+              - id: wsl-fs
+                config:
+                  socketIsolation: session-bus
 ```
+
+For the routed root, set the same value on the top-level `fs-routing` row:
+
+```yaml
+- id: fs-routing
+  config:
+    socketIsolation: session-bus
+```
+
+`pnpm run preset --socket-isolation session-bus` writes the two nested rows;
+`pnpm run preset --strict` sets `socketIsolation: strict` and
+`maskWindowsDrive: true` there. It does not rewrite the top-level `fs-routing`
+row; add that by hand when the routed root is in use.
 
 ## Sandbox and preflight
 

@@ -71,6 +71,12 @@ interface ConfinedAgentRequest {
      * key because the mount table is fixed for the resident's lifetime.
      */
     writableRoots?: readonly string[];
+    /**
+     * Existing socket paths the resident's profile masks with `/dev/null`.
+     * Resolved by the provider from the row's `socketIsolation`; part of the key
+     * because the mount table is fixed for the resident's lifetime.
+     */
+    socketMasks?: readonly string[];
 }
 /**
  * The confined agent for one distro and one resolved policy, created on first
@@ -80,7 +86,7 @@ interface ConfinedAgentRequest {
  * @param request - the confinement request.
  * @returns the confined resident for this key.
  */
-export declare function confinedAgent({ distro, wslPath, policy, maskWindowsDrive, realTmp, writableRoots }: ConfinedAgentRequest): WslAgent;
+export declare function confinedAgent({ distro, wslPath, policy, maskWindowsDrive, realTmp, writableRoots, socketMasks }: ConfinedAgentRequest): WslAgent;
 /** Test hook: forget every confined resident (the plain agent has no factory state). */
 export declare function resetConfinedAgents(): void;
 export {};

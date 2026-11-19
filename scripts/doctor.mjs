@@ -73,6 +73,7 @@ import { parseDistroList } from "../lib/wsl.js";
 import { AGENT_NAME, PROTOCOL_VERSION, encodeExecFrame, encodeFsbFrame, parseAgentLine } from "../lib/agent-protocol.js";
 import { bwrapArgvPrefix } from "../lib/bwrap.js";
 import { validateWritableRootsConfig, writableRootsCheckArgv } from "../lib/writable-roots.js";
+import { parseSocketIsolationFacts, socketIsolationProbeScript, socketMaskPaths } from "../lib/socket-isolation.js";
 import { sessionScopeSweepScript } from "../lib/session-scope.js";
 import { parseListeningPorts, procNetScript } from "../lib/ports.js";
 
@@ -350,6 +351,7 @@ const QUICK_SECTIONS = ["host", "session", "sandbox"];
  * @property {string} interopVisibility - the one-key stance (`""` unset, `visible`, `masked` or `disabled`); when set it takes precedence over `maskWindowsDrive`.
  * @property {string[]} writableRoots - the `wsl-shell` row's extra `workspace-write` grants (the command plane).
  * @property {string[]} writableRootsFs - the `wsl-fs` row's grants; the two rows must agree.
+ * @property {string} socketIsolation - the command/write rows' socket stance (`off`, `session-bus` or `strict`).
  * @property {string} source - where the values came from.
  * @property {string[]} overrides - the profile layers that changed keys, "`<name>`: `<keys>`".
  */
@@ -606,7 +608,7 @@ export function rowList(block, key) {
  */
 export function effectiveConfig(dshHome, root) {
   /** @type {EffectiveConfig} */
-  let config = { distro: "auto", sessionSandbox: "true", agentBackend: "auto", sandbox: "true", maskWindowsDrive: "false", interopVisibility: "", writableRoots: [], writableRootsFs: [], source: "the shipped preset", overrides: [] };
+  let config = { distro: "auto", sessionSandbox: "true", agentBackend: "auto", sandbox: "true", maskWindowsDrive: "false", interopVisibility: "", writableRoots: [], writableRootsFs: [], socketIsolation: "off", source: "the shipped preset", overrides: [] };
   let recognized = false;
   const shipped = readFileSync(join(root, "cordis.patch.yml"), "utf8");
   const preset = rowBlock(shipped, "preset-wsl");
@@ -636,6 +638,7 @@ export function effectiveConfig(dshHome, root) {
       interopVisibility: rowKey(routing, "interopVisibility") ?? "",
       writableRoots: config.writableRoots,
       writableRootsFs: config.writableRootsFs,
+      socketIsolation: rowKey(preset, "socketIsolation") ?? rowKey(routing, "socketIsolation") ?? "off",
       source: "the shipped preset",
       overrides: [],
     };
@@ -662,10 +665,10 @@ export function effectiveConfig(dshHome, root) {
       next.writableRootsFs = layerFsRoots;
       changed.push("writableRoots (wsl-fs)");
     }
-    for (const [block, keys] of [[layerPreset, ["distro", "sessionSandbox", "agentBackend", "sandbox"]], [layerRouting, ["sandbox", "maskWindowsDrive"]]]) {
+    for (const [block, keys] of [[layerPreset, ["distro", "sessionSandbox", "agentBackend", "sandbox", "socketIsolation"]], [layerRouting, ["sandbox", "maskWindowsDrive", "socketIsolation"]]]) {
       const source = /** @type {string} */ (block);
       /** The scalar keys the overlay may change; `source`/`overrides` are bookkeeping, not overlay inputs. */
-      const scalar = /** @type {const} */ (["distro", "sessionSandbox", "agentBackend", "sandbox", "maskWindowsDrive", "interopVisibility"]);
+      const scalar = /** @type {const} */ (["distro", "sessionSandbox", "agentBackend", "sandbox", "maskWindowsDrive", "interopVisibility", "socketIsolation"]);
       for (const key of /** @type {string[]} */ (keys)) {
         const value = rowKey(source, key);
         if (value === undefined || value === next[/** @type {keyof EffectiveConfig} */ (key)]) continue;
@@ -1487,6 +1490,42 @@ async function main(options) {
           check("sandbox.grants", "warn", "Writable roots", `${detail} — the command and write rows bind different roots`, "put the same writableRoots list on wsl-shell and wsl-fs; see docs/CONFIGURATION.md#toolchain-caches-and-extra-writable-roots");
         } else {
           check("sandbox.grants", "ok", "Writable roots", `${detail} — all usable`);
+        }
+      }
+    }
+
+    // ---- socket isolation ----------------------------------------------------
+    // The mount profile does not govern process authority. This row names the
+    // surface the command/write rows' socket stance covers and the escape
+    // paths it leaves to the distro-level closure; the masks themselves are
+    // verified by `pnpm run probe:sandbox`.
+    if (!want("sandbox")) {
+      // sandbox section out of scope
+    } else if (sandboxDisabled) {
+      check("sandbox.isolation", "skipped", "Socket isolation", "skipped: the sandbox is disabled; no socket masks are applied");
+    } else {
+      const stance = effective.socketIsolation;
+      const answer = await probe(socketIsolationProbeScript());
+      if (!answer.ok && answer.flaked) {
+        flakeCheck("sandbox.isolation", "Socket isolation", answer);
+      } else if (!answer.ok) {
+        check("sandbox.isolation", "unknown", "Socket isolation", "the socket-facts probe did not answer", "rerun the doctor; if it persists, check that wsl.exe can run a command in the distro");
+      } else {
+        const valid = stance === "off" || stance === "session-bus" || stance === "strict";
+        if (!valid) {
+          check("sandbox.isolation", "warn", "Socket isolation", `unknown stance ${JSON.stringify(stance)} in the effective configuration`, "use off, session-bus or strict on the confined rows");
+        } else {
+          const facts = parseSocketIsolationFacts(answer.stdout);
+          const masks = socketMaskPaths(stance, facts);
+          const detected = [...facts.userSockets, ...facts.strictSockets];
+          const surfaceText = detected.length === 0 ? "no matching socket detected" : detected.join(", ");
+          if (stance === "off") {
+            check("sandbox.isolation", "info", "Socket isolation", `off — confined commands can reach the user manager, system bus, container sockets and the interop transport; detected: ${surfaceText}`, "set socketIsolation: session-bus or strict on the confined rows (and fs-routing) to mask the sockets");
+          } else if (stance === "session-bus") {
+            check("sandbox.isolation", "ok", "Socket isolation", `session-bus — masks ${masks.length === 0 ? "no user-manager socket (none detected)" : masks.join(", ")}; the system bus, container sockets and the interop transport remain; enforcement stays partial`, "use strict to mask the system bus and reachable container sockets; close interop at the distro level");
+          } else {
+            check("sandbox.isolation", "ok", "Socket isolation", `strict — masks ${masks.length === 0 ? "no socket (none detected)" : masks.join(", ")}; the WSL interop transport and same-user /proc remain; enforcement stays partial`, "the complete interop closure is the distro-level [interop] enabled=false; same-user /proc is outside the mount profile");
+          }
         }
       }
     }

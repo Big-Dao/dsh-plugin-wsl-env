@@ -215,6 +215,7 @@ export const CHECK_CATALOG: readonly string[] = [
   "sandbox.bwrap",
   "sandbox.bwrap-usable",
   "sandbox.grants",
+  "sandbox.isolation",
   "session.linger",
   "session.systemd",
   "session.systemd-run",

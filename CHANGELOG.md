@@ -37,12 +37,17 @@ were part of the record.
   when `wsl.exe` or the doctor is unavailable; the panel disables it while a
   check is in flight so an answer cannot restore a cleared row.
 
-- **`wsl-shell.socketIsolation` masks the sockets a confined command would use
-  to escape the mount profile.** `off` keeps the previous behavior;
+- **`socketIsolation` masks the sockets a confined process would use to escape
+  the mount profile.** The key applies to the command, write and routed rows
+  (`wsl-shell`, `wsl-fs`, `fs-routing`). `off` keeps the previous behavior;
   `session-bus` binds `/dev/null` over `$XDG_RUNTIME_DIR/bus` and
   `$XDG_RUNTIME_DIR/systemd/private`, so `systemd-run --user`/`systemctl --user`
-  fail inside a command; `strict` also masks `/run/dbus/system_bus_socket` and
-  the container sockets the distro user can reach. The masks are a narrowing,
+  fail inside the profile; `strict` also masks `/run/dbus/system_bus_socket`
+  and the container sockets the distro user can reach. The doctor's
+  `sandbox.isolation` row reports the effective stance and the detected
+  surfaces; `pnpm run preset --socket-isolation` (or `--strict`, which also
+  enables the `/mnt` mask) writes the nested rows, and the top-level
+  `fs-routing` row takes the same value by hand. The masks are a narrowing,
   not a closure: same-user `/proc`, interop and other IPC remain,
   `enforcement` stays `partial`, and `pnpm run probe:sandbox` proves the
   default reaches the user manager while both stances do not.

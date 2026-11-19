@@ -109,12 +109,14 @@ One escape of that kind is known and narrowed by an opt-in profile: a
 confined command can ask the distro user's own service manager to start a unit,
 and that unit runs outside the mount profile — a write to the distro user's home
 succeeds where the same write from inside the fence is refused. Masking `/mnt`
-does not narrow this path because it never involves interop. The `wsl-shell`
-`socketIsolation` key masks the path when enabled: `session-bus` binds
-`/dev/null` over `$XDG_RUNTIME_DIR/bus` and `$XDG_RUNTIME_DIR/systemd/private`
-(so `systemd-run --user` fails inside the profile), and `strict` also masks
-`/run/dbus/system_bus_socket` and the container sockets the distro user can
-reach. The default is `off`: the escape remains reachable unless an operator
+does not narrow this path because it never involves interop. The confined rows'
+(`wsl-shell`, `wsl-fs`, `fs-routing`) `socketIsolation` key masks the path when
+enabled: `session-bus` binds `/dev/null` over `$XDG_RUNTIME_DIR/bus` and
+`$XDG_RUNTIME_DIR/systemd/private` (so `systemd-run --user` fails inside the
+profile), and `strict` also masks `/run/dbus/system_bus_socket` and the
+container sockets the distro user can reach. The doctor's
+`sandbox.isolation` row reports the effective stance and the detected
+surfaces. The default is `off`: the escape remains reachable unless an operator
 chooses a stance, and the masks are a user-level narrowing, not a closure —
 same-user `/proc`, the interop transport and other IPC remain, and
 `enforcement` stays `partial`. The reproduction steps stay private; the exact

@@ -6,6 +6,7 @@ import type { WslAgent } from "./agent.js";
 import { AgentSubstrate } from "./fs-substrate.js";
 import { SessionRuntimes } from "./session-runtime.js";
 import type { SessionRuntimeEntry } from "./session-runtime.js";
+import { type SocketIsolation } from "./socket-isolation.js";
 import type { Context } from "@deepseek-ai/cordis";
 import type { FileSystem, FsDeleteOutcome, FsDirEntry, FsEditOutcome, FsEditRequest, FsInfo, FsMoveOutcome, FsPathInfo, FsTarget, FsVersion, FsWriteIntent, FsWriteOutcome } from "@deepseek-ai/dsh-fs";
 import type { SandboxExecutionPolicy, SandboxMode } from "@deepseek-ai/dsh-sandbox";
@@ -36,6 +37,8 @@ interface WslFileSystemConfig {
     sessionSandbox: boolean | "auto";
     /** Whether confined profiles mask `/mnt`. */
     maskWindowsDrive: boolean;
+    /** Which socket surfaces a confined resident cannot reach. */
+    socketIsolation: SocketIsolation;
     /** Extra distro directories granted read-write under `workspace-write`. */
     writableRoots?: string[];
     /** Whether paths leaving the distro are refused. */
@@ -122,6 +125,16 @@ export declare class WslFileSystem extends LocalFileSystem {
          */
         maskWindowsDrive: z<boolean, boolean, "defined">;
         /**
+         * Which socket surfaces the confined write resident cannot reach — the
+         * same stance as `wsl-shell`'s key. The resident runs this plugin's fsio
+         * protocol, not model-authored commands, but the masks keep one mount
+         * table across the command and write planes and close the same
+         * process-authority path if the protocol is ever compromised. Keep the
+         * same value on the command row (`wsl-shell`) and, for the routed root,
+         * on `fs-routing`.
+         */
+        socketIsolation: z<"off" | "session-bus" | "strict", "off" | "session-bus" | "strict", "defined">;
+        /**
          * Extra directories under `workspace-write`, in distro spelling — the
          * same list and same rules as `wsl-shell`'s key. Confined writes bind
          * them, and the fs fence accepts them; keep the two rows' lists equal so
@@ -204,6 +217,16 @@ export declare class WslFileSystem extends LocalFileSystem {
          */
         maskWindowsDrive: z<boolean, boolean, "defined">;
         /**
+         * Which socket surfaces the confined write resident cannot reach — the
+         * same stance as `wsl-shell`'s key. The resident runs this plugin's fsio
+         * protocol, not model-authored commands, but the masks keep one mount
+         * table across the command and write planes and close the same
+         * process-authority path if the protocol is ever compromised. Keep the
+         * same value on the command row (`wsl-shell`) and, for the routed root,
+         * on `fs-routing`.
+         */
+        socketIsolation: z<"off" | "session-bus" | "strict", "off" | "session-bus" | "strict", "defined">;
+        /**
          * Extra directories under `workspace-write`, in distro spelling — the
          * same list and same rules as `wsl-shell`'s key. Confined writes bind
          * them, and the fs fence accepts them; keep the two rows' lists equal so
@@ -269,6 +292,8 @@ export declare class WslFileSystem extends LocalFileSystem {
     sessionScopeProbe: (argv: string[]) => Promise<string>;
     /** The one-time writable-root check's runner; tests substitute it. */
     writableRootsProbe: (argv: string[]) => Promise<string>;
+    /** The socket-facts probe's runner; tests substitute it. */
+    socketIsolationProbe: (argv: string[]) => Promise<string>;
     /**
      * Per-distro homes, delegated to the shared runtime book: `provider-common`'s
      * `distroHome` reads this view, and tests pin the cache through it.
@@ -351,6 +376,19 @@ export declare class WslFileSystem extends LocalFileSystem {
         additionalWritableRoots?: readonly string[];
     } | undefined, check?: boolean): Promise<string[]>;
     /**
+     * The socket masks one confined resident's profile binds, resolved once per
+     * distro from the row's `socketIsolation` stance. Empty when the sandbox is
+     * off, the mutation is escalated, or the stance is `off`. A probe failure is
+     * a sandbox refusal, never an unmasked resident.
+     *
+     * @param distro - the distro the resident serves.
+     * @param mode - the file-effect mode.
+     * @param signal - optional cancellation for the one-time probe.
+     * @returns the existing socket paths to mask.
+     * @throws {SandboxUnavailableError} when a configured isolation cannot be resolved.
+     */
+    socketMasksFor(distro: string, mode: string, signal?: AbortSignal): Promise<string[]>;
+    /**
      * The persistent session runtime for one confined mutation, when
      * `sessionSandbox` is on. The key is the shell executor's key for the same
      * session/policy, so the write and the commands share one agent, one mount
@@ -365,7 +403,7 @@ export declare class WslFileSystem extends LocalFileSystem {
         mode: string;
         workspaceRoot: string;
         sessionId?: string;
-    }, distro: string, writableRoots?: readonly string[]): SessionRuntimeEntry | undefined;
+    }, distro: string, writableRoots?: readonly string[], socketMasks?: readonly string[]): SessionRuntimeEntry | undefined;
     /**
      * Run the session runtime's preflight once per provider. Only success is
      * cached, so following the remedy does not need an app restart.

@@ -30,6 +30,7 @@
  *
  * @module dsh-plugin-wsl-env/fs-routing
  */
+import type { SocketIsolation } from "./socket-isolation.js";
 import { PLUGIN_PROVIDER } from "./provider-marker.js";
 import z from "@deepseek-ai/schemastery";
 import { LocalFileSystem } from "@deepseek-ai/dsh-fs-local";
@@ -66,6 +67,8 @@ interface RoutingConfig {
     sandbox?: boolean;
     /** Whether confined profiles shadow `/mnt`. */
     maskWindowsDrive?: boolean;
+    /** Which socket surfaces the routed backend's confined resident cannot reach. */
+    socketIsolation?: SocketIsolation;
     /** Whether the routed backend refuses paths outside the distro. */
     restrictToDistro?: boolean;
     /** How deep the in-distro watch scan walks. */

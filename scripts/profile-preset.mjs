@@ -111,7 +111,7 @@ function setKey(lines, id, key, value) {
 /**
  * Apply the supported edits to a preset block.
  * @param {string} block - the block from {@link presetBlock}.
- * @param {{ distro?: string, sessionSandbox?: boolean | "auto", sandbox?: boolean, maskWindowsDrive?: boolean, agentBackend?: string, writableRoots?: string[] }} edits - the edits.
+ * @param {{ distro?: string, sessionSandbox?: boolean | "auto", sandbox?: boolean, maskWindowsDrive?: boolean, agentBackend?: string, writableRoots?: string[], socketIsolation?: "off" | "session-bus" | "strict" }} edits - the edits.
  * @returns {string} the edited block.
  */
 export function applyEdits(block, edits) {
@@ -121,6 +121,7 @@ export function applyEdits(block, edits) {
     ["sessionSandbox", edits.sessionSandbox === undefined ? undefined : String(edits.sessionSandbox)],
     ["sandbox", edits.sandbox === undefined ? undefined : String(edits.sandbox)],
     ["maskWindowsDrive", edits.maskWindowsDrive === undefined ? undefined : String(edits.maskWindowsDrive)],
+    ["socketIsolation", edits.socketIsolation],
   ]);
   for (const [key, value] of both) {
     if (value === undefined) continue;
@@ -161,6 +162,13 @@ function parseArgs(argv) {
     else if (flag === "--agent-backend") {
       if (!["auto", "native", "shell"].includes(value)) throw new Error(`profile-preset: --agent-backend must be auto, native or shell (got "${value}")`);
       edits.agentBackend = value;
+    } else if (flag === "--socket-isolation") {
+      if (!["off", "session-bus", "strict"].includes(value)) throw new Error(`profile-preset: --socket-isolation must be off, session-bus or strict (got "${value}")`);
+      edits.socketIsolation = value;
+    } else if (flag === "--strict") {
+      edits.socketIsolation = "strict";
+      edits.maskWindowsDrive = true;
+      i -= 1;
     } else if (flag === "--writable-roots") {
       const roots = value.split(",").map((root) => root.trim()).filter((root) => root.length > 0);
       if (roots.length === 0) throw new Error("profile-preset: --writable-roots needs a comma-separated list of distro paths");
@@ -171,7 +179,7 @@ function parseArgs(argv) {
       options.force = true;
       i -= 1;
     } else if (flag === "--help" || flag === "-h") {
-      console.log("node scripts/profile-preset.mjs [--distro NAME] [--session-sandbox true|false|auto] [--sandbox true|false] [--mask-windows-drive true|false] [--agent-backend auto|native|shell] [--writable-roots 'PATH,...'] [--out FILE] [--check FILE] [--force]");
+      console.log("node scripts/profile-preset.mjs [--distro NAME] [--session-sandbox true|false|auto] [--sandbox true|false] [--mask-windows-drive true|false] [--socket-isolation off|session-bus|strict] [--strict] [--agent-backend auto|native|shell] [--writable-roots 'PATH,...'] [--out FILE] [--check FILE] [--force]");
       process.exit(0);
     } else throw new Error(`profile-preset: unknown option "${arg}"`);
   }

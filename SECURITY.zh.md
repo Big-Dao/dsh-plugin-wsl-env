@@ -96,11 +96,13 @@ WSL interop 启动 Windows 程序，例如 `/mnt/c/.../*.exe`。该程序在 Lin
 已知有一类逃逸可被一个默认关闭的档位收窄：受限命令可以请求发行版用户自己的
 服务管理器启动一个 unit，而该 unit 在挂载 profile 之外运行——对发行版用户
 主目录的写入会成功，而围栏内同样的写入会被拒绝。遮蔽 `/mnt` 不能收窄这条
-路径，因为它从不涉及 interop。启用 `wsl-shell` 的 `socketIsolation` 后，该
-路径会被遮蔽：`session-bus` 把 `/dev/null` 绑到
+路径，因为它从不涉及 interop。启用受限行（`wsl-shell`、`wsl-fs`、
+`fs-routing`）的 `socketIsolation` 后，该路径会被遮蔽：`session-bus` 把
+`/dev/null` 绑到
 `$XDG_RUNTIME_DIR/bus` 与 `$XDG_RUNTIME_DIR/systemd/private`（受限 profile
 内的 `systemd-run --user` 失败），`strict` 还会遮蔽
-`/run/dbus/system_bus_socket` 与发行版用户可触达的容器 socket。默认值是
+`/run/dbus/system_bus_socket` 与发行版用户可触达的容器 socket。doctor 的
+`sandbox.isolation` 行报告生效档位与探测到的面。默认值是
 `off`：除非 operator 选择档位，逃逸仍然可达；遮蔽是用户级收窄，不是关闭——
 同用户 `/proc`、interop 传输与其他 IPC 仍在，`enforcement` 仍是 `partial`。
 复现步骤仍不公开；具体路径列在

@@ -291,14 +291,15 @@ serve. Both providers report their mode through `sandboxMode`. The tool layer
 and the Permissions selector read that value.
 
 **Socket isolation.** `bwrapProfileArgs` also accepts `socketMasks`: existing
-socket paths bound `/dev/null` after the read-only root. The `wsl-shell`
-provider resolves them from its `socketIsolation` stance — `session-bus` masks
-the user systemd manager's bus and private socket, `strict` adds the system bus
-and the container sockets the distro user can reach. The masks close the
-process-authority path the mount profile leaves open; they do not change the
-file hierarchy, and same-user `/proc`, interop and other IPC remain. The
-in-distro probe that finds the paths lives in `lib/socket-isolation.js`; a
-probe failure refuses the command instead of running unmasked.
+socket paths bound `/dev/null` after the read-only root. The confined providers
+(`wsl-shell`, `wsl-fs`, `fs-routing`) resolve them from their `socketIsolation`
+stance — `session-bus` masks the user systemd manager's bus and private socket,
+`strict` adds the system bus and the container sockets the distro user can
+reach. The masks close the process-authority path the mount profile leaves
+open; they do not change the file hierarchy, and same-user `/proc`, interop and
+other IPC remain. The in-distro probe that finds the paths lives in
+`lib/socket-isolation.js`; a probe failure refuses the command instead of
+running unmasked.
 
 ### Reported enforcement
 

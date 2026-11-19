@@ -132,6 +132,7 @@ case "$all" in
         printf 'found inotifywait /usr/bin/inotifywait\\n' ;;
       *'for f in apt-get'*) printf 'apt-get' ;;
       *'apt-get install'*) : > "\${FAKE_STATE_DIR:-/nonexistent}/installed-bwrap"; exit 0 ;;
+      *'XDG_RUNTIME_DIR'*) printf 'R /run/user/1000\nU /run/user/1000/bus\nU /run/user/1000/systemd/private\nS /run/dbus/system_bus_socket\n' ;;
       *'wsl-writable-roots'*)
         case "\${FAKE_GRANTS:-ok}" in
           missing) printf '0|missing\\n'; exit 3 ;;
@@ -251,6 +252,7 @@ try {
     assert.equal(report.schemaVersion, 2);
     assert.equal(report.summary.fail, 0);
     assert.equal(report.checks.find((entry) => entry.id === "sandbox.bwrap")?.status, "ok");
+    assert.equal(report.checks.find((entry) => entry.id === "sandbox.isolation")?.status, "info");
     assert.equal(report.checks.find((entry) => entry.id === "peers.versions")?.status, "ok");
     assert.equal(report.checks.find((entry) => entry.id === "functional.native")?.status, "ok", "the cached native binary answers HELLO with its cache digest");
     assert.equal(report.checks.find((entry) => entry.id === "agent.home-writable")?.status, "ok");
@@ -292,10 +294,29 @@ try {
     assert.match(String(bwrap?.detail), /UNCONFINED/);
     assert.equal(report.checks.find((entry) => entry.id === "sandbox.bwrap-usable")?.status, "skipped");
     assert.equal(report.checks.find((entry) => entry.id === "sandbox.grants")?.status, "skipped");
+    assert.equal(report.checks.find((entry) => entry.id === "sandbox.isolation")?.status, "skipped");
     assert.equal(report.checks.find((entry) => entry.id === "functional.sandbox")?.status, "skipped");
     assert.equal(report.verdict, "ready", "the opt-out is a warning, not a blocker");
     assert.equal(run.status, 0);
     rmSync(profile, { recursive: true, force: true });
+  });
+
+  await check("sandbox.isolation reports the stance and the detected surfaces", () => {
+    const profile = join(home, "profiles", "isolation");
+    mkdirSync(profile, { recursive: true });
+    try {
+      writeFileSync(join(profile, "cordis.patch.yml"), "- id: preset-wsl\n  config:\n    plugins:\n      - id: wsl-shell\n        config:\n          socketIsolation: strict\n      - id: wsl-fs\n        config:\n          socketIsolation: strict\n");
+      const report = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
+      const row = report.checks.find((entry) => entry.id === "sandbox.isolation");
+      assert.equal(row?.status, "ok");
+      assert.match(String(row?.detail), /strict/);
+      assert.match(String(row?.detail), /\/run\/user\/1000\/bus/);
+      assert.match(String(row?.detail), /\/run\/dbus\/system_bus_socket/);
+      assert.match(String(row?.detail), /interop/);
+      assert.equal(report.config?.socketIsolation, "strict");
+    } finally {
+      rmSync(profile, { recursive: true, force: true });
+    }
   });
 
   await check("sandbox.grants names the configured roots and warns on an unusable one", () => {

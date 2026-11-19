@@ -32,6 +32,7 @@
  */
 
 import { isWslUnc, uncToPosix } from "./paths.js";
+import type { SocketIsolation } from "./socket-isolation.js";
 import { PLUGIN_PROVIDER } from "./provider-marker.js";
 import z from "@deepseek-ai/schemastery";
 import { LocalFileSystem } from "@deepseek-ai/dsh-fs-local";
@@ -71,6 +72,8 @@ interface RoutingConfig {
   sandbox?: boolean;
   /** Whether confined profiles shadow `/mnt`. */
   maskWindowsDrive?: boolean;
+  /** Which socket surfaces the routed backend's confined resident cannot reach. */
+  socketIsolation?: SocketIsolation;
   /** Whether the routed backend refuses paths outside the distro. */
   restrictToDistro?: boolean;
   /** How deep the in-distro watch scan walks. */
@@ -157,6 +160,7 @@ export class WslRoutingFileSystem extends LocalFileSystem {
       distroCwd: z.string().default(""),
       sandbox: z.boolean().default(true),
       maskWindowsDrive: z.boolean().default(false),
+      socketIsolation: z.union(["off", "session-bus", "strict"]).default("off"),
       restrictToDistro: z.boolean().default(true),
       watchMaxDepth: z.natural().default(0),
     }),
@@ -186,7 +190,7 @@ export class WslRoutingFileSystem extends LocalFileSystem {
    */
   private distroBackend: WslFileSystem | undefined;
   /** The distro knobs, verbatim from the row config. */
-  private distroConfig: { distro: string, wslPath: string, cwd: string, diffBasisMaxBytes: number | undefined, sandbox: boolean, maskWindowsDrive: boolean, restrictToDistro: boolean, watchMaxDepth: number, sessionSandbox: boolean };
+  private distroConfig: { distro: string, wslPath: string, cwd: string, diffBasisMaxBytes: number | undefined, sandbox: boolean, maskWindowsDrive: boolean, socketIsolation: SocketIsolation, restrictToDistro: boolean, watchMaxDepth: number, sessionSandbox: boolean };
   /**
    * The context this router was constructed with. `this.ctx` inside a method is
    * the CALLER's context (cordis re-binds it for dependency tracing), so the
@@ -209,6 +213,7 @@ export class WslRoutingFileSystem extends LocalFileSystem {
       diffBasisMaxBytes: config.diffBasisMaxBytes,
       sandbox: config.sandbox ?? true,
       maskWindowsDrive: config.maskWindowsDrive ?? false,
+      socketIsolation: config.socketIsolation ?? "off",
       restrictToDistro: config.restrictToDistro ?? true,
       watchMaxDepth: config.watchMaxDepth ?? 0,
       // The root router is app-level, not session-owned: its backend must not

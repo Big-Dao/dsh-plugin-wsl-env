@@ -25,6 +25,7 @@ import { Context } from "@deepseek-ai/cordis";
 import { FsError, FsTargetKey } from "@deepseek-ai/dsh-fs";
 import { SandboxUnavailableError } from "@deepseek-ai/dsh-sandbox";
 import { WslShellExecutor, WslFileSystem } from "../lib/index.js";
+import { resetSocketIsolationCache } from "../lib/socket-isolation.js";
 import shellEntry, { WslShellExecutor as ShellEntryNamed } from "../lib/shell.js";
 import fsEntry, { WslFileSystem as FsEntryNamed } from "../lib/fs.js";
 import { FsCodedError } from "../lib/fsio-text.js";
@@ -156,10 +157,10 @@ const spawnView = (executor) => /** @type {OneShotSeam} */ (/** @type {unknown} 
 
 /**
  * A filesystem provider over a fake substrate; the agent never spawns.
- * @param {{ sandbox?: boolean, restrictToDistro?: boolean, sessionSandbox?: boolean | "auto", distro?: string, policy?: { mode: "read-only"|"workspace-write"|"danger-full-access", workspaceRoot: string }, wslPath?: string, writableRoots?: string[] }} [options] - the provider switches, the distro mode, the policy the fake resolves, an optional `wslPath` for the home and default-distro probes, and root grants.
+ * @param {{ sandbox?: boolean, restrictToDistro?: boolean, sessionSandbox?: boolean | "auto", distro?: string, policy?: { mode: "read-only"|"workspace-write"|"danger-full-access", workspaceRoot: string }, wslPath?: string, writableRoots?: string[], socketIsolation?: "off" | "session-bus" | "strict" }} [options] - the provider switches, the distro mode, the policy the fake resolves, an optional `wslPath` for the home and default-distro probes, root grants and the socket stance.
  * @returns {{ fs: WslFileSystem, substrate: MockSubstrate }} the provider and its scripted substrate.
  */
-function makeFs({ sandbox = true, restrictToDistro = true, distro = DISTRO, policy, sessionSandbox = false, wslPath, writableRoots } = {}) {
+function makeFs({ sandbox = true, restrictToDistro = true, distro = DISTRO, policy, sessionSandbox = false, wslPath, writableRoots, socketIsolation } = {}) {
   // The unit suite must never resolve the packaged native binary: no wsl.exe.
   configureAgentBackend("shell");
   const resolved = policy ?? { mode: "workspace-write", workspaceRoot: WORKSPACE };
@@ -172,6 +173,7 @@ function makeFs({ sandbox = true, restrictToDistro = true, distro = DISTRO, poli
     sessionSandbox,
     ...(wslPath !== undefined ? { wslPath } : {}),
     ...(writableRoots === undefined ? {} : { writableRoots }),
+    ...(socketIsolation === undefined ? {} : { socketIsolation }),
   }));
   /** @type {MockSubstrate} */
   const substrate = {
@@ -311,6 +313,21 @@ check("with sessionSandbox, a failed preflight refuses the mutation with the rem
   );
 });
 
+check("the filesystem's socketIsolation resolves masks and keeps the default off", async () => {
+  resetSocketIsolationCache();
+  const { fs } = makeFs({ socketIsolation: "strict" });
+  /** @type {string[][]} */
+  const calls = [];
+  fs.socketIsolationProbe = async (argv) => {
+    calls.push(argv);
+    return "R /run/user/1000\nU /run/user/1000/bus\nS /run/dbus/system_bus_socket\n";
+  };
+  assert.deepEqual(await fs.socketMasksFor(DISTRO, "workspace-write"), ["/run/user/1000/bus", "/run/dbus/system_bus_socket"]);
+  assert.equal(calls.length, 1, "the configured stance probes once");
+  const { fs: off } = makeFs();
+  assert.deepEqual(await off.socketMasksFor(DISTRO, "workspace-write"), [], "the default stance is off");
+});
+
 check("shell and filesystem share only matching session runtimes", async () => {
   const { fs } = makeFs({ sessionSandbox: true });
   const { executor } = makeExecutor({ sessionSandbox: true });
@@ -336,6 +353,7 @@ check("shell and filesystem share only matching session runtimes", async () => {
 });
 
 check("socketIsolation resolves masks through the probe and stays off by default", async () => {
+  resetSocketIsolationCache();
   const { executor } = makeExecutor({ socketIsolation: "session-bus" });
   /** @type {string[][]} */
   const calls = [];
@@ -352,6 +370,7 @@ check("socketIsolation resolves masks through the probe and stays off by default
 });
 
 check("a failed socket probe refuses the command as sandbox-unavailable", async () => {
+  resetSocketIsolationCache();
   const { executor } = makeExecutor({ socketIsolation: "strict", distro: "debian" });
   executor.socketIsolationProbe = async () => {
     throw new Error("no answer");

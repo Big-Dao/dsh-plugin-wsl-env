@@ -106,8 +106,8 @@ operations never use the 9p share.
   [ARCHITECTURE.md](ARCHITECTURE.md#reported-enforcement).
 - **The mount profile does not govern process authority** — a confined command
   can still reach sockets outside the fence: the user systemd manager (the
-  documented escape), the system bus, and container daemons. `wsl-shell`'s
-  `socketIsolation: "session-bus"` binds `/dev/null` over
+  documented escape), the system bus, and container daemons. The confined
+  rows' `socketIsolation: "session-bus"` binds `/dev/null` over
   `$XDG_RUNTIME_DIR/bus` and `$XDG_RUNTIME_DIR/systemd/private`; `"strict"`
   adds `/run/dbus/system_bus_socket` and the container sockets the distro
   user can reach. The default is `off`; the masks are a narrowing, not a

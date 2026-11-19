@@ -94,6 +94,22 @@ check("only the requested keys change", () => {
     assert.ok(changed.every(([, b]) => b === "              distro: Debian"));
   });
 
+  check("--socket-isolation writes the stance into both rows", () => {
+    const block = applyEdits(presetBlock(source), { socketIsolation: "session-bus" });
+    assert.match(section(block, "wsl-shell", "wsl-fs"), /socketIsolation: session-bus/);
+    assert.match(section(block, "wsl-fs", "persona"), /socketIsolation: session-bus/);
+    const cli = helper(["--socket-isolation", "strict"]);
+    assert.equal(cli.status, 0, cli.stderr);
+    assert.match(cli.stdout, /socketIsolation: strict/);
+  });
+
+  check("--strict writes the strict stance and the drive mask", () => {
+    const cli = helper(["--strict"]);
+    assert.equal(cli.status, 0, cli.stderr);
+    assert.match(cli.stdout, /socketIsolation: strict/);
+    assert.match(cli.stdout, /maskWindowsDrive: true/);
+  });
+
   check("--writable-roots writes the same list into both rows", () => {
     const block = applyEdits(presetBlock(source), { writableRoots: ["~/.npm", "~/.cache"] });
     const shell = section(block, "wsl-shell", "wsl-fs");

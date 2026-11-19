@@ -768,6 +768,18 @@ checkReg("the confined factory keys the mask into the resident's identity", asyn
   resetConfinedAgents();
 });
 
+checkReg("the confined factory keys the socket masks into the resident's identity", () => {
+  resetConfinedAgents();
+  const policy = { mode: "workspace-write", workspaceRoot: "/home/u/ws" };
+  const plain = confinedAgent({ distro: "ubuntu", policy });
+  const masked = confinedAgent({ distro: "ubuntu", policy, socketMasks: ["/run/user/1000/bus"] });
+  assert.notEqual(plain, masked, "a different socket mount table is a different resident");
+  const index = masked.argvPrefix.indexOf("/run/user/1000/bus");
+  assert.ok(index > 1 && masked.argvPrefix[index - 2] === "--ro-bind" && masked.argvPrefix[index - 1] === "/dev/null", "the masked resident binds /dev/null over the socket");
+  assert.equal(plain.argvPrefix.includes("/run/user/1000/bus"), false, "the plain resident does not");
+  resetConfinedAgents();
+});
+
 checkReg("the transport's Windows env is pinned: no user WSLENV forwarding reaches the distro", () => {
   const pinned = pinnedWindowsEnv({
     SystemRoot: "C:\\WINDOWS",

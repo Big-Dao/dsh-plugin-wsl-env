@@ -290,6 +290,16 @@ through `checkedTarget`, so the fence covers every mutation the provider can
 serve. Both providers report their mode through `sandboxMode`. The tool layer
 and the Permissions selector read that value.
 
+**Socket isolation.** `bwrapProfileArgs` also accepts `socketMasks`: existing
+socket paths bound `/dev/null` after the read-only root. The `wsl-shell`
+provider resolves them from its `socketIsolation` stance — `session-bus` masks
+the user systemd manager's bus and private socket, `strict` adds the system bus
+and the container sockets the distro user can reach. The masks close the
+process-authority path the mount profile leaves open; they do not change the
+file hierarchy, and same-user `/proc`, interop and other IPC remain. The
+in-distro probe that finds the paths lives in `lib/socket-isolation.js`; a
+probe failure refuses the command instead of running unmasked.
+
 ### Reported enforcement
 
 `WslSandbox` reports `enforcement: partial`, not `full`. A process inside the
@@ -531,6 +541,8 @@ src/session-runtime.ts       shared session runtime and agent lifecycle
 src/session-scope.ts         systemd scope creation and cleanup
 src/shell.ts                 the ctx.shell subpath entry point
 src/shell-env.ts             registers the DSH_WSL_* environment variables
+src/socket-isolation.ts      the socket facts probe and the /dev/null masks a
+                             confined command's stance binds
 src/subprocess.ts            WslSubprocessRuntime (ctx.subprocess), the GUI
                              terminal window
 src/terminal-activity.ts     the distro-side activity probe for idle terminal

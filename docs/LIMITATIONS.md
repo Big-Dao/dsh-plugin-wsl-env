@@ -104,6 +104,17 @@ operations never use the 9p share.
   `[interop] enabled=false` remedy (printed by `doctor`) — the distro-level
   setting must still be applied manually.
   [ARCHITECTURE.md](ARCHITECTURE.md#reported-enforcement).
+- **The mount profile does not govern process authority** — a confined command
+  can still reach sockets outside the fence: the user systemd manager (the
+  documented escape), the system bus, and container daemons. `wsl-shell`'s
+  `socketIsolation: "session-bus"` binds `/dev/null` over
+  `$XDG_RUNTIME_DIR/bus` and `$XDG_RUNTIME_DIR/systemd/private`; `"strict"`
+  adds `/run/dbus/system_bus_socket` and the container sockets the distro
+  user can reach. The default is `off`; the masks are a narrowing, not a
+  closure (same-user `/proc`, interop and other IPC remain), and
+  `enforcement` stays `partial`. `strict` breaks `systemctl --user`, D-Bus and
+  container clients inside confined commands. Verified by
+  `pnpm run probe:sandbox`.
 - **`bubblewrap` must be installed**, or both providers fail with the install
   command; a session-start preflight surfaces the same text as an advisory warning.
 - **`workspace-write` does not grant the package-manager caches under `$HOME`

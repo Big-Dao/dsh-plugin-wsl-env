@@ -119,6 +119,7 @@ export interface WslSandboxCoreInstance {
         distro: string;
         signal?: AbortSignal | undefined;
         writableRoots?: readonly string[] | undefined;
+        socketMasks?: readonly string[] | undefined;
     }) => Promise<WslConfined>;
 }
 /**

@@ -93,11 +93,19 @@ WSL interop 启动 Windows 程序，例如 `/mnt/c/.../*.exe`。该程序在 Lin
 如果你发现不依赖 interop 的逃逸、遮蔽后的 profile 可从 `/mnt` 绕过，或插件
 在 interop 可达时报告 `full`，仍欢迎报告。
 
-已知有一类逃逸尚未修复：受限命令可以请求发行版用户自己的服务管理器启动一个
-unit，而该 unit 在挂载 profile 之外运行——对发行版用户主目录的写入会成功，
-而围栏内同样的写入会被拒绝。遮蔽 `/mnt` 不能收窄这条路径，因为它从不涉及
-interop。在修复发布前，socket 路径与复现步骤暂不公开；发现、验证与推迟决定
-记录在
+已知有一类逃逸可被一个默认关闭的档位收窄：受限命令可以请求发行版用户自己的
+服务管理器启动一个 unit，而该 unit 在挂载 profile 之外运行——对发行版用户
+主目录的写入会成功，而围栏内同样的写入会被拒绝。遮蔽 `/mnt` 不能收窄这条
+路径，因为它从不涉及 interop。启用 `wsl-shell` 的 `socketIsolation` 后，该
+路径会被遮蔽：`session-bus` 把 `/dev/null` 绑到
+`$XDG_RUNTIME_DIR/bus` 与 `$XDG_RUNTIME_DIR/systemd/private`（受限 profile
+内的 `systemd-run --user` 失败），`strict` 还会遮蔽
+`/run/dbus/system_bus_socket` 与发行版用户可触达的容器 socket。默认值是
+`off`：除非 operator 选择档位，逃逸仍然可达；遮蔽是用户级收窄，不是关闭——
+同用户 `/proc`、interop 传输与其他 IPC 仍在，`enforcement` 仍是 `partial`。
+复现步骤仍不公开；具体路径列在
+[docs/CONFIGURATION.zh.md](docs/CONFIGURATION.zh.md#socket-isolation)，因为
+operator 需要知道该键覆盖什么。发现、验证与剩余决定记录在
 [docs/superpowers/value-discovery-2026-11-10.md](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/superpowers/value-discovery-2026-11-10.md)
 （E4）。与其他逃逸一样，请通过上方的私有渠道报告新实例。
 

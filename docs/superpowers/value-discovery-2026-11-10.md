@@ -21,7 +21,9 @@
 > 2026-11-19 后续：R1 草案第 5、6 项已落地（Unreleased）——`pnpm run probe:cache-write`
 > 覆盖 per-command 与 session runtime 两条路径，doctor 新增 `sandbox.grants`
 > （两行 `writableRoots` 的格式与物理检查；`additionalWritableRoots` 的跨世界判定仍在首次使用）。
-> R2 仍未做。
+> R2 的命令面档位也已落地（Unreleased）：`wsl-shell.socketIsolation` 的
+> `session-bus`/`strict`，`probe:sandbox` 的 socket 腿通过；默认仍为 `off`，
+> 同用户 `/proc`、interop 与其他 IPC 未关闭，`enforcement` 保持 `partial`。
 
 ## 结论
 

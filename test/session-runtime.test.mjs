@@ -93,6 +93,24 @@ check("writableRoots are part of the key and bind inside the scope", async () =>
   assert.equal(registry.acquire({ ...request, writableRoots: ["/home/andy/.npm", "/home/andy/.cache"] }), granted, "the same roots reuse the runtime");
 });
 
+check("socket masks are part of the key and bind inside the scope", async () => {
+  const { registry, spawns } = harness();
+  const masks = ["/run/user/1000/bus", "/run/dbus/system_bus_socket"];
+  const plain = registry.acquire(request);
+  const masked = registry.acquire({ ...request, socketMasks: masks });
+  assert.notEqual(plain, masked, "a different socket mount table is a different runtime");
+  const prefix = spawns[1]?.argvPrefix ?? [];
+  const bwrap = prefix.indexOf("bwrap");
+  assert.ok(bwrap > 0, "the mount profile follows the scope prefix");
+  for (const socket of masks) {
+    const index = prefix.indexOf(socket);
+    assert.ok(index > 0, `${socket} is in the profile`);
+    assert.deepEqual(prefix.slice(index - 2, index + 1), ["--ro-bind", "/dev/null", socket]);
+  }
+  assert.equal(prefix[prefix.length - 1], "--", "the command separator is last");
+  assert.equal(registry.acquire({ ...request, socketMasks: masks }), masked, "the same masks reuse the runtime");
+});
+
 check("the same key is one runtime, refcounted, with the scope + mount prefix", async () => {
   const { registry, spawns, stops, events } = harness();
   const first = registry.acquire(request);

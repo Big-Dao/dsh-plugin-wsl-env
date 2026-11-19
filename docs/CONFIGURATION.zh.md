@@ -64,6 +64,7 @@ profile 层；检测到时会打印应使用的块。`--out` 会整体替换目�
 | `sandbox` | `true` | 用 `bwrap` 约束命令。`bwrap` 缺失或不可用时关闭（fail closed）。`false` 则不加约束地运行命令。 |
 | `interopVisibility` | 未设置；有效默认值为 `visible` | `visible`、`masked` 或 `disabled`。设置后优先于 `maskWindowsDrive`。见 [Windows interop](#windows-interop)。 |
 | `maskWindowsDrive` | `false` | 对受限命令，在 `/mnt` 上挂载空的 tmpfs。见 [Windows interop](#windows-interop)。 |
+| `socketIsolation` | `off` | 受限命令不能触达的 socket 面：`off`、`session-bus` 或 `strict`。见 [Socket isolation](#socket-isolation)。 |
 | `writableRoots` | `[]` | `workspace-write` 下额外可写的发行版目录（`~` 可用），用于工具链缓存或 linked worktree 的共享 Git 目录。条目必须是已存在的物理目录；已在工作区、`/tmp`、`/dev/shm` 内或嵌套在另一条授权内的条目会被忽略。`wsl-fs` 上应配置同一列表。见[工具链缓存](#工具链缓存与额外可写目录)。 |
 | `cwd` | `''` | 默认工作目录。空则使用发行版用户家目录。 |
 | `timeoutMs` / `maxTimeoutMs` | `120000` / `600000`（shipped） | 默认的单次调用超时，以及一次调用可请求的最大超时。 |
@@ -322,6 +323,35 @@ pnpm run preset --sandbox true --mask-windows-drive true
 把打印出的块合并进 profile。`visible` 与 `masked` 的行为
 由 `test/probe/interop-shell.sh` 对常驻与一次性两种命令都有覆盖。
 发行版级的 disabled 状态需要手动检查，因为它会改动 WSL 配置。
+
+## Socket isolation
+
+嵌套 `wsl-shell` 行上的 `socketIsolation` 决定受限**命令**不能触达哪些
+socket 面。挂载 profile 约束的是文件效果，不是进程权限：没有这个键，命令仍可
+请用户的 systemd 管理器在围栏外启动 unit（[SECURITY.zh.md](../SECURITY.zh.md)
+记录的逃逸），或使用容器守护进程的 socket。
+
+| 值 | 效果 |
+|---|---|
+| `off`（默认） | 不遮蔽。文档化的 `enforcement: partial` 已包含这条路径。 |
+| `session-bus` | 遮蔽 `$XDG_RUNTIME_DIR/bus` 与 `$XDG_RUNTIME_DIR/systemd/private`；命令内的 `systemd-run --user`、`systemctl --user` 失败。 |
+| `strict` | 追加 `/run/dbus/system_bus_socket`，以及发行版用户可触达的容器 socket（`docker`、`podman`、`containerd`、`crio`）。 |
+
+路径在发行版内解析后以 `/dev/null` 绑定；不存在的路径不遮蔽。该键只作用于
+命令面：`wsl-fs` 与 `fs-routing` 运行本插件的 fsio 协议，不执行模型编写的
+命令。遮蔽是收窄，不是关闭：同用户 `/proc`、interop 传输与其他 IPC 仍在，
+因此 `enforcement` 仍是 `partial`。`strict` 会打断受限命令内的
+`systemctl --user`、D-Bus 与容器客户端；`off` 保持原行为。
+
+`pnpm run probe:sandbox` 实测各档位：默认 profile 可达用户管理器，
+`session-bus` 拒绝 `systemd-run --user` 并遮蔽总线与 private socket，
+`strict` 还遮蔽系统总线与可达的容器 socket。在嵌套 `wsl-shell` 行上配置：
+
+```yaml
+              - id: wsl-shell
+                config:
+                  socketIsolation: session-bus
+```
 
 ## 沙箱与预检
 

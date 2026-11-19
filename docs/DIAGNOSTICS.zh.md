@@ -131,7 +131,7 @@ realm、独立 CLI 运行）不会加这一行。
 
 | 码 | 类别 | doctor 检查 | 一句话 |
 |---|---|---|---|
-| `SANDBOX_UNAVAILABLE` | environment | `sandbox.bwrap`、`sandbox.bwrap-usable`、`functional.sandbox` | 所请求的隔离无法强制（无可用 bubblewrap） |
+| `SANDBOX_UNAVAILABLE` | environment | `sandbox.bwrap`、`sandbox.bwrap-usable`、`functional.sandbox` | 所请求的隔离无法强制：无可用 bubblewrap，或配置的 `socketIsolation` 探针无法回答 |
 | `FS_SANDBOX_DENIED` | policy | `functional.sandbox`（围栏形状） | 文件效果策略拒绝了写入，或内核在驻留 agent 的 profile 处拒绝 |
 | `SANDBOX_INVALID_ROOT` | configuration | `sandbox.grants`（`writableRoots` 的格式与物理目录；`additionalWritableRoots` 的跨世界判定仍按首次使用） | 额外可写目录格式错误、指向另一个世界，或未通过物理目录检查 |
 | `FS_OUTSIDE_DISTRO` | policy | `config.effective`（生效的 `distro`） | 围栏钉死时路径指向另一 distro 的共享 |
@@ -157,7 +157,9 @@ agent 的结构化 FS 原因（`notfound`、`notdir`、`perm`、`loop`、`stale`
 ## doctor 绿但调用仍失败
 
 那是 **policy** 与 **data** 类别在正常工作：doctor 无法预测取决于调用而非
-机器的拒绝。若某个 **environment** 类错误码反复出现而 doctor 显示 `ready`，
+机器的拒绝。配置的 `socketIsolation` 探针失败是 doctor 唯一不预检的
+environment 类拒绝：命令会点名档位与补救，`pnpm run probe:sandbox` 是验证。
+若某个 **environment** 类错误码反复出现而 doctor 显示 `ready`，
 那是缺陷——附上 `doctor --bundle` 输出提报
 （[setup report](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/.github/ISSUE_TEMPLATE/setup_report.yml)
 会携带它）。

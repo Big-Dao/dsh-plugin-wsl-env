@@ -104,6 +104,16 @@ await check("a usable backend wraps the distro argv", async () => {
   assert.deepEqual(confined.denialSignatures, ["read-only file system"]);
 });
 
+await check("socket masks shadow the configured paths", async () => {
+  const masks = ["/run/user/1000/bus", "/run/dbus/system_bus_socket"];
+  const confined = await flipping.confine(["sh", "-c", "true"], policy, { distro: "ubuntu", socketMasks: masks });
+  for (const socket of masks) {
+    const index = confined.argv.indexOf(socket);
+    assert.ok(index > 0, `${socket} is in the profile`);
+    assert.deepEqual(confined.argv.slice(index - 2, index + 1), ["--ro-bind", "/dev/null", socket]);
+  }
+});
+
 await check("read-only mode grants no workspace bind", async () => {
   const confined = await flipping.confine(["sh", "-c", "true"], { ...policy, mode: "read-only" }, { distro: "ubuntu" });
   assert.ok(!confined.argv.includes("--bind"), "read-only must not bind a writable root");

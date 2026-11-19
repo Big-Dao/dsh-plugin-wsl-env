@@ -37,6 +37,16 @@ were part of the record.
   when `wsl.exe` or the doctor is unavailable; the panel disables it while a
   check is in flight so an answer cannot restore a cleared row.
 
+- **`wsl-shell.socketIsolation` masks the sockets a confined command would use
+  to escape the mount profile.** `off` keeps the previous behavior;
+  `session-bus` binds `/dev/null` over `$XDG_RUNTIME_DIR/bus` and
+  `$XDG_RUNTIME_DIR/systemd/private`, so `systemd-run --user`/`systemctl --user`
+  fail inside a command; `strict` also masks `/run/dbus/system_bus_socket` and
+  the container sockets the distro user can reach. The masks are a narrowing,
+  not a closure: same-user `/proc`, interop and other IPC remain,
+  `enforcement` stays `partial`, and `pnpm run probe:sandbox` proves the
+  default reaches the user manager while both stances do not.
+
 - **The doctor names the effective `workspace-write` writable roots, and a
   real-machine probe proves them.** `sandbox.grants` lists the `writableRoots`
   configured on both nested rows, expands `~`, checks the physical-directory

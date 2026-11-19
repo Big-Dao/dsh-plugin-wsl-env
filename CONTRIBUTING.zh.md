@@ -92,7 +92,7 @@ pnpm run sync:windows
 | `pnpm run e2e:install` | 在临时 `DSH_HOME` 中安装/升级/卸载打包 tarball；“最新已发布版 → 当前版本”leg 会用 overlay 探针启动 profile，断言三个接管实际挂载 | 是；Windows + WSL |
 | `pnpm run doctor` | 环境前置项、peer 和缓存（脚本使用 `--json`；`diagnose` 是只读别名） | 否；在发行版内 |
 | `pnpm run probe` | 针对真实发行版的文件系统行为 | 是 |
-| `pnpm run probe:sandbox` | bubblewrap 隔离了什么、没有隔离什么 | 否 |
+| `pnpm run probe:sandbox` | bubblewrap 隔离了什么、没有隔离什么，含 socket 隔离档位 | 否 |
 | `pnpm run probe:cache-write` | 通过 per-command profile 与 session runtime 验证可写根授权 | 否；在发行版内 |
 | `pnpm run probe:sandbox-shell` | 通过真实启动验证受限执行器 | 是 |
 | `pnpm run probe:interop-shell` | 对盘符可执行文件和复制出的可执行文件进行驻留式与一次性互操作，含/不含 `/mnt` 掩码 | 是 |

@@ -49,6 +49,14 @@ interface BwrapProfileOptions {
    * Inert under `read-only`: the mode grants no write outside `/`.
    */
   writableRoots?: readonly string[];
+  /**
+   * Existing socket paths to shadow with `/dev/null`: the user systemd
+   * manager's sockets (`session-bus`) and, for `strict`, the system bus and
+   * the container sockets the distro user can reach. The caller resolves and
+   * filters the paths (`lib/socket-isolation.js`); binding a missing or
+   * symlinked path fails in bwrap, so this module never invents one.
+   */
+  socketMasks?: readonly string[];
 }
 
 /**
@@ -96,6 +104,10 @@ export function bwrapProfileArgs(policy: { mode: string, workspaceRoot: string }
   const args = ["--ro-bind", "/", "/", "--dev", "/dev"];
   if (options.pidNamespace !== false) args.push("--unshare-pid");
   args.push("--proc", "/proc", "--die-with-parent");
+  // After `--dev /dev`, so `/dev/null` exists to bind from, and after the
+  // read-only root, so the mount lands over the socket the command would
+  // otherwise reach. The paths are existing sockets the caller verified.
+  for (const socket of options.socketMasks ?? []) args.push("--ro-bind", "/dev/null", socket);
   if (policy.mode === "workspace-write") {
     if (options.realTmp) {
       args.push("--bind", "/tmp", "/tmp");

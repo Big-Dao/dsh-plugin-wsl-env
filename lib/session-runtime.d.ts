@@ -61,6 +61,13 @@ interface SessionRuntimeRequest {
      * because the mount table is fixed for the runtime's lifetime.
      */
     writableRoots?: readonly string[];
+    /**
+     * Existing socket paths the runtime's bwrap profile masks: the user systemd
+     * manager's sockets and, for `strict`, the system bus and container
+     * sockets. Resolved by the provider (`lib/socket-isolation.js`); part of
+     * the key because the mount table is fixed for the runtime's lifetime.
+     */
+    socketMasks?: readonly string[];
     /** The agent's client lease; 0 disables. */
     leaseMs?: number;
 }
@@ -140,7 +147,7 @@ export declare class SessionRuntimes {
      * @param request - the runtime request.
      * @returns the registry key.
      */
-    static key(request: Pick<SessionRuntimeRequest, "distro" | "workspaceRoot" | "mode" | "maskWindowsDrive" | "sessionId" | "writableRoots">): string;
+    static key(request: Pick<SessionRuntimeRequest, "distro" | "workspaceRoot" | "mode" | "maskWindowsDrive" | "sessionId" | "writableRoots" | "socketMasks">): string;
     /**
      * Acquire the runtime for one key, creating it on first use.
      *

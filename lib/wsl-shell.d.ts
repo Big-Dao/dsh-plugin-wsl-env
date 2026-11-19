@@ -5,6 +5,7 @@ import type { WslAgent } from "./agent.js";
 import { SessionRuntimes } from "./session-runtime.js";
 import type { AgentBackend } from "./native-agent.js";
 import type { SessionRuntimeEntry } from "./session-runtime.js";
+import { type SocketIsolation } from "./socket-isolation.js";
 import { ProviderRuntimeBook } from "./provider-common.js";
 import type { Context } from "@deepseek-ai/cordis";
 import type { SandboxExecutionPolicy, SandboxMode } from "@deepseek-ai/dsh-sandbox";
@@ -39,6 +40,8 @@ interface WslShellExecutorConfig {
     sandbox: boolean;
     /** Whether confined profiles mask `/mnt`. */
     maskWindowsDrive: boolean;
+    /** Which socket surfaces confined commands cannot reach. */
+    socketIsolation: SocketIsolation;
     /** Extra distro directories granted read-write under `workspace-write`. */
     writableRoots: string[];
     /** The interop stance; set at all, it takes precedence over `maskWindowsDrive`. */
@@ -188,6 +191,29 @@ export declare class WslShellExecutor extends LocalBashExecutor {
          */
         maskWindowsDrive: z<boolean, boolean, "defined">;
         /**
+         * The socket surfaces a confined COMMAND cannot reach. The sandbox's mount
+         * profile confines file effects, not process authority: a command can
+         * otherwise ask the user's systemd manager to start a unit outside the
+         * fence, or connect to a container daemon and start work outside it.
+         *
+         * - `off` (default) — nothing masked; the boundary is the documented
+         *   `enforcement: partial`.
+         * - `session-bus` — masks `$XDG_RUNTIME_DIR/bus` and
+         *   `$XDG_RUNTIME_DIR/systemd/private`, so `systemd-run --user` and
+         *   `systemctl --user` fail inside the command.
+         * - `strict` — adds `/run/dbus/system_bus_socket` and the container
+         *   sockets (`docker`, `podman`, `containerd`, `crio`) that exist and are
+         *   reachable by the distro user; D-Bus and container clients inside the
+         *   command fail.
+         *
+         * The masks are a narrowing, not a closure: same-user `/proc`, the
+         * interop transport and other IPC remain, and `enforcement` stays
+         * `partial`. The key applies to the command plane (`wsl-shell`); the
+         * filesystem rows' confined agent runs only this plugin's fs protocol,
+         * never model-authored commands. Verified by `pnpm run probe:sandbox`.
+         */
+        socketIsolation: z<"off" | "session-bus" | "strict", "off" | "session-bus" | "strict", "defined">;
+        /**
          * Extra directories under `workspace-write`, in distro spelling. The
          * plugin grants them together with the workspace, so toolchain caches
          * (`~/.npm`, pnpm's store, `~/.cargo/registry`) and a linked worktree's
@@ -300,6 +326,29 @@ export declare class WslShellExecutor extends LocalBashExecutor {
          */
         maskWindowsDrive: z<boolean, boolean, "defined">;
         /**
+         * The socket surfaces a confined COMMAND cannot reach. The sandbox's mount
+         * profile confines file effects, not process authority: a command can
+         * otherwise ask the user's systemd manager to start a unit outside the
+         * fence, or connect to a container daemon and start work outside it.
+         *
+         * - `off` (default) — nothing masked; the boundary is the documented
+         *   `enforcement: partial`.
+         * - `session-bus` — masks `$XDG_RUNTIME_DIR/bus` and
+         *   `$XDG_RUNTIME_DIR/systemd/private`, so `systemd-run --user` and
+         *   `systemctl --user` fail inside the command.
+         * - `strict` — adds `/run/dbus/system_bus_socket` and the container
+         *   sockets (`docker`, `podman`, `containerd`, `crio`) that exist and are
+         *   reachable by the distro user; D-Bus and container clients inside the
+         *   command fail.
+         *
+         * The masks are a narrowing, not a closure: same-user `/proc`, the
+         * interop transport and other IPC remain, and `enforcement` stays
+         * `partial`. The key applies to the command plane (`wsl-shell`); the
+         * filesystem rows' confined agent runs only this plugin's fs protocol,
+         * never model-authored commands. Verified by `pnpm run probe:sandbox`.
+         */
+        socketIsolation: z<"off" | "session-bus" | "strict", "off" | "session-bus" | "strict", "defined">;
+        /**
          * Extra directories under `workspace-write`, in distro spelling. The
          * plugin grants them together with the workspace, so toolchain caches
          * (`~/.npm`, pnpm's store, `~/.cargo/registry`) and a linked worktree's
@@ -369,6 +418,8 @@ export declare class WslShellExecutor extends LocalBashExecutor {
     sessionScopeProbe: (argv: string[]) => Promise<string>;
     /** The one-time writable-root check's runner; tests substitute it. */
     writableRootsProbe: (argv: string[]) => Promise<string>;
+    /** The socket-facts probe's runner; tests substitute it. */
+    socketIsolationProbe: (argv: string[]) => Promise<string>;
     /**
      * Per-process confinement facts retained until settlement. Overlapping calls
      * can carry different policies, so a shared latest-wrap value would classify
@@ -472,7 +523,7 @@ export declare class WslShellExecutor extends LocalBashExecutor {
         mode: string;
         workspaceRoot: string;
         sessionId?: string;
-    } | undefined, resolved: WslExecSpec, distro: string, writableRoots?: readonly string[]): SessionRuntimeEntry | undefined;
+    } | undefined, resolved: WslExecSpec, distro: string, writableRoots?: readonly string[], socketMasks?: readonly string[]): SessionRuntimeEntry | undefined;
     /**
      * Run the session runtime's preflight once per executor. A failure is a
      * configuration verdict, not an agent outage: it is raised as an Error with
@@ -659,6 +710,19 @@ export declare class WslShellExecutor extends LocalBashExecutor {
      */
     writableRootsFor(distro: string, policy: SandboxExecutionPolicy | undefined, signal?: AbortSignal): Promise<string[]>;
     /**
+     * The socket masks one confined command's profile binds, resolved once per
+     * distro from the row's `socketIsolation` stance. Empty when the sandbox is
+     * off, the command is unconfined, or the stance is `off`. A probe failure is
+     * a sandbox refusal, never an unmasked run.
+     *
+     * @param distro - the distro the command runs in.
+     * @param mode - the per-call file-effect mode.
+     * @param signal - optional cancellation for the one-time probe.
+     * @returns the existing socket paths to mask.
+     * @throws {SandboxUnavailableError} when a configured isolation cannot be resolved.
+     */
+    socketMasksFor(distro: string, mode: SandboxMode | undefined, signal?: AbortSignal): Promise<string[]>;
+    /**
      * Execute one resolved spec inside the distro, confined by the per-call policy
      * when there is one.
      *
@@ -695,7 +759,7 @@ export declare class WslShellExecutor extends LocalBashExecutor {
      * @param shell - the resolved distro shell.
      * @returns the decorated execution result.
      */
-    executeViaAgent(resolved: WslExecSpec, distro: string, shell: string, writableRoots?: readonly string[]): Promise<ShellExecution>;
+    executeViaAgent(resolved: WslExecSpec, distro: string, shell: string, writableRoots?: readonly string[], socketMasks?: readonly string[]): Promise<ShellExecution>;
     /**
      * The pre-agent execution path, verbatim: one `wsl.exe` per command through
      * the inherited `executeArgv` machinery. Kept as the permanent fallback for
@@ -706,7 +770,7 @@ export declare class WslShellExecutor extends LocalBashExecutor {
      * @param shell - the resolved distro shell.
      * @returns the decorated execution result.
      */
-    executeOneShot(resolved: WslExecSpec, distro: string, shell: string, writableRoots?: readonly string[]): Promise<ShellExecution>;
+    executeOneShot(resolved: WslExecSpec, distro: string, shell: string, writableRoots?: readonly string[], socketMasks?: readonly string[]): Promise<ShellExecution>;
     /**
      * The confined one-shot's argv prepare: confine the distro argv under the
      * policy, keep the resulting profile for the fact-stamper and the settlement

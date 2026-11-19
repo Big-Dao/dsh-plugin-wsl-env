@@ -67,6 +67,7 @@ values. Re-copy it after a plugin upgrade that changes the preset.
 | `sandbox` | `true` | Confine commands with `bwrap`. A missing or unusable `bwrap` fails closed. `false` runs commands without confinement. |
 | `interopVisibility` | Unset; effective default is `visible` | `visible`, `masked`, or `disabled`. When set, this takes precedence over `maskWindowsDrive`. See [Windows interop](#windows-interop). |
 | `maskWindowsDrive` | `false` | For confined commands, mount an empty tmpfs over `/mnt`. See [Windows interop](#windows-interop). |
+| `socketIsolation` | `off` | Which socket surfaces a confined command cannot reach: `off`, `session-bus`, or `strict`. See [Socket isolation](#socket-isolation). |
 | `writableRoots` | `[]` | Extra distro directories granted read-write under `workspace-write` (`~` allowed), for toolchain caches or a linked worktree's shared Git directory. Each entry must be an existing physical directory; entries already inside the workspace, `/tmp` or `/dev/shm`, or nested inside another grant, are ignored. Put the same list on `wsl-fs`. See [Toolchain caches](#toolchain-caches-and-extra-writable-roots). |
 | `cwd` | `''` | Default workdir. Empty uses the distro user's home. |
 | `timeoutMs` / `maxTimeoutMs` | `120000` / `600000` (shipped) | Default per-call timeout and the maximum timeout a call may request. |
@@ -343,6 +344,39 @@ Merge the printed block into the profile. The `visible` and `masked` behavior
 is covered by `test/probe/interop-shell.sh` for both resident and one-shot
 commands. The distro-level disabled state requires a manual check because it
 changes WSL configuration.
+
+## Socket isolation
+
+`socketIsolation` on the nested `wsl-shell` row decides which socket surfaces
+a confined **command** cannot reach. The mount profile confines file effects,
+not process authority: without this key a command can still ask the user's
+systemd manager to start a unit outside the fence (the escape in
+[SECURITY.md](../SECURITY.md)), or use a container daemon socket.
+
+| Value | Effect |
+|---|---|
+| `off` (default) | Nothing masked. The documented `enforcement: partial` includes this path. |
+| `session-bus` | Masks `$XDG_RUNTIME_DIR/bus` and `$XDG_RUNTIME_DIR/systemd/private`; `systemd-run --user` and `systemctl --user` fail inside the command. |
+| `strict` | Adds `/run/dbus/system_bus_socket` and the container sockets (`docker`, `podman`, `containerd`, `crio`) that exist and are reachable by the distro user. |
+
+The paths are resolved inside the distro and bound `/dev/null`; a path that
+does not exist is not masked. The key applies to the command plane only:
+`wsl-fs` and `fs-routing` run this plugin's fsio protocol, never
+model-authored commands. The masks are a narrowing, not a closure: same-user
+`/proc`, the interop transport and other IPC remain, so `enforcement` stays
+`partial`. `strict` breaks `systemctl --user`, D-Bus and container clients
+inside confined commands; `off` keeps the previous behavior.
+
+`pnpm run probe:sandbox` measures the stances: the default profile reaches the
+user manager, `session-bus` refuses `systemd-run --user` and masks the user
+bus and private socket, and `strict` also masks the system bus and the
+reachable container sockets. Configure it on the nested `wsl-shell` row:
+
+```yaml
+              - id: wsl-shell
+                config:
+                  socketIsolation: session-bus
+```
 
 ## Sandbox and preflight
 

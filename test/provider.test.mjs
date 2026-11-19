@@ -187,10 +187,10 @@ function makeFs({ sandbox = true, restrictToDistro = true, distro = DISTRO, poli
 
 /**
  * An executor whose agent and confinement are fakes at the seam.
- * @param {{ sandbox?: boolean, sessionSandbox?: boolean | "auto", distro?: string, writableRoots?: string[], additionalWritableRoots?: string[] }} [options] - the executor switches, distro mode and root grants.
+ * @param {{ sandbox?: boolean, sessionSandbox?: boolean | "auto", distro?: string, writableRoots?: string[], additionalWritableRoots?: string[], socketIsolation?: "off" | "session-bus" | "strict" }} [options] - the executor switches, distro mode, root grants and socket stance.
  * @returns {{ executor: WslShellExecutor, agent: ScriptedAgent, agentCalls: AgentFrame[] }} the executor, its scripted frame-runner, and every frame it saw.
  */
-function makeExecutor({ sandbox = true, sessionSandbox = false, distro = DISTRO, writableRoots, additionalWritableRoots } = {}) {
+function makeExecutor({ sandbox = true, sessionSandbox = false, distro = DISTRO, writableRoots, additionalWritableRoots, socketIsolation } = {}) {
   const policy = { mode: "workspace-write", workspaceRoot: WORKSPACE, ...(additionalWritableRoots === undefined ? {} : { additionalWritableRoots }) };
   const ctx = new Context();
   ctx.provide("sandboxPolicy", { defaultMode: policy.mode, resolve: () => policy });
@@ -202,6 +202,7 @@ function makeExecutor({ sandbox = true, sessionSandbox = false, distro = DISTRO,
     sessionSandbox,
     agentBackend: "shell",
     ...(writableRoots === undefined ? {} : { writableRoots }),
+    ...(socketIsolation === undefined ? {} : { socketIsolation }),
   }));
   /** @type {AgentFrame[]} */
   const agentCalls = [];
@@ -332,6 +333,33 @@ check("shell and filesystem share only matching session runtimes", async () => {
   await executor.disposeSessionRuntimes();
   assert.equal(shellFirst.refs, 1);
   await fs.disposeSessionRuntimes();
+});
+
+check("socketIsolation resolves masks through the probe and stays off by default", async () => {
+  const { executor } = makeExecutor({ socketIsolation: "session-bus" });
+  /** @type {string[][]} */
+  const calls = [];
+  executor.socketIsolationProbe = async (argv) => {
+    calls.push(argv);
+    return "R /run/user/1000\nU /run/user/1000/bus\n";
+  };
+  assert.deepEqual(await executor.socketMasksFor(DISTRO, "workspace-write"), ["/run/user/1000/bus"]);
+  assert.equal(calls.length, 1, "the configured stance probes once");
+  assert.deepEqual(await executor.socketMasksFor(DISTRO, "danger-full-access"), []);
+  assert.equal(calls.length, 1, "an unconfined command does not probe");
+  const { executor: off } = makeExecutor();
+  assert.deepEqual(await off.socketMasksFor(DISTRO, "workspace-write"), [], "the default stance is off");
+});
+
+check("a failed socket probe refuses the command as sandbox-unavailable", async () => {
+  const { executor } = makeExecutor({ socketIsolation: "strict", distro: "debian" });
+  executor.socketIsolationProbe = async () => {
+    throw new Error("no answer");
+  };
+  await assert.rejects(
+    () => executor.socketMasksFor("debian", "workspace-write"),
+    (error) => /** @type {{code?: string}} */ (error).code === "SANDBOX_UNAVAILABLE",
+  );
 });
 
 check("worldPath mints the pinned distro's UNC for a Linux path", async () => {

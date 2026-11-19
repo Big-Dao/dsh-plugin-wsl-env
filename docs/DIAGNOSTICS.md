@@ -170,7 +170,7 @@ Class legend:
 
 | Code | Class | Doctor checks | In one line |
 |---|---|---|---|
-| `SANDBOX_UNAVAILABLE` | environment | `sandbox.bwrap`, `sandbox.bwrap-usable`, `functional.sandbox` | the requested confinement cannot be enforced (no usable bubblewrap) |
+| `SANDBOX_UNAVAILABLE` | environment | `sandbox.bwrap`, `sandbox.bwrap-usable`, `functional.sandbox` | the requested confinement cannot be enforced: no usable bubblewrap, or a configured `socketIsolation` probe could not answer |
 | `FS_SANDBOX_DENIED` | policy | `functional.sandbox` (the fence shape) | the file-effect policy refused the write, or the kernel refused it at the resident's profile |
 | `SANDBOX_INVALID_ROOT` | configuration | `sandbox.grants` (the `writableRoots` shape and physical directory; the `additionalWritableRoots` cross-world check still runs on first use) | an extra writable root is malformed, names another world, or fails the physical-directory check |
 | `FS_OUTSIDE_DISTRO` | policy | `config.effective` (the effective `distro`) | the path names another distro's share while the fence is pinned |
@@ -196,8 +196,11 @@ dialect itself is [AGENT-PROTOCOL-V7.md](AGENT-PROTOCOL-V7.md).
 ## When the doctor is green but a call still fails
 
 That is the **policy** and **data** classes doing their jobs: a refusal the
-doctor cannot predict because it depends on the call, not the machine. If a
-call fails repeatedly with an **environment**-class code while the doctor
+doctor cannot predict because it depends on the call, not the machine. A
+configured `socketIsolation` probe failure is the one environment refusal the
+doctor does not preflight: the command names the stance and the remedy, and
+`pnpm run probe:sandbox` is the verification. If a call fails repeatedly with
+an **environment**-class code while the doctor
 says `ready`, that is a bug — file it with the `doctor --bundle` output (a
 [setup report](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/.github/ISSUE_TEMPLATE/setup_report.yml)
 carries it).

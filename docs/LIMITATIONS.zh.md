@@ -98,6 +98,14 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
   `[interop] enabled=false` 的补救命令（由 `doctor` 打印）——发行版级设置
   仍需手工执行。
   [ARCHITECTURE.md](ARCHITECTURE.md#reported-enforcement)。
+- **挂载 profile 不管辖进程权限** —— 受限命令仍可触达围栏外的 socket：
+  用户 systemd 管理器（已记录的逃逸）、系统总线与容器守护进程。
+  `wsl-shell` 的 `socketIsolation: "session-bus"` 把 `/dev/null` 绑到
+  `$XDG_RUNTIME_DIR/bus` 与 `$XDG_RUNTIME_DIR/systemd/private`；`"strict"`
+  追加 `/run/dbus/system_bus_socket` 与发行版用户可触达的容器 socket。默认
+  为 `off`；遮蔽是收窄而非关闭（同用户 `/proc`、interop 与其他 IPC 仍在），
+  `enforcement` 仍是 `partial`。`strict` 会打断受限命令内的
+  `systemctl --user`、D-Bus 与容器客户端。由 `pnpm run probe:sandbox` 实测。
 - **必须安装 `bubblewrap`**，否则两个提供者都会带着安装命令失败；
   会话启动预检会以建议性警告的形式给出同样的文本。
 - **`workspace-write` 默认不授予 `$HOME` 下的包管理器缓存** —— npm 的

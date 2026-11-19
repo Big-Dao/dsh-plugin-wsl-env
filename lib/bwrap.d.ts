@@ -48,6 +48,14 @@ interface BwrapProfileOptions {
      * Inert under `read-only`: the mode grants no write outside `/`.
      */
     writableRoots?: readonly string[];
+    /**
+     * Existing socket paths to shadow with `/dev/null`: the user systemd
+     * manager's sockets (`session-bus`) and, for `strict`, the system bus and
+     * the container sockets the distro user can reach. The caller resolves and
+     * filters the paths (`lib/socket-isolation.js`); binding a missing or
+     * symlinked path fails in bwrap, so this module never invents one.
+     */
+    socketMasks?: readonly string[];
 }
 /**
  * Build the bwrap profile arguments for one file-effect policy, exactly as

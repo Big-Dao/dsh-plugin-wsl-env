@@ -21,6 +21,9 @@
 # Windows binary is unreachable, and the workspace stays writable. The
 # `writableRoots` grant is measured as well: a directory outside the workspace
 # becomes writable only when the profile binds it, and its sibling stays EROFS.
+# The socket-isolation stances are measured through the shipped resolver: the
+# default profile can reach the user manager, `session-bus` cannot, and
+# `strict` also shadows the system bus and the container sockets that exist.
 #
 # Exit status: 0 when every behavioural expectation holds. The WSL interop
 # escape is reported as INFO, not FAIL — a Linux sandbox cannot govern a
@@ -54,8 +57,35 @@ const { bwrapProfileArgs } = await import(pathToFileURL(`${process.env.DSH_WSL_E
 const [mode, workspaceRoot] = [process.argv[1], process.argv[2]];
 const maskWindowsDrive = process.argv[3] === "mask";
 const writableRoots = process.argv.slice(4);
-console.log(bwrapProfileArgs({ mode, workspaceRoot }, { maskWindowsDrive, writableRoots }).join("\n"));
+const socketMasks = (process.env.DSH_SOCKET_MASKS ?? "").split("\n").filter(Boolean);
+const pidNamespace = process.env.DSH_NO_PID_NS !== "1";
+console.log(bwrapProfileArgs({ mode, workspaceRoot }, { maskWindowsDrive, writableRoots, socketMasks, pidNamespace }).join("\n"));
 ' "$1" "$2" "${3:-}" "${@:4}"
+}
+build_socket_profile() { # build_socket_profile <mode> <workspaceRoot> <mask> <masks...> — build_profile plus socket masks, session-runtime pid shape
+  local mode="$1" ws="$2" mask="$3"; shift 3
+  DSH_NO_PID_NS=1 DSH_SOCKET_MASKS="$(printf '%s\n' "$@")" build_profile "$mode" "$ws" "$mask"
+}
+# The plugin's own socket-mask resolution, one path per line; an unavailable
+# probe yields no output and the legs below report INFO instead of failing.
+socket_masks() { # socket_masks <mode>
+  DSH_SOCKET_MODE="$1" DSH_WSL_ENV_BWRAP_REPO="$REPO" node --input-type=module -e '
+import { pathToFileURL } from "node:url";
+import { spawnSync } from "node:child_process";
+const { socketMasksFor } = await import(pathToFileURL(`${process.env.DSH_WSL_ENV_BWRAP_REPO}/lib/socket-isolation.js`).href);
+const masks = await socketMasksFor({
+  mode: process.env.DSH_SOCKET_MODE,
+  wslPath: "wsl.exe",
+  distro: process.env.WSL_DISTRO_NAME ?? "",
+  run: async (argv) => {
+    const result = spawnSync(argv[0], argv.slice(1), { encoding: "utf8", timeout: 15000 });
+    if (result.error) throw result.error;
+    if (result.status !== 0) throw new Error(result.stderr || `status ${result.status}`);
+    return result.stdout ?? "";
+  },
+});
+console.log(masks.join("\n"));
+' 2>/dev/null
 }
 # The exact profile the plugin ships for each mode: read-only, and the
 # workspace-write grant under this probe's workspace.
@@ -147,6 +177,36 @@ if mkdir -p "$GRANT" 2>/dev/null; then
   rm -rf "$GRANT"
 else
   report INFO "writable-root legs skipped" "run this probe from an unconfined shell (the detached suite does)"
+fi
+
+# 3c. Socket isolation: the default profile reaches the user manager, the
+#     session-bus profile cannot, and strict also shadows the system bus and
+#     the container sockets that exist. Masks come from the shipped resolver.
+SESSION_MASKS="$(socket_masks session-bus)"
+STRICT_MASKS="$(socket_masks strict)"
+mapfile -t SOCKET_BASE < <(build_socket_profile workspace-write "$WS" "")
+if [ -n "$SESSION_MASKS" ] && run SOCKET_BASE systemd-run --user --scope --quiet true >/dev/null 2>&1; then
+  report PASS "the default profile reaches the user manager"
+  mapfile -t SESS < <(build_socket_profile workspace-write "$WS" "" $SESSION_MASKS)
+  expect_status "session-bus runs a plain command" zero SESS true
+  expect_status "session-bus refuses systemd-run --user" nonzero SESS systemd-run --user --scope --quiet true
+  while IFS= read -r socket; do
+    [ -n "$socket" ] && expect_status "session-bus masks $socket" zero SESS test -c "$socket"
+  done <<< "$SESSION_MASKS"
+  if [ -n "$STRICT_MASKS" ]; then
+    mapfile -t STRICT < <(build_socket_profile workspace-write "$WS" "" $STRICT_MASKS)
+    expect_status "strict refuses systemd-run --user" nonzero STRICT systemd-run --user --scope --quiet true
+    expect_status "strict refuses the system bus" nonzero STRICT systemctl status --no-pager
+    while IFS= read -r socket; do
+      [ -n "$socket" ] && expect_status "strict masks $socket" zero STRICT test -c "$socket"
+    done <<< "$STRICT_MASKS"
+  else
+    report INFO "strict socket legs skipped" "the probe found no system bus or container socket"
+  fi
+elif [ -n "$SESSION_MASKS" ]; then
+  report INFO "socket-isolation legs skipped" "systemd-run --user is unavailable in the probe shell"
+else
+  report INFO "socket-isolation legs skipped" "the socket probe returned no masks (no user manager or no wsl.exe interop)"
 fi
 
 # 4. The temp area is an ephemeral mount, not the distro's /tmp.

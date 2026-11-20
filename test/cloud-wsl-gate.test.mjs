@@ -36,5 +36,5 @@ assert.match(workflow, /wslfs-profile\.patch\.yml/);
 assert.match(workflow, /wsl\.exe --install -d Debian/);
 assert.match(workflow, /fnm.*install 24\.9\.0/);
 assert.match(workflow, /run-all-when-closed\.sh --include-fs/);
-assert.match(workflow, /test\/probe\/\.scratch\/full-probe\.\*\.log/);
-assert.match(workflow, /test\/probe\/\.scratch\/full-probe\.\*\.results/);
+assert.match(workflow, /plugin\/test\/probe\/\.scratch\/full-probe\.\*\.log/);
+assert.match(workflow, /plugin\/test\/probe\/\.scratch\/full-probe\.\*\.results/);

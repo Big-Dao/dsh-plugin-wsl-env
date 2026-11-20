@@ -12,6 +12,9 @@
 - id: subprocess
   disabled: true
 
+- id: fs-routing
+  disabled: true
+
 - insert:
     - id: subprocess-wsl
       name: 'dsh-plugin-wsl-env/subprocess'

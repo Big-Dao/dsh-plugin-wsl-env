@@ -21,6 +21,9 @@
   config:
     sandbox: false
 
+- id: fs-routing
+  disabled: true
+
 - insert:
     - id: wsl-shell
       name: 'dsh-plugin-wsl-env/shell'

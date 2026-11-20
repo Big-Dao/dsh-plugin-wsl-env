@@ -27,3 +27,6 @@ assert.doesNotMatch(workflow, /\$home = Join-Path/);
 assert.match(workflow, /dsh-plugin-wsl-env/);
 assert.match(workflow, /http:\/\/127\.0\.0\.1:3080\//);
 assert.match(workflow, /bwrap --ro-bind \/ \/ --dev \/dev --proc \/proc/);
+assert.match(workflow, /"--host", "127\.0\.0\.1", "--port", "3080"/);
+assert.match(workflow, /cloud-desktop\.stdout\.log/);
+assert.match(workflow, /cloud-desktop\.stderr\.log/);

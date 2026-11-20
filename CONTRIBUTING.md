@@ -228,16 +228,17 @@ on one Ubuntu runner after installing Chromium. The Windows runners are
 there because the plugin targets Windows; the coverage thresholds need Node 22.8 or
 newer, which is why that job runs on one version.
 
-`.github/workflows/cloud-wsl-gate.yml` adds an independent hosted Harness and
-WSL gate. On pull requests targeting `main` and on manual `workflow_dispatch`,
-it installs Ubuntu 24.04, `bubblewrap`, git and CA certificates on
-`windows-latest`, installs the DeepSeek Harness Web CLI, adds the local checkout
-to the `cloud-wsl` profile, verifies the composed dump contains
-`dsh-plugin-wsl-env`, starts the Web UI and waits for HTTP readiness, and
-finally verifies the in-distro bwrap workspace fence. This gate does not launch
-the DeepSeek Harness desktop app or claim coverage of desktop UI, terminal or
-session behavior; those probes remain a local or self-hosted Windows+WSL
-verification scope.
+`.github/workflows/cloud-wsl-gate.yml` adds an independent hosted DeepSeek
+Harness Desktop and WSL gate. On pull requests targeting `main` and on manual
+`workflow_dispatch`, it builds the unsigned Windows Desktop package from the
+upstream tag on `windows-latest`, installs Ubuntu 24.04 and `bubblewrap`, uses
+the desktop app's bundled CLI to create a `wsl` profile, installs the local
+checkout into that profile, verifies the composed dump contains
+`dsh-plugin-wsl-env`, launches the desktop app's configured Web service and waits
+for HTTP readiness, and verifies the in-distro bwrap workspace fence. This gate
+covers desktop build/start, CLI composition and basic WSL/bwrap behavior;
+deeper terminal, session and model-round probes remain a local or self-hosted
+real-machine verification scope.
 
 The probes marked "yes" need Windows, WSL2, a mounted harness profile and a linked
 checkout, which a hosted runner does not have. Run them on your own machine and

@@ -114,14 +114,14 @@ pnpm run sync:windows
 
 CI 在 `ubuntu-latest` 和 `windows-latest` 上，用 Node 22 和 24 运行 `pnpm test`；在 Node 24 上运行 `pnpm run test:coverage`，并在安装 Chromium 后于一个 Ubuntu runner 上运行 `pnpm run test:browser`。Windows runner 的存在是因为插件面向 Windows；覆盖率门槛需要 Node 22.8 或更新版本，因此该任务只在一个版本上运行。
 
-`.github/workflows/cloud-wsl-gate.yml` 增加了一道独立的托管 Harness 与 WSL 门禁。它在每次目标为 `main` 的 pull request 和手动 `workflow_dispatch` 时，在 `windows-latest` 上安装 Ubuntu 24.04、`bubblewrap`、git 和证书包，安装 DeepSeek Harness 的 Web CLI，向 `cloud-wsl` profile 安装当前检出的本地插件，导出并核对组合配置，启动 Web UI 并等待 HTTP 可访问，最后在发行版中验证工作区的 bwrap 写围栏。该门禁不启动 DeepSeek Harness 桌面应用，不声称覆盖桌面专用 UI、终端或 session probe；桌面组合仍需本机或自托管 Windows+WSL 环境验收。
+`.github/workflows/cloud-wsl-gate.yml` 增加了一道托管 DeepSeek Harness 桌面版与 WSL 门禁。它在每次目标为 `main` 的 pull request 和手动 `workflow_dispatch` 时，在 `windows-latest` 上从 upstream tag 构建 unsigned Windows Desktop，安装 Ubuntu 24.04 与 `bubblewrap`，通过桌面 app 自带 CLI 创建 `wsl` profile、向 profile 安装当前检出的本地插件并核对组合配置，启动桌面应用的配置化 Web 服务并等待 HTTP 可访问，最后验证发行版内的 bwrap 工作区围栏。该门禁覆盖桌面 app 的构建、启动、CLI 配置、插件组合与基础 WSL/bwrap；深度终端、session、模型回合仍需本机或自托管真实机探针。
 
 标记为“是”的探针需要 Windows、WSL2、一个已挂载的 harness profile 和一个已链接的检出，托管 runner 不具备这些条件。请在自己的机器上运行，并把输出粘贴到 pull request 中。
 
 标记为“否；在发行版内”的行（`substrate`、`watch`、`agent`、`exec`）仍需要 Windows 和 WSL2，但不需要启动 harness，也不需要 profile：在有 Node 的发行版终端中运行它们，它们会通过互操作访问 `wsl.exe`。
 
 真机测试集有两个便利工具。`test/probe/run-all-when-closed.sh --include-fs` 在应用退出后运行全部十七项探针。互操作 shell 矩阵使用 `wslfs` profile、systemd 和 lingering 的用户管理器；当 Windows 互操作或其临时标记无法验证时，它会失败。`ci.yml` 有一个手动触发的 `probes` 任务：在默认发行版实际启动且已安装 harness 应用的环境中运行 `sandbox`、`mode`、`terminal`、`picker` 和 `missing-wsl`。该任务保留 `windows-latest` 的 `runs-on` 标签；托管 runner 没有可用发行版时会在 distro 预检处失败，而不是报告探针成功。如果发行版启动时没有 bubblewrap，`sandbox` 分支会失败，而不是跳过。
-若要验证托管环境能否启动 Harness Web CLI、装载本插件并执行基础 WSL/bwrap 检查，使用 `.github/workflows/cloud-wsl-gate.yml`；它是独立的 PR 和手动门禁，不启动桌面应用，也不执行上面的完整桌面 Harness probe。
+若要验证托管环境能否构建并启动 DeepSeek Harness Windows Desktop、装载本插件并执行基础 WSL/bwrap 检查，使用 `.github/workflows/cloud-wsl-gate.yml`；它是独立的 PR 和手动门禁，不替代上面的完整真实机 probe。
 
 **自托管 runner 标签冲突——已知暴露面。** 开发机的自托管 runner 满足了 GitHub 托管的 `windows-latest` 标签，因此单元矩阵的 Windows 分支在每次 push 和 PR 时都在那里执行。来自 fork 的 PR 代码会在这些分支上被跳过（`ci.yml` 的步骤级 fork 门），但持久的修复是在 runner 设置中把其标签重命名为无歧义的名称（例如 `self-hosted-wsl`），并把 `ci.yml` 中两个 `windows-latest` 使用方重新指向它——在此之前，请把该标签视为共享基础设施，而不是托管容量。还要注意安装步骤带有 `--config.minimum-release-age=0`（pnpm 11.7 的 lockfile 重新验证会忽略 `minimumReleaseAgeExclude`；该标志是 `release.yml` 中记录的补救办法）。
 

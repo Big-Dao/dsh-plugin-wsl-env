@@ -57,9 +57,9 @@
   [CONTRIBUTING](../CONTRIBUTING.md)）；[AGENTS.md](../AGENTS.md) 是本仓库的
   代理协作规则。
 - [.github/workflows/cloud-wsl-gate.yml](../.github/workflows/cloud-wsl-gate.yml)
-  记录托管 Windows+WSL 的可重复基线：Ubuntu、Harness Web CLI、当前检出的插件、
-  git、bubblewrap、组合配置、Web HTTP 就绪与工作区围栏；它不替代 Harness
-  桌面或完整闭合探针。
+  记录托管 Windows Desktop + WSL 的可重复基线：upstream tag 构建的 unsigned
+  Desktop、Ubuntu、当前检出的插件、桌面 bundled CLI、组合配置、Desktop/Web
+  就绪与工作区围栏；它不替代深度终端、session 或真实模型回合探针。
 - [发布流程](RELEASING.md) 定义版本、tag、发布和核验步骤；
   [变更日志](../CHANGELOG.md) 按版本记录变更，不反向改写历史条目。
 - [支持政策](../SUPPORT.zh.md)、[行为准则](../CODE_OF_CONDUCT.zh.md)（英文页

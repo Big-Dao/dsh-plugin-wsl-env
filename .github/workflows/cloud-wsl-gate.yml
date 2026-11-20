@@ -1,4 +1,4 @@
-name: Cloud WSL Gate
+name: Cloud Desktop WSL Gate
 
 on:
   workflow_dispatch:
@@ -9,17 +9,25 @@ permissions:
   contents: read
 
 concurrency:
-  group: cloud-wsl-${{ github.ref }}
+  group: cloud-desktop-wsl-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  harness-plugin:
-    name: Harness CLI, plugin, and WSL
+  desktop-plugin:
+    name: Windows Desktop Harness and WSL plugin
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
+          path: plugin
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: deepseek-ai/deepseek-harness
+          ref: dsh-v0.2.2-rc.5
+          path: harness
           persist-credentials: false
 
       - run: corepack enable pnpm
@@ -28,8 +36,31 @@ jobs:
         with:
           node-version: "24"
           cache: "pnpm"
+          cache-dependency-path: harness/pnpm-lock.yaml
 
-      - name: Install Ubuntu 24.04 and probe packages
+      - name: Prepare upstream Harness toolchain
+        working-directory: harness
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          corepack prepare pnpm@11.28.5 --activate
+          pnpm install --frozen-lockfile --config.minimum-release-age=0
+
+      - name: Build unsigned Windows Desktop
+        working-directory: harness
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          pnpm run package:desktop:win:x64:dir -- --unsigned --build-version 0.2.2-rc.5
+          $exe = Get-ChildItem -Path "apps/desktop/.desktop-build/targets/win-x64" -Recurse -Filter "DeepSeek Harness.exe" |
+            Select-Object -First 1
+          if ($null -eq $exe) { throw "unsigned Windows Desktop executable was not produced" }
+          "DESKTOP_EXE=$($exe.FullName)" >> $env:GITHUB_ENV
+          $cli = Join-Path $exe.DirectoryName "resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js"
+          if (-not (Test-Path $cli)) { throw "desktop bundled CLI was not produced: $cli" }
+          "DESKTOP_CLI=$cli" >> $env:GITHUB_ENV
+
+      - name: Install Ubuntu 24.04 and bwrap
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -40,42 +71,53 @@ jobs:
           & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get update
           if ($LASTEXITCODE -ne 0) { throw "apt-get update failed: exit=$LASTEXITCODE" }
           & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get install -y --no-install-recommends bubblewrap git ca-certificates curl
-          if ($LASTEXITCODE -ne 0) { throw "probe package install failed: exit=$LASTEXITCODE" }
+          if ($LASTEXITCODE -ne 0) { throw "bwrap package install failed: exit=$LASTEXITCODE" }
 
-      - name: Install Harness and local plugin
+      - name: Install and compose local WSL plugin
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          & npx --yes @deepseek-ai/dsh@0.2.2-rc.5 --version
-          if ($LASTEXITCODE -ne 0) { throw "Harness CLI installation or startup failed" }
+          $home = Join-Path $env:GITHUB_WORKSPACE "cloud-desktop-home"
+          New-Item -ItemType Directory -Force -Path $home | Out-Null
+          $env:DSH_HOME = $home
+          $env:ELECTRON_RUN_AS_NODE = "1"
+          $env:WSLENV = "DSH_HOME:ELECTRON_RUN_AS_NODE"
 
-          $workspace = (Resolve-Path "${{ github.workspace }}").Path
-          & npx --yes @deepseek-ai/dsh@0.2.2-rc.5 plugin --profile cloud-wsl add "link:$workspace"
-          if ($LASTEXITCODE -ne 0) { throw "local plugin installation failed" }
+          & "$env:DESKTOP_EXE" --expose-internals "$env:DESKTOP_CLI" wsl --from-default-profile web --dump-config
+          if ($LASTEXITCODE -ne 0) { throw "wsl profile initialization failed" }
 
-          $dump = & npx --yes @deepseek-ai/dsh@0.2.2-rc.5 --profile cloud-wsl --dump-config
-          if ($LASTEXITCODE -ne 0) { throw "cloud-wsl profile dump failed" }
+          $plugin = (Resolve-Path "${{ github.workspace }}\plugin").Path
+          & "$env:DESKTOP_EXE" --expose-internals "$env:DESKTOP_CLI" plugin --profile wsl add "link:$plugin"
+          if ($LASTEXITCODE -ne 0) { throw "desktop plugin installation failed" }
+
+          $dump = & "$env:DESKTOP_EXE" --expose-internals "$env:DESKTOP_CLI" --profile wsl --dump-config
+          if ($LASTEXITCODE -ne 0) { throw "desktop composed profile dump failed" }
           $dumpText = $dump -join "`n"
-          Set-Content -Path "cloud-wsl-profile.txt" -Value $dumpText
+          Set-Content -Path "${{ github.workspace }}\cloud-desktop-profile.txt" -Value $dumpText
           if (-not $dumpText.Contains("dsh-plugin-wsl-env")) {
-            throw "dumped profile does not contain dsh-plugin-wsl-env"
+            throw "desktop composed profile does not contain dsh-plugin-wsl-env"
+          }
+          if ($dumpText.Contains("skipped")) {
+            throw "desktop composed profile reports skipped entries"
           }
 
-      - name: Boot Harness Web UI with plugin
+      - name: Launch desktop app and verify plugin profile
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $stdout = Join-Path $env:GITHUB_WORKSPACE "cloud-wsl-web.stdout.txt"
-          $stderr = Join-Path $env:GITHUB_WORKSPACE "cloud-wsl-web.stderr.txt"
-          $process = Start-Process -FilePath "npx.cmd" `
-            -ArgumentList @("--yes", "@deepseek-ai/dsh@0.2.2-rc.5", "--profile", "cloud-wsl", "web", "--no-open", "--host", "127.0.0.1", "--port", "3080") `
-            -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          $home = Join-Path $env:GITHUB_WORKSPACE "cloud-desktop-home"
+          $env:DSH_HOME = $home
+          Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
+
+          $process = Start-Process -FilePath "$env:DESKTOP_EXE" `
+            -ArgumentList @("--profile", "wsl", "--no-open", "--port", "3080", "--disable-gpu", "--no-sandbox") `
+            -PassThru -WindowStyle Hidden
 
           try {
             $ready = $false
             for ($attempt = 0; $attempt -lt 60; $attempt++) {
               if ($process.HasExited) {
-                throw "Harness Web UI exited before readiness (exit=$($process.ExitCode))"
+                throw "DeepSeek Harness desktop exited before readiness (exit=$($process.ExitCode))"
               }
               try {
                 $response = Invoke-WebRequest -Uri "http://127.0.0.1:3080/" -UseBasicParsing -TimeoutSec 2
@@ -86,20 +128,16 @@ jobs:
               } catch {}
               Start-Sleep -Seconds 2
             }
-            if (-not $ready) {
-              throw "Harness Web UI did not become ready"
-            }
+            if (-not $ready) { throw "DeepSeek Harness desktop did not become ready" }
           } finally {
-            if (-not $process.HasExited) {
-              Stop-Process -Id $process.Id -Force
-            }
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
           }
 
-      - name: Exercise bwrap workspace fence
+      - name: Exercise WSL bwrap fence
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $workspace = wsl.exe -d Ubuntu-24.04 --exec wslpath -u "${{ github.workspace }}"
+          $workspace = wsl.exe -d Ubuntu-24.04 --exec wslpath -u "${{ github.workspace }}\plugin"
           if ($LASTEXITCODE -ne 0) { throw "workspace translation failed: exit=$LASTEXITCODE" }
           $workspace = $workspace.TrimEnd("`r", "`n")
           $script = @(
@@ -117,13 +155,10 @@ jobs:
           & wsl.exe -d Ubuntu-24.04 --exec bash -lc "echo '$encoded' | base64 -d | bash"
           if ($LASTEXITCODE -ne 0) { throw "bwrap workspace fence failed" }
 
-      - name: Upload gate evidence
+      - name: Upload desktop gate evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: cloud-wsl-gate-${{ github.run_id }}
-          path: |
-            cloud-wsl-profile.txt
-            cloud-wsl-web.stdout.txt
-            cloud-wsl-web.stderr.txt
+          name: cloud-desktop-wsl-gate-${{ github.run_id }}
+          path: cloud-desktop-profile.txt
           if-no-files-found: ignore

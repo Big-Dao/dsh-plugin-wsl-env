@@ -19,9 +19,9 @@ const workflow = readFileSync(
 assert.match(workflow, /runs-on:\s*windows-latest/);
 assert.match(workflow, /wsl\.exe --install -d Ubuntu-24\.04/);
 assert.match(workflow, /resources\\app\.asar/);
-assert.match(workflow, /@deepseek-ai\\dsh-desktop-host\\lib\\cli\.js/);
-assert.match(workflow, /Test-Path \$appAsar/);
-assert.doesNotMatch(workflow, /Test-Path \$cli/);
+assert.match(workflow, /resources\\runtime\\cli\\bin\\dsh\.cmd/);
+assert.match(workflow, /Test-Path \$dshCommand/);
+assert.doesNotMatch(workflow, /--expose-internals \$env:DESKTOP_CLI/);
 assert.match(workflow, /\$dshHome = Join-Path/);
 assert.doesNotMatch(workflow, /\$home = Join-Path/);
 assert.match(workflow, /dsh-plugin-wsl-env/);

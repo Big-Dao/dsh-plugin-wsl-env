@@ -71,8 +71,9 @@ jobs:
           "DESKTOP_EXE=$($exe.FullName)" >> $env:GITHUB_ENV
           $appAsar = Join-Path $exe.DirectoryName "resources\app.asar"
           if (-not (Test-Path $appAsar)) { throw "desktop app.asar was not produced: $appAsar" }
-          $cli = Join-Path $exe.DirectoryName "resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js"
-          "DESKTOP_CLI=$cli" >> $env:GITHUB_ENV
+          $dshCommand = Join-Path $exe.DirectoryName "resources\runtime\cli\bin\dsh.cmd"
+          if (-not (Test-Path $dshCommand)) { throw "desktop bundled dsh command was not produced: $dshCommand" }
+          "DESKTOP_DSH=$dshCommand" >> $env:GITHUB_ENV
 
       - name: Install Ubuntu 24.04 and bwrap
         shell: pwsh
@@ -94,17 +95,16 @@ jobs:
           $dshHome = Join-Path $env:GITHUB_WORKSPACE "cloud-desktop-home"
           New-Item -ItemType Directory -Force -Path $dshHome | Out-Null
           $env:DSH_HOME = $dshHome
-          $env:ELECTRON_RUN_AS_NODE = "1"
-          $env:WSLENV = "DSH_HOME:ELECTRON_RUN_AS_NODE"
+          $env:WSLENV = "DSH_HOME"
 
-          & "$env:DESKTOP_EXE" --expose-internals "$env:DESKTOP_CLI" wsl --from-default-profile web --dump-config
+          & "$env:DESKTOP_DSH" wsl --from-default-profile web --dump-config
           if ($LASTEXITCODE -ne 0) { throw "wsl profile initialization failed" }
 
           $plugin = (Resolve-Path "${{ github.workspace }}\plugin").Path
-          & "$env:DESKTOP_EXE" --expose-internals "$env:DESKTOP_CLI" plugin --profile wsl add "link:$plugin"
+          & "$env:DESKTOP_DSH" plugin --profile wsl add "link:$plugin"
           if ($LASTEXITCODE -ne 0) { throw "desktop plugin installation failed" }
 
-          $dump = & "$env:DESKTOP_EXE" --expose-internals "$env:DESKTOP_CLI" --profile wsl --dump-config
+          $dump = & "$env:DESKTOP_DSH" --profile wsl --dump-config
           if ($LASTEXITCODE -ne 0) { throw "desktop composed profile dump failed" }
           $dumpText = $dump -join "`n"
           Set-Content -Path "${{ github.workspace }}\cloud-desktop-profile.txt" -Value $dumpText

@@ -30,13 +30,13 @@ jobs:
           path: harness
           persist-credentials: false
 
-      - run: corepack enable pnpm
-
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24"
+          node-version: "24.9.0"
           cache: "pnpm"
           cache-dependency-path: harness/pnpm-lock.yaml
+
+      - run: corepack enable pnpm
 
       - name: Prepare upstream Harness toolchain
         working-directory: harness
@@ -51,6 +51,21 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          node --version
+          if ((node --version) -notmatch '^v24\.') { throw "Desktop build requires Node 24.9 or newer" }
+
+          $releaseId = [guid]::NewGuid().ToString("N")
+          $envFile = @"
+          DSH_DESKTOP_APP_ID=com.deepseek.dsh
+          DSH_DESKTOP_AUTO_UPDATE_ENV=test
+          DOWNLOAD_TEST_ORIGIN=https://downloads.example.invalid/
+          DOWNLOAD_TEST_RELEASE_ID=$releaseId
+          DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN=https://updates.example.invalid/
+          DSH_DESKTOP_MANDATORY_UPDATE_PROD_ORIGIN=
+          DSH_DESKTOP_MANDATORY_UPDATE_CONFIG='{"allowedAuthOrigins":["https://login.example.invalid"]}'
+          DSH_DESKTOP_WINDOWS_COMPRESSION_LEVEL=3
+          "@
+          Set-Content -LiteralPath "apps/desktop/.env.windows" -Value $envFile -Encoding utf8
           pnpm run package:desktop:win:x64:dir -- --unsigned --build-version 0.2.2-rc.5
           $exe = Get-ChildItem -Path "apps/desktop/.desktop-build/targets/win-x64" -Recurse -Filter "DeepSeek Harness.exe" |
             Select-Object -First 1

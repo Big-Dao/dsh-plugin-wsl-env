@@ -69,8 +69,9 @@ jobs:
             Select-Object -First 1
           if ($null -eq $exe) { throw "unsigned Windows Desktop executable was not produced" }
           "DESKTOP_EXE=$($exe.FullName)" >> $env:GITHUB_ENV
+          $appAsar = Join-Path $exe.DirectoryName "resources\app.asar"
+          if (-not (Test-Path $appAsar)) { throw "desktop app.asar was not produced: $appAsar" }
           $cli = Join-Path $exe.DirectoryName "resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js"
-          if (-not (Test-Path $cli)) { throw "desktop bundled CLI was not produced: $cli" }
           "DESKTOP_CLI=$cli" >> $env:GITHUB_ENV
 
       - name: Install Ubuntu 24.04 and bwrap

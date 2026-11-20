@@ -124,20 +124,26 @@ jobs:
           Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
 
           $process = Start-Process -FilePath "$env:DESKTOP_EXE" `
-            -ArgumentList @("--profile", "wsl", "--no-open", "--host", "127.0.0.1", "--port", "3080", "--disable-gpu", "--no-sandbox") `
+            -ArgumentList @("--profile", "wsl", "--no-open", "--host", "127.0.0.1", "--disable-gpu", "--no-sandbox") `
             -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput "${{ github.workspace }}\cloud-desktop.stdout.log" `
             -RedirectStandardError "${{ github.workspace }}\cloud-desktop.stderr.log"
 
           try {
             $ready = $false
+            $webUrl = $null
             for ($attempt = 0; $attempt -lt 90; $attempt++) {
               if ($process.HasExited) {
                 throw "DeepSeek Harness desktop exited before readiness (exit=$($process.ExitCode))"
               }
+              if (Test-Path "${{ github.workspace }}\cloud-desktop.stdout.log") {
+                $stdout = Get-Content "${{ github.workspace }}\cloud-desktop.stdout.log" -Raw -ErrorAction SilentlyContinue
+                if ($stdout -match "dsh web:\s+(https?://[^\s]+)") {
+                  $webUrl = $Matches[1]
+                }
+              }
               try {
-                $response = Invoke-WebRequest -Uri "http://127.0.0.1:3080/" -UseBasicParsing -TimeoutSec 2
-                if ($response.StatusCode -eq 200) {
+                if ($webUrl -and (Invoke-WebRequest -Uri $webUrl -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200) {
                   $ready = $true
                   break
                 }
@@ -145,9 +151,7 @@ jobs:
               Start-Sleep -Seconds 2
             }
             if (-not $ready) {
-              $listeners = Get-NetTCPConnection -LocalPort 3080 -State Listen -ErrorAction SilentlyContinue
-              $listenerText = if ($listeners) { $listeners | Format-Table -AutoSize | Out-String } else { "none" }
-              throw "DeepSeek Harness desktop did not become ready; listeners: $listenerText"
+              throw "DeepSeek Harness desktop did not become ready; webUrl: $webUrl"
             }
           } finally {
             if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }

@@ -44,5 +44,6 @@ assert.match(workflow, /pnpm install --frozen-lockfile/);
 assert.match(workflow, /loginctl enable-linger root/);
 assert.match(workflow, /Join-Path \$env:USERPROFILE "\.dsh"/);
 assert.match(workflow, /dsh-hosted-plugin/);
+assert.match(workflow, /distro: 'Ubuntu-24\.04'/);
 assert.match(workflow, /cloud-probe-full\.log/);
 assert.match(workflow, /cloud-probe-results\.txt/);

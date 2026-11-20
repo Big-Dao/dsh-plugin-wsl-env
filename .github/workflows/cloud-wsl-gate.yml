@@ -164,6 +164,10 @@ jobs:
           $probeProfile = Join-Path $defaultDshHome "profiles\wslfs"
           Copy-Item (Join-Path $source "test\probe\wslfs-profile.patch.yml") `
             (Join-Path $probeProfile "cordis.patch.yml")
+          $probePatch = Join-Path $probeProfile "cordis.patch.yml"
+          $probePatchText = Get-Content $probePatch -Raw
+          $probePatchText = $probePatchText.Replace("distro: ''", "distro: 'Ubuntu-24.04'")
+          Set-Content -LiteralPath $probePatch -Value $probePatchText -Encoding utf8
 
           "PROBE_MIRROR=$mirror" >> $env:GITHUB_ENV
           "PROBE_PROFILE=$probeProfile" >> $env:GITHUB_ENV
@@ -272,6 +276,7 @@ jobs:
             "mkdir -p `"`$DSH_HOSTED_REPO`"",
             "tar -C '$workspace' --exclude=./.git --exclude=./test/probe/.scratch -cf - . | tar -C `"`$DSH_HOSTED_REPO`" -xf -",
             "cd `"`$DSH_HOSTED_REPO`"",
+            "wsl.exe -d Ubuntu-24.04 --exec true",
             "set +e",
             "bash test/probe/run-all-when-closed.sh --include-fs",
             "status=`$?",

@@ -278,6 +278,8 @@ jobs:
             "set -e",
             "mkdir -p '$workspace/test/probe/.scratch'",
             "cp -a test/probe/.scratch/full-probe.*.log test/probe/.scratch/full-probe.*.results '$workspace/test/probe/.scratch/' 2>/dev/null || true",
+            "for f in test/probe/.scratch/full-probe.*.log; do cp \"`$f\" '$workspace/cloud-probe-full.log'; done",
+            "for f in test/probe/.scratch/full-probe.*.results; do cp \"`$f\" '$workspace/cloud-probe-results.txt'; done",
             "exit `"`$status`""
           ) -join "`n"
           $bytes = [System.Text.Encoding]::UTF8.GetBytes($script)
@@ -298,3 +300,5 @@ jobs:
             plugin/test/probe/.scratch/full-probe.*.log
             plugin/test/probe/.scratch/full-probe.*.results
             plugin/test/probe/*-report.txt
+            plugin/cloud-probe-full.log
+            plugin/cloud-probe-results.txt

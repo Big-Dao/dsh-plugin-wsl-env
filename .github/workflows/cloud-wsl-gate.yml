@@ -1,0 +1,81 @@
+name: Cloud WSL Gate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-wsl-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  wsl-sandbox:
+    name: Ubuntu 24.04 WSL and bwrap
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Ubuntu 24.04
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          & wsl.exe --install -d Ubuntu-24.04 --no-launch --web-download
+          if ($LASTEXITCODE -ne 0) { throw "Ubuntu install failed: exit=$LASTEXITCODE" }
+          & wsl.exe --set-default Ubuntu-24.04
+          if ($LASTEXITCODE -ne 0) { throw "default distro selection failed: exit=$LASTEXITCODE" }
+
+      - name: Install probe packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get update
+          if ($LASTEXITCODE -ne 0) { throw "apt-get update failed: exit=$LASTEXITCODE" }
+          & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get install -y --no-install-recommends bubblewrap nodejs npm git ca-certificates curl
+          if ($LASTEXITCODE -ne 0) { throw "probe package install failed: exit=$LASTEXITCODE" }
+
+      - name: Run cloud WSL gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $workspace = wsl.exe -d Ubuntu-24.04 --exec wslpath -u "${{ github.workspace }}"
+          if ($LASTEXITCODE -ne 0) { throw "workspace translation failed: exit=$LASTEXITCODE" }
+          $workspace = $workspace.TrimEnd("`r", "`n")
+          if ($workspace.Length -eq 0) { throw "workspace translation returned an empty path" }
+
+          $script = @(
+            "set -eu",
+            'test -n "$(node --version)"',
+            'test -n "$(bwrap --version)"',
+            'test -n "$(git --version)"',
+            "cd '$workspace'",
+            'node --input-type=module -e ''import("./lib/paths.js").then(({ toLinuxPath }) => { if (typeof toLinuxPath("C:\\\\Windows") !== "string") process.exit(1) })''',
+            "mkdir -p .cloud-wsl-gate",
+            "printf pass > .cloud-wsl-gate/inside.txt",
+            "bwrap --ro-bind / / --dev /dev --proc /proc --die-with-parent --bind '$workspace' '$workspace' -- sh -c 'printf pass > $workspace/.cloud-wsl-gate/bwrap.txt'",
+            'test "$(cat "$workspace/.cloud-wsl-gate/inside.txt")" = pass',
+            'test "$(cat "$workspace/.cloud-wsl-gate/bwrap.txt")" = pass',
+            "if bwrap --ro-bind / / --dev /dev --proc /proc --die-with-parent --bind '$workspace' '$workspace' -- sh -c 'echo denied > /tmp/cloud-wsl-gate-denied.txt' 2>/tmp/cloud-wsl-gate.err; then",
+            "  echo 'sandbox unexpectedly allowed /tmp write' >&2",
+            "  exit 1",
+            "fi",
+            "test -f /tmp/cloud-wsl-gate-denied.txt && exit 1 || true",
+            "rm -rf '$workspace/.cloud-wsl-gate'"
+          ) -join "`n"
+          $bytes = [System.Text.Encoding]::UTF8.GetBytes($script)
+          $encoded = [Convert]::ToBase64String($bytes)
+          & wsl.exe -d Ubuntu-24.04 --exec bash -lc "echo '$encoded' | base64 -d | bash"
+          if ($LASTEXITCODE -ne 0) { throw "cloud WSL gate failed: exit=$LASTEXITCODE" }
+
+      - name: Summarize environment
+        if: always()
+        shell: pwsh
+        run: |
+          & wsl.exe --list --verbose
+          & wsl.exe -d Ubuntu-24.04 --exec bash -lc 'printf "node="; node --version; printf "git="; git --version; printf "bwrap="; bwrap --version'

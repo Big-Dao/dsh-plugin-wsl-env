@@ -40,3 +40,5 @@ assert.match(workflow, /run-all-when-closed\.sh --include-fs/);
 assert.match(workflow, /plugin\/test\/probe\/\.scratch\/full-probe\.\*\.log/);
 assert.match(workflow, /plugin\/test\/probe\/\.scratch\/full-probe\.\*\.results/);
 assert.match(workflow, /include-hidden-files:\s*true/);
+assert.match(workflow, /pnpm install --frozen-lockfile/);
+assert.match(workflow, /loginctl enable-linger root/);

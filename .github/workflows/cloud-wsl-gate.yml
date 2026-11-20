@@ -91,6 +91,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "apt-get update failed: exit=$LASTEXITCODE" }
           & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get install -y --no-install-recommends bubblewrap git ca-certificates curl build-essential unzip
           if ($LASTEXITCODE -ne 0) { throw "bwrap package install failed: exit=$LASTEXITCODE" }
+          & wsl.exe -d Ubuntu-24.04 -u root --exec loginctl enable-linger root
+          if ($LASTEXITCODE -ne 0) { throw "Ubuntu linger setup failed: exit=$LASTEXITCODE" }
 
           $secondDistro = "Ubuntu-24.04-probe"
           $secondRoot = Join-Path $env:GITHUB_WORKSPACE "cloud-probe-distro"
@@ -102,6 +104,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "second Ubuntu distro import failed: exit=$LASTEXITCODE" }
           & wsl.exe -d $secondDistro --exec true
           if ($LASTEXITCODE -ne 0) { throw "second Ubuntu distro verification failed: exit=$LASTEXITCODE" }
+          & wsl.exe -d $secondDistro -u root --exec loginctl enable-linger root
+          if ($LASTEXITCODE -ne 0) { throw "second Ubuntu linger setup failed: exit=$LASTEXITCODE" }
 
       - name: Install and compose local WSL plugin
         shell: pwsh
@@ -134,6 +138,15 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          corepack prepare pnpm@11.28.5 --activate
+          Push-Location "${{ github.workspace }}\plugin"
+          try {
+            pnpm install --frozen-lockfile --config.minimum-release-age=0
+            if ($LASTEXITCODE -ne 0) { throw "plugin dependencies failed: exit=$LASTEXITCODE" }
+          } finally {
+            Pop-Location
+          }
+
           $dshHome = Join-Path $env:GITHUB_WORKSPACE "cloud-desktop-home"
           $mirror = Join-Path $env:GITHUB_WORKSPACE "cloud-windows-mirror"
           $source = (Resolve-Path "${{ github.workspace }}\plugin").Path
@@ -242,6 +255,7 @@ jobs:
           $appDirLinux = wsl.exe -d Ubuntu-24.04 --exec wslpath -u "$appDir"
           if ($LASTEXITCODE -ne 0) { throw "Desktop app directory translation failed: exit=$LASTEXITCODE" }
           $appDirLinux = $appDirLinux.TrimEnd("`r", "`n")
+          $cliPath = Join-Path $appDir "resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js"
 
           $script = @(
             "set -euo pipefail",
@@ -252,7 +266,7 @@ jobs:
             "export DSH_WSL_ENV_PROFILE='$profile'",
             "export DSH_WSL_ENV_RUNTIME_COPY='$mirror'",
             "export DSH_WSL_ENV_APP='$appDirLinux'",
-            "export DSH_WSL_ENV_CLI='$env:DESKTOP_DSH'",
+            "export DSH_WSL_ENV_CLI='$cliPath'",
             "export DSH_WSL_ENV_WORKSPACE_LINUX='$workspace'",
             "export WSLENV=`"`${WSLENV:+`$WSLENV:}ELECTRON_RUN_AS_NODE:DSH_WSL_ENV_PROFILE:DSH_WSL_ENV_APP:DSH_WSL_ENV_CLI:DSH_WSL_ENV_RUNTIME_COPY:DSH_WSL_ENV_DISTRO:DSH_WSL_ENV_WORKSPACE_LINUX`"",
             "cd '$workspace'",

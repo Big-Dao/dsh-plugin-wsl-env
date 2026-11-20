@@ -95,7 +95,7 @@ mapfile -t RO < <(build_profile read-only /)
 mapfile -t WW < <(build_profile workspace-write "$WS")
 mapfile -t MASKED < <(build_profile workspace-write "$WS" mask)
 
-OUTSIDE="/home/$USER/dsh-sandbox-probe-outside.txt"
+OUTSIDE="$HOME/dsh-sandbox-probe-outside.txt"
 SCRATCH="$WS/.sandbox-probe"
 passed=0
 failed=0

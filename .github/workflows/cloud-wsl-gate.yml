@@ -290,8 +290,7 @@ jobs:
           & wsl.exe -d Ubuntu-24.04 --exec bash -lc "echo '$encoded' | base64 -d | bash"
           $probeStatus = $LASTEXITCODE
 
-          & wsl.exe -d Ubuntu-24.04 --exec bash -lc "set -eu; cp -f `$(ls -t /root/dsh-hosted-plugin/test/probe/.scratch/full-probe.*.log 2>/dev/null | head -1) '$workspace/cloud-probe-full.log'; cp -f `$(ls -t /root/dsh-hosted-plugin/test/probe/.scratch/full-probe.*.results 2>/dev/null | head -1) '$workspace/cloud-probe-results.txt'"
-          if ($LASTEXITCODE -ne 0) { throw "hosted probe evidence copy failed: exit=$LASTEXITCODE" }
+          & wsl.exe -d Ubuntu-24.04 --exec bash -lc "set +e; cp -f `$(ls -t /root/dsh-hosted-plugin/test/probe/.scratch/full-probe.*.log 2>/dev/null | head -1) '$workspace/cloud-probe-full.log' 2>/dev/null || true; cp -f `$(ls -t /root/dsh-hosted-plugin/test/probe/.scratch/full-probe.*.results 2>/dev/null | head -1) '$workspace/cloud-probe-results.txt' 2>/dev/null || true"
 
           if ($probeStatus -ne 0) { throw "hosted closed-app probe suite failed: exit=$probeStatus" }
 

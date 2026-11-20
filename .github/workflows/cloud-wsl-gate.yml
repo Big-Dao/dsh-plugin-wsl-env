@@ -16,7 +16,7 @@ jobs:
   desktop-plugin:
     name: Windows Desktop Harness and WSL plugin
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -92,12 +92,16 @@ jobs:
           & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get install -y --no-install-recommends bubblewrap git ca-certificates curl build-essential unzip
           if ($LASTEXITCODE -ne 0) { throw "bwrap package install failed: exit=$LASTEXITCODE" }
 
-          & wsl.exe --install -d Debian --no-launch --web-download
-          if ($LASTEXITCODE -ne 0) { throw "Debian install failed: exit=$LASTEXITCODE" }
-          & wsl.exe -d Debian -u root --exec apt-get update
-          if ($LASTEXITCODE -ne 0) { throw "Debian apt update failed: exit=$LASTEXITCODE" }
-          & wsl.exe -d Debian -u root --exec apt-get install -y --no-install-recommends git ca-certificates curl
-          if ($LASTEXITCODE -ne 0) { throw "Debian package install failed: exit=$LASTEXITCODE" }
+          $secondDistro = "Ubuntu-24.04-probe"
+          $secondRoot = Join-Path $env:GITHUB_WORKSPACE "cloud-probe-distro"
+          New-Item -ItemType Directory -Force -Path $secondRoot | Out-Null
+          $tar = Join-Path $secondRoot "ubuntu-24.04.tar"
+          & wsl.exe --export Ubuntu-24.04 $tar
+          if ($LASTEXITCODE -ne 0) { throw "Ubuntu 24.04 export failed: exit=$LASTEXITCODE" }
+          & wsl.exe --import $secondDistro $secondRoot $tar --version 2
+          if ($LASTEXITCODE -ne 0) { throw "second Ubuntu distro import failed: exit=$LASTEXITCODE" }
+          & wsl.exe -d $secondDistro --exec true
+          if ($LASTEXITCODE -ne 0) { throw "second Ubuntu distro verification failed: exit=$LASTEXITCODE" }
 
       - name: Install and compose local WSL plugin
         shell: pwsh

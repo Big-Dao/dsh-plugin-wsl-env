@@ -58,7 +58,7 @@
   代理协作规则。
 - [.github/workflows/cloud-wsl-gate.yml](../.github/workflows/cloud-wsl-gate.yml)
   记录托管 Windows Desktop + WSL 的端到端基线：upstream tag 构建的 unsigned
-  Desktop、Ubuntu/Debian、Node/systemd/bubblewrap、当前检出的插件、桌面
+  Desktop、Ubuntu/第二 Ubuntu 实例、Node/systemd/bubblewrap、当前检出的插件、桌面
   bundled CLI、组合配置、Desktop/Web 就绪、工作区围栏与退出应用后的闭合
   probe suite。
 - [发布流程](RELEASING.md) 定义版本、tag、发布和核验步骤；

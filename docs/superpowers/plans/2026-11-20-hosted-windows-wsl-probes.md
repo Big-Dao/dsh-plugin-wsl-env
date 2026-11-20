@@ -6,7 +6,7 @@
 
 **Architecture:** Keep all platform setup and evidence collection in `.github/workflows/cloud-wsl-gate.yml`; add static workflow assertions in `test/cloud-wsl-gate.test.mjs`; invoke the existing `run-all-when-closed.sh --include-fs` runner only after the Desktop process is stopped.
 
-**Tech Stack:** GitHub Actions, PowerShell, Bash, WSL, Ubuntu 24.04, Debian, Node 24, bubblewrap, existing DSH probe scripts.
+**Tech Stack:** GitHub Actions, PowerShell, Bash, WSL, Ubuntu 24.04, a second Ubuntu WSL instance, Node 24, bubblewrap, existing DSH probe scripts.
 
 ## Global Constraints
 
@@ -35,7 +35,8 @@ Append checks that require all of these workflow facts:
 
 ```js
 assert.match(workflow, /wslfs-profile\.patch\.yml/);
-assert.match(workflow, /Debian/);
+assert.match(workflow, /wsl\.exe --export Ubuntu-24\.04/);
+assert.match(workflow, /wsl\.exe --import \$secondDistro/);
 assert.match(workflow, /fnm install 24\.9\.0/);
 assert.match(workflow, /run-all-when-closed\.sh --include-fs/);
 assert.match(workflow, /test\/probe\/\.scratch\/full-probe\.\*\.log/);
@@ -69,7 +70,7 @@ git -c commit.gpgsign=false commit -m "test(ci): assert hosted probe suite gate"
 
 **Interfaces:**
 - Consumes: the Ubuntu 24.04 distro installed in the existing gate.
-- Produces: systemd-enabled Ubuntu and an installed Debian distro available for `two-distro.sh`.
+- Produces: systemd-enabled Ubuntu and an imported second Ubuntu instance available for `two-distro.sh`.
 
 - [ ] **Step 1: Configure Ubuntu systemd before package installation**
 
@@ -85,17 +86,21 @@ if ($LASTEXITCODE -ne 0) { throw "WSL shutdown failed before probe setup: exit=$
 & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get install -y --no-install-recommends bubblewrap git ca-certificates curl build-essential
 ```
 
-- [ ] **Step 2: Install Debian 12 as the second probe distro**
+- [ ] **Step 2: Export and import Ubuntu 24.04 as the second probe distro**
 
 Use a separate step or the same installation step:
 
 ```pwsh
-& wsl.exe --install -d Debian --no-launch --web-download
-if ($LASTEXITCODE -ne 0) { throw "Debian install failed: exit=$LASTEXITCODE" }
-& wsl.exe -d Debian -u root --exec apt-get update
-if ($LASTEXITCODE -ne 0) { throw "Debian apt update failed: exit=$LASTEXITCODE" }
-& wsl.exe -d Debian -u root --exec apt-get install -y --no-install-recommends git ca-certificates curl
-if ($LASTEXITCODE -ne 0) { throw "Debian package install failed: exit=$LASTEXITCODE" }
+$secondDistro = "Ubuntu-24.04-probe"
+$secondRoot = Join-Path $env:GITHUB_WORKSPACE "cloud-probe-distro"
+New-Item -ItemType Directory -Force -Path $secondRoot | Out-Null
+$tar = Join-Path $secondRoot "ubuntu-24.04.tar"
+& wsl.exe --export Ubuntu-24.04 $tar
+if ($LASTEXITCODE -ne 0) { throw "Ubuntu 24.04 export failed: exit=$LASTEXITCODE" }
+& wsl.exe --import $secondDistro $secondRoot $tar --version 2
+if ($LASTEXITCODE -ne 0) { throw "second Ubuntu distro import failed: exit=$LASTEXITCODE" }
+& wsl.exe -d $secondDistro --exec true
+if ($LASTEXITCODE -ne 0) { throw "second Ubuntu distro verification failed: exit=$LASTEXITCODE" }
 ```
 
 - [ ] **Step 3: Run static workflow assertions**
@@ -106,7 +111,7 @@ Run:
 node --test test/cloud-wsl-gate.test.mjs
 ```
 
-Expected: PASS only after the static assertions for Debian and probe setup are implemented in the workflow.
+Expected: PASS only after the static assertions for the second Ubuntu distro and probe setup are implemented in the workflow.
 
 - [ ] **Step 4: Commit environment preparation**
 

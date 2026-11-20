@@ -236,7 +236,7 @@ the desktop app's bundled CLI to create a `wsl` profile, installs the local
 checkout into that profile, verifies the composed dump contains
 `dsh-plugin-wsl-env`, launches the desktop app's configured Web service and waits
 for HTTP readiness, verifies the in-distro bwrap workspace fence, prepares a
-`wslfs` probe profile plus Ubuntu/Debian Node and systemd prerequisites, stops
+`wslfs` probe profile plus a second Ubuntu instance and Node/systemd prerequisites, stops
 the Desktop process, and runs
 `test/probe/run-all-when-closed.sh --include-fs`. The suite is green only when
 every selected probe reports PASS and there are no SKIP or NOT RUN entries.

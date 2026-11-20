@@ -69,7 +69,8 @@ profile:
 4. Copy `test/probe/wslfs-profile.patch.yml` into the profile.
 5. Export the probe path facts required by `test/probe/env.sh`.
 6. Install Node, bubblewrap and systemd/user-manager prerequisites in Ubuntu.
-7. Install Debian or another second distro for the two-distro probe.
+7. Export Ubuntu 24.04 and import a second `Ubuntu-24.04-probe` distro for the
+   two-distro probe.
 
 The probe phase must not use the production `wsl` profile. A leftover profile
 or GUI process must not be mistaken for a successful throwaway probe boot.

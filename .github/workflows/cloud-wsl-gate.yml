@@ -251,6 +251,9 @@ jobs:
           $profile = wsl.exe -d Ubuntu-24.04 --exec wslpath -u "$env:PROBE_PROFILE"
           if ($LASTEXITCODE -ne 0) { throw "probe profile translation failed: exit=$LASTEXITCODE" }
           $profile = $profile.TrimEnd("`r", "`n")
+          $dshHome = wsl.exe -d Ubuntu-24.04 --exec wslpath -u (Join-Path $env:GITHUB_WORKSPACE "cloud-desktop-home")
+          if ($LASTEXITCODE -ne 0) { throw "DSH_HOME translation failed: exit=$LASTEXITCODE" }
+          $dshHome = $dshHome.TrimEnd("`r", "`n")
           $appDir = Split-Path $env:DESKTOP_EXE -Parent
           $appDirLinux = wsl.exe -d Ubuntu-24.04 --exec wslpath -u "$appDir"
           if ($LASTEXITCODE -ne 0) { throw "Desktop app directory translation failed: exit=$LASTEXITCODE" }
@@ -263,12 +266,13 @@ jobs:
             "eval `"`$(`"`$FNM_DIR/fnm`" env --shell bash)`"",
             "`"`$FNM_DIR/fnm`" use 24.9.0 >/dev/null",
             "export DSH_WSL_ENV_DISTRO='Ubuntu-24.04'",
+            "export DSH_HOME='$dshHome'",
             "export DSH_WSL_ENV_PROFILE='$profile'",
             "export DSH_WSL_ENV_RUNTIME_COPY='$mirror'",
             "export DSH_WSL_ENV_APP='$appDirLinux'",
             "export DSH_WSL_ENV_CLI='$cliPath'",
             "export DSH_WSL_ENV_WORKSPACE_LINUX='$workspace'",
-            "export WSLENV=`"`${WSLENV:+`$WSLENV:}ELECTRON_RUN_AS_NODE:DSH_WSL_ENV_PROFILE:DSH_WSL_ENV_APP:DSH_WSL_ENV_CLI:DSH_WSL_ENV_RUNTIME_COPY:DSH_WSL_ENV_DISTRO:DSH_WSL_ENV_WORKSPACE_LINUX`"",
+            "export WSLENV=`"`${WSLENV:+`$WSLENV:}ELECTRON_RUN_AS_NODE:DSH_HOME/p:DSH_WSL_ENV_PROFILE:DSH_WSL_ENV_APP:DSH_WSL_ENV_CLI:DSH_WSL_ENV_RUNTIME_COPY:DSH_WSL_ENV_DISTRO:DSH_WSL_ENV_WORKSPACE_LINUX`"",
             "cd '$workspace'",
             "bash test/probe/run-all-when-closed.sh --include-fs"
           ) -join "`n"

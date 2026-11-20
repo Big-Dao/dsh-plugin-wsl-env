@@ -81,12 +81,23 @@ jobs:
           $ErrorActionPreference = "Stop"
           & wsl.exe --install -d Ubuntu-24.04 --no-launch --web-download
           if ($LASTEXITCODE -ne 0) { throw "Ubuntu install failed: exit=$LASTEXITCODE" }
+          & wsl.exe -d Ubuntu-24.04 -u root --exec bash -lc "printf '[boot]\nsystemd=true\n' > /etc/wsl.conf"
+          if ($LASTEXITCODE -ne 0) { throw "Ubuntu systemd configuration failed: exit=$LASTEXITCODE" }
+          & wsl.exe --shutdown
+          if ($LASTEXITCODE -ne 0) { throw "WSL shutdown failed before probe setup: exit=$LASTEXITCODE" }
           & wsl.exe --set-default Ubuntu-24.04
           if ($LASTEXITCODE -ne 0) { throw "default distro selection failed: exit=$LASTEXITCODE" }
           & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get update
           if ($LASTEXITCODE -ne 0) { throw "apt-get update failed: exit=$LASTEXITCODE" }
-          & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get install -y --no-install-recommends bubblewrap git ca-certificates curl
+          & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get install -y --no-install-recommends bubblewrap git ca-certificates curl build-essential
           if ($LASTEXITCODE -ne 0) { throw "bwrap package install failed: exit=$LASTEXITCODE" }
+
+          & wsl.exe --install -d Debian --no-launch --web-download
+          if ($LASTEXITCODE -ne 0) { throw "Debian install failed: exit=$LASTEXITCODE" }
+          & wsl.exe -d Debian -u root --exec apt-get update
+          if ($LASTEXITCODE -ne 0) { throw "Debian apt update failed: exit=$LASTEXITCODE" }
+          & wsl.exe -d Debian -u root --exec apt-get install -y --no-install-recommends git ca-certificates curl
+          if ($LASTEXITCODE -ne 0) { throw "Debian package install failed: exit=$LASTEXITCODE" }
 
       - name: Install and compose local WSL plugin
         shell: pwsh

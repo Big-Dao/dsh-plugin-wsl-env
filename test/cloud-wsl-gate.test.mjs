@@ -39,3 +39,4 @@ assert.match(workflow, /fnm.*install 24\.9\.0/);
 assert.match(workflow, /run-all-when-closed\.sh --include-fs/);
 assert.match(workflow, /plugin\/test\/probe\/\.scratch\/full-probe\.\*\.log/);
 assert.match(workflow, /plugin\/test\/probe\/\.scratch\/full-probe\.\*\.results/);
+assert.match(workflow, /include-hidden-files:\s*true/);

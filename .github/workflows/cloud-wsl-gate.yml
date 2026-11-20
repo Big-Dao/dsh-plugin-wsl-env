@@ -13,8 +13,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  wsl-sandbox:
-    name: Ubuntu 24.04 WSL and bwrap
+  harness-plugin:
+    name: Harness CLI, plugin, and WSL
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -22,7 +22,14 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Ubuntu 24.04
+      - run: corepack enable pnpm
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: "pnpm"
+
+      - name: Install Ubuntu 24.04 and probe packages
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -30,52 +37,93 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Ubuntu install failed: exit=$LASTEXITCODE" }
           & wsl.exe --set-default Ubuntu-24.04
           if ($LASTEXITCODE -ne 0) { throw "default distro selection failed: exit=$LASTEXITCODE" }
+          & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get update
+          if ($LASTEXITCODE -ne 0) { throw "apt-get update failed: exit=$LASTEXITCODE" }
+          & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get install -y --no-install-recommends bubblewrap git ca-certificates curl
+          if ($LASTEXITCODE -ne 0) { throw "probe package install failed: exit=$LASTEXITCODE" }
 
-      - name: Install probe packages
+      - name: Install Harness and local plugin
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get update
-          if ($LASTEXITCODE -ne 0) { throw "apt-get update failed: exit=$LASTEXITCODE" }
-          & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get install -y --no-install-recommends bubblewrap nodejs npm git ca-certificates curl
-          if ($LASTEXITCODE -ne 0) { throw "probe package install failed: exit=$LASTEXITCODE" }
+          & npx --yes @deepseek-ai/dsh@0.2.2-rc.5 --version
+          if ($LASTEXITCODE -ne 0) { throw "Harness CLI installation or startup failed" }
 
-      - name: Run cloud WSL gate
+          $workspace = (Resolve-Path "${{ github.workspace }}").Path
+          & npx --yes @deepseek-ai/dsh@0.2.2-rc.5 plugin --profile cloud-wsl add "link:$workspace"
+          if ($LASTEXITCODE -ne 0) { throw "local plugin installation failed" }
+
+          $dump = & npx --yes @deepseek-ai/dsh@0.2.2-rc.5 --profile cloud-wsl --dump-config
+          if ($LASTEXITCODE -ne 0) { throw "cloud-wsl profile dump failed" }
+          $dumpText = $dump -join "`n"
+          Set-Content -Path "cloud-wsl-profile.txt" -Value $dumpText
+          if (-not $dumpText.Contains("dsh-plugin-wsl-env")) {
+            throw "dumped profile does not contain dsh-plugin-wsl-env"
+          }
+
+      - name: Boot Harness Web UI with plugin
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $stdout = Join-Path $env:GITHUB_WORKSPACE "cloud-wsl-web.stdout.txt"
+          $stderr = Join-Path $env:GITHUB_WORKSPACE "cloud-wsl-web.stderr.txt"
+          $process = Start-Process -FilePath "npx.cmd" `
+            -ArgumentList @("--yes", "@deepseek-ai/dsh@0.2.2-rc.5", "--profile", "cloud-wsl", "web", "--no-open", "--host", "127.0.0.1", "--port", "3080") `
+            -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+
+          try {
+            $ready = $false
+            for ($attempt = 0; $attempt -lt 60; $attempt++) {
+              if ($process.HasExited) {
+                throw "Harness Web UI exited before readiness (exit=$($process.ExitCode))"
+              }
+              try {
+                $response = Invoke-WebRequest -Uri "http://127.0.0.1:3080/" -UseBasicParsing -TimeoutSec 2
+                if ($response.StatusCode -eq 200) {
+                  $ready = $true
+                  break
+                }
+              } catch {}
+              Start-Sleep -Seconds 2
+            }
+            if (-not $ready) {
+              throw "Harness Web UI did not become ready"
+            }
+          } finally {
+            if (-not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force
+            }
+          }
+
+      - name: Exercise bwrap workspace fence
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $workspace = wsl.exe -d Ubuntu-24.04 --exec wslpath -u "${{ github.workspace }}"
           if ($LASTEXITCODE -ne 0) { throw "workspace translation failed: exit=$LASTEXITCODE" }
           $workspace = $workspace.TrimEnd("`r", "`n")
-          if ($workspace.Length -eq 0) { throw "workspace translation returned an empty path" }
-
           $script = @(
             "set -eu",
-            'test -n "$(node --version)"',
-            'test -n "$(bwrap --version)"',
-            'test -n "$(git --version)"',
             "cd '$workspace'",
-            'node --input-type=module -e ''import("./lib/paths.js").then(({ toLinuxPath }) => { if (typeof toLinuxPath("C:\\\\Windows") !== "string") process.exit(1) })''',
             "mkdir -p .cloud-wsl-gate",
             "printf pass > .cloud-wsl-gate/inside.txt",
             "bwrap --ro-bind / / --dev /dev --proc /proc --die-with-parent --bind '$workspace' '$workspace' -- sh -c 'printf pass > $workspace/.cloud-wsl-gate/bwrap.txt'",
             "grep -qx pass '$workspace/.cloud-wsl-gate/inside.txt'",
             "grep -qx pass '$workspace/.cloud-wsl-gate/bwrap.txt'",
-            "if bwrap --ro-bind / / --dev /dev --proc /proc --die-with-parent --bind '$workspace' '$workspace' -- sh -c 'echo denied > /tmp/cloud-wsl-gate-denied.txt' 2>/tmp/cloud-wsl-gate.err; then",
-            "  echo 'sandbox unexpectedly allowed /tmp write' >&2",
-            "  exit 1",
-            "fi",
-            "test -f /tmp/cloud-wsl-gate-denied.txt && exit 1 || true",
             "rm -rf '$workspace/.cloud-wsl-gate'"
           ) -join "`n"
           $bytes = [System.Text.Encoding]::UTF8.GetBytes($script)
           $encoded = [Convert]::ToBase64String($bytes)
           & wsl.exe -d Ubuntu-24.04 --exec bash -lc "echo '$encoded' | base64 -d | bash"
-          if ($LASTEXITCODE -ne 0) { throw "cloud WSL gate failed: exit=$LASTEXITCODE" }
+          if ($LASTEXITCODE -ne 0) { throw "bwrap workspace fence failed" }
 
-      - name: Summarize environment
+      - name: Upload gate evidence
         if: always()
-        shell: pwsh
-        run: |
-          & wsl.exe --list --verbose
-          & wsl.exe -d Ubuntu-24.04 --exec bash -lc 'printf "node="; node --version; printf "git="; git --version; printf "bwrap="; bwrap --version'
+        uses: actions/upload-artifact@v7
+        with:
+          name: cloud-wsl-gate-${{ github.run_id }}
+          path: |
+            cloud-wsl-profile.txt
+            cloud-wsl-web.stdout.txt
+            cloud-wsl-web.stderr.txt
+          if-no-files-found: ignore

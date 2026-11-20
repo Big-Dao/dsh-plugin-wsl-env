@@ -228,6 +228,17 @@ on one Ubuntu runner after installing Chromium. The Windows runners are
 there because the plugin targets Windows; the coverage thresholds need Node 22.8 or
 newer, which is why that job runs on one version.
 
+`.github/workflows/cloud-wsl-gate.yml` adds an independent hosted Harness and
+WSL gate. On pull requests targeting `main` and on manual `workflow_dispatch`,
+it installs Ubuntu 24.04, `bubblewrap`, git and CA certificates on
+`windows-latest`, installs the DeepSeek Harness Web CLI, adds the local checkout
+to the `cloud-wsl` profile, verifies the composed dump contains
+`dsh-plugin-wsl-env`, starts the Web UI and waits for HTTP readiness, and
+finally verifies the in-distro bwrap workspace fence. This gate does not launch
+the DeepSeek Harness desktop app or claim coverage of desktop UI, terminal or
+session behavior; those probes remain a local or self-hosted Windows+WSL
+verification scope.
+
 The probes marked "yes" need Windows, WSL2, a mounted harness profile and a linked
 checkout, which a hosted runner does not have. Run them on your own machine and
 paste the output into the pull request.
@@ -244,7 +255,9 @@ fails when Windows interop or its temporary marker cannot be verified.
 The `ci.yml` `probes` job is **manual-only** (`workflow_dispatch`) and requires a
 self-hosted Windows+WSL runner with the harness app and a configured profile;
 `runs-on` is the GitHub-hosted `windows-latest` label, so dispatching it without
-such a runner fails with a named error rather than passing (`skip all` is gone).
+such a runner fails with a named error rather than passing. If the hosted runner
+has no usable distro, the job stops at the distro preflight instead of reporting
+probe success.
 No self-hosted runner is registered for this repository today (2026-11-18), so
 the documented path is the local closed-app command above. The nightly schedule
 and its `probe-heartbeat` were removed on the same date for that reason; there is

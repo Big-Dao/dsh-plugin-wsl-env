@@ -268,8 +268,17 @@ jobs:
             "export DSH_WSL_ENV_CLI='$cliPath'",
             "export DSH_WSL_ENV_WORKSPACE_LINUX='$workspace'",
             "export WSLENV=`"`${WSLENV:+`$WSLENV:}ELECTRON_RUN_AS_NODE:DSH_WSL_ENV_PROFILE:DSH_WSL_ENV_APP:DSH_WSL_ENV_CLI:DSH_WSL_ENV_RUNTIME_COPY:DSH_WSL_ENV_DISTRO:DSH_WSL_ENV_WORKSPACE_LINUX`"",
-            "cd '$workspace'",
-            "bash test/probe/run-all-when-closed.sh --include-fs"
+            "export DSH_HOSTED_REPO=`"`$HOME/dsh-hosted-plugin`"",
+            "mkdir -p `"`$DSH_HOSTED_REPO`"",
+            "tar -C '$workspace' --exclude=./.git --exclude=./test/probe/.scratch -cf - . | tar -C `"`$DSH_HOSTED_REPO`" -xf -",
+            "cd `"`$DSH_HOSTED_REPO`"",
+            "set +e",
+            "bash test/probe/run-all-when-closed.sh --include-fs",
+            "status=`$?",
+            "set -e",
+            "mkdir -p '$workspace/test/probe/.scratch'",
+            "cp -a test/probe/.scratch/full-probe.*.log test/probe/.scratch/full-probe.*.results '$workspace/test/probe/.scratch/' 2>/dev/null || true",
+            "exit `"`$status`""
           ) -join "`n"
           $bytes = [System.Text.Encoding]::UTF8.GetBytes($script)
           $encoded = [Convert]::ToBase64String($bytes)

@@ -285,16 +285,7 @@ jobs:
           & wsl.exe -d Ubuntu-24.04 --exec bash -lc "echo '$encoded' | base64 -d | bash"
           $probeStatus = $LASTEXITCODE
 
-          $evidenceScript = @(
-            "set -eu",
-            "log=`$(ls -t /root/dsh-hosted-plugin/test/probe/.scratch/full-probe.*.log 2>/dev/null | head -1)",
-            "[ -n \"`$log\" ] && cp -f \"`$log\" '$workspace/cloud-probe-full.log'",
-            "results=`$(ls -t /root/dsh-hosted-plugin/test/probe/.scratch/full-probe.*.results 2>/dev/null | head -1)",
-            "[ -n \"`$results\" ] && cp -f \"`$results\" '$workspace/cloud-probe-results.txt'"
-          ) -join "`n"
-          $evidenceBytes = [System.Text.Encoding]::UTF8.GetBytes($evidenceScript)
-          $evidenceEncoded = [Convert]::ToBase64String($evidenceBytes)
-          & wsl.exe -d Ubuntu-24.04 --exec bash -lc "echo '$evidenceEncoded' | base64 -d | bash"
+          & wsl.exe -d Ubuntu-24.04 --exec bash -lc "set -eu; cp -f `$(ls -t /root/dsh-hosted-plugin/test/probe/.scratch/full-probe.*.log 2>/dev/null | head -1) '$workspace/cloud-probe-full.log'; cp -f `$(ls -t /root/dsh-hosted-plugin/test/probe/.scratch/full-probe.*.results 2>/dev/null | head -1) '$workspace/cloud-probe-results.txt'"
           if ($LASTEXITCODE -ne 0) { throw "hosted probe evidence copy failed: exit=$LASTEXITCODE" }
 
           if ($probeStatus -ne 0) { throw "hosted closed-app probe suite failed: exit=$probeStatus" }

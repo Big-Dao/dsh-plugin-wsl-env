@@ -1,4 +1,4 @@
-name: Cloud WSL Gate
+name: Cloud Desktop WSL Gate
 
 on:
   workflow_dispatch:
@@ -9,73 +9,303 @@ permissions:
   contents: read
 
 concurrency:
-  group: cloud-wsl-${{ github.ref }}
+  group: cloud-desktop-wsl-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  wsl-sandbox:
-    name: Ubuntu 24.04 WSL and bwrap
+  desktop-plugin:
+    name: Windows Desktop Harness and WSL plugin
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          path: plugin
 
-      - name: Install Ubuntu 24.04
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: deepseek-ai/deepseek-harness
+          ref: dsh-v0.2.2-rc.5
+          path: harness
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.9.0"
+
+      - run: corepack enable pnpm
+
+      - name: Prepare upstream Harness toolchain
+        working-directory: harness
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          corepack prepare pnpm@11.28.5 --activate
+          pnpm install --frozen-lockfile --config.minimum-release-age=0
+
+      - name: Build unsigned Windows Desktop
+        working-directory: harness
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          node --version
+          if ((node --version) -notmatch '^v24\.') { throw "Desktop build requires Node 24.9 or newer" }
+
+          $releaseId = [guid]::NewGuid().ToString("N")
+          $envFile = @"
+          DSH_DESKTOP_APP_ID=com.deepseek.dsh
+          DSH_DESKTOP_AUTO_UPDATE_ENV=test
+          DOWNLOAD_TEST_ORIGIN=https://downloads.example.invalid/
+          DOWNLOAD_TEST_RELEASE_ID=$releaseId
+          DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN=https://updates.example.invalid/
+          DSH_DESKTOP_MANDATORY_UPDATE_PROD_ORIGIN=
+          DSH_DESKTOP_MANDATORY_UPDATE_CONFIG='{"allowedAuthOrigins":["https://login.example.invalid"]}'
+          DSH_DESKTOP_WINDOWS_COMPRESSION_LEVEL=3
+          "@
+          Set-Content -LiteralPath "apps/desktop/.env.windows" -Value $envFile -Encoding utf8
+          pnpm run package:desktop:win:x64:dir -- --unsigned --build-version 0.2.2-rc.5
+          $exe = Get-ChildItem -Path "apps/desktop/.desktop-build/targets/win-x64" -Recurse -Filter "DeepSeek Harness.exe" |
+            Select-Object -First 1
+          if ($null -eq $exe) { throw "unsigned Windows Desktop executable was not produced" }
+          "DESKTOP_EXE=$($exe.FullName)" >> $env:GITHUB_ENV
+          $appAsar = Join-Path $exe.DirectoryName "resources\app.asar"
+          if (-not (Test-Path $appAsar)) { throw "desktop app.asar was not produced: $appAsar" }
+          $dshCommand = Join-Path $exe.DirectoryName "resources\runtime\cli\bin\dsh.cmd"
+          if (-not (Test-Path $dshCommand)) { throw "desktop bundled dsh command was not produced: $dshCommand" }
+          "DESKTOP_DSH=$dshCommand" >> $env:GITHUB_ENV
+
+      - name: Install Ubuntu 24.04 and bwrap
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           & wsl.exe --install -d Ubuntu-24.04 --no-launch --web-download
           if ($LASTEXITCODE -ne 0) { throw "Ubuntu install failed: exit=$LASTEXITCODE" }
+          & wsl.exe -d Ubuntu-24.04 -u root --exec bash -lc "printf '[boot]\nsystemd=true\n' > /etc/wsl.conf"
+          if ($LASTEXITCODE -ne 0) { throw "Ubuntu systemd configuration failed: exit=$LASTEXITCODE" }
+          & wsl.exe --shutdown
+          if ($LASTEXITCODE -ne 0) { throw "WSL shutdown failed before probe setup: exit=$LASTEXITCODE" }
           & wsl.exe --set-default Ubuntu-24.04
           if ($LASTEXITCODE -ne 0) { throw "default distro selection failed: exit=$LASTEXITCODE" }
-
-      - name: Install probe packages
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
           & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get update
           if ($LASTEXITCODE -ne 0) { throw "apt-get update failed: exit=$LASTEXITCODE" }
-          & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get install -y --no-install-recommends bubblewrap nodejs npm git ca-certificates curl
-          if ($LASTEXITCODE -ne 0) { throw "probe package install failed: exit=$LASTEXITCODE" }
+          & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get install -y --no-install-recommends bubblewrap git ca-certificates curl build-essential unzip
+          if ($LASTEXITCODE -ne 0) { throw "bwrap package install failed: exit=$LASTEXITCODE" }
+          & wsl.exe -d Ubuntu-24.04 -u root --exec loginctl enable-linger root
+          if ($LASTEXITCODE -ne 0) { throw "Ubuntu linger setup failed: exit=$LASTEXITCODE" }
 
-      - name: Run cloud WSL gate
+          $secondDistro = "Ubuntu-24.04-probe"
+          $secondRoot = Join-Path $env:GITHUB_WORKSPACE "cloud-probe-distro"
+          New-Item -ItemType Directory -Force -Path $secondRoot | Out-Null
+          $tar = Join-Path $secondRoot "ubuntu-24.04.tar"
+          & wsl.exe --export Ubuntu-24.04 $tar
+          if ($LASTEXITCODE -ne 0) { throw "Ubuntu 24.04 export failed: exit=$LASTEXITCODE" }
+          & wsl.exe --import $secondDistro $secondRoot $tar --version 2
+          if ($LASTEXITCODE -ne 0) { throw "second Ubuntu distro import failed: exit=$LASTEXITCODE" }
+          & wsl.exe -d $secondDistro --exec true
+          if ($LASTEXITCODE -ne 0) { throw "second Ubuntu distro verification failed: exit=$LASTEXITCODE" }
+          & wsl.exe -d $secondDistro -u root --exec loginctl enable-linger root
+          if ($LASTEXITCODE -ne 0) { throw "second Ubuntu linger setup failed: exit=$LASTEXITCODE" }
+
+      - name: Install and compose local WSL plugin
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $workspace = wsl.exe -d Ubuntu-24.04 --exec wslpath -u "${{ github.workspace }}"
+          $dshHome = Join-Path $env:GITHUB_WORKSPACE "cloud-desktop-home"
+          New-Item -ItemType Directory -Force -Path $dshHome | Out-Null
+          $env:DSH_HOME = $dshHome
+          $env:WSLENV = "DSH_HOME"
+
+          & "$env:DESKTOP_DSH" wsl --from-default-profile web --dump-config
+          if ($LASTEXITCODE -ne 0) { throw "wsl profile initialization failed" }
+
+          $plugin = (Resolve-Path "${{ github.workspace }}\plugin").Path
+          & "$env:DESKTOP_DSH" plugin --profile wsl add "link:$plugin"
+          if ($LASTEXITCODE -ne 0) { throw "desktop plugin installation failed" }
+
+          $dump = & "$env:DESKTOP_DSH" --profile wsl --dump-config
+          if ($LASTEXITCODE -ne 0) { throw "desktop composed profile dump failed" }
+          $dumpText = $dump -join "`n"
+          Set-Content -Path "${{ github.workspace }}\cloud-desktop-profile.txt" -Value $dumpText
+          if (-not $dumpText.Contains("dsh-plugin-wsl-env")) {
+            throw "desktop composed profile does not contain dsh-plugin-wsl-env"
+          }
+          if ($dumpText.Contains("skipped")) {
+            throw "desktop composed profile reports skipped entries"
+          }
+
+      - name: Prepare hosted probe runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          corepack prepare pnpm@11.28.5 --activate
+          Push-Location "${{ github.workspace }}\plugin"
+          try {
+            pnpm install --frozen-lockfile --config.minimum-release-age=0
+            if ($LASTEXITCODE -ne 0) { throw "plugin dependencies failed: exit=$LASTEXITCODE" }
+          } finally {
+            Pop-Location
+          }
+
+          $defaultDshHome = Join-Path $env:USERPROFILE ".dsh"
+          $mirror = Join-Path $env:GITHUB_WORKSPACE "cloud-windows-mirror"
+          $source = (Resolve-Path "${{ github.workspace }}\plugin").Path
+          New-Item -ItemType Directory -Force -Path $mirror | Out-Null
+          & robocopy $source $mirror /E /XD .git node_modules test\probe\.scratch .v2c .video_agent
+          if ($LASTEXITCODE -gt 7) { throw "runtime mirror copy failed: exit=$LASTEXITCODE" }
+
+          & wsl.exe -d Ubuntu-24.04 --exec bash -lc "set -eu; export FNM_DIR=`"`$HOME/.local/share/fnm`"; curl -fsSL https://fnm.vercel.app/install | bash -s -- --skip-shell; `"`$FNM_DIR/fnm`" install 24.9.0"
+          if ($LASTEXITCODE -ne 0) { throw "Ubuntu Node 24.9.0 installation failed: exit=$LASTEXITCODE" }
+
+          & "$env:DESKTOP_DSH" wslfs --from-default-profile web --dump-config
+          if ($LASTEXITCODE -ne 0) { throw "wslfs profile initialization failed" }
+          & "$env:DESKTOP_DSH" plugin --profile wslfs add "link:$mirror"
+          if ($LASTEXITCODE -ne 0) { throw "wslfs plugin installation failed" }
+          $probeProfile = Join-Path $defaultDshHome "profiles\wslfs"
+          Copy-Item (Join-Path $source "test\probe\wslfs-profile.patch.yml") `
+            (Join-Path $probeProfile "cordis.patch.yml")
+          $probePatch = Join-Path $probeProfile "cordis.patch.yml"
+          $probePatchText = Get-Content $probePatch -Raw
+          $probePatchText = $probePatchText.Replace("distro: ''", "distro: 'Ubuntu-24.04'")
+          Set-Content -LiteralPath $probePatch -Value $probePatchText -Encoding utf8
+
+          "PROBE_MIRROR=$mirror" >> $env:GITHUB_ENV
+          "PROBE_PROFILE=$probeProfile" >> $env:GITHUB_ENV
+
+      - name: Launch desktop app and verify plugin profile
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $dshHome = Join-Path $env:GITHUB_WORKSPACE "cloud-desktop-home"
+          $env:DSH_HOME = $dshHome
+          Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
+
+          $process = Start-Process -FilePath "$env:DESKTOP_EXE" `
+            -ArgumentList @("--profile", "wsl", "--no-open", "--host", "127.0.0.1", "--disable-gpu", "--no-sandbox") `
+            -PassThru -WindowStyle Hidden `
+            -RedirectStandardOutput "${{ github.workspace }}\cloud-desktop.stdout.log" `
+            -RedirectStandardError "${{ github.workspace }}\cloud-desktop.stderr.log"
+
+          try {
+            $ready = $false
+            $webUrl = $null
+            for ($attempt = 0; $attempt -lt 90; $attempt++) {
+              if ($process.HasExited) {
+                throw "DeepSeek Harness desktop exited before readiness (exit=$($process.ExitCode))"
+              }
+              if (Test-Path "${{ github.workspace }}\cloud-desktop.stdout.log") {
+                $stdout = Get-Content "${{ github.workspace }}\cloud-desktop.stdout.log" -Raw -ErrorAction SilentlyContinue
+                if ($stdout -match "dsh web:\s+(https?://[^\s]+)") {
+                  $webUrl = $Matches[1]
+                }
+              }
+              try {
+                if ($webUrl -and (Invoke-WebRequest -Uri $webUrl -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200) {
+                  $ready = $true
+                  break
+                }
+              } catch {}
+              Start-Sleep -Seconds 2
+            }
+            if (-not $ready) {
+              throw "DeepSeek Harness desktop did not become ready; webUrl: $webUrl"
+            }
+          } finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
+
+      - name: Exercise WSL bwrap fence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $workspace = wsl.exe -d Ubuntu-24.04 --exec wslpath -u "${{ github.workspace }}\plugin"
           if ($LASTEXITCODE -ne 0) { throw "workspace translation failed: exit=$LASTEXITCODE" }
           $workspace = $workspace.TrimEnd("`r", "`n")
-          if ($workspace.Length -eq 0) { throw "workspace translation returned an empty path" }
-
           $script = @(
             "set -eu",
-            'test -n "$(node --version)"',
-            'test -n "$(bwrap --version)"',
-            'test -n "$(git --version)"',
             "cd '$workspace'",
-            'node --input-type=module -e ''import("./lib/paths.js").then(({ toLinuxPath }) => { if (typeof toLinuxPath("C:\\\\Windows") !== "string") process.exit(1) })''',
             "mkdir -p .cloud-wsl-gate",
             "printf pass > .cloud-wsl-gate/inside.txt",
             "bwrap --ro-bind / / --dev /dev --proc /proc --die-with-parent --bind '$workspace' '$workspace' -- sh -c 'printf pass > $workspace/.cloud-wsl-gate/bwrap.txt'",
             "grep -qx pass '$workspace/.cloud-wsl-gate/inside.txt'",
             "grep -qx pass '$workspace/.cloud-wsl-gate/bwrap.txt'",
-            "if bwrap --ro-bind / / --dev /dev --proc /proc --die-with-parent --bind '$workspace' '$workspace' -- sh -c 'echo denied > /tmp/cloud-wsl-gate-denied.txt' 2>/tmp/cloud-wsl-gate.err; then",
-            "  echo 'sandbox unexpectedly allowed /tmp write' >&2",
-            "  exit 1",
-            "fi",
-            "test -f /tmp/cloud-wsl-gate-denied.txt && exit 1 || true",
             "rm -rf '$workspace/.cloud-wsl-gate'"
           ) -join "`n"
           $bytes = [System.Text.Encoding]::UTF8.GetBytes($script)
           $encoded = [Convert]::ToBase64String($bytes)
           & wsl.exe -d Ubuntu-24.04 --exec bash -lc "echo '$encoded' | base64 -d | bash"
-          if ($LASTEXITCODE -ne 0) { throw "cloud WSL gate failed: exit=$LASTEXITCODE" }
+          if ($LASTEXITCODE -ne 0) { throw "bwrap workspace fence failed" }
 
-      - name: Summarize environment
-        if: always()
+      - name: Run hosted closed-app probe suite
         shell: pwsh
         run: |
-          & wsl.exe --list --verbose
-          & wsl.exe -d Ubuntu-24.04 --exec bash -lc 'printf "node="; node --version; printf "git="; git --version; printf "bwrap="; bwrap --version'
+          $ErrorActionPreference = "Stop"
+          $desktopProcesses = Get-CimInstance Win32_Process -Filter "Name='DeepSeek Harness.exe'"
+          if ($desktopProcesses) {
+            throw "DeepSeek Harness is still running before hosted probes"
+          }
+
+          $workspace = wsl.exe -d Ubuntu-24.04 --exec wslpath -u "${{ github.workspace }}\plugin"
+          if ($LASTEXITCODE -ne 0) { throw "workspace translation failed: exit=$LASTEXITCODE" }
+          $workspace = $workspace.TrimEnd("`r", "`n")
+          $mirror = wsl.exe -d Ubuntu-24.04 --exec wslpath -u "$env:PROBE_MIRROR"
+          if ($LASTEXITCODE -ne 0) { throw "runtime mirror translation failed: exit=$LASTEXITCODE" }
+          $mirror = $mirror.TrimEnd("`r", "`n")
+          $profile = wsl.exe -d Ubuntu-24.04 --exec wslpath -u "$env:PROBE_PROFILE"
+          if ($LASTEXITCODE -ne 0) { throw "probe profile translation failed: exit=$LASTEXITCODE" }
+          $profile = $profile.TrimEnd("`r", "`n")
+          $appDir = Split-Path $env:DESKTOP_EXE -Parent
+          $appDirLinux = wsl.exe -d Ubuntu-24.04 --exec wslpath -u "$appDir"
+          if ($LASTEXITCODE -ne 0) { throw "Desktop app directory translation failed: exit=$LASTEXITCODE" }
+          $appDirLinux = $appDirLinux.TrimEnd("`r", "`n")
+          $cliPath = Join-Path $appDir "resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js"
+
+          $script = @(
+            "set -euo pipefail",
+            "export FNM_DIR=`"`$HOME/.local/share/fnm`"",
+            "eval `"`$(`"`$FNM_DIR/fnm`" env --shell bash)`"",
+            "`"`$FNM_DIR/fnm`" use 24.9.0 >/dev/null",
+            "export DSH_WSL_ENV_DISTRO='Ubuntu-24.04'",
+            "export DSH_WSL_ENV_PROFILE='$profile'",
+            "export DSH_WSL_ENV_RUNTIME_COPY='$mirror'",
+            "export DSH_WSL_ENV_APP='$appDirLinux'",
+            "export DSH_WSL_ENV_CLI='$cliPath'",
+            "export DSH_WSL_ENV_WORKSPACE_LINUX='$workspace'",
+            "export WSLENV=`"`${WSLENV:+`$WSLENV:}ELECTRON_RUN_AS_NODE:DSH_WSL_ENV_PROFILE:DSH_WSL_ENV_APP:DSH_WSL_ENV_CLI:DSH_WSL_ENV_RUNTIME_COPY:DSH_WSL_ENV_DISTRO:DSH_WSL_ENV_WORKSPACE_LINUX`"",
+            "export DSH_HOSTED_REPO=`"`$HOME/dsh-hosted-plugin`"",
+            "mkdir -p `"`$DSH_HOSTED_REPO`"",
+            "tar -C '$workspace' --exclude=./.git --exclude=./test/probe/.scratch -cf - . | tar -C `"`$DSH_HOSTED_REPO`" -xf -",
+            "cd `"`$DSH_HOSTED_REPO`"",
+            "wsl.exe -d Ubuntu-24.04 --exec true",
+            "set +e",
+            "bash test/probe/run-all-when-closed.sh --include-fs",
+            "status=`$?",
+            "set -e",
+            "mkdir -p '$workspace/test/probe/.scratch'",
+            "cp -a test/probe/.scratch/full-probe.*.log test/probe/.scratch/full-probe.*.results '$workspace/test/probe/.scratch/' 2>/dev/null || true",
+            "exit `"`$status`""
+          ) -join "`n"
+          $bytes = [System.Text.Encoding]::UTF8.GetBytes($script)
+          $encoded = [Convert]::ToBase64String($bytes)
+          & wsl.exe -d Ubuntu-24.04 --exec bash -lc "echo '$encoded' | base64 -d | bash"
+          $probeStatus = $LASTEXITCODE
+
+          & wsl.exe -d Ubuntu-24.04 --exec bash -lc "set +e; cp -f `$(ls -t /root/dsh-hosted-plugin/test/probe/.scratch/full-probe.*.log 2>/dev/null | head -1) '$workspace/cloud-probe-full.log' 2>/dev/null || true; cp -f `$(ls -t /root/dsh-hosted-plugin/test/probe/.scratch/full-probe.*.results 2>/dev/null | head -1) '$workspace/cloud-probe-results.txt' 2>/dev/null || true"
+
+          if ($probeStatus -ne 0) { throw "hosted closed-app probe suite failed: exit=$probeStatus" }
+
+      - name: Upload desktop gate evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cloud-desktop-wsl-gate-${{ github.run_id }}
+          include-hidden-files: true
+          path: |
+            cloud-desktop-profile.txt
+            cloud-desktop.stdout.log
+            cloud-desktop.stderr.log
+            plugin/test/probe/.scratch/full-probe.*.log
+            plugin/test/probe/.scratch/full-probe.*.results
+            plugin/test/probe/*-report.txt
+            plugin/cloud-probe-full.log
+            plugin/cloud-probe-results.txt

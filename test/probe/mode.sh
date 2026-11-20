@@ -20,6 +20,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 LOG="$(mktemp)"
 trap 'rm -f "$LOG"' EXIT
+PROBE_WIN="$(win_path "$HERE/mode-probe.mjs")"
 
 # The inherited POSIX DSH_* facts must not leak into the Windows process, which
 # would read them as bogus paths.
@@ -27,7 +28,7 @@ set +e
 env -u DSH_HOME -u DSH_PROFILE -u DSH_PROFILE_DIR -u DSH_SESSION_ID \
     -u DSH_SHELL -u DSH_WEB_URL -u DSH_WSL_DISTRO -u DSH_WSL_HOME -u DSH_WSL_SHELL \
     ELECTRON_RUN_AS_NODE=1 \
-    "$APP/DeepSeek Harness.exe" "$HERE/mode-probe.mjs" >"$LOG" 2>&1
+    "$APP/DeepSeek Harness.exe" "$PROBE_WIN" >"$LOG" 2>&1
 STATUS=$?
 set -e
 

@@ -12,6 +12,9 @@
 #
 # The profile itself (which swaps `ctx.fs` for the WSL backend) lives in
 # $DSH_HOME/profiles/wslfs/cordis.patch.yml.
+- id: fs-routing
+  disabled: true
+
 - insert:
     - id: fs-probe
       name: '@FS_PROBE_UNC@'

@@ -228,9 +228,18 @@ on one Ubuntu runner after installing Chromium. The Windows runners are
 there because the plugin targets Windows; the coverage thresholds need Node 22.8 or
 newer, which is why that job runs on one version.
 
-The probes marked "yes" need Windows, WSL2, a mounted harness profile and a linked
-checkout, which a hosted runner does not have. Run them on your own machine and
-paste the output into the pull request.
+`.github/workflows/cloud-wsl-gate.yml` adds an independent hosted DeepSeek
+Harness Desktop and WSL gate. On pull requests targeting `main` and on manual
+`workflow_dispatch`, it builds the unsigned Windows Desktop package from the
+upstream tag on `windows-latest`, installs Ubuntu 24.04 and `bubblewrap`, uses
+the desktop app's bundled CLI to create a `wsl` profile, installs the local
+checkout into that profile, verifies the composed dump contains
+`dsh-plugin-wsl-env`, launches the desktop app's configured Web service and waits
+for HTTP readiness, verifies the in-distro bwrap workspace fence, prepares a
+`wslfs` probe profile plus a second Ubuntu instance and Node/systemd prerequisites, stops
+the Desktop process, and runs
+`test/probe/run-all-when-closed.sh --include-fs`. The suite is green only when
+every selected probe reports PASS and there are no SKIP or NOT RUN entries.
 
 The rows marked "no; inside the distro" (`substrate`, `watch`, `agent`, `exec`)
 still need Windows and WSL2, but no harness boot and no profile: run them from a
@@ -244,7 +253,9 @@ fails when Windows interop or its temporary marker cannot be verified.
 The `ci.yml` `probes` job is **manual-only** (`workflow_dispatch`) and requires a
 self-hosted Windows+WSL runner with the harness app and a configured profile;
 `runs-on` is the GitHub-hosted `windows-latest` label, so dispatching it without
-such a runner fails with a named error rather than passing (`skip all` is gone).
+such a runner fails with a named error rather than passing. If the hosted runner
+has no usable distro, the job stops at the distro preflight instead of reporting
+probe success.
 No self-hosted runner is registered for this repository today (2026-11-18), so
 the documented path is the local closed-app command above. The nightly schedule
 and its `probe-heartbeat` were removed on the same date for that reason; there is

@@ -33,6 +33,7 @@ trap 'rm -f "$LOG"' EXIT
 [ -x "$APP/DeepSeek Harness.exe" ] || { echo "no harness at $APP; set DSH_WSL_ENV_APP" >&2; exit 1; }
 
 "$HERE/sync-to-windows.sh"
+wsl.exe -d "$DISTRO" --exec true
 
 # The probe opens a PTY and exits the process itself with its own status; the
 # inherited POSIX DSH_* facts must not leak into the Windows process, which

@@ -67,11 +67,11 @@ async function run(ctx, config) {
 
   // The login shell sources its profile before the first prompt, so the commands
   // go in well after the spawn rather than racing the prompt.
-  await delay(5000);
+  await delay(10000);
   handle.write(
     `pwd; echo PROBE-$((6*7)); echo DISTRO=\${WSL_DISTRO_NAME:-unset}; echo SESSION=\${DSH_SESSION_ID:-unset}; echo SHELL=$SHELL\n`,
   );
-  await delay(6000);
+  await delay(12000);
 
   report("OUTPUT-BEGIN");
   for (const line of text.split(/\r?\n/)) {

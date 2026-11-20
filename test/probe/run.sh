@@ -55,6 +55,7 @@ rm -f "$REPORT"
 # DSH_* variables the distro sees are POSIX-translated (/mnt/c/...) — they must
 # not leak into the Windows process, which would read them as bogus paths.
 STATUS=0
+cd "${DSH_WSL_ENV_HOME:-$HERE/../..}"
 env -u DSH_HOME -u DSH_PROFILE -u DSH_PROFILE_DIR -u DSH_SESSION_ID \
     -u DSH_SHELL -u DSH_WEB_URL -u DSH_WSL_DISTRO -u DSH_WSL_HOME -u DSH_WSL_SHELL \
     ELECTRON_RUN_AS_NODE=1 \

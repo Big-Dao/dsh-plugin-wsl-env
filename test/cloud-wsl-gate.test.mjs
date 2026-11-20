@@ -22,6 +22,8 @@ assert.match(workflow, /resources\\app\.asar/);
 assert.match(workflow, /@deepseek-ai\\dsh-desktop-host\\lib\\cli\.js/);
 assert.match(workflow, /Test-Path \$appAsar/);
 assert.doesNotMatch(workflow, /Test-Path \$cli/);
+assert.match(workflow, /\$dshHome = Join-Path/);
+assert.doesNotMatch(workflow, /\$home = Join-Path/);
 assert.match(workflow, /dsh-plugin-wsl-env/);
 assert.match(workflow, /http:\/\/127\.0\.0\.1:3080\//);
 assert.match(workflow, /bwrap --ro-bind \/ \/ --dev \/dev --proc \/proc/);

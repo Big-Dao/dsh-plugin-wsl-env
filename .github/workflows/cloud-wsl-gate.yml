@@ -91,9 +91,9 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $home = Join-Path $env:GITHUB_WORKSPACE "cloud-desktop-home"
-          New-Item -ItemType Directory -Force -Path $home | Out-Null
-          $env:DSH_HOME = $home
+          $dshHome = Join-Path $env:GITHUB_WORKSPACE "cloud-desktop-home"
+          New-Item -ItemType Directory -Force -Path $dshHome | Out-Null
+          $env:DSH_HOME = $dshHome
           $env:ELECTRON_RUN_AS_NODE = "1"
           $env:WSLENV = "DSH_HOME:ELECTRON_RUN_AS_NODE"
 
@@ -119,8 +119,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $home = Join-Path $env:GITHUB_WORKSPACE "cloud-desktop-home"
-          $env:DSH_HOME = $home
+          $dshHome = Join-Path $env:GITHUB_WORKSPACE "cloud-desktop-home"
+          $env:DSH_HOME = $dshHome
           Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
 
           $process = Start-Process -FilePath "$env:DESKTOP_EXE" `

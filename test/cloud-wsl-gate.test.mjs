@@ -42,4 +42,4 @@ assert.match(workflow, /plugin\/test\/probe\/\.scratch\/full-probe\.\*\.results/
 assert.match(workflow, /include-hidden-files:\s*true/);
 assert.match(workflow, /pnpm install --frozen-lockfile/);
 assert.match(workflow, /loginctl enable-linger root/);
-assert.match(workflow, /DSH_HOME\/p/);
+assert.match(workflow, /Join-Path \$env:USERPROFILE "\.dsh"/);

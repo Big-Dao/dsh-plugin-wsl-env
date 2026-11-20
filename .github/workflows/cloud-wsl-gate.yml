@@ -216,6 +216,54 @@ jobs:
           & wsl.exe -d Ubuntu-24.04 --exec bash -lc "echo '$encoded' | base64 -d | bash"
           if ($LASTEXITCODE -ne 0) { throw "bwrap workspace fence failed" }
 
+      - name: Run hosted closed-app probe suite
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $desktopProcesses = Get-CimInstance Win32_Process -Filter "Name='DeepSeek Harness.exe'"
+          if ($desktopProcesses) {
+            throw "DeepSeek Harness is still running before hosted probes"
+          }
+
+          $workspace = wsl.exe -d Ubuntu-24.04 --exec wslpath -u "${{ github.workspace }}\plugin"
+          if ($LASTEXITCODE -ne 0) { throw "workspace translation failed: exit=$LASTEXITCODE" }
+          $workspace = $workspace.TrimEnd("`r", "`n")
+          $mirror = wsl.exe -d Ubuntu-24.04 --exec wslpath -u "$env:PROBE_MIRROR"
+          if ($LASTEXITCODE -ne 0) { throw "runtime mirror translation failed: exit=$LASTEXITCODE" }
+          $mirror = $mirror.TrimEnd("`r", "`n")
+          $profile = wsl.exe -d Ubuntu-24.04 --exec wslpath -u "$env:PROBE_PROFILE"
+          if ($LASTEXITCODE -ne 0) { throw "probe profile translation failed: exit=$LASTEXITCODE" }
+          $profile = $profile.TrimEnd("`r", "`n")
+          $appDir = Split-Path $env:DESKTOP_EXE -Parent
+          $appDirLinux = wsl.exe -d Ubuntu-24.04 --exec wslpath -u "$appDir"
+          if ($LASTEXITCODE -ne 0) { throw "Desktop app directory translation failed: exit=$LASTEXITCODE" }
+          $appDirLinux = $appDirLinux.TrimEnd("`r", "`n")
+
+          $script = @'
+set -euo pipefail
+export FNM_DIR="$HOME/.local/share/fnm"
+eval "$("$FNM_DIR/fnm" env --shell bash)"
+"$FNM_DIR/fnm" use 24.9.0 >/dev/null
+export DSH_WSL_ENV_DISTRO='Ubuntu-24.04'
+export DSH_WSL_ENV_PROFILE='__PROFILE__'
+export DSH_WSL_ENV_RUNTIME_COPY='__MIRROR__'
+export DSH_WSL_ENV_APP='__APP_DIR__'
+export DSH_WSL_ENV_CLI='__CLI__'
+export DSH_WSL_ENV_WORKSPACE_LINUX='__WORKSPACE__'
+export WSLENV="${WSLENV:+$WSLENV:}ELECTRON_RUN_AS_NODE:DSH_WSL_ENV_PROFILE:DSH_WSL_ENV_APP:DSH_WSL_ENV_CLI:DSH_WSL_ENV_RUNTIME_COPY:DSH_WSL_ENV_DISTRO:DSH_WSL_ENV_WORKSPACE_LINUX"
+cd '__WORKSPACE__'
+bash test/probe/run-all-when-closed.sh --include-fs
+'@
+          $script = $script.Replace("__PROFILE__", $profile)
+          $script = $script.Replace("__MIRROR__", $mirror)
+          $script = $script.Replace("__APP_DIR__", $appDirLinux)
+          $script = $script.Replace("__CLI__", $env:DESKTOP_DSH)
+          $script = $script.Replace("__WORKSPACE__", $workspace)
+          $bytes = [System.Text.Encoding]::UTF8.GetBytes($script)
+          $encoded = [Convert]::ToBase64String($bytes)
+          & wsl.exe -d Ubuntu-24.04 --exec bash -lc "echo '$encoded' | base64 -d | bash"
+          if ($LASTEXITCODE -ne 0) { throw "hosted closed-app probe suite failed: exit=$LASTEXITCODE" }
+
       - name: Upload desktop gate evidence
         if: always()
         uses: actions/upload-artifact@v7
@@ -225,3 +273,6 @@ jobs:
             cloud-desktop-profile.txt
             cloud-desktop.stdout.log
             cloud-desktop.stderr.log
+            test/probe/.scratch/full-probe.*.log
+            test/probe/.scratch/full-probe.*.results
+            test/probe/*-report.txt

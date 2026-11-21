@@ -36,6 +36,20 @@ pnpm run test:browser   # once: pnpm exec playwright install chromium
 
 The release workflow runs all three before it publishes.
 
+Release evidence is split into three gates:
+
+```text
+Source gate: every PR/main run
+Candidate gate: every tag before publish
+Post-release gate: every stable/next tag after registry propagation
+```
+
+Source evidence does not substitute for official-package evidence: a passing
+source gate says nothing about the published tarball, so the candidate and
+post-release gates must produce their own official-package smoke evidence. The
+source compatibility gate remains authoritative for full Windows/WSL probe
+coverage.
+
 `pnpm test` includes the build-freshness gate: modules whose source lives in
 `src/*.ts` must be rebuilt (`pnpm run build`) and the result committed under
 `lib/`, so the tarball always ships exactly what the sources say without any

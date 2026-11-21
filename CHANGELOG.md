@@ -16,6 +16,12 @@ were part of the record.
 
 ## [Unreleased]
 
+### Changed
+
+- **Release workflows now gate publication and post-release verification
+  through official-package smoke evidence.** The existing source compatibility
+  gate remains authoritative for full Windows/WSL probe coverage.
+
 ### Fixed
 
 - **`pnpm run sync:windows` verifies the Windows mirror's content and tolerates

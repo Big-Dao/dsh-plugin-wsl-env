@@ -67,6 +67,10 @@
   修复或 workflow 尚未产出该证据时不得描述托管 run 为套件已通过。
 - [发布流程](RELEASING.md) 定义版本、tag、发布和核验步骤；
   [变更日志](../CHANGELOG.md) 按版本记录变更，不反向改写历史条目。
+- [企业级探针门禁设计](superpowers/specs/2026-11-21-enterprise-probe-gate-design.md)
+  是源码、候选包与发布后三道门禁的规范设计；
+  [实施计划](superpowers/plans/2026-11-21-enterprise-probe-gate.md) 是带日期的
+  操作历史，不是规范行为。
 - [支持政策](../SUPPORT.zh.md)、[行为准则](../CODE_OF_CONDUCT.zh.md)（英文页
   [SUPPORT](../SUPPORT.md)、[CODE_OF_CONDUCT](../CODE_OF_CONDUCT.md)）、
   [许可证](../LICENSE) 和 [PR 模板](../.github/PULL_REQUEST_TEMPLATE.md)

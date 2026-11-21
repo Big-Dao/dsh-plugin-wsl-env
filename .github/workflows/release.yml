@@ -230,14 +230,17 @@ jobs:
         # tag/version discipline lives in scripts/check-release-tag.mjs; the
         # dist-tag policy lives here. Publishing a tarball path runs no
         # lifecycle scripts, and the Gates step has already run the full chain.
+        # The ./ prefix is load-bearing: a bare owner/name-shaped relative
+        # path is parsed as a GitHub slug and npm dies in `git ls-remote`
+        # (run 44929316601).
         env:
           CANDIDATE_FILE: ${{ steps.candidate.outputs.file }}
         run: |
           version="$(node -p 'require("./package.json").version')"
           if echo "$version" | grep -qE -- '-(rc|alpha|beta|next)\.'; then
-            npm publish "$CANDIDATE_FILE" --provenance --access public --tag next
+            npm publish "./$CANDIDATE_FILE" --provenance --access public --tag next
           else
-            npm publish "$CANDIDATE_FILE" --provenance --access public
+            npm publish "./$CANDIDATE_FILE" --provenance --access public
           fi
       # Registry read-back (skipping it is how the 0.1.1 README incident
       # shipped): served dist.integrity must equal the candidate's. Runs for an

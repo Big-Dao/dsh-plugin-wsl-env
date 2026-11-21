@@ -251,7 +251,7 @@ check("release publish requires the candidate official-harness package smoke", (
   assert.match(release, /integrity mismatch: .*CANDIDATE_INTEGRITY/);
   assert.match(release, /name: candidate-package/);
   assert.match(release, /download-artifact/);
-  assert.match(release, /npm publish "\$CANDIDATE_FILE" --provenance --access public/);
+  assert.match(release, /npm publish "\.\/\$CANDIDATE_FILE" --provenance --access public/);
   assert.equal((release.match(/npm pack --json --ignore-scripts/g) ?? []).length, 1, "the candidate is packed exactly once");
   // The tarball is packed on Linux so the shipped shell scripts keep their
   // executable bits; a Windows filesystem cannot represent them (#69).

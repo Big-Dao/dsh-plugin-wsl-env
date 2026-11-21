@@ -66,6 +66,7 @@
   FULL PASS，证据包括 profile dump、Desktop 日志、完整结果和各 probe report；
   修复或 workflow 尚未产出该证据时不得描述托管 run 为套件已通过。
 - [发布流程](RELEASING.md) 定义版本、tag、发布和核验步骤；
+  [中文摘要](RELEASING.zh.md) 只覆盖三道门禁的要点，完整步骤以英文版为准；
   [变更日志](../CHANGELOG.md) 按版本记录变更，不反向改写历史条目。
 - [企业级探针门禁设计](superpowers/specs/2026-11-21-enterprise-probe-gate-design.md)
   是源码、候选包与发布后三道门禁的规范设计；

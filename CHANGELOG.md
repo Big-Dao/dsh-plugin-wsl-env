@@ -20,7 +20,13 @@ were part of the record.
 
 - **Release workflows now gate publication and post-release verification
   through official-package smoke evidence.** The existing source compatibility
-  gate remains authoritative for full Windows/WSL probe coverage.
+  gate remains authoritative for full Windows/WSL probe coverage. The
+  candidate tarball is packed on Linux so the shipped shell scripts keep their
+  executable bits; the official installer resolves from the official CDN's
+  exact-version path; the smoke verifies the installed `dsh --version` and
+  runs a shell command, a workspace file operation, and a sandbox refusal
+  through the tarball-installed plugin; `workflow_dispatch` dry-runs the
+  candidate path without publishing.
 
 ### Fixed
 

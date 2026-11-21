@@ -83,9 +83,10 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for individual probes, prerequisites,
 and optional performance probes not included in the suite.
 
 `npm publish` runs the `prepublishOnly` script, which is `pnpm test`. The local
-gates therefore run again during the release step. (The release workflow
-publishes with `--ignore-scripts` for exactly this reason — its Gates step has
-already run the chain; a hand-run publish keeps the hook.)
+gates therefore run again during a hand-run release step. (The release workflow
+publishes the candidate **tarball path**, and a tarball publish runs no
+lifecycle scripts at all — its Gates step has already run the chain. A hand-run
+publish from the package directory keeps the hook as its safety net.)
 
 ## 4. Commit and tag
 
@@ -103,31 +104,59 @@ GitHub Release do. The tag push starts the release workflow described in step 5.
 
 ### The tag-triggered workflow
 
-Stable publishing is blocked until the `candidate-package-smoke` job succeeds: it
-packs the tagged commit once on Windows (the only pack: the same `.tgz` is uploaded as the `candidate-package` artifact and published unchanged with `npm publish --provenance --access public <tgz>`, never repacked), provisions Ubuntu 24.04 and the WSL prerequisites (systemd, `bubblewrap`, `dbus`, `git`, `curl`, linger), runs `pnpm run smoke:official-harness` against the
-pinned official Harness (`DSH_OFFICIAL_HARNESS_VERSION`, the floor in
-`docs/PEER-PARITY.md`) and uploads its logs as a release artifact, kept even
-when the smoke fails. The smoke identifies the package by its tarball/registry
-identity (name, version, sha512); `--dump-config` proves the profile composes
-the plugin, not the exact installed version.
+Stable publishing is blocked until the `candidate-package-smoke` job succeeds.
+The `pack-candidate` job packs the tagged commit once on **Ubuntu** (the only
+pack: a Windows filesystem has no exec bit, and npm does not fix up non-`bin`
+entries, so a Windows-packed tarball turned the shipped shell scripts into
+0644). The same `.tgz` is uploaded as the `candidate-package` artifact — the
+Windows smoke and the publish job both consume those bytes, never a repack.
 
-Pushing the tag starts `.github/workflows/release.yml`. It does five things, in
-this order:
+`candidate-package-smoke` provisions the distro and WSL prerequisites
+(`.github/actions/provision-wsl`: systemd, `bubblewrap`, `dbus`, `git`,
+`curl`, linger) and runs `pnpm run smoke:official-harness` against the pinned
+official Harness (`DSH_OFFICIAL_HARNESS_VERSION`, the floor in
+`docs/PEER-PARITY.md`). The official installer resolves from the official
+CDN's exact-version path
+(`download.deepseek.com/dsh-desk/bin/win-x64/deepseek-harness-<version>-win-x64.exe`);
+the CDN publishes no checksum object, so the smoke records the downloaded
+file's sha256 instead of verifying a published one, and requires `dsh
+--version` to report the exact requested version. The smoke identifies the
+package by its tarball/registry identity (name, version, sha512);
+`--dump-config` proves the profile composes the plugin with no skipped
+entries, and the through-plugin probe (`test/probe/official-smoke-probe.mjs`)
+runs one shell command, one workspace file operation, and one sandbox-refused
+command through the tarball-installed plugin. Logs land in
+`test/probe/.scratch/` and are uploaded as a release artifact, kept even when
+the smoke fails.
 
-1. Checks that the tag matches `version` in `package.json`, using
-   `scripts/check-release-tag.mjs`.
-2. Runs `pnpm test`, `pnpm run test:coverage`, and the shipped x86_64 and
+Pushing the tag starts `.github/workflows/release.yml`. It does these things,
+in this order:
+
+1. Packs the candidate tarball on Ubuntu (`pack-candidate`) and uploads it as
+   the `candidate-package` artifact. A `workflow_dispatch` run stops here and
+   runs the candidate smoke — the dry run; it never publishes.
+2. Runs the official-Harness candidate smoke on Windows
+   (`candidate-package-smoke`). Publish depends on this job, so a failing
+   candidate blocks the release.
+3. Runs `pnpm test`, `pnpm run test:coverage`, and the shipped x86_64 and
    aarch64 native-agent tests (the latter under QEMU).
-3. Asks the registry whether this version is already published, and skips the
-   upload when it is. Re-pushing the same tag therefore does not publish again —
-   it only gets you as far as the GitHub Release.
-4. Publishes with `npm publish --provenance --access public --ignore-scripts`.
-   That attaches a signed attestation tying the tarball to this workflow run
-   and this commit. `--ignore-scripts` skips the `prepublishOnly` hook: the
-   Gates step has already run the full chain, and npm would otherwise re-run
-   it a second time. A hand-run publish keeps the hook as its safety net.
-5. Creates the GitHub Release, with notes taken from the changelog section by
-   `scripts/changelog-section.mjs`.
+4. Downloads the `candidate-package` artifact, verifies its sha512 integrity
+   and `pack.json` identity equal the pack job's outputs, asks the registry
+   whether this version is already published, and skips the upload when it
+   is. Re-pushing the same tag therefore does not publish again — it only
+   gets you as far as the GitHub Release.
+5. Publishes the downloaded candidate tarball with
+   `npm publish <tgz> --provenance --access public`. That attaches a signed
+   attestation tying the tarball to this workflow run and this commit. A
+   tarball publish runs no lifecycle scripts; the Gates step has already run
+   the full chain. A hand-run publish from the package directory keeps the
+   `prepublishOnly` hook as its safety net.
+6. Reads back what the registry serves (integrity, file count, README name)
+   and fails if the served bytes are not the smoke candidate.
+7. Creates the GitHub Release, with notes taken from the changelog section by
+   `scripts/changelog-section.mjs`, then re-runs the official-Harness smoke
+   against the exact published version (`post-release-package-smoke`); its
+   failure appends a warning to the Release notes and opens an issue.
 
 The workflow requires a trusted publisher configured on npmjs.com for this
 repository, this workflow file, and the `npm-publish` environment. That is what

@@ -4,7 +4,17 @@ Date: 2026-11-21
 
 ## Status
 
-Approved scope; implementation planning has not started.
+Implemented (2026-11-21). The gates live in `.github/workflows/release.yml`
+(`pack-candidate` on Linux, `candidate-package-smoke` and
+`post-release-package-smoke` on Windows, publish bound to the smoke candidate)
+and in `scripts/official-harness-smoke.{mjs,ps1}`; the through-plugin subset of
+the minimum smoke is `test/probe/official-smoke-probe.mjs`. The official
+installer resolves from the official CDN's exact-version path — the upstream
+GitHub releases publish no installer assets. Static contract tests are
+`test/release-scripts.test.mjs`, `test/official-harness-smoke.test.mjs`, and the
+tarball-mode check in `test/packaging.test.mjs`. `workflow_dispatch` dry runs
+the candidate path without publishing. Not yet done: one real-runner dispatch
+dry run to exercise the whole candidate path end to end.
 
 ## Problem
 

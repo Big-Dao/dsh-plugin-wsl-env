@@ -116,19 +116,19 @@ try {
   }
 
   # Composition alone proves nothing about the plugin's runtime seams. The
-  # through-plugin probe (test/probe/official-smoke-probe.mjs) is mounted by
-  # appending an overlay row to the profile's patch layer, so the Desktop app
-  # boots it with the tarball-installed plugin: one shell command through the
-  # plugin's WSL executor, one workspace file operation through the routed
+  # through-plugin probe (test/probe/official-smoke-probe.mjs) is mounted via
+  # --patch on a headless CLI boot of the official install, which must happen
+  # BEFORE the Desktop app starts: a CLI invocation while any instance is live
+  # hands its arguments to that instance and exits 0 without running anything.
+  # The probe drives the tarball-installed plugin: one shell command through
+  # the plugin's WSL executor, one workspace file operation through the routed
   # filesystem, and one confined command the sandbox must refuse.
   Step "wire-probe" {
     $probeModule = Join-Path $root "test\probe\official-smoke-probe.mjs"
     if (-not (Test-Path -LiteralPath $probeModule)) { throw "probe module not found: $probeModule" }
-    $patch = Join-Path $dshHome "profiles\$profileName\cordis.patch.yml"
-    if (-not (Test-Path -LiteralPath $patch)) { throw "profile patch layer not found: $patch" }
     Remove-Item -LiteralPath $probeReport -Force -ErrorAction SilentlyContinue
-    $overlay = @"
-
+    $overlayPath = Join-Path $scratch "official-smoke-probe.overlay.yml"
+    Set-Content -LiteralPath $overlayPath -Encoding utf8 -Value @"
 - insert:
     - id: official-smoke-probe
       name: '$probeModule'
@@ -138,8 +138,7 @@ try {
         outside: /tmp/dsh-official-smoke-probe-outside.txt
         report: '$probeReport'
 "@
-    Add-Content -LiteralPath $patch -Value $overlay
-    "probe overlay appended to $patch"
+    $overlayPath
   }
 
   # Keep the probe's scratch paths from a previous run out of this one.
@@ -148,10 +147,44 @@ try {
     "distro $distro scratch paths removed"
   }
 
+  $probeCliLog = Join-Path $scratch "official-harness-smoke.probe-cli.log"
+  Remove-Item -LiteralPath $probeCliLog, "$probeCliLog.err" -Force -ErrorAction SilentlyContinue
+  $script:probeProcess = $null
+  Step "plugin-probe" {
+    $overlayPath = Join-Path $scratch "official-smoke-probe.overlay.yml"
+    # $script: scope: a Step body runs in a child scope, and finally must see
+    # the process to stop it when this step throws.
+    $script:probeProcess = Start-Process -FilePath $dsh.FullName `
+      -ArgumentList @("--expose-internals", "--profile", $profileName, "--patch", $overlayPath, "--no-open", "--port", "0") `
+      -PassThru -RedirectStandardOutput $probeCliLog -RedirectStandardError "$probeCliLog.err"
+    $deadline = (Get-Date).AddSeconds(240)
+    $report = ""
+    while ($true) {
+      if ($script:probeProcess.HasExited) { throw "probe CLI exited before the probe reported (exit=$($script:probeProcess.ExitCode))" }
+      if (Test-Path -LiteralPath $probeReport) {
+        $report = Get-Content -LiteralPath $probeReport -Raw
+        if ($report -match "RESULT:") { break }
+      }
+      if ((Get-Date) -gt $deadline) { throw "probe report did not settle within 240s: $probeReport" }
+      Start-Sleep -Seconds 2
+    }
+    Stop-Process -Id $script:probeProcess.Id -Force -ErrorAction SilentlyContinue
+    if (-not $script:probeProcess.WaitForExit(15000)) { throw "probe CLI did not exit after Stop-Process" }
+    if ($report -match "(?m)^FAIL ") { throw "the through-plugin probe reported failures:`n$report" }
+    if ($report -notmatch "RESULT: all steps passed") { throw "the through-plugin probe did not complete:`n$report" }
+    (($report -split "`r?`n") | Where-Object { $_ -match "^PASS " }) -join "; "
+  }
+
   # The desktop log goes to the scratch evidence dir (not $work), so the
   # workflow's if: always() artifact carries it even after cleanup.
   $log = Join-Path $scratch "official-harness-smoke.desktop.log"
   Remove-Item -LiteralPath $log, "$log.err" -Force -ErrorAction SilentlyContinue
+  # Keep the pinned install pinned: without these, the app checks the
+  # production feed (the pinned rc.2 already found rc.5) and could pull a new
+  # build over the evidence mid-run.
+  $env:DSH_DESKTOP_AUTO_UPDATE_ENV = "test"
+  $env:DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN = "https://updates.example.invalid/"
+  $env:DSH_DESKTOP_MANDATORY_UPDATE_PROD_ORIGIN = ""
   $app = Start-Process -FilePath $desktop.FullName -ArgumentList @("--no-sandbox", "--disable-gpu", "--no-open", "--profile", $profileName) `
     -PassThru -RedirectStandardOutput $log -RedirectStandardError "$log.err"
 
@@ -173,23 +206,6 @@ try {
       Start-Sleep -Seconds 2
     }
     throw "web endpoint not ready within 180s"
-  }
-
-  Step "plugin-probe" {
-    $deadline = (Get-Date).AddSeconds(240)
-    $report = ""
-    while ($true) {
-      if ($app.HasExited) { throw "Desktop exited before the probe reported (exit=$($app.ExitCode))" }
-      if (Test-Path -LiteralPath $probeReport) {
-        $report = Get-Content -LiteralPath $probeReport -Raw
-        if ($report -match "RESULT:") { break }
-      }
-      if ((Get-Date) -gt $deadline) { throw "probe report did not settle within 240s: $probeReport" }
-      Start-Sleep -Seconds 2
-    }
-    if ($report -match "(?m)^FAIL ") { throw "the through-plugin probe reported failures:`n$report" }
-    if ($report -notmatch "RESULT: all steps passed") { throw "the through-plugin probe did not complete:`n$report" }
-    (($report -split "`r?`n") | Where-Object { $_ -match "^PASS " }) -join "; "
   }
 
   Step "wsl-command" {
@@ -229,6 +245,15 @@ try {
     }
   } else {
     Record "FAIL" "app-stop" "Desktop was never started"
+  }
+  if ($script:probeProcess -and -not $script:probeProcess.HasExited) {
+    Stop-Process -Id $script:probeProcess.Id -Force -ErrorAction SilentlyContinue
+    $script:probeProcess.WaitForExit(10000) | Out-Null
+  }
+  # The profile home dies with $work; its startup logs are the composition
+  # evidence (patch application, plugin load errors), so keep them.
+  if ($dshHome) {
+    Copy-Item -LiteralPath (Join-Path $dshHome "logs") -Destination (Join-Path $scratch "profile-logs") -Recurse -Force -ErrorAction SilentlyContinue
   }
   Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 }

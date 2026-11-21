@@ -8,13 +8,19 @@ Implemented (2026-11-21). The gates live in `.github/workflows/release.yml`
 (`pack-candidate` on Linux, `candidate-package-smoke` and
 `post-release-package-smoke` on Windows, publish bound to the smoke candidate)
 and in `scripts/official-harness-smoke.{mjs,ps1}`; the through-plugin subset of
-the minimum smoke is `test/probe/official-smoke-probe.mjs`. The official
-installer resolves from the official CDN's exact-version path — the upstream
-GitHub releases publish no installer assets. Static contract tests are
-`test/release-scripts.test.mjs`, `test/official-harness-smoke.test.mjs`, and the
-tarball-mode check in `test/packaging.test.mjs`. `workflow_dispatch` dry runs
-the candidate path without publishing. Not yet done: one real-runner dispatch
-dry run to exercise the whole candidate path end to end.
+the minimum smoke is `test/probe/official-smoke-probe.mjs`, mounted on a
+headless boot of the official CLI (before the Desktop starts: a CLI call while
+an instance is live delegates and exits without running) with the plugin's WSL
+shell executor inserted — provider-level coverage; the session-runtime preset
+path remains the source gate's authority. The official installer resolves from
+the official CDN's exact-version path — the upstream GitHub releases publish
+no installer assets. Static contract tests are `test/release-scripts.test.mjs`,
+`test/official-harness-smoke.test.mjs`, and the tarball-mode check in
+`test/packaging.test.mjs`. `workflow_dispatch` dry runs the candidate path
+without publishing. Validated by dispatch dry runs: CDN resolution, sha256
+recording, the `dsh --version` pin, and composition are green on a real runner
+(run 44914824185 and earlier); the through-plugin probe was still being
+debugged at the time of writing.
 
 ## Problem
 

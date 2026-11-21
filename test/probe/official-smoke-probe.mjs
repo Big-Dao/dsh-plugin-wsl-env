@@ -50,6 +50,20 @@ export default function officialSmokeProbe(ctx, config) {
 }
 
 /**
+ * The UNC spelling of a POSIX path inside the distro, for the harness
+ * process's filesystem APIs. The distro name must be followed by a
+ * backslash: `\\wsl.localhost\<distro>/tmp/…` parses as the distro
+ * `<distro>/tmp/…` and the path `/`, because the plugin's UNC parsing takes
+ * the separator it meets first — every `/` below the distro must be a `\`.
+ * @param {string} distro - the distro name.
+ * @param {string} posixPath - absolute POSIX path inside the distro.
+ * @returns {string} the UNC path spelling for the filesystem backend.
+ */
+export function uncFor(distro, posixPath) {
+  return `\\\\wsl.localhost\\${distro}${posixPath.replaceAll("/", "\\")}`;
+}
+
+/**
  * Run one check, recording a thrown error instead of aborting the run.
  * @param {string[]} lines - the report lines, mutated in place.
  * @param {(ok: boolean, detail?: string) => void} record - the check's verdict sink.
@@ -92,8 +106,11 @@ async function run(ctx, config) {
     return execution.result();
   };
 
-  /** @returns {SandboxExecutionPolicy} the workspace-write policy over the probe root. */
-  const confined = () => ({ mode: "workspace-write", workspaceRoot: `\\\\wsl.localhost\\${config.distro}${config.root}` });
+  /** @returns {SandboxExecutionPolicy} the workspace-write grant over the POSIX probe root — the shell's sandbox binds distro paths. */
+  const confined = () => ({ mode: "workspace-write", workspaceRoot: config.root });
+
+  /** @returns {SandboxExecutionPolicy} the same grant for the filesystem backend, whose targets are UNC paths. */
+  const fsConfined = () => ({ mode: "workspace-write", workspaceRoot: uncFor(config.distro, config.root) });
 
   try {
     // The workspace root must exist before a workspace-write policy can grant
@@ -109,7 +126,6 @@ async function run(ctx, config) {
     lines.push(`FAIL probe-setup — ${coded.code ?? coded.name ?? "Error"}: ${coded.message ?? String(error)}`);
   }
   try {
-
     await step(lines, record, "a command runs through the plugin's WSL shell", async () => {
       const out = await exec("echo dsh-smoke-plugin", confined());
       if (out.exitCode !== 0) throw new Error(`exited ${out.exitCode}: ${out.stderr.text.slice(0, 120)}`);
@@ -118,9 +134,9 @@ async function run(ctx, config) {
     });
 
     await step(lines, record, "a workspace file operation routes through the plugin", async () => {
-      const unc = `\\\\wsl.localhost\\${config.distro}${config.root}\\probe-fs.txt`;
+      const unc = uncFor(config.distro, `${config.root}/probe-fs.txt`);
       const target = await ctx.fs.resolve(unc);
-      await ctx.fs.writeText(target, "dsh-smoke-fs", undefined, undefined, confined());
+      await ctx.fs.writeText(target, "dsh-smoke-fs", undefined, undefined, fsConfined());
       const read = await ctx.fs.readText(await ctx.fs.resolve(unc));
       if (read !== "dsh-smoke-fs") throw new Error(`read-back mismatch: ${JSON.stringify(read.slice(0, 120))}`);
       return unc;

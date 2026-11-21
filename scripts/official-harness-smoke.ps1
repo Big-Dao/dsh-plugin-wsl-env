@@ -120,16 +120,32 @@ try {
   # --patch on a headless CLI boot of the official install, which must happen
   # BEFORE the Desktop app starts: a CLI invocation while any instance is live
   # hands its arguments to that instance and exits 0 without running anything.
-  # The probe drives the tarball-installed plugin: one shell command through
-  # the plugin's WSL executor, one workspace file operation through the routed
-  # filesystem, and one confined command the sandbox must refuse.
+  # The overlay follows test/probe/sandbox-shell-probe.yml: the shipped
+  # sandboxing shell executors are disabled so ctx.shell IS the plugin's WSL
+  # executor (root composition routes shell elsewhere; the plugin's own rows
+  # live in the preset isolate realm, which an external patch cannot reach),
+  # and ctx.fs stays the routed filesystem the plugin composes at the root.
+  # The file is a complete YAML document on its own — not an append to the
+  # profile patch, whose default template is the flow sequence `[]`.
   Step "wire-probe" {
     $probeModule = Join-Path $root "test\probe\official-smoke-probe.mjs"
     if (-not (Test-Path -LiteralPath $probeModule)) { throw "probe module not found: $probeModule" }
     Remove-Item -LiteralPath $probeReport -Force -ErrorAction SilentlyContinue
     $overlayPath = Join-Path $scratch "official-smoke-probe.overlay.yml"
     Set-Content -LiteralPath $overlayPath -Encoding utf8 -Value @"
+- id: bash-sandbox
+  disabled: true
+
+- id: pwsh-sandbox
+  disabled: true
+
 - insert:
+    - id: wsl-shell
+      name: 'dsh-plugin-wsl-env/shell'
+      config:
+        distro: '$distro'
+        loginShell: true
+
     - id: official-smoke-probe
       name: '$probeModule'
       config:
@@ -154,8 +170,11 @@ try {
     $overlayPath = Join-Path $scratch "official-smoke-probe.overlay.yml"
     # $script: scope: a Step body runs in a child scope, and finally must see
     # the process to stop it when this step throws.
+    # No --expose-internals here: run.sh passes it to the ELECTRON wrapper
+    # before the CLI path; handed to dsh.cmd directly it swallows --profile
+    # (run 44914824185 failed with "--profile <name> is required").
     $script:probeProcess = Start-Process -FilePath $dsh.FullName `
-      -ArgumentList @("--expose-internals", "--profile", $profileName, "--patch", $overlayPath, "--no-open", "--port", "0") `
+      -ArgumentList @("--profile", $profileName, "--patch", $overlayPath, "--no-open", "--port", "0") `
       -PassThru -RedirectStandardOutput $probeCliLog -RedirectStandardError "$probeCliLog.err"
     $deadline = (Get-Date).AddSeconds(240)
     $report = ""
@@ -197,7 +216,11 @@ try {
         $url = $Matches[1]
         try {
           $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 10
-          if ($r.StatusCode -eq 200) { return $url }
+          if ($r.StatusCode -eq 200) {
+            # The endpoint URL carries a session token; the evidence contract
+            # excludes auth tokens, so the recorded detail is redacted.
+            return $url -replace "token=[^&\s]+", "token=REDACTED"
+          }
         } catch {
           # The endpoint can refuse connections while the server warms up;
           # keep polling until the deadline.
@@ -230,25 +253,42 @@ try {
   Write-Host "[smoke] FAILED: $($_.Exception.Message)"
   $failed = $true
 } finally {
+  # Any FAIL row recorded here must also set $failed: the checks file alone
+  # does not drive this script's exit code when it runs standalone.
   if ($app) {
     if ($app.HasExited) {
       # An app that died on its own is not a stopped app; the smoke needed it
       # running, so any early exit is a failure regardless of the code.
       Record "FAIL" "app-stop" "Desktop exited early with $($app.ExitCode)"
+      $failed = $true
     } else {
       # The profile was booted with --no-open (headless server), so the smoke
       # force-stops it and requires the process to actually be gone. Clean-exit
       # evidence for the full suite remains the source gate's authority.
       Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
       $stopped = $app.WaitForExit(15000)
-      Record ($(if ($stopped) { "PASS" } else { "FAIL" })) "app-stop" $(if ($stopped) { "force-stopped and confirmed exited" } else { "still running 15s after Stop-Process" })
+      if (-not $stopped) {
+        Record "FAIL" "app-stop" "still running 15s after Stop-Process"
+        $failed = $true
+      } else {
+        Record "PASS" "app-stop" "force-stopped and confirmed exited"
+      }
     }
   } else {
     Record "FAIL" "app-stop" "Desktop was never started"
+    $failed = $true
   }
   if ($script:probeProcess -and -not $script:probeProcess.HasExited) {
     Stop-Process -Id $script:probeProcess.Id -Force -ErrorAction SilentlyContinue
     $script:probeProcess.WaitForExit(10000) | Out-Null
+  }
+  # The logs keep the web endpoint's session token; the evidence contract
+  # excludes auth tokens, so scrub them before the artifact upload.
+  foreach ($evidence in $log, "$log.err", $probeCliLog, "$probeCliLog.err") {
+    if ($evidence -and (Test-Path -LiteralPath $evidence)) {
+      $text = Get-Content -LiteralPath $evidence -Raw
+      Set-Content -LiteralPath $evidence -NoNewline -Value ($text -replace "token=[^&\s`"']+", "token=REDACTED")
+    }
   }
   # The profile home dies with $work; its startup logs are the composition
   # evidence (patch application, plugin load errors), so keep them.

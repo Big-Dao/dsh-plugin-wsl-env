@@ -15,6 +15,7 @@ import {
   tarballIdentity,
   validateEnv,
 } from "../scripts/official-harness-smoke.mjs";
+import { uncFor } from "./probe/official-smoke-probe.mjs";
 
 /** @param {string} p */
 const read = (p) => readFileSync(new URL(p, import.meta.url), "utf8");
@@ -68,8 +69,16 @@ test("resolveInstaller resolves the versioned CDN object and fails when absent",
   await assert.rejects(resolveInstaller("9.9.9", async () => ({ ok: false, status: 404 })), /HTTP 404/);
 });
 
-test("tarballIdentity reads name, version and sha512 from the tarball", () => {
-  const dir = mkdtempSync(join(tmpdir(), "dsh-smoke-tar-"));
+test("uncFor spells distro paths the plugin's UNC parser accepts", () => {
+  assert.equal(uncFor("Ubuntu-24.04", "/tmp/dsh-probe/probe-fs.txt"), "\\\\wsl.localhost\\Ubuntu-24.04\\tmp\\dsh-probe\\probe-fs.txt");
+  assert.equal(uncFor("ubuntu", "/tmp/x"), "\\\\wsl.localhost\\ubuntu\\tmp\\x");
+  // A forward slash right after the distro parses as part of the distro name
+  // (`<distro>/tmp/...`), which misroutes the target to another distro and
+  // turns the workspace root into `/` — the bug the helper exists to prevent.
+  assert.equal(uncFor("Ubuntu-24.04", "/tmp").includes("/"), false);
+});
+
+test("tarballIdentity reads name, version and sha512 from the tarball", () => {  const dir = mkdtempSync(join(tmpdir(), "dsh-smoke-tar-"));
   try {
     const pack = (/** @type {{ name: string, version: string }} */ manifest) => {
       rmSync(join(dir, "package"), { recursive: true, force: true });

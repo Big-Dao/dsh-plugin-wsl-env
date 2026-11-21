@@ -25,7 +25,8 @@ were part of the record.
   executable bits; the official installer resolves from the official CDN's
   exact-version path; the smoke verifies the installed `dsh --version` and
   runs a shell command, a workspace file operation, and a sandbox refusal
-  through the tarball-installed plugin; `workflow_dispatch` dry-runs the
+  through the tarball-installed plugin on a headless official-CLI boot with
+  the plugin's shell executor mounted; `workflow_dispatch` dry-runs the
   candidate path without publishing.
 
 ### Fixed

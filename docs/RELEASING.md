@@ -124,10 +124,13 @@ file's sha256 instead of verifying a published one, and requires `dsh
 package by its tarball/registry identity (name, version, sha512);
 `--dump-config` proves the profile composes the plugin with no skipped
 entries, and the through-plugin probe (`test/probe/official-smoke-probe.mjs`)
-runs one shell command, one workspace file operation, and one sandbox-refused
-command through the tarball-installed plugin. Logs land in
-`test/probe/.scratch/` and are uploaded as a release artifact, kept even when
-the smoke fails.
+runs on a headless boot of the official CLI — with the plugin's WSL shell
+executor inserted so `ctx.shell` is the plugin's — exercising one shell
+command, one workspace file operation through the routed filesystem, and one
+sandbox-refused command. This is provider-level coverage of the plugin
+package; the session-runtime preset path stays the source gate's authority.
+Logs land in `test/probe/.scratch/` and are uploaded as a release artifact,
+kept even when the smoke fails.
 
 Pushing the tag starts `.github/workflows/release.yml`. It does these things,
 in this order:

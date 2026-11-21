@@ -390,9 +390,9 @@ exit 0
 `);
     chmodSync(join(bin, "taskkill.exe"), 0o755);
     writeFileSync(join(bin, "powershell.exe"), `#!/usr/bin/env bash
-if [ "$*" = *"notlike '*--profile wslfs'*"* ]; then
-  printf '4242\n'
-fi
+case "$*" in
+  *-notlike*) printf '4242\n' ;;
+esac
 exit 0
 `);
     chmodSync(join(bin, "powershell.exe"), 0o755);
@@ -404,6 +404,7 @@ exit 0
         PATH: `${bin}:${process.env.PATH ?? ""}`,
         WSL_PROBE_SUITE: "p0.sh",
         WSL_PROBE_DIR: join(dir, "probes"),
+        WSL_PROBE_WORKER: "1",
         FAKE_TASKLIST_COUNT: count,
         FAKE_TASKKILL_MARKER: marker,
       },
@@ -414,6 +415,16 @@ exit 0
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+shellTest("package and runner expose detached local automation", () => {
+  const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+  assert.match(pkg.scripts["probe:all-closed"], /--include-fs/);
+
+  const runner = readFileSync(resolve(root, "test/probe/run-all-when-closed.sh"), "utf8");
+  assert.match(runner, /setsid/);
+  assert.match(runner, /WSL_PROBE_WORKER/);
+  assert.match(runner, /--wait-only/);
 });
 
 shellTest("suite runner exits 1 with failures distinguishable from the summary", () => {

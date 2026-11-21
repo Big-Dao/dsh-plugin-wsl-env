@@ -24,8 +24,54 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Packs the exact tagged commit and installs that tarball into the pinned
+  # official Harness before anything is published. Publish needs this job, so
+  # a failing candidate blocks the release; the logs are kept as an artifact.
+  candidate-package-smoke:
+    name: candidate package smoke (official Harness)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      # Harness compatibility floor; keep in step with docs/PEER-PARITY.md.
+      DSH_OFFICIAL_HARNESS_VERSION: "0.2.2-rc.2"
+      DSH_WSL_ENV_DISTRO: ${{ vars.DSH_WSL_ENV_DISTRO || 'Ubuntu' }}
+      DSH_WSL_ENV_PROFILE: ${{ vars.DSH_WSL_ENV_PROFILE || 'default' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: corepack enable pnpm
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: "pnpm"
+      - name: Tag matches the package version
+        run: node scripts/check-release-tag.mjs "$env:GITHUB_REF_NAME"
+      - name: Install
+        run: pnpm install --frozen-lockfile --config.minimum-release-age=0
+      - name: Pack the candidate tarball
+        shell: bash
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          pack_json="$(npm pack --json --ignore-scripts --pack-destination "$RUNNER_TEMP")"
+          file="$(printf '%s' "$pack_json" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8"))[0].filename')"
+          integrity="$(printf '%s' "$pack_json" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8"))[0].integrity')"
+          echo "candidate package@$version integrity $integrity"
+          echo "DSH_PLUGIN_PACKAGE_TARBALL=$RUNNER_TEMP/$file" >>"$GITHUB_ENV"
+      - name: Official Harness smoke
+        run: pnpm run smoke:official-harness
+      - name: Keep the smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: official-harness-smoke-logs
+          path: test/probe/.scratch/
+          if-no-files-found: warn
   publish:
     name: publish and release
+    needs:
+      - candidate-package-smoke
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # The environment is npm's trusted-publishing binding (repository + workflow

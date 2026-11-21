@@ -89,6 +89,12 @@ GitHub Release do. The tag push starts the release workflow described in step 5.
 
 ### The tag-triggered workflow
 
+Stable publishing is blocked until the `candidate-package-smoke` job succeeds: it
+packs the tagged commit, runs `pnpm run smoke:official-harness` against the
+pinned official Harness (`DSH_OFFICIAL_HARNESS_VERSION`, the floor in
+`docs/PEER-PARITY.md`) and uploads its logs as a release artifact, kept even
+when the smoke fails.
+
 Pushing the tag starts `.github/workflows/release.yml`. It does five things, in
 this order:
 

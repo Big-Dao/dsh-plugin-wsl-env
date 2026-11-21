@@ -238,6 +238,16 @@ check("coverage-gate publishes the table to GITHUB_STEP_SUMMARY", () => {
   }
 });
 
+check("release publish requires the candidate official-harness package smoke", () => {
+  const release = readFileSync(join(ROOT, ".github", "workflows", "release.yml"), "utf8");
+  assert.match(release, /candidate-package-smoke/);
+  assert.match(release, /official-harness-smoke/);
+  assert.match(release, /npm pack --json/);
+  assert.match(release, /needs:\s*\[?\s*(-\s*)?candidate-package-smoke/);
+  assert.match(release, /package@\$version/);
+  assert.doesNotMatch(release, /npm install dsh-plugin-wsl-env\s*$/m);
+});
+
 let failed = 0;
 for (const [name, fn] of checks) await runCheck(name, fn);
 failed = checks.length - passed;

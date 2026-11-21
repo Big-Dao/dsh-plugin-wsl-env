@@ -104,10 +104,12 @@ GitHub Release do. The tag push starts the release workflow described in step 5.
 ### The tag-triggered workflow
 
 Stable publishing is blocked until the `candidate-package-smoke` job succeeds: it
-packs the tagged commit, runs `pnpm run smoke:official-harness` against the
+packs the tagged commit once on Windows (the only pack: the same `.tgz` is uploaded as the `candidate-package` artifact and published unchanged with `npm publish --provenance --access public <tgz>`, never repacked), provisions Ubuntu 24.04 and the WSL prerequisites (systemd, `bubblewrap`, `dbus`, `git`, `curl`, linger), runs `pnpm run smoke:official-harness` against the
 pinned official Harness (`DSH_OFFICIAL_HARNESS_VERSION`, the floor in
 `docs/PEER-PARITY.md`) and uploads its logs as a release artifact, kept even
-when the smoke fails.
+when the smoke fails. The smoke identifies the package by its tarball/registry
+identity (name, version, sha512); `--dump-config` proves the profile composes
+the plugin, not the exact installed version.
 
 Pushing the tag starts `.github/workflows/release.yml`. It does five things, in
 this order:

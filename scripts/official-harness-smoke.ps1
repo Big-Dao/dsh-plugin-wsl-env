@@ -67,15 +67,30 @@ try {
     Where-Object { $_.Name -notmatch "(?i)uninstall" } | Select-Object -First 1
   if (-not $desktop) { Record "FAIL" "desktop-exe" "Desktop executable not found"; throw "Desktop executable not found" }
 
-  Step "plugin-add" {
-    Invoke-Native $dsh.FullName @("plugin", "add", $env:DSH_PLUGIN_PACKAGE_TARBALL) | Out-Null
-    $env:DSH_SMOKE_PACKAGE_IDENTITY
+  # An isolated DSH_HOME keeps the smoke away from any real profile; WSLENV
+  # forwards the variables into WSL, as in cloud-wsl-gate.yml.
+  $dshHome = Join-Path $work "dsh-home"
+  New-Item -ItemType Directory -Path $dshHome | Out-Null
+  $env:DSH_HOME = $dshHome
+  $env:WSLENV = "DSH_HOME:DSH_WSL_ENV_PROFILE:DSH_WSL_ENV_DISTRO"
+
+  Step "profile-init" {
+    Invoke-Native $dsh.FullName @($profileName, "--from-default-profile", "web", "--dump-config") | Out-Null
+    "profile $profileName from the default web profile"
   }
 
+  Step "plugin-add" {
+    $tarball = (Resolve-Path -LiteralPath $env:DSH_PLUGIN_PACKAGE_TARBALL).Path
+    Invoke-Native $dsh.FullName @("plugin", "--profile", $profileName, "add", "file:$tarball") | Out-Null
+    "tarball $($env:DSH_SMOKE_PACKAGE_IDENTITY) $(Split-Path -Leaf $tarball)"
+  }
+
+  # Dump-config proves composition only; the package
+  # identity is the tarball identity recorded above.
   Step "dump-config" {
     $cfg = Invoke-Native $dsh.FullName @("--profile", $profileName, "--dump-config")
     if ($cfg -notmatch "dsh-plugin-wsl-env") { throw "dsh-plugin-wsl-env missing from --dump-config" }
-    "dsh-plugin-wsl-env present in profile $profileName"
+    "dsh-plugin-wsl-env composed in profile $profileName"
   }
 
   $log = Join-Path $work "desktop.log"

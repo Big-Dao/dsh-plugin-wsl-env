@@ -249,8 +249,28 @@ check("release publish requires the candidate official-harness package smoke", (
   assert.match(release, /tarball-integrity:\s*\$\{\{\s*steps\.pack\.outputs\.integrity/);
   assert.match(release, /needs\.candidate-package-smoke\.outputs\.tarball-name/);
   assert.match(release, /integrity mismatch: .*CANDIDATE_INTEGRITY/);
+  assert.match(release, /name: candidate-package/);
+  assert.match(release, /download-artifact/);
+  assert.match(release, /npm publish "\$CANDIDATE_FILE" --provenance --access public/);
+  assert.equal((release.match(/npm pack --json --ignore-scripts/g) ?? []).length, 1, "the candidate is packed exactly once");
+  for (const job of ["candidate-package-smoke", "post-release-package-smoke"]) {
+    const body = release.slice(release.indexOf(`  ${job}:`));
+    const provision = body.indexOf("wsl.exe --install -d Ubuntu-24.04");
+    assert.ok(provision > 0 && provision < body.indexOf("pnpm run smoke:official-harness"), `${job} provisions WSL before the smoke`);
+  }
+  for (const needle of ["systemd=true", "--shutdown", "--set-default Ubuntu-24.04", "bubblewrap dbus git ca-certificates curl build-essential", "enable-linger"]) {
+    assert.ok(release.includes(needle), `provisioning includes ${needle}`);
+  }
   assert.match(release, /package@\$version/);
   assert.doesNotMatch(release, /npm install dsh-plugin-wsl-env\s*$/m);
+});
+
+check("official smoke script wires an isolated profile and the exact tarball", () => {
+  const ps = readFileSync(join(ROOT, "scripts", "official-harness-smoke.ps1"), "utf8");
+  for (const needle of ["$env:DSH_HOME", "$env:WSLENV", "--from-default-profile", "\"web\"", "\"plugin\", \"--profile\", $profileName, \"add\", \"file:$tarball\"", "--dump-config", "--no-open"]) {
+    assert.ok(ps.includes(needle), `smoke script contains ${needle}`);
+  }
+  assert.ok(!/installed (plugin )?version/i.test(ps), "no installed-version claim without evidence");
 });
 
 check("release verifies the published official package after publishing", () => {

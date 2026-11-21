@@ -37,8 +37,8 @@ jobs:
     env:
       # Harness compatibility floor; keep in step with docs/PEER-PARITY.md.
       DSH_OFFICIAL_HARNESS_VERSION: "0.2.2-rc.2"
-      DSH_WSL_ENV_DISTRO: ${{ vars.DSH_WSL_ENV_DISTRO || 'Ubuntu' }}
-      DSH_WSL_ENV_PROFILE: ${{ vars.DSH_WSL_ENV_PROFILE || 'default' }}
+      DSH_WSL_ENV_DISTRO: ${{ vars.DSH_WSL_ENV_DISTRO || 'Ubuntu-24.04' }}
+      DSH_WSL_ENV_PROFILE: ${{ vars.DSH_WSL_ENV_PROFILE || 'wsl' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -53,20 +53,46 @@ jobs:
         run: node scripts/check-release-tag.mjs "$env:GITHUB_REF_NAME"
       - name: Install
         run: pnpm install --frozen-lockfile --config.minimum-release-age=0
-      - name: Pack the candidate tarball
+      - name: Pack the candidate tarball (the only pack; publish uploads these bytes)
         id: pack
         shell: bash
         run: |
           version="$(node -p 'require("./package.json").version')"
-          pack_json="$(npm pack --json --ignore-scripts --pack-destination "$RUNNER_TEMP")"
+          mkdir -p candidate-package
+          pack_json="$(npm pack --json --ignore-scripts --pack-destination candidate-package)"
+          printf '%s' "$pack_json" >candidate-package/pack.json
           file="$(printf '%s' "$pack_json" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8"))[0].filename')"
           integrity="$(printf '%s' "$pack_json" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8"))[0].integrity')"
           echo "candidate package@$version integrity $integrity"
-          echo "DSH_PLUGIN_PACKAGE_TARBALL=$RUNNER_TEMP/$file" >>"$GITHUB_ENV"
+          echo "DSH_PLUGIN_PACKAGE_TARBALL=$GITHUB_WORKSPACE/candidate-package/$file" >>"$GITHUB_ENV"
           echo "name=$file" >>"$GITHUB_OUTPUT"
           echo "integrity=$integrity" >>"$GITHUB_OUTPUT"
+      - name: Provision Ubuntu 24.04 and WSL prerequisites
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          & wsl.exe --install -d Ubuntu-24.04 --no-launch --web-download
+          if ($LASTEXITCODE -ne 0) { throw "Ubuntu install failed: exit=$LASTEXITCODE" }
+          & wsl.exe -d Ubuntu-24.04 -u root --exec bash -lc "printf '[boot]\nsystemd=true\n' > /etc/wsl.conf"
+          if ($LASTEXITCODE -ne 0) { throw "Ubuntu systemd configuration failed: exit=$LASTEXITCODE" }
+          & wsl.exe --shutdown
+          if ($LASTEXITCODE -ne 0) { throw "WSL shutdown failed: exit=$LASTEXITCODE" }
+          & wsl.exe --set-default Ubuntu-24.04
+          if ($LASTEXITCODE -ne 0) { throw "default distro selection failed: exit=$LASTEXITCODE" }
+          & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get update
+          if ($LASTEXITCODE -ne 0) { throw "apt-get update failed: exit=$LASTEXITCODE" }
+          & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get install -y --no-install-recommends bubblewrap dbus git ca-certificates curl build-essential
+          if ($LASTEXITCODE -ne 0) { throw "WSL prerequisite install failed: exit=$LASTEXITCODE" }
+          & wsl.exe -d Ubuntu-24.04 -u root --exec loginctl enable-linger root
+          if ($LASTEXITCODE -ne 0) { throw "Ubuntu linger setup failed: exit=$LASTEXITCODE" }
       - name: Official Harness smoke
         run: pnpm run smoke:official-harness
+      - name: Keep the exact candidate tarball and pack identity
+        uses: actions/upload-artifact@v7
+        with:
+          name: candidate-package
+          path: candidate-package/
+          if-no-files-found: error
       - name: Keep the smoke evidence
         if: always()
         uses: actions/upload-artifact@v7
@@ -128,9 +154,32 @@ jobs:
           sudo apt-get install -y --no-install-recommends qemu-user qemu-user-binfmt
           node agent/native/spike/test.mjs agent/native/linux-x86_64/dsh-wsl-agent
           node agent/native/spike/test.mjs agent/native/linux-aarch64/dsh-wsl-agent
+      # The bytes that passed the smoke are the bytes that ship: download the
+      # candidate tarball built once on Windows (no repack) and require its
+      # sha512 integrity and pack metadata to equal the candidate job's outputs.
+      - name: Download the candidate tarball
+        uses: actions/download-artifact@v7
+        with:
+          name: candidate-package
+          path: candidate-package
+      - name: Candidate tarball matches the smoke candidate
+        id: candidate
+        env:
+          CANDIDATE_NAME: ${{ needs.candidate-package-smoke.outputs.tarball-name }}
+          CANDIDATE_INTEGRITY: ${{ needs.candidate-package-smoke.outputs.tarball-integrity }}
+        run: |
+          [ -n "$CANDIDATE_NAME" ] && [ -n "$CANDIDATE_INTEGRITY" ] || { echo "candidate outputs missing" >&2; exit 1; }
+          file="candidate-package/$CANDIDATE_NAME"
+          [ -f "$file" ] || { echo "candidate tarball missing: $file" >&2; exit 1; }
+          integrity="sha512-$(openssl dgst -sha512 -binary "$file" | openssl base64 -A)"
+          [ "$integrity" = "$CANDIDATE_INTEGRITY" ] || { echo "integrity mismatch: $integrity != $CANDIDATE_INTEGRITY" >&2; exit 1; }
+          [ "$(node -p 'JSON.parse(require("fs").readFileSync("candidate-package/pack.json","utf8"))[0].integrity')" = "$CANDIDATE_INTEGRITY" ] || { echo "pack.json integrity mismatch" >&2; exit 1; }
+          echo "file=$file" >>"$GITHUB_OUTPUT"
+          echo "count=$(node -p 'JSON.parse(require("fs").readFileSync("candidate-package/pack.json","utf8"))[0].files.length')" >>"$GITHUB_OUTPUT"
       # Re-running a release after a partial failure must not end at a 409. Ask the
       # registry whether this version is already published, and skip the upload when
-      # it is, so the job still gets to create the GitHub Release.
+      # it is, so the job still gets to create the GitHub Release. The integrity
+      # check below still runs against what the registry serves.
       - name: Is this version already on the registry?
         id: published
         run: |
@@ -145,57 +194,30 @@ jobs:
       # this repository, this workflow file and the `npm-publish` environment; see
       # docs/RELEASING.md. If that is not set up, add an NPM_TOKEN repository secret
       # and hand it to this step as `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}`.
-      # The published bytes must be the candidate that passed the smoke: repack
-      # and require the same tarball name and sha512 integrity before uploading.
-      - name: Publish tarball matches the smoke candidate
+      - name: Publish the candidate tarball
         if: steps.published.outputs.exists != 'true'
+        # A prerelease version must never move npm's `latest` tag. The
+        # tag/version discipline lives in scripts/check-release-tag.mjs; the
+        # dist-tag policy lives here. Publishing a tarball path runs no
+        # lifecycle scripts, and the Gates step has already run the full chain.
         env:
-          CANDIDATE_NAME: ${{ needs.candidate-package-smoke.outputs.tarball-name }}
-          CANDIDATE_INTEGRITY: ${{ needs.candidate-package-smoke.outputs.tarball-integrity }}
-        run: |
-          [ -n "$CANDIDATE_NAME" ] && [ -n "$CANDIDATE_INTEGRITY" ] || { echo "candidate outputs missing" >&2; exit 1; }
-          pack_json="$(npm pack --json --ignore-scripts --pack-destination "$RUNNER_TEMP" 2>/dev/null)"
-          name="$(printf '%s' "$pack_json" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8"))[0].filename')"
-          integrity="$(printf '%s' "$pack_json" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8"))[0].integrity')"
-          [ "$name" = "$CANDIDATE_NAME" ] || { echo "tarball name mismatch: $name != $CANDIDATE_NAME" >&2; exit 1; }
-          [ "$integrity" = "$CANDIDATE_INTEGRITY" ] || { echo "integrity mismatch: $integrity != $CANDIDATE_INTEGRITY" >&2; exit 1; }
-      - name: Publish
-        if: steps.published.outputs.exists != 'true'
-        # A prerelease version must never move npm's `latest` tag — every
-        # `npm install dsh-plugin-wsl-env` consumer would take the rc. The
-        # tag↔version discipline lives in scripts/check-release-tag.mjs; the
-        # dist-tag policy lives here.
-        #
-        # --ignore-scripts skips the `prepublishOnly` hook (`pnpm test`): the
-        # Gates step above has already run the full chain, and npm would
-        # otherwise re-run it end to end a second time. A hand-run publish
-        # keeps the hook — package.json's `prepublishOnly` stays the safety
-        # net there. The tarball's contents are still verified without it:
-        # test/packaging.test.mjs packs and checks the file list inside the
-        # Gates, and the registry read-back step below compares counts.
+          CANDIDATE_FILE: ${{ steps.candidate.outputs.file }}
         run: |
           version="$(node -p 'require("./package.json").version')"
           if echo "$version" | grep -qE -- '-(rc|alpha|beta|next)\.'; then
-            npm publish --provenance --access public --tag next --ignore-scripts
+            npm publish "$CANDIDATE_FILE" --provenance --access public --tag next
           else
-            npm publish --provenance --access public --ignore-scripts
+            npm publish "$CANDIDATE_FILE" --provenance --access public
           fi
-      # The step that used to be docs-only (RELEASING.md's registry
-      # verification; skipping it is how the 0.1.1 README incident shipped):
-      # the tarball's file count, readme and CONTENT must match what npm pack
-      # built. dist.integrity is the content-level proof that provenance only
-      # attests the builder, not the bytes.
-      - name: Verify what the registry now serves
-        if: steps.published.outputs.exists != 'true'
+      # Registry read-back (skipping it is how the 0.1.1 README incident
+      # shipped): served dist.integrity must equal the candidate's. Runs for an
+      # already-published version too, so a re-run never trusts stale bytes.
+      - name: Verify what the registry serves
+        env:
+          CANDIDATE_INTEGRITY: ${{ needs.candidate-package-smoke.outputs.tarball-integrity }}
+          LOCAL_COUNT: ${{ steps.candidate.outputs.count }}
         run: |
           version="$(node -p 'require("./package.json").version')"
-          pack_json="$(npm pack --json --ignore-scripts --pack-destination "$RUNNER_TEMP" 2>/dev/null)"
-          local_count="$(printf '%s' "$pack_json" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8"))[0].files.length')"
-          local_integrity="$(printf '%s' "$pack_json" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8"))[0].integrity')"
-          # npm publishes before the version is resolvable: the upload prints
-          # success while the packument still 404s for a minute or two (see
-          # docs/RELEASING.md "Operational facts"). Poll instead of checking
-          # once, or a healthy publish fails this step and skips the Release.
           served_count=""
           served_integrity=""
           # Registry propagation has taken ~6 minutes (0.26.0); 10 minutes
@@ -209,11 +231,10 @@ jobs:
           done
           [ -n "$served_count" ] && [ -n "$served_integrity" ] || { echo "registry never served $version within 10 minutes" >&2; exit 1; }
           served_readme="$(npm view "dsh-plugin-wsl-env@$version" readmeFilename --registry=https://registry.npmjs.org/)"
-          echo "tarball files: $local_count; registry serves: $served_count; readme: $served_readme"
-          echo "local integrity:  $local_integrity"
-          echo "served integrity: $served_integrity"
-          [ "$local_count" = "$served_count" ] || { echo "file-count mismatch — the tarball on the registry is not what npm pack built" >&2; exit 1; }
-          [ "$local_integrity" = "$served_integrity" ] || { echo "integrity mismatch — the registry's tarball is not the bytes npm pack built" >&2; exit 1; }
+          echo "candidate integrity: $CANDIDATE_INTEGRITY"
+          echo "served integrity:    $served_integrity"
+          [ "$LOCAL_COUNT" = "$served_count" ] || { echo "file-count mismatch: candidate $LOCAL_COUNT, registry $served_count" >&2; exit 1; }
+          [ "$CANDIDATE_INTEGRITY" = "$served_integrity" ] || { echo "integrity mismatch: the registry's tarball is not the smoke candidate" >&2; exit 1; }
           [ "$served_readme" = "README.md" ] || { echo "readmeFilename is '$served_readme', expected README.md" >&2; exit 1; }
       - name: GitHub Release, notes from the changelog
         env:
@@ -239,8 +260,8 @@ jobs:
       issues: write
     env:
       DSH_OFFICIAL_HARNESS_VERSION: "0.2.2-rc.2"
-      DSH_WSL_ENV_DISTRO: ${{ vars.DSH_WSL_ENV_DISTRO || 'Ubuntu' }}
-      DSH_WSL_ENV_PROFILE: ${{ vars.DSH_WSL_ENV_PROFILE || 'default' }}
+      DSH_WSL_ENV_DISTRO: ${{ vars.DSH_WSL_ENV_DISTRO || 'Ubuntu-24.04' }}
+      DSH_WSL_ENV_PROFILE: ${{ vars.DSH_WSL_ENV_PROFILE || 'wsl' }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -275,6 +296,24 @@ jobs:
           echo "tarball integrity:  $integrity"
           [ "$integrity" = "$served_integrity" ] || { echo "integrity mismatch: downloaded tarball differs from the registry" >&2; exit 1; }
           echo "DSH_PLUGIN_PACKAGE_TARBALL=$RUNNER_TEMP/published/$file" >>"$GITHUB_ENV"
+      - name: Provision Ubuntu 24.04 and WSL prerequisites
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          & wsl.exe --install -d Ubuntu-24.04 --no-launch --web-download
+          if ($LASTEXITCODE -ne 0) { throw "Ubuntu install failed: exit=$LASTEXITCODE" }
+          & wsl.exe -d Ubuntu-24.04 -u root --exec bash -lc "printf '[boot]\nsystemd=true\n' > /etc/wsl.conf"
+          if ($LASTEXITCODE -ne 0) { throw "Ubuntu systemd configuration failed: exit=$LASTEXITCODE" }
+          & wsl.exe --shutdown
+          if ($LASTEXITCODE -ne 0) { throw "WSL shutdown failed: exit=$LASTEXITCODE" }
+          & wsl.exe --set-default Ubuntu-24.04
+          if ($LASTEXITCODE -ne 0) { throw "default distro selection failed: exit=$LASTEXITCODE" }
+          & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get update
+          if ($LASTEXITCODE -ne 0) { throw "apt-get update failed: exit=$LASTEXITCODE" }
+          & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get install -y --no-install-recommends bubblewrap dbus git ca-certificates curl build-essential
+          if ($LASTEXITCODE -ne 0) { throw "WSL prerequisite install failed: exit=$LASTEXITCODE" }
+          & wsl.exe -d Ubuntu-24.04 -u root --exec loginctl enable-linger root
+          if ($LASTEXITCODE -ne 0) { throw "Ubuntu linger setup failed: exit=$LASTEXITCODE" }
       - name: Official Harness smoke on the published package
         run: pnpm run smoke:official-harness
       - name: Keep the smoke evidence

@@ -16,6 +16,23 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-11-22
+
+Release-evidence release: the official-package smoke gates publication and
+post-release verification end to end on a real runner, the local probe suite
+closes the app itself, and the hosted gate's evidence became falsifiable. No
+plugin runtime behavior changed.
+
+### Added
+
+- **`pnpm run probe:all-closed` closes ordinary Harness processes itself.**
+  The local full-suite entry ends any running Harness (a leftover probe
+  instance counts) with a process-tree kill, waits for the exits, and then
+  runs the suite; a probe instance that survives the close is refused
+  fail-closed, and a failed taskkill surfaces instead of silently sharing the
+  machine with the suite. The hosted gate drives the same runner in wait-only
+  mode, so its evidence stays synchronous with the step that reads it.
+
 ### Changed
 
 - **Release workflows now gate publication and post-release verification
@@ -27,10 +44,19 @@ were part of the record.
   runs a shell command, a workspace file operation, and a sandbox refusal
   through the tarball-installed plugin on a headless official-CLI boot with
   the plugin's shell executor mounted; `workflow_dispatch` dry-runs the
-  candidate path without publishing.
+  candidate path without publishing. Validated end to end by dispatch dry run
+  44926384431; hosted WSL provisioning is watchdog-protected against runner
+  hangs.
 
 ### Fixed
 
+- **The hosted Windows gate's probe evidence is falsifiable.** The suite runs
+  against a staged ext4 checkout instead of a silent base64 handoff, requires
+  positive probe evidence, derives the suite pass count from the summary, and
+  asserts the bwrap marker and dbus prerequisite; documentation claims that
+  no real FULL PASS run backed were downgraded. The terminal probe pins
+  `/bin/bash` and runs against a prewarmed distro, so first-run provisioning
+  output can no longer be mistaken for terminal results.
 - **`pnpm run sync:windows` verifies the Windows mirror's content and tolerates
   the drvfs metadata.** The script excludes the untracked agent artifacts
   (`.v2c`, `.video_agent`), skips the utime/chmod/chown calls the `/mnt/c`

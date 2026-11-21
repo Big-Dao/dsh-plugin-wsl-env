@@ -22,6 +22,7 @@
       name: 'dsh-plugin-wsl-env/subprocess'
       config:
         distro: ''
+        shell: '/bin/bash'
 
     - id: terminal-probe
       name: './terminal-probe.mjs'

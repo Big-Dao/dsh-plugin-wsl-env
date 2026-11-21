@@ -74,3 +74,7 @@ assert.match(contributing, /ci\.yml.*probes|`probes`.*任务/s);
 assert.match(workflow, /DSH_WSL_ENV_PROBE_SETTLE_MS/);
 assert.match(workflow, /DSH_WSL_ENV_PROBE_READ_MS/);
 assert.match(workflow, /HOSTED-TERMINAL-PREWARM-OK/);
+assert.match(
+  readFileSync(resolve(ROOT, "test/probe/terminal-probe.yml"), "utf8"),
+  /shell:\s*'\/bin\/bash'/,
+);

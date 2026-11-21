@@ -79,7 +79,6 @@ R29 的基线为 0.25.0（2026-11-11），R30 的基线为 0.26.0（2026-11-12�
 | # | 事项 | 性质 | 出处 |
 |---|---|---|---|
 | OI-1 | 非功能无量化目标：冷启动上界、常驻 agent 内存上界、watch 通知延迟上界均无规定 | 决策待定（开发工具语境可辩护，企业语境缺口） | 本表 R20 残差 |
-| OI-2 | GitHub-hosted `windows-latest` 真机闭合套件须产出并上传可证伪证据：完整 log、19 项 results、`FULL PASS`、各 probe report；静态 contract test 不替代运行时证据。 | 工程项；门禁修复后须有一次真实运行才能关闭 | `.github/workflows/cloud-wsl-gate.yml`；`test/cloud-wsl-gate.test.mjs` |
 | OI-3 | 默认翻转（substrate、协议 v3→v4）无灰度、无遥测；迁移安全押在 boot 拒绝与响亮错误上 | OSS 取舍，企业语境缺口 | CHANGELOG 0.3.0 / 0.7.3 |
 | OI-4 | 端口轮询经共享 agent 使常驻进程永不闲置回收（LIMITATIONS 已记）；工程修复＝移出共享 agent 或改 one-shot | 工程项 | `lib/shell-env.js:173`（端口扫描）、`:190`（刷新计时器） |
 | OI-5 | 发布后无目录 fsync，shell agent 忽略 `sync -f` 失败；机器崩溃可能丢失数据或目录项（见 LIMITATIONS） | 工程项 | `agent/wsl-agent.sh`、`agent/native/spike/src/main.rs` |

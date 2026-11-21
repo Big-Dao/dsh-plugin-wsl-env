@@ -17,10 +17,13 @@ the official CDN's exact-version path — the upstream GitHub releases publish
 no installer assets. Static contract tests are `test/release-scripts.test.mjs`,
 `test/official-harness-smoke.test.mjs`, and the tarball-mode check in
 `test/packaging.test.mjs`. `workflow_dispatch` dry runs the candidate path
-without publishing. Validated by dispatch dry runs: CDN resolution, sha256
-recording, the `dsh --version` pin, and composition are green on a real runner
-(run 44914824185 and earlier); the through-plugin probe was still being
-debugged at the time of writing.
+without publishing. Validated end to end on a real runner by dispatch dry run
+44926384431: CDN resolution, sha256 recording, the `dsh --version` pin,
+composition without skipped entries, all three through-plugin seams (shell
+command, routed filesystem write/read, sandbox refusal), web readiness with
+the token redacted, and app-stop all PASS, with the redacted logs and the
+probe report in the evidence artifact. WSL provisioning is watchdog-protected
+against hosted-runner hangs (runs 44916280237, 44920649147).
 
 ## Problem
 

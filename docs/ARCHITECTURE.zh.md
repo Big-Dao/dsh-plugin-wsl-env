@@ -399,8 +399,9 @@ peer 投影到安装处的同一份副本，因此镜像与运行中的应用共
 零依赖。CI 在 Linux 和 Windows、Node 22 和 24 上运行 `pnpm test`，只在
 Node 24 上运行 `pnpm run test:coverage`——阈值标志需要 Node 22.8。Node 20
 是有意缺席的：`engines` 要求 `^22.19.0 || >=24.0.0`，即 harness 宿主自身的
-下限。harness 探针是手动步骤，因为托管 runner 没有 WSL 发行版，也没有可挂载
-的 profile。
+下限。本机 harness 探针仍是真机步骤；托管
+`.github/workflows/cloud-wsl-gate.yml` 同时自行准备 Ubuntu，并在 Desktop
+进程退出后运行 19 项闭合 Probe 套件。
 
 探针脚本共用
 [`test/probe/env.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/env.sh)，

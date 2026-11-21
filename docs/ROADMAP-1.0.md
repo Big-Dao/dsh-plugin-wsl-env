@@ -43,7 +43,7 @@ North-star metrics:
 |---|---|
 | Tier 1 first-run success | >= 95% |
 | Time to first successful WSL command | p50 <= 5 min, p90 <= 15 min |
-| Real-machine probe suite | 100% on Tier 1 before release (manual closed-app suite) |
+| Real-machine probe suite | 100% on Tier 1 before release (local and hosted closed-app suite) |
 | Known documentation drift | 0 |
 
 ## 2. The 0.15.0 baseline
@@ -170,7 +170,7 @@ may move if the compatibility matrix exposes a higher-severity failure.
 |---|---|---|---|
 | Time to first command | Not systematically measured | p50 <= 5 min, p90 <= 15 min | Ten clean-machine runs |
 | Tier 1 first-run success | Not measured | >= 95% | Compatibility matrix |
-| Real-machine probes | Full `--include-fs` suite run locally before release with the app closed; a manual `probes` dispatch is available once a self-hosted Windows+WSL runner exists. The nightly schedule and its heartbeat were removed on 2026-11-18 because none is registered | 100% green before release | Local closed-app suite output; manual `probes` run |
+| Real-machine probes | Full `--include-fs` suite runs in `.github/workflows/cloud-wsl-gate.yml` on GitHub-hosted `windows-latest` after the app closes; the suite can also run locally | 100% green before release | Hosted Cloud WSL Gate artifacts; local closed-app suite output |
 | FS single-op p95 | ~22ms host round trip | <= 30ms | `fs-queue.mjs` |
 | 16 concurrent reads p95 | 2.4-8.2ms | <= 20ms | `fs-queue.mjs` |
 | GUI preview p95 | Backend 63.5 ms/MiB (service round trips on top) | <= 1s/MiB | `probe:gui-preview` |
@@ -189,7 +189,7 @@ probe reports.
 | Upstream never lands a seam | Keep the plugin independent; promotion work is packaging and proof, not a dependency |
 | Multi-distro refactor destabilizes routing | Introduce `distro: auto` behind tests; keep explicit pins; run two-distro probes before release |
 | `sessionSandbox: auto` hides a semantic change | Still use bwrap; report the scope mode in the result; explicit `true` keeps the strict behavior |
-| Real-machine CI is unavailable | Manual closed-app suite before release; qemu for the aarch64 binary; attach a self-hosted Windows+WSL runner and re-enable the manual `probes` dispatch if continuous evidence is needed |
+| Hosted probe evidence is stale or incomplete | Fail the Gate on FAIL, SKIP, or NOT RUN; upload logs and reports even on failure; rerun locally when diagnosing runner-specific drift |
 | Solo maintenance and bus factor | Freeze scope for 1.0; document every seam; keep the issue templates and probes current |
 | Security overclaim | Keep `enforcement: partial`; the strict preset narrows, never closes, the interop hole |
 | GUI regression repeats | Never replace the shipped `workspace-files` row again; only route and optimize |
@@ -467,10 +467,10 @@ but never executed.
       evidence (COMPATIBILITY.md). Physical aarch64 and Windows 10 are
       documented as out of scope rather than untested claims.
 
-**Tests/probes:** container matrix, qemu spike, COMPATIBILITY.md; the manual
-`probes` job is GitHub-hosted `windows-latest` and skips without WSL. The
-nightly schedule was removed on 2026-11-18 (no self-hosted runner); run the
-closed-app suite locally for evidence.
+**Tests/probes:** container matrix, qemu spike, COMPATIBILITY.md; the
+Cloud WSL Gate is GitHub-hosted `windows-latest` and provisions Ubuntu plus
+a second probe distro, then runs the 19-entry closed-app suite after Desktop
+exits. Local closed-app output remains available for diagnosis.
 
 **Depends on:** WSL-201 for non-systemd; WSL-203 for packaging.
 

@@ -60,7 +60,8 @@
   记录托管 Windows Desktop + WSL 的端到端基线：upstream tag 构建的 unsigned
   Desktop、Ubuntu/第二 Ubuntu 实例、Node/systemd/bubblewrap、当前检出的插件、桌面
   bundled CLI、组合配置、Desktop/Web 就绪、工作区围栏与退出应用后的闭合
-  probe suite。
+  probe suite。完整套件有 19 项；只有全部 PASS 且没有 SKIP/NOT RUN 才算
+  FULL PASS，证据包括 profile dump、Desktop 日志、完整结果和各 probe report。
 - [发布流程](RELEASING.md) 定义版本、tag、发布和核验步骤；
   [变更日志](../CHANGELOG.md) 按版本记录变更，不反向改写历史条目。
 - [支持政策](../SUPPORT.zh.md)、[行为准则](../CODE_OF_CONDUCT.zh.md)（英文页

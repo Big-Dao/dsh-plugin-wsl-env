@@ -124,13 +124,11 @@ maintainer joins the release rotation.
 
 ### Repository settings the workflow cannot verify
 
-There is currently **no self-hosted runner registered** for this repository, so
-the Windows matrix legs run on GitHub-hosted `windows-latest`. The nightly
-`probes` schedule and its freshness heartbeat were removed on 2026-11-18: with
-no runner, a scheduled run could only be a hosted no-op. The real-machine
-evidence path is the local closed-app suite
-(`test/probe/run-all-when-closed.sh --include-fs`, run with the app exited), or
-the manual `probes` workflow once a self-hosted Windows+WSL runner is attached.
+The Windows matrix legs run on GitHub-hosted `windows-latest`. The
+`.github/workflows/cloud-wsl-gate.yml` Cloud WSL Gate provisions Ubuntu and WSL
+itself, and runs the 19-entry closed-app suite after Desktop exits. Local
+evidence remains available through
+`test/probe/run-all-when-closed.sh --include-fs`.
 
 If a runner is added later, give it a custom `self-hosted-wsl` label rather than
 the hosted `windows-latest` label, and update every matrix / `runs-on` /

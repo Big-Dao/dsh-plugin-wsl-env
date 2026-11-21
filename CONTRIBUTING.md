@@ -240,33 +240,33 @@ for HTTP readiness, verifies the in-distro bwrap workspace fence, prepares a
 the Desktop process, and runs
 `test/probe/run-all-when-closed.sh --include-fs`. The suite is green only when
 every selected probe reports PASS and there are no SKIP or NOT RUN entries.
+The suite currently has 19 entries: `run.sh`, `terminal.sh`, `mode.sh`,
+`missing-wsl.sh`, `sandbox.sh`, `cache-write.sh`, `sandbox-shell.sh`,
+`interop-shell.sh`, `sandbox-off.sh`, `picker.sh`, `two-distro.sh`,
+`fs-routing.sh`, `agent.sh`, `agent-restart.sh`, `watch.sh`, `substrate.sh`,
+`exec.sh`, `native-session.sh`, and `auto-preset.sh`. It verifies real Desktop
+startup, profile composition, closed-app behavior, Linux and Windows filesystem
+routing, resident/native agent behavior, bwrap boundaries, Terminal, Picker,
+multiple distros, watcher invalidation, session runtime, and automatic preset
+selection. The workflow uploads the composed profile, Desktop logs, full probe
+log and results, and probe reports even on failure.
 
 The rows marked "no; inside the distro" (`substrate`, `watch`, `agent`, `exec`)
 still need Windows and WSL2, but no harness boot and no profile: run them from a
 distro terminal with Node available, and they reach `wsl.exe` through interop.
 
 Two conveniences for the real-machine set. `test/probe/run-all-when-closed.sh
---include-fs` runs the full closed-app suite once the app has exited. The interop
-shell matrix uses the `wslfs` profile, systemd and a lingering user manager; it
-fails when Windows interop or its temporary marker cannot be verified.
+--include-fs` runs the full closed-app suite once the app has exited. The
+interoperability shell matrix uses the `wslfs` profile, systemd and a lingering
+user manager; it fails when Windows interoperability or its temporary marker
+cannot be verified.
 
-The `ci.yml` `probes` job is **manual-only** (`workflow_dispatch`) and requires a
-self-hosted Windows+WSL runner with the harness app and a configured profile;
-`runs-on` is the GitHub-hosted `windows-latest` label, so dispatching it without
-such a runner fails with a named error rather than passing. If the hosted runner
-has no usable distro, the job stops at the distro preflight instead of reporting
-probe success.
-No self-hosted runner is registered for this repository today (2026-11-18), so
-the documented path is the local closed-app command above. The nightly schedule
-and its `probe-heartbeat` were removed on the same date for that reason; there is
-no scheduled probe evidence to miss. A manual run still uploads
-`probe-evidence-<run>` as the evidence artifact.
-
-**Self-hosted runners.** None is currently registered for this repository, so
-the Windows matrix legs run on GitHub-hosted `windows-latest`. If one is added
-later, give it a custom label such as `self-hosted-wsl` rather than the hosted
-`windows-latest` label, and update every matrix / `runs-on` / fork-gate
-reference together. The release workflow's `npm-publish` environment
+**Runner labels.** The Windows unit matrix can run on GitHub-hosted
+`windows-latest`; the hosted Cloud WSL Gate provisions WSL itself. If a
+self-hosted Windows+WSL runner is later added, give it a custom label such as
+`self-hosted-wsl` rather than the hosted `windows-latest` label, and update
+every matrix / `runs-on` / fork-gate reference together. The release
+workflow's `npm-publish` environment
 intentionally has no required reviewers (single-maintainer decision).
 
 Also note the install steps carry `--config.minimum-release-age=0` (pnpm 11.7's

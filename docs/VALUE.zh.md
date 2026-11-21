@@ -138,12 +138,14 @@ Remote-SSH 也能在 Windows 上连 WSL 发行版（VS Code 连本机 WSL 更常
 |---|---|
 | 每次提交 | `pnpm test`：风格、相对链接、需求引用、文档一致性、语法、构建逐字节一致、`tsc --noEmit`、单测全过 |
 | 覆盖率 | `pnpm run test:coverage`，门限 85/84/70（行/分支/函数） |
-| 真机 | 探针套件（`test/probe/run-all-when-closed.sh --include-fs`），含沙箱边界演示、agent/one-shot 双路径对拍、文件基座、终端、选择器 |
-| CI | Node 22 / 24 × Linux / Windows 跑 `pnpm test`；覆盖率在 Node 24 |
+| 真机 | 本机或 GitHub 托管的闭合探针套件（`test/probe/run-all-when-closed.sh --include-fs`），含沙箱边界、agent/one-shot 对拍、文件基座、Terminal、Picker、多发行版和 session runtime |
+| CI | Node 22 / 24 × Linux / Windows跑 `pnpm test`；覆盖率在 Node 24；Cloud WSL Gate 在托管 `windows-latest` 上运行 19 项闭合套件 |
 | 上游接缝 | peer 钉版逐字节比对，[PEER-PARITY.md](PEER-PARITY.md)、[upstream/promotion-map.md](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/upstream/promotion-map.md) |
 | 行为承诺 | [REQUIREMENTS.zh.md](REQUIREMENTS.zh.md) 的 28 条登记（R1–R28）与追溯矩阵 |
 
-真机探针是手动步骤（托管 runner 没有 WSL 发行版），这是已记录的验证缺口（REQUIREMENTS 的 OI-2），不是隐性遗漏。
+19 项真机闭合套件也由 GitHub 托管的
+`.github/workflows/cloud-wsl-gate.yml` 执行。托管运行只有在所有探针均为
+PASS、且没有 SKIP 或 NOT RUN 时才算通过。
 
 ## 6. 决策规则
 

@@ -116,9 +116,22 @@ CI 在 `ubuntu-latest` 和 `windows-latest` 上，用 Node 22 和 24 运行 `pnp
 
 `.github/workflows/cloud-wsl-gate.yml` 增加了一道托管 DeepSeek Harness 桌面版与 WSL 门禁。它在每次目标为 `main` 的 pull request 和手动 `workflow_dispatch` 时，在 `windows-latest` 上从 upstream tag 构建 unsigned Windows Desktop，安装 Ubuntu 24.04、第二个 Ubuntu probe 实例、Node 24、systemd 与 `bubblewrap`，通过桌面 app 自带 CLI 创建 `wsl` profile、向 profile 安装当前检出的本地插件并核对组合配置，启动桌面应用的配置化 Web 服务并等待 HTTP 可访问，验证发行版内的 bwrap 工作区围栏，准备 `wslfs` probe profile 后在应用退出时运行 `test/probe/run-all-when-closed.sh --include-fs`。只有每项 probe 都报告 PASS 且没有 SKIP 或 NOT RUN 时，托管门禁才算通过。
 
+当前闭合套件共有 19 项：`run.sh`、`terminal.sh`、`mode.sh`、
+`missing-wsl.sh`、`sandbox.sh`、`cache-write.sh`、`sandbox-shell.sh`、
+`interop-shell.sh`、`sandbox-off.sh`、`picker.sh`、`two-distro.sh`、
+`fs-routing.sh`、`agent.sh`、`agent-restart.sh`、`watch.sh`、
+`substrate.sh`、`exec.sh`、`native-session.sh` 和 `auto-preset.sh`。
+套件真实验证 Desktop 启动、profile 组合、应用退出后的闭合行为、Linux/Windows
+文件路由、resident/native agent、bwrap 边界、Terminal、Picker、多发行版、
+watcher失效、session runtime 与自动 preset。工作流即使失败也会上传组合
+profile、Desktop 日志、完整 probe 日志和结果，以及 probe report。
+
 真机测试集有两个便利入口。`test/probe/run-all-when-closed.sh --include-fs` 在应用退出后运行完整闭合探针套件；托管 Cloud WSL Gate 已复用该入口并上传完整日志、结果和 report 文件。互操作 shell 矩阵使用 `wslfs` profile、systemd 和 lingering 的用户管理器；当 Windows 互操作或其临时标记无法验证时，它会失败。
 
-**自托管 runner 标签冲突——已知暴露面。** 开发机的自托管 runner 满足了 GitHub 托管的 `windows-latest` 标签，因此单元矩阵的 Windows 分支在每次 push 和 PR 时都在那里执行。来自 fork 的 PR 代码会在这些分支上被跳过（`ci.yml` 的步骤级 fork 门），但持久的修复是在 runner 设置中把其标签重命名为无歧义的名称（例如 `self-hosted-wsl`），并把 `ci.yml` 中两个 `windows-latest` 使用方重新指向它——在此之前，请把该标签视为共享基础设施，而不是托管容量。还要注意安装步骤带有 `--config.minimum-release-age=0`（pnpm 11.7 的 lockfile 重新验证会忽略 `minimumReleaseAgeExclude`；该标志是 `release.yml` 中记录的补救办法）。
+**Runner 标签。** Windows 单元矩阵可运行在 GitHub 托管的
+`windows-latest`；托管 Cloud WSL Gate 自行准备 WSL。若以后接入自托管
+Windows+WSL runner，请使用 `self-hosted-wsl` 等无歧义标签，不要复用托管
+`windows-latest` 标签，并同时更新所有 matrix / `runs-on` / fork-gate 引用。
 
 ## 新增测试
 

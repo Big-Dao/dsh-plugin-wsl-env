@@ -138,12 +138,14 @@ These are not a "will be fixed later" list but design boundaries: each one state
 |---|---|
 | Every commit | `pnpm test`: style, relative links, requirement references, documentation consistency, syntax, byte-for-byte build consistency, `tsc --noEmit`, all unit tests pass |
 | Coverage | `pnpm run test:coverage`, thresholds 85/84/70 (lines/branches/functions) |
-| Real machine | Probe suite (`test/probe/run-all-when-closed.sh --include-fs`), including sandbox boundary demonstrations, agent/one-shot dual-path cross-checks, the filesystem substrate, terminal, and picker |
-| CI | Node 22 / 24 × Linux / Windows run `pnpm test`; coverage on Node 24 |
+| Real machine | Local or GitHub-hosted probe suite (`test/probe/run-all-when-closed.sh --include-fs`), including sandbox boundaries, agent/one-shot parity, the filesystem substrate, Terminal, Picker, multiple distros, and session runtime |
+| CI | Node 22 / 24 × Linux / Windows run `pnpm test`; coverage on Node 24; Cloud WSL Gate runs the 19-entry closed-app suite on hosted `windows-latest` |
 | Upstream seams | peer pins compared byte for byte, [PEER-PARITY.md](PEER-PARITY.md), [upstream/promotion-map.md](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/upstream/promotion-map.md) |
 | Behavior commitments | 28 registered requirements (R1–R28) and the traceability matrix in [REQUIREMENTS.zh.md](REQUIREMENTS.zh.md) |
 
-The real-machine probe is a manual step (hosted runners have no WSL distribution); this is a recorded verification gap (OI-2 in REQUIREMENTS), not a hidden omission.
+The 19-entry real-machine suite also runs on GitHub-hosted `windows-latest` through
+`.github/workflows/cloud-wsl-gate.yml`. A hosted run is green only when every
+probe is PASS and no probe is SKIP or NOT RUN.
 
 ## 6. Decision rules
 

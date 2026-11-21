@@ -126,7 +126,7 @@ CI 在 `ubuntu-latest` 和 `windows-latest` 上，用 Node 22 和 24 运行 `pnp
 watcher失效、session runtime 与自动 preset。工作流即使失败也会上传组合
 profile、Desktop 日志、完整 probe 日志和结果，以及 probe report。
 
-真机测试集有两个便利入口。`test/probe/run-all-when-closed.sh --include-fs` 在应用退出后运行完整闭合探针套件；托管 Cloud WSL Gate 配置了同一入口，并要求完整日志、结果和 report 文件都进入 artifact，缺失或不完整即失败。静态 contract test 只能发现 workflow 与文件布局漂移，不能证明 runner 实际执行了套件。互操作 shell 矩阵使用 `wslfs` profile、systemd 和 lingering 的用户管理器；当 Windows 互操作或其临时标记无法验证时，它会失败。
+真机测试集有两个便利入口。`pnpm run probe:all-closed` 在发行版内启动脱离式 worker，自动关闭普通 DeepSeek Harness 进程并运行完整闭合套件（含 `run.sh`）；若发现残留的 `--profile wslfs` probe 实例，worker 会拒绝关闭和继续。维护者可用 `test/probe/run-all-when-closed.sh --include-fs --wait-only` 保留显式手动退出流程。包入口的完整日志和结果写入 `test/probe/.scratch`；只有 19 项全部 PASS 且无 SKIP/NOT RUN 时才是完整通过。托管 Cloud WSL Gate 配置了同一 suite runner，并要求完整日志、结果和 report 文件都进入 artifact，缺失或不完整即失败。静态 contract test 只能发现 workflow 与文件布局漂移，不能证明 runner 实际执行了套件。互操作 shell 矩阵使用 `wslfs` profile、systemd 和 lingering 的用户管理器；当 Windows 互操作或其临时标记无法验证时，它会失败。
 
 **Runner 标签。** Windows 单元矩阵可运行在 GitHub 托管的
 `windows-latest`；托管 Cloud WSL Gate 自行准备 WSL。若以后接入自托管

@@ -3,13 +3,11 @@
 #
 # Why this exists: the probes boot their own harness instance, and the CLI
 # hands arguments to a live instance if one is running — indistinguishable
-# from a pass. The agent that stages this script lives inside the harness
-# process, so it cannot wait for the exit itself; instead the script is
-# launched DETACHED inside the distro (setsid, stdio redirected), where it
-# survives the harness and its sandbox, polls for the app to close, then runs
-# the suite and writes everything to one log the agent reads on reopen.
+# from a pass. The default local launcher starts a detached worker inside the
+# distro, closes ordinary Harness processes, polls for their exit, and runs
+# the suite. `--wait-only` preserves the previous manual-close workflow.
 #
-#   test/probe/run-all-when-closed.sh [--include-fs]
+#   test/probe/run-all-when-closed.sh [--include-fs] [--wait-only]
 #
 # --include-fs also runs run.sh, the filesystem-mutation probe (the slowest,
 # and the one that needs the throwaway wslfs profile set up per its header).

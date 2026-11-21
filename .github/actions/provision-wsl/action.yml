@@ -3,6 +3,12 @@
 # linger on so the session runtime agent survives across wsl.exe invocations.
 # Used by both Windows jobs in release.yml; the distro is an input so the two
 # jobs cannot drift apart (issue #69).
+#
+# Hosted-runner flake: `wsl.exe --install` and `apt-get` occasionally hang
+# forever — runs 44916280237 and 44920649147 sat in this step for 25-50 minutes
+# with no output, while runs 1-4 provisioned in ~2 minutes. Every call below
+# therefore runs under a watchdog with one retry: a hung command is killed and
+# given a second attempt before the step fails visibly.
 name: Provision WSL distro and prerequisites
 description: Installs the pinned distro with systemd, bwrap and linger enabled.
 inputs:
@@ -16,17 +22,38 @@ runs:
       run: |
         $ErrorActionPreference = "Stop"
         $distro = "${{ inputs.distro }}"
-        & wsl.exe --install -d $distro --no-launch --web-download
-        if ($LASTEXITCODE -ne 0) { throw "$distro install failed: exit=$LASTEXITCODE" }
-        & wsl.exe -d $distro -u root --exec bash -lc "printf '[boot]\nsystemd=true\n' > /etc/wsl.conf"
-        if ($LASTEXITCODE -ne 0) { throw "$distro systemd configuration failed: exit=$LASTEXITCODE" }
-        & wsl.exe --shutdown
-        if ($LASTEXITCODE -ne 0) { throw "WSL shutdown failed: exit=$LASTEXITCODE" }
-        & wsl.exe --set-default $distro
-        if ($LASTEXITCODE -ne 0) { throw "default distro selection failed: exit=$LASTEXITCODE" }
-        & wsl.exe -d $distro -u root --exec apt-get update
-        if ($LASTEXITCODE -ne 0) { throw "apt-get update failed: exit=$LASTEXITCODE" }
-        & wsl.exe -d $distro -u root --exec apt-get install -y --no-install-recommends bubblewrap dbus git ca-certificates curl build-essential
-        if ($LASTEXITCODE -ne 0) { throw "WSL prerequisite install failed: exit=$LASTEXITCODE" }
-        & wsl.exe -d $distro -u root --exec loginctl enable-linger root
-        if ($LASTEXITCODE -ne 0) { throw "$distro linger setup failed: exit=$LASTEXITCODE" }
+
+        # Run one wsl.exe call under a watchdog. Start-Job gives us a killable
+        # process tree; Wait-Job -Timeout is the watchdog, and the job's output
+        # object carries the real exit code across the process boundary.
+        function Invoke-Wsl([string[]]$wslArgs, [int]$timeoutSec, [int]$attempts) {
+          for ($attempt = 1; $attempt -le $attempts; $attempt++) {
+            $job = Start-Job -ScriptBlock {
+              param($a)
+              $out = & wsl.exe @a 2>&1 | Out-String
+              [pscustomobject]@{ exit = $LASTEXITCODE; out = $out }
+            } -ArgumentList (, $wslArgs)
+            $finished = Wait-Job $job -Timeout $timeoutSec
+            if (-not $finished) {
+              Stop-Job $job
+              Remove-Job $job -Force
+              if ($attempt -eq $attempts) { throw "wsl.exe $($wslArgs -join ' ') timed out after ${timeoutSec}s" }
+              Write-Host "[provision] attempt $attempt timed out after ${timeoutSec}s: wsl.exe $($wslArgs -join ' '); retrying"
+              continue
+            }
+            $result = Receive-Job $job
+            Remove-Job $job
+            if ($result.exit -eq 0) { return $result.out }
+            if ($attempt -eq $attempts) { throw "wsl.exe $($wslArgs -join ' ') exited $($result.exit): $($result.out)" }
+            Write-Host "[provision] attempt $attempt exited $($result.exit): wsl.exe $($wslArgs -join ' '); retrying"
+          }
+          throw "unreachable"
+        }
+
+        $null = Invoke-Wsl @("--install", "-d", $distro, "--no-launch", "--web-download") 900 2
+        $null = Invoke-Wsl @("-d", $distro, "-u", "root", "--exec", "bash", "-lc", "printf '[boot]\nsystemd=true\n' > /etc/wsl.conf") 120 1
+        $null = Invoke-Wsl @("--shutdown") 120 2
+        $null = Invoke-Wsl @("--set-default", $distro) 120 2
+        $null = Invoke-Wsl @("-d", $distro, "-u", "root", "--exec", "apt-get", "update") 600 2
+        $null = Invoke-Wsl @("-d", $distro, "-u", "root", "--exec", "apt-get", "install", "-y", "--no-install-recommends", "bubblewrap", "dbus", "git", "ca-certificates", "curl", "build-essential") 900 2
+        $null = Invoke-Wsl @("-d", $distro, "-u", "root", "--exec", "loginctl", "enable-linger", "root") 120 2

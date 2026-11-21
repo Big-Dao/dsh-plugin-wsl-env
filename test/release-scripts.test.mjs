@@ -285,7 +285,17 @@ check("release publish requires the candidate official-harness package smoke", (
   assert.doesNotMatch(release, /npm install dsh-plugin-wsl-env\s*$/m);
   // The provisioning contract lives in the composite action both jobs share.
   const action = readFileSync(join(ROOT, ".github", "actions", "provision-wsl", "action.yml"), "utf8");
-  for (const needle of ["systemd=true", "--shutdown", "--set-default $distro", "bubblewrap dbus git ca-certificates curl build-essential", "enable-linger", "inputs.distro"]) {
+  for (const needle of [
+    "systemd=true",
+    "--shutdown",
+    '"--set-default", $distro',
+    '"bubblewrap", "dbus", "git", "ca-certificates", "curl", "build-essential"',
+    '"enable-linger", "root"',
+    "inputs.distro",
+    // Hosted-runner WSL provisioning hangs (runs 44916280237, 44920649147):
+    // every call runs under a watchdog with a retry.
+    "Wait-Job $job -Timeout $timeoutSec",
+  ]) {
     assert.ok(action.includes(needle), `provisioning action includes ${needle}`);
   }
 });

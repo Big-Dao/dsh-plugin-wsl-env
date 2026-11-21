@@ -143,9 +143,10 @@ These are not a "will be fixed later" list but design boundaries: each one state
 | Upstream seams | peer pins compared byte for byte, [PEER-PARITY.md](PEER-PARITY.md), [upstream/promotion-map.md](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/upstream/promotion-map.md) |
 | Behavior commitments | 28 registered requirements (R1–R28) and the traceability matrix in [REQUIREMENTS.zh.md](REQUIREMENTS.zh.md) |
 
-The 19-entry real-machine suite also runs on GitHub-hosted `windows-latest` through
-`.github/workflows/cloud-wsl-gate.yml`. A hosted run is green only when every
-probe is PASS and no probe is SKIP or NOT RUN.
+The GitHub-hosted `windows-latest` gate implements the closed-suite entry in
+`.github/workflows/cloud-wsl-gate.yml`. A hosted run has real-machine evidence only
+after it uploads the complete log and results, every entry is PASS, and no entry is
+SKIP or NOT RUN.
 
 ## 6. Decision rules
 

@@ -198,7 +198,11 @@ if [ -n "$SESSION_MASKS" ] && run SOCKET_BASE systemd-run --user --scope --quiet
   if [ -n "$STRICT_MASKS" ]; then
     mapfile -t STRICT < <(DSH_MASK_INTEROP=1 build_socket_profile workspace-write "$WS" "" $STRICT_MASKS)
     expect_status "strict refuses systemd-run --user" nonzero STRICT systemd-run --user --scope --quiet true
-    expect_status "strict refuses the system bus" nonzero STRICT test -S /run/dbus/system_bus_socket
+    if run SOCKET_BASE test -S /run/dbus/system_bus_socket >/dev/null 2>&1; then
+      expect_status "strict refuses the system bus" nonzero STRICT test -S /run/dbus/system_bus_socket
+    else
+      report SKIP "strict system bus leg skipped" "the system bus socket is absent outside strict"
+    fi
     while IFS= read -r socket; do
       [ -n "$socket" ] && expect_status "strict masks $socket" zero STRICT test -c "$socket"
     done <<< "$STRICT_MASKS"

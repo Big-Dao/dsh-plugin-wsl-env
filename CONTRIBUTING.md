@@ -229,8 +229,8 @@ there because the plugin targets Windows; the coverage thresholds need Node 22.8
 newer, which is why that job runs on one version.
 
 `.github/workflows/cloud-wsl-gate.yml` adds an independent hosted DeepSeek
-Harness Desktop and WSL gate. On pull requests targeting `main` and on manual
-`workflow_dispatch`, it builds the unsigned Windows Desktop package from the
+Harness Desktop and WSL gate. On pushes and pull requests targeting `main` and
+on manual `workflow_dispatch`, it builds the unsigned Windows Desktop package from the
 upstream tag on `windows-latest`, installs Ubuntu 24.04 and `bubblewrap`, uses
 the desktop app's bundled CLI to create a `wsl` profile, installs the local
 checkout into that profile, verifies the composed dump contains
@@ -239,7 +239,9 @@ for HTTP readiness, verifies the in-distro bwrap workspace fence, prepares a
 `wslfs` probe profile plus a second Ubuntu instance and Node/systemd prerequisites, stops
 the Desktop process, and runs
 `test/probe/run-all-when-closed.sh --include-fs`. The suite is green only when
-every selected probe reports PASS and there are no SKIP or NOT RUN entries.
+every selected probe reports PASS and there are no SKIP or NOT RUN entries, and
+the complete log/results evidence is present. `test/cloud-wsl-gate.test.mjs`
+checks only workflow/file drift and is not runtime evidence.
 The suite currently has 19 entries: `run.sh`, `terminal.sh`, `mode.sh`,
 `missing-wsl.sh`, `sandbox.sh`, `cache-write.sh`, `sandbox-shell.sh`,
 `interop-shell.sh`, `sandbox-off.sh`, `picker.sh`, `two-distro.sh`,

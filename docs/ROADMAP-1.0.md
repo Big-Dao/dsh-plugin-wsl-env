@@ -170,7 +170,7 @@ may move if the compatibility matrix exposes a higher-severity failure.
 |---|---|---|---|
 | Time to first command | Not systematically measured | p50 <= 5 min, p90 <= 15 min | Ten clean-machine runs |
 | Tier 1 first-run success | Not measured | >= 95% | Compatibility matrix |
-| Real-machine probes | Full `--include-fs` suite runs in `.github/workflows/cloud-wsl-gate.yml` on GitHub-hosted `windows-latest` after the app closes; the suite can also run locally | 100% green before release | Hosted Cloud WSL Gate artifacts; local closed-app suite output |
+| Real-machine probes | Full `--include-fs` suite is configured in `.github/workflows/cloud-wsl-gate.yml` on GitHub-hosted `windows-latest` after the app closes; the suite can also run locally. Hosted status requires real artifacts, not a YAML-regex pass | 100% green before release | Hosted Cloud WSL Gate artifacts; local closed-app suite output |
 | FS single-op p95 | ~22ms host round trip | <= 30ms | `fs-queue.mjs` |
 | 16 concurrent reads p95 | 2.4-8.2ms | <= 20ms | `fs-queue.mjs` |
 | GUI preview p95 | Backend 63.5 ms/MiB (service round trips on top) | <= 1s/MiB | `probe:gui-preview` |

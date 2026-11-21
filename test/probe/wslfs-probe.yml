@@ -13,6 +13,8 @@
 # The profile itself (which swaps `ctx.fs` for the WSL backend) lives in
 # $DSH_HOME/profiles/wslfs/cordis.patch.yml.
 - id: fs-routing
+  # The filesystem probe mounts its own UNC provider; enabling fs-routing here
+  # would add a second root fs provider and create an ambiguous composition.
   disabled: true
 
 - insert:

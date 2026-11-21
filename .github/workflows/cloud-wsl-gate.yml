@@ -2,6 +2,8 @@ name: Cloud Desktop WSL Gate
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
 
@@ -166,6 +168,8 @@ jobs:
             (Join-Path $probeProfile "cordis.patch.yml")
           $probePatch = Join-Path $probeProfile "cordis.patch.yml"
           $probePatchText = Get-Content $probePatch -Raw
+          # Empty distro values mean the current/default distro in maintainer
+          # runs; hosted setup pins this throwaway profile explicitly.
           $probePatchText = $probePatchText.Replace("distro: ''", "distro: 'Ubuntu-24.04'")
           Set-Content -LiteralPath $probePatch -Value $probePatchText -Encoding utf8
 
@@ -221,19 +225,7 @@ jobs:
           $workspace = wsl.exe -d Ubuntu-24.04 --exec wslpath -u "${{ github.workspace }}\plugin"
           if ($LASTEXITCODE -ne 0) { throw "workspace translation failed: exit=$LASTEXITCODE" }
           $workspace = $workspace.TrimEnd("`r", "`n")
-          $script = @(
-            "set -eu",
-            "cd '$workspace'",
-            "mkdir -p .cloud-wsl-gate",
-            "printf pass > .cloud-wsl-gate/inside.txt",
-            "bwrap --ro-bind / / --dev /dev --proc /proc --die-with-parent --bind '$workspace' '$workspace' -- sh -c 'printf pass > $workspace/.cloud-wsl-gate/bwrap.txt'",
-            "grep -qx pass '$workspace/.cloud-wsl-gate/inside.txt'",
-            "grep -qx pass '$workspace/.cloud-wsl-gate/bwrap.txt'",
-            "rm -rf '$workspace/.cloud-wsl-gate'"
-          ) -join "`n"
-          $bytes = [System.Text.Encoding]::UTF8.GetBytes($script)
-          $encoded = [Convert]::ToBase64String($bytes)
-          & wsl.exe -d Ubuntu-24.04 --exec bash -lc "echo '$encoded' | base64 -d | bash"
+          & wsl.exe -d Ubuntu-24.04 --exec bash -lc "set -eu; cd '$workspace'; mkdir -p .cloud-wsl-gate; printf pass > .cloud-wsl-gate/inside.txt; bwrap --ro-bind / / --dev /dev --proc /proc --die-with-parent --bind '$workspace' '$workspace' -- sh -c 'printf pass > $workspace/.cloud-wsl-gate/bwrap.txt'; grep -qx pass '$workspace/.cloud-wsl-gate/inside.txt'; grep -qx pass '$workspace/.cloud-wsl-gate/bwrap.txt'; rm -rf '$workspace/.cloud-wsl-gate'; echo FENCE-OK"
           if ($LASTEXITCODE -ne 0) { throw "bwrap workspace fence failed" }
 
       - name: Run hosted closed-app probe suite
@@ -260,39 +252,30 @@ jobs:
           $appDirLinux = $appDirLinux.TrimEnd("`r", "`n")
           $cliPath = Join-Path $appDir "resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js"
 
-          $script = @(
-            "set -euo pipefail",
-            "export FNM_DIR=`"`$HOME/.local/share/fnm`"",
-            "eval `"`$(`"`$FNM_DIR/fnm`" env --shell bash)`"",
-            "`"`$FNM_DIR/fnm`" use 24.9.0 >/dev/null",
-            "export DSH_WSL_ENV_DISTRO='Ubuntu-24.04'",
-            "export DSH_WSL_ENV_PROFILE='$profile'",
-            "export DSH_WSL_ENV_RUNTIME_COPY='$mirror'",
-            "export DSH_WSL_ENV_APP='$appDirLinux'",
-            "export DSH_WSL_ENV_CLI='$cliPath'",
-            "export DSH_WSL_ENV_WORKSPACE_LINUX='$workspace'",
-            "export WSLENV=`"`${WSLENV:+`$WSLENV:}ELECTRON_RUN_AS_NODE:DSH_WSL_ENV_PROFILE:DSH_WSL_ENV_APP:DSH_WSL_ENV_CLI:DSH_WSL_ENV_RUNTIME_COPY:DSH_WSL_ENV_DISTRO:DSH_WSL_ENV_WORKSPACE_LINUX`"",
-            "export DSH_HOSTED_REPO=`"`$HOME/dsh-hosted-plugin`"",
-            "mkdir -p `"`$DSH_HOSTED_REPO`"",
-            "tar -C '$workspace' --exclude=./.git --exclude=./test/probe/.scratch -cf - . | tar -C `"`$DSH_HOSTED_REPO`" -xf -",
-            "cd `"`$DSH_HOSTED_REPO`"",
-            "wsl.exe -d Ubuntu-24.04 --exec true",
-            "set +e",
-            "bash test/probe/run-all-when-closed.sh --include-fs",
-            "status=`$?",
-            "set -e",
-            "mkdir -p '$workspace/test/probe/.scratch'",
-            "cp -a test/probe/.scratch/full-probe.*.log test/probe/.scratch/full-probe.*.results '$workspace/test/probe/.scratch/' 2>/dev/null || true",
-            "exit `"`$status`""
-          ) -join "`n"
-          $bytes = [System.Text.Encoding]::UTF8.GetBytes($script)
-          $encoded = [Convert]::ToBase64String($bytes)
-          & wsl.exe -d Ubuntu-24.04 --exec bash -lc "echo '$encoded' | base64 -d | bash"
+          $env:DSH_WSL_ENV_DISTRO = "Ubuntu-24.04"
+          $env:DSH_WSL_ENV_PROFILE = $profile
+          $env:DSH_WSL_ENV_RUNTIME_COPY = $mirror
+          $env:DSH_WSL_ENV_APP = $appDirLinux
+          $env:DSH_WSL_ENV_CLI = $cliPath
+          $env:DSH_WSL_ENV_WORKSPACE_LINUX = $workspace
+          $env:ELECTRON_RUN_AS_NODE = "1"
+          $env:WSLENV = "ELECTRON_RUN_AS_NODE:DSH_WSL_ENV_PROFILE:DSH_WSL_ENV_APP:DSH_WSL_ENV_CLI:DSH_WSL_ENV_RUNTIME_COPY:DSH_WSL_ENV_DISTRO:DSH_WSL_ENV_WORKSPACE_LINUX"
+
+          & wsl.exe -d Ubuntu-24.04 -u root --exec bash -lc "set -euo pipefail; echo HOSTED-PROBE-STAGING-OK; hosted_repo=`"`$HOME/dsh-hosted-plugin`"; rm -rf `"`$hosted_repo`"; mkdir -p `"`$hosted_repo`"; tar -C '$workspace' --exclude=./.git --exclude=./test/probe/.scratch -cf - . | tar -C `"`$hosted_repo`" -xf -; cd `"`$hosted_repo`"; export FNM_DIR=`"`$HOME/.local/share/fnm`"; eval `"`$(`"`$FNM_DIR/fnm`" env --shell bash)`"; `$FNM_DIR/fnm use 24.9.0 >/dev/null; bash test/probe/run-all-when-closed.sh --include-fs"
           $probeStatus = $LASTEXITCODE
 
-          & wsl.exe -d Ubuntu-24.04 --exec bash -lc "set +e; cp -f `$(ls -t /root/dsh-hosted-plugin/test/probe/.scratch/full-probe.*.log 2>/dev/null | head -1) '$workspace/cloud-probe-full.log' 2>/dev/null || true; cp -f `$(ls -t /root/dsh-hosted-plugin/test/probe/.scratch/full-probe.*.results 2>/dev/null | head -1) '$workspace/cloud-probe-results.txt' 2>/dev/null || true"
+          & wsl.exe -d Ubuntu-24.04 -u root --exec bash -lc "set -eu; hosted_repo=`"`$HOME/dsh-hosted-plugin`"; log=`"`$(ls -t `"`$hosted_repo`"/test/probe/.scratch/full-probe.*.log 2>/dev/null | head -1)`"; results=`"`$(ls -t `"`$hosted_repo`"/test/probe/.scratch/full-probe.*.results 2>/dev/null | head -1)`"; test -n `"`$log`"; test -n `"`$results`"; cp -f `"`$log`" '$workspace/cloud-probe-full.log'; cp -f `"`$results`" '$workspace/cloud-probe-results.txt'; cp -a `"`$hosted_repo`"/test/probe/*-report.txt '$workspace/test/probe/' 2>/dev/null || true"
+          $copyStatus = $LASTEXITCODE
 
           if ($probeStatus -ne 0) { throw "hosted closed-app probe suite failed: exit=$probeStatus" }
+          if ($copyStatus -ne 0) { throw "hosted probe evidence copy failed: exit=$copyStatus" }
+
+          $log = Get-Content "${{ github.workspace }}\plugin\cloud-probe-full.log" -Raw -ErrorAction Stop
+          $results = Get-Content "${{ github.workspace }}\plugin\cloud-probe-results.txt" -Raw -ErrorAction Stop
+          if ($log -notmatch "FULL PASS") { throw "hosted probe log lacks FULL PASS marker" }
+          if ($results -match "(?m)^SKIP\t|(?m)^FAIL\t|^NOT RUN") { throw "hosted probe results contain SKIP, FAIL, or NOT RUN" }
+          $passCount = ([regex]::Matches($results, "(?m)^PASS\t")).Count
+          if ($passCount -ne 19) { throw "hosted probe results contain $passCount PASS entries; expected 19" }
 
       - name: Upload desktop gate evidence
         if: always()
@@ -300,6 +283,7 @@ jobs:
         with:
           name: cloud-desktop-wsl-gate-${{ github.run_id }}
           include-hidden-files: true
+          if-no-files-found: error
           path: |
             cloud-desktop-profile.txt
             cloud-desktop.stdout.log

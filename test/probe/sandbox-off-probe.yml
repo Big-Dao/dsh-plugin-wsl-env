@@ -22,6 +22,8 @@
     sandbox: false
 
 - id: fs-routing
+  # The sandbox-off probe has no root fs consumer; leave fs-routing disabled
+  # so this throwaway profile remains identical to the other probe overlays.
   disabled: true
 
 - insert:

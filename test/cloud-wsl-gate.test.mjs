@@ -1,6 +1,10 @@
 /**
  * Static contract checks for the hosted Windows + WSL gate.
  *
+ * These checks validate workflow/file drift only; they do not prove that a
+ * hosted runner executed the suite. The executed suite remains the runtime
+ * evidence, and this file is intentionally not a substitute for it.
+ *
  * The gate builds an unpacked Electron app and invokes the bundled CLI through
  * the app.asar virtual path. A filesystem existence check against that virtual
  * path is invalid, while an app.asar packaging check remains meaningful.
@@ -47,3 +51,10 @@ assert.match(workflow, /dsh-hosted-plugin/);
 assert.match(workflow, /distro: 'Ubuntu-24\.04'/);
 assert.match(workflow, /cloud-probe-full\.log/);
 assert.match(workflow, /cloud-probe-results\.txt/);
+assert.match(workflow, /push:\s*\n\s+branches:\s*\[main\]/);
+assert.doesNotMatch(workflow, /echo '\$encoded' \| base64 -d \| bash/);
+assert.match(workflow, /HOSTED-PROBE-STAGING-OK/);
+assert.match(workflow, /FENCE-OK/);
+assert.match(workflow, /FULL PASS/);
+assert.match(workflow, /NOT RUN/);
+assert.match(workflow, /if-no-files-found:\s*error/);

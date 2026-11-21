@@ -13,6 +13,8 @@
   disabled: true
 
 - id: fs-routing
+  # This probe replaces the subprocess provider and also disables the root
+  # fs-routing row to avoid a second root fs provider in its throwaway profile.
   disabled: true
 
 - insert:

@@ -143,9 +143,10 @@ Remote-SSH 也能在 Windows 上连 WSL 发行版（VS Code 连本机 WSL 更常
 | 上游接缝 | peer 钉版逐字节比对，[PEER-PARITY.md](PEER-PARITY.md)、[upstream/promotion-map.md](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/docs/upstream/promotion-map.md) |
 | 行为承诺 | [REQUIREMENTS.zh.md](REQUIREMENTS.zh.md) 的 28 条登记（R1–R28）与追溯矩阵 |
 
-19 项真机闭合套件也由 GitHub 托管的
-`.github/workflows/cloud-wsl-gate.yml` 执行。托管运行只有在所有探针均为
-PASS、且没有 SKIP 或 NOT RUN 时才算通过。
+托管 GitHub `windows-latest` 门禁已实现
+`.github/workflows/cloud-wsl-gate.yml` 的闭合套件入口；只有一个后续运行实际
+上传完整日志与结果、每项均为 PASS 且没有 SKIP 或 NOT RUN 时，托管运行才算
+已有真机证据。
 
 ## 6. 决策规则
 

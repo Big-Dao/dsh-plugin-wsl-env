@@ -63,7 +63,7 @@ win_path() {
 
 CLI="${DSH_WSL_ENV_CLI:-$(win_path "$APP")\\resources\\app.asar\\dsh\\node_modules\\@deepseek-ai\\dsh-desktop-host\\lib\\cli.js}"
 
-LINUX="$REPO_DIR"
+LINUX="${DSH_WSL_ENV_WORKSPACE_LINUX:-$REPO_DIR}"
 UNC="\\\\wsl.localhost\\$DISTRO${LINUX//\//\\}"
 
 export DSH_WSL_ENV_DISTRO="$DISTRO"

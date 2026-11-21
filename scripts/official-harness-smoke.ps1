@@ -170,8 +170,7 @@ try {
     "distro $distro scratch paths removed"
   }
 
-  $probeCliLog = Join-Path $scratch "official-harness-smoke.probe-cli.log"
-  Remove-Item -LiteralPath $probeCliLog, "$probeCliLog.err" -Force -ErrorAction SilentlyContinue
+  $probeCliLog = Join-Path $work "probe-cli.log"
   $script:probeProcess = $null
   Step "plugin-probe" {
     $overlayPath = Join-Path $scratch "official-smoke-probe.overlay.yml"
@@ -204,10 +203,11 @@ try {
     (($report -split "`r?`n") | Where-Object { $_ -match "^PASS " }) -join "; "
   }
 
-  # The desktop log goes to the scratch evidence dir (not $work), so the
-  # workflow's if: always() artifact carries it even after cleanup.
-  $log = Join-Path $scratch "official-harness-smoke.desktop.log"
-  Remove-Item -LiteralPath $log, "$log.err" -Force -ErrorAction SilentlyContinue
+  # The desktop log is redirected inside $work: its writer's redirection
+  # handle can outlive the process (a detached child survives the tree kill),
+  # so the finally step reads it and writes the redacted evidence fresh into
+  # the scratch dir instead of rewriting a file that may still be held.
+  $log = Join-Path $work "desktop.log"
   # Keep the pinned install pinned: without these, the app checks the
   # production feed (the pinned rc.2 already found rc.5) and could pull a new
   # build over the evidence mid-run.
@@ -296,22 +296,31 @@ try {
     $script:probeProcess.WaitForExit(10000) | Out-Null
   }
   # The logs keep the web endpoint's session token; the evidence contract
-  # excludes auth tokens, so scrub them before the artifact upload. Empty logs
-  # are common (a failed boot prints to one stream only) and are skipped; a
-  # still-held handle gets a short retry before this counts as a failure.
-  foreach ($evidence in $log, "$log.err", $probeCliLog, "$probeCliLog.err") {
-    if (-not $evidence -or -not (Test-Path -LiteralPath $evidence)) { continue }
+  # excludes auth tokens. The writers' redirection handles can outlive them
+  # (a detached child survives the tree kill), so never rewrite the originals:
+  # read them and write the redacted copies into the scratch evidence dir.
+  # Empty logs are common (a failed boot prints to one stream only).
+  $evidencePairs = @(
+    @($log, "official-harness-smoke.desktop.log"),
+    @("$log.err", "official-harness-smoke.desktop.log.err"),
+    @($probeCliLog, "official-harness-smoke.probe-cli.log"),
+    @("$probeCliLog.err", "official-harness-smoke.probe-cli.log.err")
+  )
+  foreach ($pair in $evidencePairs) {
+    $src = $pair[0]
+    if (-not $src -or -not (Test-Path -LiteralPath $src)) { continue }
+    $text = $null
     for ($attempt = 1; $attempt -le 3; $attempt++) {
       try {
-        $text = Get-Content -LiteralPath $evidence -Raw
-        if ($text -and $text.Contains("token=")) {
-          Set-Content -LiteralPath $evidence -NoNewline -Value ($text -replace "token=[^&\s`"']+", "token=REDACTED")
-        }
+        $text = Get-Content -LiteralPath $src -Raw
         break
       } catch {
-        if ($attempt -eq 3) { throw "could not redact $evidence : $($_.Exception.Message)" }
+        if ($attempt -eq 3) { throw "could not read $src : $($_.Exception.Message)" }
         Start-Sleep -Seconds 2
       }
+    }
+    if ($text) {
+      Set-Content -LiteralPath (Join-Path $scratch $pair[1]) -NoNewline -Value ($text -replace "token=[^&\s`"']+", "token=REDACTED")
     }
   }
   # The profile home dies with $work; its startup logs are the composition

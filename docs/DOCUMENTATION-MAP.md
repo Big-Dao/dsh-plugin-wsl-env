@@ -60,7 +60,9 @@
   记录托管 Windows Desktop + WSL 的端到端基线：upstream tag 构建的 unsigned
   Desktop、Ubuntu/第二 Ubuntu 实例、Node/systemd/bubblewrap、当前检出的插件、桌面
   bundled CLI、组合配置、Desktop/Web 就绪、工作区围栏与退出应用后的闭合
-  probe suite。完整套件有 19 项；只有全部 PASS 且没有 SKIP/NOT RUN 才算
+  probe suite。本机入口 `pnpm run probe:all-closed` 自动关闭普通 Harness
+  进程并脱离运行完整套件；残留 probe 实例会 fail closed。
+  完整套件有 19 项；只有全部 PASS 且没有 SKIP/NOT RUN 才算
   FULL PASS，证据包括 profile dump、Desktop 日志、完整结果和各 probe report；
   修复或 workflow 尚未产出该证据时不得描述托管 run 为套件已通过。
 - [发布流程](RELEASING.md) 定义版本、tag、发布和核验步骤；

@@ -257,8 +257,14 @@ The rows marked "no; inside the distro" (`substrate`, `watch`, `agent`, `exec`)
 still need Windows and WSL2, but no harness boot and no profile: run them from a
 distro terminal with Node available, and they reach `wsl.exe` through interop.
 
-Two conveniences for the real-machine set. `test/probe/run-all-when-closed.sh
---include-fs` runs the full closed-app suite once the app has exited. The
+Two conveniences for the real-machine set. `pnpm run probe:all-closed` launches
+the complete closed-app suite, including `run.sh`, in a detached WSL worker.
+The worker closes ordinary DeepSeek Harness processes automatically and refuses
+to run if a stale `--profile wslfs` probe instance is present.
+`test/probe/run-all-when-closed.sh --include-fs --wait-only` preserves the
+explicit manual-close workflow. The package command writes the shared log and
+results files under `test/probe/.scratch`; the detailed result contract remains
+`FULL PASS` only for 19/19 PASS, with no SKIP or NOT RUN entries. The
 interoperability shell matrix uses the `wslfs` profile, systemd and a lingering
 user manager; it fails when Windows interoperability or its temporary marker
 cannot be verified.

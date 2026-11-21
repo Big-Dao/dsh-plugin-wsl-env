@@ -3,13 +3,11 @@
 #
 # Why this exists: the probes boot their own harness instance, and the CLI
 # hands arguments to a live instance if one is running — indistinguishable
-# from a pass. The agent that stages this script lives inside the harness
-# process, so it cannot wait for the exit itself; instead the script is
-# launched DETACHED inside the distro (setsid, stdio redirected), where it
-# survives the harness and its sandbox, polls for the app to close, then runs
-# the suite and writes everything to one log the agent reads on reopen.
+# from a pass. The default local launcher starts a detached worker inside the
+# distro, closes ordinary Harness processes, polls for their exit, and runs
+# the suite. `--wait-only` preserves the previous manual-close workflow.
 #
-#   test/probe/run-all-when-closed.sh [--include-fs]
+#   test/probe/run-all-when-closed.sh [--include-fs] [--wait-only]
 #
 # --include-fs also runs run.sh, the filesystem-mutation probe (the slowest,
 # and the one that needs the throwaway wslfs profile set up per its header).
@@ -28,12 +26,22 @@ mkdir -p "$SCRATCH"
 # concurrently running probe suite (or this one's own earlier stages) may own
 # them. `pnpm run probe:clean` removes everything without the age guard.
 find "$SCRATCH" -mindepth 1 -maxdepth 1 -mmin +1440 -exec rm -rf -- {} + 2>/dev/null
-LOG="$(mktemp "$SCRATCH/full-probe.XXXXXX.log")"
+LOG="${WSL_PROBE_LOG:-$(mktemp "$SCRATCH/full-probe.XXXXXX.log")}"
 
 echo "full probe suite; log: $LOG" >&2
 
+INCLUDE_FS=0
+WAIT_ONLY=0
+for arg in "$@"; do
+  case "$arg" in
+    --include-fs) INCLUDE_FS=1 ;;
+    --wait-only) WAIT_ONLY=1 ;;
+    *) echo "unknown argument: $arg" >&2; exit 2 ;;
+  esac
+done
+
 declare -a SUITE=(terminal.sh mode.sh missing-wsl.sh sandbox.sh cache-write.sh sandbox-shell.sh interop-shell.sh sandbox-off.sh picker.sh two-distro.sh fs-routing.sh agent.sh agent-restart.sh watch.sh substrate.sh exec.sh native-session.sh auto-preset.sh)
-if [ "${1:-}" = "--include-fs" ]; then
+if [ "$INCLUDE_FS" = "1" ]; then
   SUITE=("run.sh" "${SUITE[@]}")
 fi
 # Offline tests override the suite to run fake probes against the real
@@ -43,7 +51,7 @@ if [ -n "${WSL_PROBE_SUITE:-}" ]; then
   read -r -a SUITE <<< "$WSL_PROBE_SUITE"
 fi
 SUITE_CSV="$(IFS=,; echo "${SUITE[*]}")"
-RESULTS="$(mktemp "$SCRATCH/full-probe.XXXXXX.results")"
+RESULTS="${WSL_PROBE_RESULTS:-$(mktemp "$SCRATCH/full-probe.XXXXXX.results")}"
 # Offline tests point this at a temp directory of fake probes; the summary,
 # classification and prereq handling still come from this real script.
 PROBE_DIR="${WSL_PROBE_DIR:-$HERE}"
@@ -68,7 +76,46 @@ stale_probe_pids() {
     2>/dev/null | tr -d '\0\r' || true
 }
 
-echo "waiting for the harness application to close (quit it from the tray; a closed window can leave it running)..." >&2
+ordinary_harness_pids() {
+  powershell.exe -NoProfile -Command \
+    "Get-CimInstance Win32_Process -Filter \"Name='DeepSeek Harness.exe'\" | Where-Object CommandLine -notlike '*--profile wslfs*' | Select-Object -ExpandProperty ProcessId" \
+    2>/dev/null | tr -d '\0\r' || true
+}
+
+if [ "${WSL_PROBE_WORKER:-}" != "1" ] &&
+   [ "${WSL_PROBE_SKIP_WAIT:-}" != "1" ] &&
+   [ "$WAIT_ONLY" != "1" ]; then
+  echo "detached local probe worker; log: $LOG" >&2
+  echo "results: $RESULTS" >&2
+  WORKER_ARGS=()
+  if [ "$INCLUDE_FS" = "1" ]; then WORKER_ARGS=(--include-fs); fi
+  if [ "$WAIT_ONLY" = "1" ]; then WORKER_ARGS+=(--wait-only); fi
+  setsid env WSL_PROBE_WORKER=1 WSL_PROBE_LOG="$LOG" WSL_PROBE_RESULTS="$RESULTS" \
+    bash "$HERE/run-all-when-closed.sh" "${WORKER_ARGS[@]}" </dev/null >>"$LOG" 2>&1 &
+  exit 0
+fi
+
+if [ "${WSL_PROBE_SKIP_WAIT:-}" != "1" ] && [ "$WAIT_ONLY" != "1" ]; then
+  STALE="$(stale_probe_pids)"
+  if [ -n "$STALE" ]; then
+    echo "stale probe instance(s) are still up; refusing to close or run:" >&2
+    printf '  taskkill.exe /PID %s /F\n' $STALE >&2
+    finish
+  fi
+
+  ORDINARY="$(ordinary_harness_pids)"
+  if [ -n "$ORDINARY" ]; then
+    echo "closing ordinary Harness process(es): $ORDINARY" >&2
+    for pid in $ORDINARY; do
+      if ! taskkill.exe /PID "$pid" /T /F >/dev/null 2>&1; then
+        echo "failed to terminate Harness PID $pid" >&2
+        finish
+      fi
+    done
+  fi
+fi
+
+echo "waiting for the harness application to close..." >&2
 
 # Poll the Windows process list through interop until the app is gone.
 # Three failure modes are kept apart on purpose:
@@ -87,23 +134,32 @@ echo "waiting for the harness application to close (quit it from the tray; a clo
 if [ "${WSL_PROBE_SKIP_WAIT:-}" != "1" ]; then
   FAILED=0
   TICKS=0
+  MAX_AUTO_CLOSE_TICKS=12
   while true; do
     if listing="$(tasklist.exe 2>/dev/null | tr -d '\0')"; then
       FAILED=0
       MATCHES="$(printf '%s\n' "$listing" | grep -i "DeepSeek Harness.exe" || true)"
       if [ -z "$MATCHES" ]; then break; fi
+      STALE="$(stale_probe_pids)"
+      if [ -n "$STALE" ]; then
+        echo "stale probe instance(s) are still up; suite abandoned:" >&2
+        printf '  taskkill.exe /PID %s /F\n' $STALE >&2
+        finish
+      fi
       if [ "$TICKS" -eq 0 ] || [ $((TICKS % 12)) -eq 0 ]; then
-        STALE="$(stale_probe_pids)"
-        if [ -n "$STALE" ]; then
-          echo "stale probe instance(s) from an earlier run are still up — they never exit on their own:" >&2
-          printf '  taskkill.exe /PID %s /F\n' $STALE >&2
-          echo "kill them, then rerun; this run is abandoned (nothing below will be reported as run)." >&2
-          finish
+        if [ "$WAIT_ONLY" = "1" ]; then
+          echo "still running — quit it from the tray (or kill these PIDs):" >&2
+          printf '%s\n' "$MATCHES" >&2
+        else
+          echo "Harness still running after automatic close request:" >&2
+          printf '%s\n' "$MATCHES" >&2
         fi
-        echo "still running — quit it from the tray (or kill these PIDs):" >&2
-        printf '%s\n' "$MATCHES" >&2
       fi
       TICKS=$((TICKS + 1))
+      if [ "$WAIT_ONLY" != "1" ] && [ "$TICKS" -ge "$MAX_AUTO_CLOSE_TICKS" ]; then
+        echo "Harness did not exit within 60 seconds after automatic close; aborting instead of starting probes" >&2
+        finish
+      fi
     else
       FAILED=$((FAILED + 1))
       if [ "$FAILED" -ge 12 ]; then

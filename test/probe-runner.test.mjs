@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -363,6 +363,68 @@ shellTest("suite runner exits 0 and reports a full pass when every probe passes"
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stderr, /probe suite: 2 probes — pass 2, fail 0, skipped 0, not run 0/);
   assert.match(result.stderr, /FULL PASS/);
+});
+
+shellTest("suite runner closes ordinary Harness processes before running the suite", () => {
+  const dir = mkdtempSync(join(tmpdir(), "wsl-probe-autoclose-"));
+  const bin = join(dir, "bin");
+  try {
+    mkdirSync(bin);
+    mkdirSync(join(dir, "probes"));
+    writeFileSync(join(dir, "probes", "p0.sh"), "#!/usr/bin/env bash\nexit 0\n");
+    chmodSync(join(dir, "probes", "p0.sh"), 0o755);
+
+    const count = join(dir, "tasklist-count");
+    const marker = join(dir, "taskkill.txt");
+    writeFileSync(join(bin, "tasklist.exe"), `#!/usr/bin/env bash
+count=0
+if [ -f "$FAKE_TASKLIST_COUNT" ]; then count="$(cat "$FAKE_TASKLIST_COUNT")"; fi
+count=$((count + 1))
+printf '%s\\n' "$count" > "$FAKE_TASKLIST_COUNT"
+if [ "$count" -eq 1 ]; then printf 'DeepSeek Harness.exe\\n'; fi
+`);
+    chmodSync(join(bin, "tasklist.exe"), 0o755);
+    writeFileSync(join(bin, "taskkill.exe"), `#!/usr/bin/env bash
+printf '%s\\n' "$*" > "$FAKE_TASKKILL_MARKER"
+exit 0
+`);
+    chmodSync(join(bin, "taskkill.exe"), 0o755);
+    writeFileSync(join(bin, "powershell.exe"), `#!/usr/bin/env bash
+case "$*" in
+  *-notlike*) printf '4242\n' ;;
+esac
+exit 0
+`);
+    chmodSync(join(bin, "powershell.exe"), 0o755);
+
+    const result = spawnSync("bash", [join(root, "test", "probe", "run-all-when-closed.sh")], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ""}`,
+        WSL_PROBE_SUITE: "p0.sh",
+        WSL_PROBE_DIR: join(dir, "probes"),
+        WSL_PROBE_WORKER: "1",
+        FAKE_TASKLIST_COUNT: count,
+        FAKE_TASKKILL_MARKER: marker,
+      },
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(readFileSync(marker, "utf8").includes("/PID 4242"), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+shellTest("package and runner expose detached local automation", () => {
+  const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+  assert.match(pkg.scripts["probe:all-closed"], /--include-fs/);
+
+  const runner = readFileSync(resolve(root, "test/probe/run-all-when-closed.sh"), "utf8");
+  assert.match(runner, /setsid/);
+  assert.match(runner, /WSL_PROBE_WORKER/);
+  assert.match(runner, /--wait-only/);
 });
 
 shellTest("suite runner exits 1 with failures distinguishable from the summary", () => {

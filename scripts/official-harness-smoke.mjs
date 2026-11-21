@@ -194,6 +194,9 @@ export async function run(env = process.env, platform = process.platform) {
   if (!ps) return fail("powershell", "neither pwsh.exe nor powershell.exe is available");
 
   const checksFile = join(dirname(RESULTS_FILE), "official-harness-smoke.checks");
+  // A fresh checkout has no .scratch/ (it is gitignored); only the results
+  // write below creates it, and that runs after this file must exist.
+  mkdirSync(dirname(checksFile), { recursive: true });
   writeFileSync(checksFile, "", "utf8");
   const child = spawnSync(
     ps,

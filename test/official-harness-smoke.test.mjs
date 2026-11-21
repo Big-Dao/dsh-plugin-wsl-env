@@ -110,6 +110,8 @@ test("scripts keep the behavior contract", () => {
   assert.match(mjs, /\$\{PACKAGE_NAME\}@/);
   assert.doesNotMatch(mjs, /Program Files/);
   assert.doesNotMatch(mjs, /execSync/);
+  // A fresh checkout has no .scratch/; the checks file must not depend on it.
+  assert.match(mjs, /mkdirSync\(dirname\(checksFile\), \{ recursive: true \}\)/);
   const ps = read("../scripts/official-harness-smoke.ps1");
   for (const needle of [
     "Get-FileHash",

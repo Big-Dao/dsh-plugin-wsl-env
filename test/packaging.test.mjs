@@ -139,6 +139,54 @@ try {
     assert.deepEqual(leaked, [], "src/, test/, node_modules/ and scratch files stay out");
   });
 
+  check("shipped executables keep their executable bits in the tarball", () => {
+    // A Windows filesystem has no exec bit, and npm does not fix up non-`bin`
+    // entries, so a Windows-packed tarball turned the shipped shell scripts
+    // into 0644 and the Linux-side install hit EACCES (#69). The release
+    // workflow packs on Linux since then, and this check pins the contract on
+    // a platform that can represent the bits at all.
+    if (process.platform === "win32") {
+      console.log("      skipped: a local Windows pack is not the release artifact (the workflow packs on Linux)");
+      return;
+    }
+    const dir = mkdtempSync(join(tmpdir(), "dsh-pack-mode-"));
+    try {
+      const raw = execFileSync(NPM, ["pack", "--json", "--ignore-scripts", "--pack-destination", dir], {
+        cwd: ROOT,
+        encoding: "utf8",
+        env: { ...process.env, npm_config_cache: cache, npm_config_logs_dir: join(cache, "logs") },
+      });
+      const parsed = /** @type {Array<{ filename: string }>} */ (JSON.parse(raw));
+      const manifest = parsed[0];
+      assert.ok(manifest !== undefined, "npm pack printed one manifest");
+      const tarball = join(dir, manifest.filename);
+      const listing = execFileSync("tar", ["-tvf", tarball], { encoding: "utf8" });
+      /** @param {string} path - the tarball-relative path. @returns {string} the 10-char permission string. */
+      const modeOf = (path) => {
+        const line = listing.split("\n").find((entry) => entry.endsWith(` package/${path}`));
+        assert.ok(line !== undefined, `${path} is in the tarball`);
+        return line.slice(0, 10);
+      };
+      for (const path of [
+        "scripts/bootstrap.sh",
+        "scripts/bootstrap-import.sh",
+        "scripts/diagnose.sh",
+        "agent/wsl-agent.sh",
+        "agent/native/linux-x86_64/dsh-wsl-agent",
+        "agent/native/linux-aarch64/dsh-wsl-agent",
+      ]) {
+        assert.match(modeOf(path), /^.[r-][w-]x[r-][w-][x-][r-][w-][x-]$/, `${path} is owner-executable: ${modeOf(path)}`);
+      }
+      const writable = listing.split("\n").filter((entry) => {
+        const mode = entry.slice(0, 10);
+        return mode.length === 10 && (mode[5] === "w" || mode[8] === "w");
+      });
+      assert.deepEqual(writable, [], "no tarball entry is group- or world-writable");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   check("the package is not suspiciously empty or huge", () => {
     assert.ok(files.length > 100, `expected >100 files, got ${files.length}`);
     assert.ok(files.length < 400, `expected <400 files, got ${files.length}`);
@@ -147,4 +195,4 @@ try {
   rmSync(cache, { recursive: true, force: true });
 }
 
-console.log(`${passed}/7 packaging checks pass`);
+console.log(`${passed}/8 packaging checks pass`);

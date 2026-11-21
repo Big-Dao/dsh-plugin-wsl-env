@@ -1,0 +1,32 @@
+# Provision a GitHub Windows runner's WSL with the distro and prerequisites the
+# plugin needs: systemd enabled, bubblewrap and its runtime companions installed,
+# linger on so the session runtime agent survives across wsl.exe invocations.
+# Used by both Windows jobs in release.yml; the distro is an input so the two
+# jobs cannot drift apart (issue #69).
+name: Provision WSL distro and prerequisites
+description: Installs the pinned distro with systemd, bwrap and linger enabled.
+inputs:
+  distro:
+    description: The distro to install and make default, e.g. Ubuntu-24.04.
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: pwsh
+      run: |
+        $ErrorActionPreference = "Stop"
+        $distro = "${{ inputs.distro }}"
+        & wsl.exe --install -d $distro --no-launch --web-download
+        if ($LASTEXITCODE -ne 0) { throw "$distro install failed: exit=$LASTEXITCODE" }
+        & wsl.exe -d $distro -u root --exec bash -lc "printf '[boot]\nsystemd=true\n' > /etc/wsl.conf"
+        if ($LASTEXITCODE -ne 0) { throw "$distro systemd configuration failed: exit=$LASTEXITCODE" }
+        & wsl.exe --shutdown
+        if ($LASTEXITCODE -ne 0) { throw "WSL shutdown failed: exit=$LASTEXITCODE" }
+        & wsl.exe --set-default $distro
+        if ($LASTEXITCODE -ne 0) { throw "default distro selection failed: exit=$LASTEXITCODE" }
+        & wsl.exe -d $distro -u root --exec apt-get update
+        if ($LASTEXITCODE -ne 0) { throw "apt-get update failed: exit=$LASTEXITCODE" }
+        & wsl.exe -d $distro -u root --exec apt-get install -y --no-install-recommends bubblewrap dbus git ca-certificates curl build-essential
+        if ($LASTEXITCODE -ne 0) { throw "WSL prerequisite install failed: exit=$LASTEXITCODE" }
+        & wsl.exe -d $distro -u root --exec loginctl enable-linger root
+        if ($LASTEXITCODE -ne 0) { throw "$distro linger setup failed: exit=$LASTEXITCODE" }

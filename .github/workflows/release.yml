@@ -3,13 +3,19 @@ name: Release
 # Pushing a `v<version>` tag publishes that version. The tag must match
 # package.json, the gates must pass, and npm receives a provenance attestation
 # tying the tarball to this workflow run and commit.
+#
+# workflow_dispatch is the dry run: it packs the candidate and runs the official
+# Harness smoke without publishing, so a release blocker like #68 can be
+# exercised on demand instead of only being discovered by pushing a tag.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 # `id-token: write` is what lets npm exchange this run's OIDC token for a
 # short-lived publish credential (trusted publishing), so no npm token is stored in
-# the repository. `contents: write` is for creating the GitHub Release.
+# the repository. `contents: write` is for creating the GitHub Release. The
+# pack and smoke jobs drop both below: they publish nothing and create nothing.
 permissions:
   contents: write
   id-token: write
@@ -24,16 +30,65 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Packs the exact tagged commit and installs that tarball into the pinned
-  # official Harness before anything is published. Publish needs this job, so
-  # a failing candidate blocks the release; the logs are kept as an artifact.
-  candidate-package-smoke:
-    name: candidate package smoke (official Harness)
-    runs-on: windows-latest
-    timeout-minutes: 45
+  # Packs the exact tagged commit once — on Linux, so the tarball's executable
+  # bits survive (a Windows filesystem has no exec bit, and npm does not fix up
+  # non-`bin` entries, which turned the shipped shell scripts into 0644; #69).
+  # The tarball is uploaded as the `candidate-package` artifact, and publish
+  # uploads those same bytes — the tarball is never repacked.
+  pack-candidate:
+    name: pack the candidate tarball
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
     outputs:
       tarball-name: ${{ steps.pack.outputs.name }}
       tarball-integrity: ${{ steps.pack.outputs.integrity }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: corepack enable pnpm
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: "pnpm"
+      - name: Tag matches the package version
+        if: github.event_name == 'push'
+        run: node scripts/check-release-tag.mjs "$GITHUB_REF_NAME"
+      - name: Install
+        run: pnpm install --frozen-lockfile --config.minimum-release-age=0
+      - name: Pack the candidate tarball (the only pack; publish uploads these bytes)
+        id: pack
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          mkdir -p candidate-package
+          # pack.json lands on disk (not a pipe): the publish job re-reads the
+          # same identity, and a pipe hides npm's stderr from the failure log.
+          npm pack --json --ignore-scripts --pack-destination candidate-package >candidate-package/pack.json
+          file="$(node -p 'JSON.parse(require("fs").readFileSync("candidate-package/pack.json","utf8"))[0].filename')"
+          integrity="$(node -p 'JSON.parse(require("fs").readFileSync("candidate-package/pack.json","utf8"))[0].integrity')"
+          echo "candidate package@$version integrity $integrity"
+          echo "name=$file" >>"$GITHUB_OUTPUT"
+          echo "integrity=$integrity" >>"$GITHUB_OUTPUT"
+      - name: Keep the exact candidate tarball and pack identity
+        uses: actions/upload-artifact@v7
+        with:
+          name: candidate-package
+          path: candidate-package/
+          if-no-files-found: error
+  # Installs the candidate tarball into the pinned official Harness on Windows
+  # before anything is published. Publish needs this job (through pack), so a
+  # failing candidate blocks the release; the logs are kept as an artifact.
+  candidate-package-smoke:
+    name: candidate package smoke (official Harness)
+    needs:
+      - pack-candidate
+    runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
     env:
       # Harness compatibility floor; keep in step with docs/PEER-PARITY.md.
       DSH_OFFICIAL_HARNESS_VERSION: "0.2.2-rc.2"
@@ -49,50 +104,21 @@ jobs:
         with:
           node-version: "24"
           cache: "pnpm"
-      - name: Tag matches the package version
-        run: node scripts/check-release-tag.mjs "$env:GITHUB_REF_NAME"
       - name: Install
         run: pnpm install --frozen-lockfile --config.minimum-release-age=0
-      - name: Pack the candidate tarball (the only pack; publish uploads these bytes)
-        id: pack
-        shell: bash
-        run: |
-          version="$(node -p 'require("./package.json").version')"
-          mkdir -p candidate-package
-          pack_json="$(npm pack --json --ignore-scripts --pack-destination candidate-package)"
-          printf '%s' "$pack_json" >candidate-package/pack.json
-          file="$(printf '%s' "$pack_json" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8"))[0].filename')"
-          integrity="$(printf '%s' "$pack_json" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8"))[0].integrity')"
-          echo "candidate package@$version integrity $integrity"
-          echo "DSH_PLUGIN_PACKAGE_TARBALL=$GITHUB_WORKSPACE/candidate-package/$file" >>"$GITHUB_ENV"
-          echo "name=$file" >>"$GITHUB_OUTPUT"
-          echo "integrity=$integrity" >>"$GITHUB_OUTPUT"
-      - name: Provision Ubuntu 24.04 and WSL prerequisites
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          & wsl.exe --install -d Ubuntu-24.04 --no-launch --web-download
-          if ($LASTEXITCODE -ne 0) { throw "Ubuntu install failed: exit=$LASTEXITCODE" }
-          & wsl.exe -d Ubuntu-24.04 -u root --exec bash -lc "printf '[boot]\nsystemd=true\n' > /etc/wsl.conf"
-          if ($LASTEXITCODE -ne 0) { throw "Ubuntu systemd configuration failed: exit=$LASTEXITCODE" }
-          & wsl.exe --shutdown
-          if ($LASTEXITCODE -ne 0) { throw "WSL shutdown failed: exit=$LASTEXITCODE" }
-          & wsl.exe --set-default Ubuntu-24.04
-          if ($LASTEXITCODE -ne 0) { throw "default distro selection failed: exit=$LASTEXITCODE" }
-          & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get update
-          if ($LASTEXITCODE -ne 0) { throw "apt-get update failed: exit=$LASTEXITCODE" }
-          & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get install -y --no-install-recommends bubblewrap dbus git ca-certificates curl build-essential
-          if ($LASTEXITCODE -ne 0) { throw "WSL prerequisite install failed: exit=$LASTEXITCODE" }
-          & wsl.exe -d Ubuntu-24.04 -u root --exec loginctl enable-linger root
-          if ($LASTEXITCODE -ne 0) { throw "Ubuntu linger setup failed: exit=$LASTEXITCODE" }
-      - name: Official Harness smoke
-        run: pnpm run smoke:official-harness
-      - name: Keep the exact candidate tarball and pack identity
-        uses: actions/upload-artifact@v7
+      - name: Download the candidate tarball
+        uses: actions/download-artifact@v7
         with:
           name: candidate-package
-          path: candidate-package/
-          if-no-files-found: error
+          path: candidate-package
+      - name: Provision the distro and WSL prerequisites
+        uses: ./.github/actions/provision-wsl
+        with:
+          distro: ${{ env.DSH_WSL_ENV_DISTRO }}
+      - name: Official Harness smoke
+        env:
+          DSH_PLUGIN_PACKAGE_TARBALL: ${{ github.workspace }}\candidate-package\${{ needs.pack-candidate.outputs.tarball-name }}
+        run: pnpm run smoke:official-harness
       - name: Keep the smoke evidence
         if: always()
         uses: actions/upload-artifact@v7
@@ -103,8 +129,12 @@ jobs:
           if-no-files-found: error
   publish:
     name: publish and release
+    # A manual dispatch is the candidate smoke's dry run: it stops before any
+    # publish or release step. Only a tag push publishes.
+    if: github.event_name == 'push'
     needs:
       - candidate-package-smoke
+      - pack-candidate
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # The environment is npm's trusted-publishing binding (repository + workflow
@@ -155,8 +185,8 @@ jobs:
           node agent/native/spike/test.mjs agent/native/linux-x86_64/dsh-wsl-agent
           node agent/native/spike/test.mjs agent/native/linux-aarch64/dsh-wsl-agent
       # The bytes that passed the smoke are the bytes that ship: download the
-      # candidate tarball built once on Windows (no repack) and require its
-      # sha512 integrity and pack metadata to equal the candidate job's outputs.
+      # candidate tarball packed once on Linux (no repack) and require its
+      # sha512 integrity and pack metadata to equal the pack job's outputs.
       - name: Download the candidate tarball
         uses: actions/download-artifact@v7
         with:
@@ -165,8 +195,8 @@ jobs:
       - name: Candidate tarball matches the smoke candidate
         id: candidate
         env:
-          CANDIDATE_NAME: ${{ needs.candidate-package-smoke.outputs.tarball-name }}
-          CANDIDATE_INTEGRITY: ${{ needs.candidate-package-smoke.outputs.tarball-integrity }}
+          CANDIDATE_NAME: ${{ needs.pack-candidate.outputs.tarball-name }}
+          CANDIDATE_INTEGRITY: ${{ needs.pack-candidate.outputs.tarball-integrity }}
         run: |
           [ -n "$CANDIDATE_NAME" ] && [ -n "$CANDIDATE_INTEGRITY" ] || { echo "candidate outputs missing" >&2; exit 1; }
           file="candidate-package/$CANDIDATE_NAME"
@@ -214,7 +244,7 @@ jobs:
       # already-published version too, so a re-run never trusts stale bytes.
       - name: Verify what the registry serves
         env:
-          CANDIDATE_INTEGRITY: ${{ needs.candidate-package-smoke.outputs.tarball-integrity }}
+          CANDIDATE_INTEGRITY: ${{ needs.pack-candidate.outputs.tarball-integrity }}
           LOCAL_COUNT: ${{ steps.candidate.outputs.count }}
         run: |
           version="$(node -p 'require("./package.json").version')"
@@ -251,6 +281,7 @@ jobs:
   # release back; it opens an issue and appends a warning to the Release notes.
   post-release-package-smoke:
     name: post-release-package-smoke (official Harness)
+    if: github.event_name == 'push'
     needs:
       - publish
     runs-on: windows-latest
@@ -296,24 +327,10 @@ jobs:
           echo "tarball integrity:  $integrity"
           [ "$integrity" = "$served_integrity" ] || { echo "integrity mismatch: downloaded tarball differs from the registry" >&2; exit 1; }
           echo "DSH_PLUGIN_PACKAGE_TARBALL=$RUNNER_TEMP/published/$file" >>"$GITHUB_ENV"
-      - name: Provision Ubuntu 24.04 and WSL prerequisites
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          & wsl.exe --install -d Ubuntu-24.04 --no-launch --web-download
-          if ($LASTEXITCODE -ne 0) { throw "Ubuntu install failed: exit=$LASTEXITCODE" }
-          & wsl.exe -d Ubuntu-24.04 -u root --exec bash -lc "printf '[boot]\nsystemd=true\n' > /etc/wsl.conf"
-          if ($LASTEXITCODE -ne 0) { throw "Ubuntu systemd configuration failed: exit=$LASTEXITCODE" }
-          & wsl.exe --shutdown
-          if ($LASTEXITCODE -ne 0) { throw "WSL shutdown failed: exit=$LASTEXITCODE" }
-          & wsl.exe --set-default Ubuntu-24.04
-          if ($LASTEXITCODE -ne 0) { throw "default distro selection failed: exit=$LASTEXITCODE" }
-          & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get update
-          if ($LASTEXITCODE -ne 0) { throw "apt-get update failed: exit=$LASTEXITCODE" }
-          & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get install -y --no-install-recommends bubblewrap dbus git ca-certificates curl build-essential
-          if ($LASTEXITCODE -ne 0) { throw "WSL prerequisite install failed: exit=$LASTEXITCODE" }
-          & wsl.exe -d Ubuntu-24.04 -u root --exec loginctl enable-linger root
-          if ($LASTEXITCODE -ne 0) { throw "Ubuntu linger setup failed: exit=$LASTEXITCODE" }
+      - name: Provision the distro and WSL prerequisites
+        uses: ./.github/actions/provision-wsl
+        with:
+          distro: ${{ env.DSH_WSL_ENV_DISTRO }}
       - name: Official Harness smoke on the published package
         run: pnpm run smoke:official-harness
       - name: Keep the smoke evidence

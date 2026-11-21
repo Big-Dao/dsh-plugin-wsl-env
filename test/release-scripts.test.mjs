@@ -247,22 +247,47 @@ check("release publish requires the candidate official-harness package smoke", (
   assert.match(release, /include-hidden-files:\s*true/);
   assert.match(release, /if-no-files-found:\s*error/);
   assert.match(release, /tarball-integrity:\s*\$\{\{\s*steps\.pack\.outputs\.integrity/);
-  assert.match(release, /needs\.candidate-package-smoke\.outputs\.tarball-name/);
+  assert.match(release, /needs\.pack-candidate\.outputs\.tarball-name/);
   assert.match(release, /integrity mismatch: .*CANDIDATE_INTEGRITY/);
   assert.match(release, /name: candidate-package/);
   assert.match(release, /download-artifact/);
   assert.match(release, /npm publish "\$CANDIDATE_FILE" --provenance --access public/);
   assert.equal((release.match(/npm pack --json --ignore-scripts/g) ?? []).length, 1, "the candidate is packed exactly once");
+  // The tarball is packed on Linux so the shipped shell scripts keep their
+  // executable bits; a Windows filesystem cannot represent them (#69).
+  const packJob = release.slice(release.indexOf("  pack-candidate:"), release.indexOf("  candidate-package-smoke:"));
+  assert.match(packJob, /runs-on: ubuntu-latest/);
+  assert.match(packJob, /contents: read/);
+  assert.doesNotMatch(packJob, /id-token: write/);
+  // The pack and smoke jobs publish nothing, so they need no write access.
+  const smokeJob = release.slice(release.indexOf("  candidate-package-smoke:"), release.indexOf("  publish:"));
+  assert.match(smokeJob, /contents: read/);
+  // A dispatch run is the candidate smoke's dry run: publish and post-release
+  // only run for a tag push, and the tag checks only run then too.
+  assert.match(release, /workflow_dispatch/);
+  for (const job of ["publish", "post-release-package-smoke"]) {
+    const body = release.slice(release.indexOf(`  ${job}:`));
+    const gate = body.slice(0, body.indexOf("needs:"));
+    assert.match(gate, /github\.event_name == 'push'/, `${job} is tag-push-only`);
+  }
+  // The pack job gates its tag check for dispatch runs; publish's is covered by
+  // the job-level push gate above.
+  const packBody = release.slice(release.indexOf("  pack-candidate:"), release.indexOf("  candidate-package-smoke:"));
+  const packTagCheck = packBody.indexOf("run: node scripts/check-release-tag.mjs");
+  const packGate = packBody.indexOf("if: github.event_name == 'push'");
+  assert.ok(packGate > 0 && packGate < packTagCheck, "the pack job gates its tag check for dispatch runs");
   for (const job of ["candidate-package-smoke", "post-release-package-smoke"]) {
     const body = release.slice(release.indexOf(`  ${job}:`));
-    const provision = body.indexOf("wsl.exe --install -d Ubuntu-24.04");
+    const provision = body.indexOf("uses: ./.github/actions/provision-wsl");
     assert.ok(provision > 0 && provision < body.indexOf("pnpm run smoke:official-harness"), `${job} provisions WSL before the smoke`);
-  }
-  for (const needle of ["systemd=true", "--shutdown", "--set-default Ubuntu-24.04", "bubblewrap dbus git ca-certificates curl build-essential", "enable-linger"]) {
-    assert.ok(release.includes(needle), `provisioning includes ${needle}`);
   }
   assert.match(release, /package@\$version/);
   assert.doesNotMatch(release, /npm install dsh-plugin-wsl-env\s*$/m);
+  // The provisioning contract lives in the composite action both jobs share.
+  const action = readFileSync(join(ROOT, ".github", "actions", "provision-wsl", "action.yml"), "utf8");
+  for (const needle of ["systemd=true", "--shutdown", "--set-default $distro", "bubblewrap dbus git ca-certificates curl build-essential", "enable-linger", "inputs.distro"]) {
+    assert.ok(action.includes(needle), `provisioning action includes ${needle}`);
+  }
 });
 
 check("official smoke script wires an isolated profile and the exact tarball", () => {

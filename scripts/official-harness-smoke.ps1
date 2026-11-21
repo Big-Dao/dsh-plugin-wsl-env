@@ -135,8 +135,8 @@ try {
     # workspace-write mounts an ephemeral tmpfs over /tmp (the mode's promised
     # temp area), so a /tmp "outside" write lands in that private tmpfs and is
     # accepted — $HOME stays read-only, which is what the refusal check needs.
-    $home = (Invoke-Native "wsl.exe" @("-d", $distro, "--exec", "sh", "-c", 'printf %s "$HOME"')).Trim()
-    if (-not $home.StartsWith("/")) { throw "the distro reported no POSIX home: $home" }
+    $distroHome = (Invoke-Native "wsl.exe" @("-d", $distro, "--exec", "sh", "-c", 'printf %s "$HOME"')).Trim()
+    if (-not $distroHome.StartsWith("/")) { throw "the distro reported no POSIX home: $distroHome" }
     $overlayPath = Join-Path $scratch "official-smoke-probe.overlay.yml"
     Set-Content -LiteralPath $overlayPath -Encoding utf8 -Value @"
 - id: bash-sandbox
@@ -156,8 +156,8 @@ try {
       name: '$probeModule'
       config:
         distro: '$distro'
-        root: $home/.dsh-official-smoke-probe
-        outside: $home/dsh-official-smoke-probe-outside.txt
+        root: $distroHome/.dsh-official-smoke-probe
+        outside: $distroHome/dsh-official-smoke-probe-outside.txt
         report: '$probeReport'
 "@
     $overlayPath

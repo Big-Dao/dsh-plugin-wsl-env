@@ -315,15 +315,26 @@ jobs:
         run: |
           version="$(node -p 'require("./package.json").version')"
           served_integrity=""
+          pack_json=""
+          # Registry metadata and the tarball blob propagate on separate
+          # schedules: metadata can be visible minutes before `npm pack`
+          # stops 404ing (run 44930348477's v0.28.0). One window polls both.
           for attempt in $(seq 1 20); do
             served_integrity="$(npm view "dsh-plugin-wsl-env@$version" dist.integrity --registry=https://registry.npmjs.org/ 2>/dev/null || true)"
-            [ -n "$served_integrity" ] && break
-            echo "attempt $attempt: dsh-plugin-wsl-env@$version not resolvable yet; waiting 30s"
+            if [ -z "$served_integrity" ]; then
+              echo "attempt $attempt: dsh-plugin-wsl-env@$version not resolvable yet; waiting 30s"
+              sleep 30
+              continue
+            fi
+            rm -rf "$RUNNER_TEMP/published"
+            mkdir -p "$RUNNER_TEMP/published"
+            if pack_json="$(npm pack "dsh-plugin-wsl-env@$version" --json --registry=https://registry.npmjs.org/ --pack-destination "$RUNNER_TEMP/published" 2>/dev/null)"; then
+              break
+            fi
+            echo "attempt $attempt: metadata is visible but the tarball is not served yet; waiting 30s"
             sleep 30
           done
-          [ -n "$served_integrity" ] || { echo "registry never served dsh-plugin-wsl-env@$version" >&2; exit 1; }
-          mkdir -p "$RUNNER_TEMP/published"
-          pack_json="$(npm pack "dsh-plugin-wsl-env@$version" --json --registry=https://registry.npmjs.org/ --pack-destination "$RUNNER_TEMP/published")"
+          [ -n "$served_integrity" ] && [ -n "$pack_json" ] || { echo "registry never served dsh-plugin-wsl-env@$version" >&2; exit 1; }
           file="$(printf '%s' "$pack_json" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8"))[0].filename')"
           integrity="$(printf '%s' "$pack_json" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8"))[0].integrity')"
           echo "registry integrity: $served_integrity"

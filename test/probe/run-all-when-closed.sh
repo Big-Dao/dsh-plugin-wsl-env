@@ -89,7 +89,6 @@ if [ "${WSL_PROBE_WORKER:-}" != "1" ] &&
   echo "results: $RESULTS" >&2
   WORKER_ARGS=()
   if [ "$INCLUDE_FS" = "1" ]; then WORKER_ARGS=(--include-fs); fi
-  if [ "$WAIT_ONLY" = "1" ]; then WORKER_ARGS+=(--wait-only); fi
   setsid env WSL_PROBE_WORKER=1 WSL_PROBE_LOG="$LOG" WSL_PROBE_RESULTS="$RESULTS" \
     bash "$HERE/run-all-when-closed.sh" "${WORKER_ARGS[@]}" </dev/null >>"$LOG" 2>&1 &
   exit 0

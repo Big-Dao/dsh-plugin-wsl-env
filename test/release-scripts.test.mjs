@@ -244,6 +244,11 @@ check("release publish requires the candidate official-harness package smoke", (
   assert.match(release, /official-harness-smoke/);
   assert.match(release, /npm pack --json/);
   assert.match(release, /needs:\s*\[?\s*(-\s*)?candidate-package-smoke/);
+  assert.match(release, /include-hidden-files:\s*true/);
+  assert.match(release, /if-no-files-found:\s*error/);
+  assert.match(release, /tarball-integrity:\s*\$\{\{\s*steps\.pack\.outputs\.integrity/);
+  assert.match(release, /needs\.candidate-package-smoke\.outputs\.tarball-name/);
+  assert.match(release, /integrity mismatch: .*CANDIDATE_INTEGRITY/);
   assert.match(release, /package@\$version/);
   assert.doesNotMatch(release, /npm install dsh-plugin-wsl-env\s*$/m);
 });

@@ -71,3 +71,6 @@ const contributing = readFileSync(
 );
 assert.match(ci, /probes:/);
 assert.match(contributing, /ci\.yml.*probes|`probes`.*任务/s);
+assert.match(workflow, /DSH_WSL_ENV_PROBE_SETTLE_MS/);
+assert.match(workflow, /DSH_WSL_ENV_PROBE_READ_MS/);
+assert.match(workflow, /HOSTED-TERMINAL-PREWARM-OK/);

@@ -260,8 +260,14 @@ jobs:
           $env:DSH_WSL_ENV_APP = $appDirLinux
           $env:DSH_WSL_ENV_CLI = $cliPath
           $env:DSH_WSL_ENV_WORKSPACE_LINUX = $hostedRepoLinux
+          $env:DSH_WSL_ENV_PROBE_SETTLE_MS = "30000"
+          $env:DSH_WSL_ENV_PROBE_READ_MS = "30000"
           $env:ELECTRON_RUN_AS_NODE = "1"
-          $env:WSLENV = "ELECTRON_RUN_AS_NODE:DSH_WSL_ENV_PROFILE:DSH_WSL_ENV_APP:DSH_WSL_ENV_CLI:DSH_WSL_ENV_RUNTIME_COPY:DSH_WSL_ENV_DISTRO:DSH_WSL_ENV_WORKSPACE_LINUX"
+          $env:WSLENV = "ELECTRON_RUN_AS_NODE:DSH_WSL_ENV_PROFILE:DSH_WSL_ENV_APP:DSH_WSL_ENV_CLI:DSH_WSL_ENV_RUNTIME_COPY:DSH_WSL_ENV_DISTRO:DSH_WSL_ENV_WORKSPACE_LINUX:DSH_WSL_ENV_PROBE_SETTLE_MS:DSH_WSL_ENV_PROBE_READ_MS"
+
+          $prewarmOutput = & wsl.exe -d Ubuntu-24.04 --exec bash -lc "printf 'HOSTED-TERMINAL-PREWARM-OK\n'"
+          if ($LASTEXITCODE -ne 0) { throw "hosted terminal distro prewarm failed" }
+          if ($prewarmOutput -join "`n" -notmatch "HOSTED-TERMINAL-PREWARM-OK") { throw "hosted terminal distro prewarm lacked marker" }
 
           & wsl.exe -d Ubuntu-24.04 -u root --exec bash -lc "set -euo pipefail; echo HOSTED-PROBE-STAGING-OK; hosted_repo=`"`$HOME/dsh-hosted-plugin`"; rm -rf `"`$hosted_repo`"; mkdir -p `"`$hosted_repo`"; tar -C '$workspace' --exclude=./.git --exclude=./test/probe/.scratch -cf - . | tar -C `"`$hosted_repo`" -xf -; cd `"`$hosted_repo`"; export FNM_DIR=`"`$HOME/.local/share/fnm`"; eval `"`$(`"`$FNM_DIR/fnm`" env --shell bash)`"; `$FNM_DIR/fnm use 24.9.0 >/dev/null; bash test/probe/run-all-when-closed.sh --include-fs"
           $probeStatus = $LASTEXITCODE

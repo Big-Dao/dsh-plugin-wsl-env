@@ -3,7 +3,8 @@
  *
  * Consumes DSH_OFFICIAL_HARNESS_VERSION, DSH_PLUGIN_PACKAGE_TARBALL,
  * DSH_WSL_ENV_DISTRO and DSH_WSL_ENV_PROFILE (all required). Resolves the official
- * installer from deepseek-ai/deepseek-harness, records package identity and integrity,
+ * installer from the official CDN (download.deepseek.com; the upstream GitHub
+ * releases publish no installers), records package identity and integrity,
  * runs scripts/official-harness-smoke.ps1 and writes
  * test/probe/.scratch/official-harness-smoke.results. Exit 0 only when every check PASSed;
  * a missing input, non-Windows host or any failure is FAIL / NOT RUN with a nonzero exit.
@@ -18,7 +19,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const RESULTS_FILE = join(ROOT, "test", "probe", ".scratch", "official-harness-smoke.results");
-export const HARNESS_REPO = "deepseek-ai/deepseek-harness";
+export const CDN_BASE = "https://download.deepseek.com/dsh-desk/bin/win-x64";
 export const PACKAGE_NAME = "dsh-plugin-wsl-env";
 const REQUIRED_ENV = [
   "DSH_OFFICIAL_HARNESS_VERSION",
@@ -27,8 +28,8 @@ const REQUIRED_ENV = [
   "DSH_WSL_ENV_PROFILE",
 ];
 /** @typedef {[string, string, string]} Row */
-/** @typedef {{ name: string, browser_download_url: string, digest?: string }} Asset */
-/** @typedef {(url: string, init?: object) => Promise<{ ok: boolean, status: number, json: () => Promise<any> }>} Fetch */
+/** @typedef {{ name: string, url: string, sha256: string, checksumUrl: string }} Installer */
+/** @typedef {(url: string, init?: object) => Promise<{ ok: boolean, status: number }>} Fetch */
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /**
@@ -70,47 +71,34 @@ function defaultProbe(exe) {
 }
 
 /**
- * Choose the Windows installer and its checksum from a release's asset list.
- * @param {Asset[]} assets
+ * The official CDN's versioned installer path for a Windows x64 build. The
+ * fixed `latest` alias resolves to a different version over time, so only this
+ * exact-version path is usable as release evidence.
+ * @param {string} version - exact version, with or without a leading `v`.
+ * @returns {{ name: string, url: string }} the installer file name and its URL.
  */
-export function pickInstaller(assets) {
-  const installers = assets.filter((a) => /win/i.test(a.name) && /\.exe$/i.test(a.name) && !/blockmap/i.test(a.name));
-  if (installers.length !== 1) {
-    throw new Error(`expected exactly one Windows installer asset, found ${installers.length}`);
-  }
-  const installer = /** @type {Asset} */ (installers[0]);
-  const sums = assets.find((a) => /(sha256|checksums?)/i.test(a.name) && !/\.exe$/i.test(a.name));
-  const digest = typeof installer.digest === "string" && installer.digest.startsWith("sha256:")
-    ? installer.digest.slice(7)
-    : "";
-  if (!sums && !digest) throw new Error("no checksum asset or digest published for the installer");
-  return {
-    name: installer.name,
-    url: installer.browser_download_url,
-    sha256: digest,
-    checksumUrl: sums ? sums.browser_download_url : "",
-  };
+export function installerUrl(version) {
+  const bare = version.replace(/^v/, "");
+  const name = `deepseek-harness-${bare}-win-x64.exe`;
+  return { name, url: `${CDN_BASE}/${name}` };
 }
 
 /**
- * Resolve the official release at an exact version (tries `v<version>` then `<version>`).
+ * Resolve the official installer at an exact version. No official checksum is
+ * published alongside the CDN object, so the smoke records the downloaded
+ * file's own sha256 instead of verifying a published one (the design requires
+ * verification only where an official checksum exists).
  * @param {string} version
  * @param {Fetch} [fetchImpl]
  */
-export async function resolveInstaller(version, fetchImpl = /** @type {(url: string, init?: object) => Promise<{ ok: boolean, status: number, json: () => Promise<any> }>} */ (fetch)) {
-  const bare = version.replace(/^v/, "");
-  let lastStatus = 0;
-  for (const tag of [`v${bare}`, bare]) {
-    const res = await fetchImpl(`https://api.github.com/repos/${HARNESS_REPO}/releases/tags/${tag}`, {
-      headers: { Accept: "application/vnd.github+json", "User-Agent": "dsh-plugin-wsl-env-smoke" },
-    });
-    if (res.ok) {
-      const release = await res.json();
-      return { tag, ...pickInstaller(release.assets ?? []) };
-    }
-    lastStatus = res.status;
-  }
-  throw new Error(`official release ${version} not found in ${HARNESS_REPO} (HTTP ${lastStatus})`);
+export async function resolveInstaller(version, fetchImpl = /** @type {Fetch} */ (fetch)) {
+  const { name, url } = installerUrl(version);
+  const res = await fetchImpl(url, {
+    method: "HEAD",
+    headers: { "User-Agent": "dsh-plugin-wsl-env-smoke" },
+  });
+  if (!res.ok) throw new Error(`official installer for ${version} not resolvable at ${url} (HTTP ${res.status})`);
+  return /** @type {Installer} */ ({ name, url, sha256: "", checksumUrl: "" });
 }
 
 /**
@@ -176,6 +164,13 @@ export async function run(env = process.env, platform = process.platform) {
   if (problems.length > 0) return fail("inputs", problems.join("; "), "NOT RUN");
   if (platform !== "win32") return fail("platform", "official Desktop smoke requires Windows", "NOT RUN");
   rows.push(["PASS", "inputs", `harness ${env.DSH_OFFICIAL_HARNESS_VERSION}, distro ${env.DSH_WSL_ENV_DISTRO}, profile ${env.DSH_WSL_ENV_PROFILE}`]);
+  // Runner and workflow identity so the results file is attributable when read
+  // back from an artifact (the evidence contract in the probe gate design).
+  rows.push([
+    "PASS",
+    "context",
+    `workflow ${env.GITHUB_WORKFLOW ?? "local"}, run ${env.GITHUB_RUN_ID ?? "local"}, runner ${env.RUNNER_OS ?? process.platform}, job ${env.GITHUB_JOB ?? "local"}`,
+  ]);
 
   const tarball = resolve(String(env.DSH_PLUGIN_PACKAGE_TARBALL));
   let pkg;
@@ -193,7 +188,7 @@ export async function run(env = process.env, platform = process.platform) {
   } catch (err) {
     return fail("installer-resolution", errMessage(err));
   }
-  rows.push(["PASS", "installer-resolution", `${HARNESS_REPO}@${installer.tag} ${installer.name}`]);
+  rows.push(["PASS", "installer-resolution", `official CDN ${installer.url}`]);
 
   const ps = resolvePowerShell();
   if (!ps) return fail("powershell", "neither pwsh.exe nor powershell.exe is available");

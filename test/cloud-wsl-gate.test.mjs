@@ -41,6 +41,7 @@ assert.match(workflow, /wsl\.exe --export Ubuntu-24\.04/);
 assert.match(workflow, /wsl\.exe --import \$secondDistro/);
 assert.match(workflow, /fnm.*install 24\.9\.0/);
 assert.match(workflow, /run-all-when-closed\.sh --include-fs/);
+assert.match(workflow, /run-all-when-closed\.sh --include-fs --wait-only/);
 assert.match(workflow, /plugin\/test\/probe\/\.scratch\/full-probe\.\*\.log/);
 assert.match(workflow, /plugin\/test\/probe\/\.scratch\/full-probe\.\*\.results/);
 assert.match(workflow, /include-hidden-files:\s*true/);

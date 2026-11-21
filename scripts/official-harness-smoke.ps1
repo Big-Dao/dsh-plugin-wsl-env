@@ -195,7 +195,10 @@ try {
       Start-Sleep -Seconds 2
     }
     Stop-Process -Id $script:probeProcess.Id -Force -ErrorAction SilentlyContinue
-    if (-not $script:probeProcess.WaitForExit(15000)) { throw "probe CLI did not exit after Stop-Process" }
+    # dsh.cmd is a wrapper: the CLI's node child survives a plain Stop-Process
+    # as an orphan still holding the redirected log open, so kill the tree.
+    & taskkill.exe /PID $script:probeProcess.Id /T /F 2>&1 | Out-Null
+    if (-not $script:probeProcess.WaitForExit(15000)) { throw "probe CLI did not exit after taskkill" }
     if ($report -match "(?m)^FAIL ") { throw "the through-plugin probe reported failures:`n$report" }
     if ($report -notmatch "RESULT: all steps passed") { throw "the through-plugin probe did not complete:`n$report" }
     (($report -split "`r?`n") | Where-Object { $_ -match "^PASS " }) -join "; "
@@ -270,9 +273,12 @@ try {
       $failed = $true
     } else {
       # The profile was booted with --no-open (headless server), so the smoke
-      # force-stops it and requires the process to actually be gone. Clean-exit
-      # evidence for the full suite remains the source gate's authority.
+      # force-stops it and requires the process to actually be gone. The tree
+      # kill matters: Electron's children keep the redirected log open after
+      # the main process dies. Clean-exit evidence for the full suite remains
+      # the source gate's authority.
       Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
+      & taskkill.exe /PID $app.Id /T /F 2>&1 | Out-Null
       $stopped = $app.WaitForExit(15000)
       if (-not $stopped) {
         Record "FAIL" "app-stop" "still running 15s after Stop-Process"
@@ -291,12 +297,20 @@ try {
   }
   # The logs keep the web endpoint's session token; the evidence contract
   # excludes auth tokens, so scrub them before the artifact upload. Empty logs
-  # are common (a failed boot prints to one stream only) and are skipped.
+  # are common (a failed boot prints to one stream only) and are skipped; a
+  # still-held handle gets a short retry before this counts as a failure.
   foreach ($evidence in $log, "$log.err", $probeCliLog, "$probeCliLog.err") {
-    if ($evidence -and (Test-Path -LiteralPath $evidence)) {
-      $text = Get-Content -LiteralPath $evidence -Raw
-      if ($text -and $text.Contains("token=")) {
-        Set-Content -LiteralPath $evidence -NoNewline -Value ($text -replace "token=[^&\s`"']+", "token=REDACTED")
+    if (-not $evidence -or -not (Test-Path -LiteralPath $evidence)) { continue }
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+      try {
+        $text = Get-Content -LiteralPath $evidence -Raw
+        if ($text -and $text.Contains("token=")) {
+          Set-Content -LiteralPath $evidence -NoNewline -Value ($text -replace "token=[^&\s`"']+", "token=REDACTED")
+        }
+        break
+      } catch {
+        if ($attempt -eq 3) { throw "could not redact $evidence : $($_.Exception.Message)" }
+        Start-Sleep -Seconds 2
       }
     }
   }

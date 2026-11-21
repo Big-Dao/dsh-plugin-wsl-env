@@ -137,6 +137,7 @@ test("scripts keep the behavior contract", () => {
     "RESULT: all steps passed",
     ".scratch",
     "Stop-Process",
+    "taskkill.exe",
     "WaitForExit",
     "DSH_WSL_ENV_DISTRO",
     "DSH_WSL_ENV_PROFILE",

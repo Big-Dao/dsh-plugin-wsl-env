@@ -28,7 +28,11 @@ import { dirname } from "node:path";
  */
 
 /**
- * The probe's config, as the smoke's overlay composes it.
+ * The probe's config, as the smoke's overlay composes it. The workspace root
+ * and the refusal target sit under the distro HOME: workspace-write mounts an
+ * ephemeral tmpfs over /tmp (the mode's promised temp area, where a write is
+ * accepted by design), so a refusal can only be witnessed in the read-only
+ * HOME.
  * @typedef {{
  *   distro: string,
  *   root: string,

@@ -131,6 +131,12 @@ try {
     $probeModule = Join-Path $root "test\probe\official-smoke-probe.mjs"
     if (-not (Test-Path -LiteralPath $probeModule)) { throw "probe module not found: $probeModule" }
     Remove-Item -LiteralPath $probeReport -Force -ErrorAction SilentlyContinue
+    # The workspace root and the refusal target live under the distro HOME:
+    # workspace-write mounts an ephemeral tmpfs over /tmp (the mode's promised
+    # temp area), so a /tmp "outside" write lands in that private tmpfs and is
+    # accepted — $HOME stays read-only, which is what the refusal check needs.
+    $home = (Invoke-Native "wsl.exe" @("-d", $distro, "--exec", "sh", "-c", 'printf %s "$HOME"')).Trim()
+    if (-not $home.StartsWith("/")) { throw "the distro reported no POSIX home: $home" }
     $overlayPath = Join-Path $scratch "official-smoke-probe.overlay.yml"
     Set-Content -LiteralPath $overlayPath -Encoding utf8 -Value @"
 - id: bash-sandbox
@@ -150,16 +156,17 @@ try {
       name: '$probeModule'
       config:
         distro: '$distro'
-        root: /tmp/dsh-official-smoke-probe
-        outside: /tmp/dsh-official-smoke-probe-outside.txt
+        root: $home/.dsh-official-smoke-probe
+        outside: $home/dsh-official-smoke-probe-outside.txt
         report: '$probeReport'
 "@
     $overlayPath
   }
 
-  # Keep the probe's scratch paths from a previous run out of this one.
+  # Keep the probe's scratch paths from a previous run out of this one. Runs
+  # as the distro's default user, so $HOME is that user's home.
   Step "probe-scratch-clean" {
-    Invoke-Native "wsl.exe" @("-d", $distro, "-u", "root", "--", "rm", "-rf", "/tmp/dsh-official-smoke-probe", "/tmp/dsh-official-smoke-probe-outside.txt") | Out-Null
+    Invoke-Native "wsl.exe" @("-d", $distro, "--exec", "sh", "-c", 'rm -rf "$HOME"/.dsh-official-smoke-probe "$HOME"/dsh-official-smoke-probe-outside.txt') | Out-Null
     "distro $distro scratch paths removed"
   }
 

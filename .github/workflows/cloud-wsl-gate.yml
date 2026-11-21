@@ -91,7 +91,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "default distro selection failed: exit=$LASTEXITCODE" }
           & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get update
           if ($LASTEXITCODE -ne 0) { throw "apt-get update failed: exit=$LASTEXITCODE" }
-          & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get install -y --no-install-recommends bubblewrap git ca-certificates curl build-essential unzip
+          & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get install -y --no-install-recommends bubblewrap dbus git ca-certificates curl build-essential unzip
           if ($LASTEXITCODE -ne 0) { throw "bwrap package install failed: exit=$LASTEXITCODE" }
           & wsl.exe -d Ubuntu-24.04 -u root --exec loginctl enable-linger root
           if ($LASTEXITCODE -ne 0) { throw "Ubuntu linger setup failed: exit=$LASTEXITCODE" }
@@ -225,8 +225,9 @@ jobs:
           $workspace = wsl.exe -d Ubuntu-24.04 --exec wslpath -u "${{ github.workspace }}\plugin"
           if ($LASTEXITCODE -ne 0) { throw "workspace translation failed: exit=$LASTEXITCODE" }
           $workspace = $workspace.TrimEnd("`r", "`n")
-          & wsl.exe -d Ubuntu-24.04 --exec bash -lc "set -eu; cd '$workspace'; mkdir -p .cloud-wsl-gate; printf pass > .cloud-wsl-gate/inside.txt; bwrap --ro-bind / / --dev /dev --proc /proc --die-with-parent --bind '$workspace' '$workspace' -- sh -c 'printf pass > $workspace/.cloud-wsl-gate/bwrap.txt'; grep -qx pass '$workspace/.cloud-wsl-gate/inside.txt'; grep -qx pass '$workspace/.cloud-wsl-gate/bwrap.txt'; rm -rf '$workspace/.cloud-wsl-gate'; echo FENCE-OK"
+          $fenceOutput = & wsl.exe -d Ubuntu-24.04 --exec bash -lc "set -eu; cd '$workspace'; mkdir -p .cloud-wsl-gate; printf pass > .cloud-wsl-gate/inside.txt; bwrap --ro-bind / / --dev /dev --proc /proc --die-with-parent --bind '$workspace' '$workspace' -- sh -c 'printf pass > $workspace/.cloud-wsl-gate/bwrap.txt'; grep -qx pass '$workspace/.cloud-wsl-gate/inside.txt'; grep -qx pass '$workspace/.cloud-wsl-gate/bwrap.txt'; rm -rf '$workspace/.cloud-wsl-gate'; echo FENCE-OK"
           if ($LASTEXITCODE -ne 0) { throw "bwrap workspace fence failed" }
+          if ($fenceOutput -join "`n" -notmatch "FENCE-OK") { throw "bwrap workspace fence lacked FENCE-OK marker" }
 
       - name: Run hosted closed-app probe suite
         shell: pwsh
@@ -251,13 +252,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Desktop app directory translation failed: exit=$LASTEXITCODE" }
           $appDirLinux = $appDirLinux.TrimEnd("`r", "`n")
           $cliPath = Join-Path $appDir "resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js"
+          $hostedRepoLinux = "/root/dsh-hosted-plugin"
 
           $env:DSH_WSL_ENV_DISTRO = "Ubuntu-24.04"
           $env:DSH_WSL_ENV_PROFILE = $profile
           $env:DSH_WSL_ENV_RUNTIME_COPY = $mirror
           $env:DSH_WSL_ENV_APP = $appDirLinux
           $env:DSH_WSL_ENV_CLI = $cliPath
-          $env:DSH_WSL_ENV_WORKSPACE_LINUX = $workspace
+          $env:DSH_WSL_ENV_WORKSPACE_LINUX = $hostedRepoLinux
           $env:ELECTRON_RUN_AS_NODE = "1"
           $env:WSLENV = "ELECTRON_RUN_AS_NODE:DSH_WSL_ENV_PROFILE:DSH_WSL_ENV_APP:DSH_WSL_ENV_CLI:DSH_WSL_ENV_RUNTIME_COPY:DSH_WSL_ENV_DISTRO:DSH_WSL_ENV_WORKSPACE_LINUX"
 
@@ -275,7 +277,10 @@ jobs:
           if ($log -notmatch "FULL PASS") { throw "hosted probe log lacks FULL PASS marker" }
           if ($results -match "(?m)^SKIP\t|(?m)^FAIL\t|^NOT RUN") { throw "hosted probe results contain SKIP, FAIL, or NOT RUN" }
           $passCount = ([regex]::Matches($results, "(?m)^PASS\t")).Count
-          if ($passCount -ne 19) { throw "hosted probe results contain $passCount PASS entries; expected 19" }
+          $suiteCountMatch = [regex]::Match($log, "probe suite:\s*(\d+) probes")
+          if (-not $suiteCountMatch.Success) { throw "hosted probe log lacks suite count" }
+          $SUITE_COUNT = [int]$suiteCountMatch.Groups[1].Value
+          if ($passCount -ne $SUITE_COUNT) { throw "hosted probe results contain $passCount PASS entries; suite declared $SUITE_COUNT" }
 
       - name: Upload desktop gate evidence
         if: always()

@@ -58,3 +58,16 @@ assert.match(workflow, /FENCE-OK/);
 assert.match(workflow, /FULL PASS/);
 assert.match(workflow, /NOT RUN/);
 assert.match(workflow, /if-no-files-found:\s*error/);
+assert.match(workflow, /apt-get install -y --no-install-recommends[^\n]*dbus/);
+assert.match(workflow, /\$fenceOutput\s*=/);
+assert.match(workflow, /\$hostedRepoLinux\s*=\s*"\/root\/dsh-hosted-plugin"/);
+assert.match(workflow, /SUITE_COUNT/);
+assert.doesNotMatch(workflow, /passCount\s+-ne\s+19|expected\s+19/);
+
+const ci = readFileSync(resolve(ROOT, ".github/workflows/ci.yml"), "utf8");
+const contributing = readFileSync(
+  resolve(ROOT, "CONTRIBUTING.zh.md"),
+  "utf8",
+);
+assert.match(ci, /probes:/);
+assert.match(contributing, /ci\.yml.*probes|`probes`.*任务/s);

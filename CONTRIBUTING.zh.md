@@ -133,6 +133,11 @@ profile、Desktop 日志、完整 probe 日志和结果，以及 probe report。
 Windows+WSL runner，请使用 `self-hosted-wsl` 等无歧义标签，不要复用托管
 `windows-latest` 标签，并同时更新所有 matrix / `runs-on` / fork-gate 引用。
 
+`.github/workflows/ci.yml` 中的 `probes` 任务是另一条独立的手动真机入口：
+仅响应 `workflow_dispatch`，可由带 Windows+WSL 能力的自托管 runner 执行，
+缺少前置项时以明确的 probe 状态报告，不等同于托管套件通过。该任务不替代
+上述 Cloud WSL Gate 的 artifact 与 FULL PASS 要求。
+
 ## 新增测试
 
 按测试所需选择层次。

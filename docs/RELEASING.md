@@ -126,8 +126,9 @@ maintainer joins the release rotation.
 
 The Windows matrix legs run on GitHub-hosted `windows-latest`. The
 `.github/workflows/cloud-wsl-gate.yml` Cloud WSL Gate provisions Ubuntu and WSL
-itself, and runs the 19-entry closed-app suite after Desktop exits. Local
-evidence remains available through
+itself and implements the 19-entry closed-app suite after Desktop exits.
+Suite evidence is accepted only after a run uploads the complete log/results
+with every entry PASS and no SKIP or NOT RUN. Local evidence remains available through
 `test/probe/run-all-when-closed.sh --include-fs`.
 
 If a runner is added later, give it a custom `self-hosted-wsl` label rather than

@@ -271,6 +271,12 @@ every matrix / `runs-on` / fork-gate reference together. The release
 workflow's `npm-publish` environment
 intentionally has no required reviewers (single-maintainer decision).
 
+The `probes` job in `.github/workflows/ci.yml` is a separate manual-only
+self-hosted probe entry. It runs only for `workflow_dispatch`, accepts a
+self-hosted Windows+WSL runner label, and reports missing prerequisites as
+explicit probe status rather than as a hosted-suite success. It is not the
+Cloud WSL Gate and does not replace the gate artifact requirements above.
+
 Also note the install steps carry `--config.minimum-release-age=0` (pnpm 11.7's
 lockfile re-verification ignores `minimumReleaseAgeExclude`; the flag is the
 documented remedy in `release.yml`). The restore condition and all seven call

@@ -455,9 +455,11 @@ the first run; the runtime package itself still ships zero dependencies. CI runs
 `pnpm test` on Linux and Windows, on Node 22 and 24, and `pnpm run test:coverage` on
 Node 24 only — the threshold flags need Node 22.8. Node 20 is absent on purpose:
 `engines` requires `^22.19.0 || >=24.0.0`, the harness host's own floor. Local
-harness probes remain real-machine steps, and the hosted
-`.github/workflows/cloud-wsl-gate.yml` also provisions Ubuntu and runs the 19-entry
-closed-app suite after the Desktop process exits.
+harness probes remain real-machine steps. The hosted
+`.github/workflows/cloud-wsl-gate.yml` provisions Ubuntu and implements the
+19-entry closed-app suite after the Desktop process exits; it is accepted as
+suite evidence only after a run uploads a complete log/results artifact with
+every entry PASS and no SKIP or NOT RUN.
 
 The probe scripts share [`test/probe/env.sh`](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/test/probe/env.sh), which derives
 the Windows user, the distro name and the UNC spelling of the checkout from the

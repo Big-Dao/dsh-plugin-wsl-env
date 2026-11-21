@@ -100,9 +100,14 @@ async function run(ctx, config) {
    * Run one command under an explicit policy and settle it.
    * @param {string} command - the shell line to run.
    * @param {SandboxExecutionPolicy} policy - the per-call policy.
+   * @param {string} [workdir] - the directory to run in; omitted means the
+   *   provider's own default (the distro home on this profile), which is what
+   *   the setup needs: it creates the root it would otherwise be run from.
    */
-  const exec = async (command, policy) => {
-    const execution = await ctx.shell.execute(ctx.shell.resolve({ command, workdir: config.root, sandboxPolicy: policy }));
+  const exec = async (command, policy, workdir) => {
+    const request = /** @type {Parameters<Context["shell"]["resolve"]>[0]} */ ({ command, sandboxPolicy: policy });
+    if (workdir !== undefined) request.workdir = workdir;
+    const execution = await ctx.shell.execute(ctx.shell.resolve(request));
     return execution.result();
   };
 
@@ -114,8 +119,10 @@ async function run(ctx, config) {
 
   try {
     // The workspace root must exist before a workspace-write policy can grant
-    // it (bwrap refuses a bind whose source is missing). The setup runs as the
-    // approved escalation, like the operators' path in sandbox-shell-probe.
+    // it (bwrap refuses a bind whose source is missing), so the setup creates
+    // it — running from the provider's default directory, because the root it
+    // creates cannot also be the directory the command starts in. Like the
+    // operators' approved escalation in sandbox-shell-probe.
     const setup = await exec(`mkdir -p ${config.root}`, { mode: "danger-full-access", workspaceRoot: config.root });
     if (setup.exitCode !== 0) throw new Error(`mkdir -p ${config.root} exited ${setup.exitCode}: ${setup.stderr.text.slice(0, 120)}`);
   } catch (error) {
@@ -127,7 +134,7 @@ async function run(ctx, config) {
   }
   try {
     await step(lines, record, "a command runs through the plugin's WSL shell", async () => {
-      const out = await exec("echo dsh-smoke-plugin", confined());
+      const out = await exec("echo dsh-smoke-plugin", confined(), config.root);
       if (out.exitCode !== 0) throw new Error(`exited ${out.exitCode}: ${out.stderr.text.slice(0, 120)}`);
       if (!out.stdout.text.includes("dsh-smoke-plugin")) throw new Error(`unexpected output ${JSON.stringify(out.stdout.text.slice(0, 120))}`);
       return `mode=${out.sandbox?.mode ?? "none"} enforcement=${out.sandbox?.enforcement ?? "none"}`;
@@ -143,7 +150,7 @@ async function run(ctx, config) {
     });
 
     await step(lines, record, "a confined command outside the workspace is refused", async () => {
-      const denied = await exec(`echo x > ${config.outside}`, confined());
+      const denied = await exec(`echo x > ${config.outside}`, confined(), config.root);
       if (denied.exitCode === 0) throw new Error("the write outside the workspace was accepted");
       if (denied.sandbox?.denied !== true) throw new Error(`not classified as a denial: ${JSON.stringify(denied.sandbox)}`);
       return JSON.stringify(denied.stderr.text.slice(0, 120));

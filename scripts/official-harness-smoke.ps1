@@ -283,11 +283,14 @@ try {
     $script:probeProcess.WaitForExit(10000) | Out-Null
   }
   # The logs keep the web endpoint's session token; the evidence contract
-  # excludes auth tokens, so scrub them before the artifact upload.
+  # excludes auth tokens, so scrub them before the artifact upload. Empty logs
+  # are common (a failed boot prints to one stream only) and are skipped.
   foreach ($evidence in $log, "$log.err", $probeCliLog, "$probeCliLog.err") {
     if ($evidence -and (Test-Path -LiteralPath $evidence)) {
       $text = Get-Content -LiteralPath $evidence -Raw
-      Set-Content -LiteralPath $evidence -NoNewline -Value ($text -replace "token=[^&\s`"']+", "token=REDACTED")
+      if ($text -and $text.Contains("token=")) {
+        Set-Content -LiteralPath $evidence -NoNewline -Value ($text -replace "token=[^&\s`"']+", "token=REDACTED")
+      }
     }
   }
   # The profile home dies with $work; its startup logs are the composition

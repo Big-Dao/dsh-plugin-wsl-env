@@ -417,6 +417,56 @@ exit 0
   }
 });
 
+/**
+ * Run the suite runner with fake Windows interop binaries.
+ * @param {{stale?: boolean, killExit?: number}} options - Fake stale probe presence and taskkill exit code.
+ */
+function runWithFakeWindows({ stale = false, killExit = 0 }) {
+  const dir = mkdtempSync(join(tmpdir(), "wsl-probe-fakewin-"));
+  const bin = join(dir, "bin");
+  try {
+    mkdirSync(bin);
+    mkdirSync(join(dir, "probes"));
+    writeFileSync(join(dir, "probes", "p0.sh"), "#!/usr/bin/env bash\nexit 0\n");
+    chmodSync(join(dir, "probes", "p0.sh"), 0o755);
+    const fakes = {
+      "tasklist.exe": "printf 'DeepSeek Harness.exe\\n'\n",
+      "taskkill.exe": `exit ${killExit}\n`,
+      "powershell.exe": `case "$*" in\n  *-notlike*) printf '4242\\n' ;;\n  *-like*) ${stale ? "printf '9999\\n'" : ":"} ;;\nesac\n`,
+    };
+    for (const [name, body] of Object.entries(fakes)) {
+      writeFileSync(join(bin, name), `#!/usr/bin/env bash\n${body}`);
+      chmodSync(join(bin, name), 0o755);
+    }
+    return spawnSync("bash", [join(root, "test", "probe", "run-all-when-closed.sh")], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ""}`,
+        WSL_PROBE_SUITE: "p0.sh",
+        WSL_PROBE_DIR: join(dir, "probes"),
+        WSL_PROBE_WORKER: "1",
+      },
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+shellTest("suite runner refuses to close or run while stale probe instances are up", () => {
+  const result = runWithFakeWindows({ stale: true });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /stale probe instance\(s\) are still up; refusing to close or run/);
+  assert.doesNotMatch(result.stderr, /closing ordinary Harness/);
+});
+
+shellTest("suite runner aborts without running probes when taskkill fails", () => {
+  const result = runWithFakeWindows({ killExit: 1 });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /failed to terminate Harness PID 4242/);
+  assert.doesNotMatch(result.stderr, /FULL PASS/);
+});
+
 shellTest("package and runner expose detached local automation", () => {
   const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
   assert.match(pkg.scripts["probe:all-closed"], /--include-fs/);

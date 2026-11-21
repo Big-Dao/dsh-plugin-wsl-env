@@ -215,6 +215,14 @@ gh release create vx.y.z --repo Big-Dao/dsh-plugin-wsl-env \
 The notes summarise the changelog section. Mention anything a user must do, such as
 a new required configuration key.
 
+The release workflow's `post-release-package-smoke` job then downloads exactly
+`dsh-plugin-wsl-env@<version>` (never `latest` or a dist tag), checks its
+integrity against the registry's `dist.integrity`, runs
+`pnpm run smoke:official-harness` against it and uploads the logs. If it fails,
+the job opens or updates a GitHub issue and appends a warning to the Release
+notes; the version is not rolled back, so treat it as unverified and follow
+section 9.
+
 ## 8. Refresh the runtime mirror
 
 The Windows copy of the checkout is what the app loads. Sync it to the tagged

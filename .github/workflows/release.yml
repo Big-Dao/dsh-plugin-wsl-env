@@ -224,3 +224,83 @@ jobs:
             --title "$GITHUB_REF_NAME" \
             --notes-file release-notes.md \
             --verify-tag
+  # Re-checks what npm actually serves: downloads the exact published version
+  # (never `latest` or a dist tag), proves its integrity equals the registry's,
+  # and runs the official-Harness smoke against it. Failure never rolls the
+  # release back; it opens an issue and appends a warning to the Release notes.
+  post-release-package-smoke:
+    name: post-release-package-smoke (official Harness)
+    needs:
+      - publish
+    runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      issues: write
+    env:
+      DSH_OFFICIAL_HARNESS_VERSION: "0.2.2-rc.2"
+      DSH_WSL_ENV_DISTRO: ${{ vars.DSH_WSL_ENV_DISTRO || 'Ubuntu' }}
+      DSH_WSL_ENV_PROFILE: ${{ vars.DSH_WSL_ENV_PROFILE || 'default' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: corepack enable pnpm
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: "pnpm"
+      - name: Install
+        run: pnpm install --frozen-lockfile --config.minimum-release-age=0
+      - name: Download the published package
+        id: fetch
+        shell: bash
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          served_integrity=""
+          for attempt in $(seq 1 20); do
+            served_integrity="$(npm view "dsh-plugin-wsl-env@$version" dist.integrity --registry=https://registry.npmjs.org/ 2>/dev/null || true)"
+            [ -n "$served_integrity" ] && break
+            echo "attempt $attempt: dsh-plugin-wsl-env@$version not resolvable yet; waiting 30s"
+            sleep 30
+          done
+          [ -n "$served_integrity" ] || { echo "registry never served dsh-plugin-wsl-env@$version" >&2; exit 1; }
+          mkdir -p "$RUNNER_TEMP/published"
+          pack_json="$(npm pack "dsh-plugin-wsl-env@$version" --json --registry=https://registry.npmjs.org/ --pack-destination "$RUNNER_TEMP/published")"
+          file="$(printf '%s' "$pack_json" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8"))[0].filename')"
+          integrity="$(printf '%s' "$pack_json" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8"))[0].integrity')"
+          echo "registry integrity: $served_integrity"
+          echo "tarball integrity:  $integrity"
+          [ "$integrity" = "$served_integrity" ] || { echo "integrity mismatch: downloaded tarball differs from the registry" >&2; exit 1; }
+          echo "DSH_PLUGIN_PACKAGE_TARBALL=$RUNNER_TEMP/published/$file" >>"$GITHUB_ENV"
+      - name: Official Harness smoke on the published package
+        run: pnpm run smoke:official-harness
+      - name: Keep the smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: post-release-package-smoke-logs-${{ github.ref_name }}
+          path: test/probe/.scratch/
+          include-hidden-files: true
+          if-no-files-found: error
+      # GitHub Release warning and issue: the package is never reported healthy
+      # when its post-release smoke did not pass.
+      - name: Report the failure
+        if: failure()
+        shell: bash
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          warning="> **Warning:** post-release-package-smoke failed for dsh-plugin-wsl-env@$version. This published package is NOT verified against the official Harness. Run: $run_url"
+          title="post-release-package-smoke failed for $GITHUB_REF_NAME"
+          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$warning"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$warning"
+          fi
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json body --jq .body >release-body.md
+          printf '\n\n%s\n' "$warning" >>release-body.md
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file release-body.md

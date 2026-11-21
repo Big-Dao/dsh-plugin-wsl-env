@@ -253,6 +253,15 @@ check("release publish requires the candidate official-harness package smoke", (
   assert.doesNotMatch(release, /npm install dsh-plugin-wsl-env\s*$/m);
 });
 
+check("release verifies the published official package after publishing", () => {
+  const release = readFileSync(join(ROOT, ".github", "workflows", "release.yml"), "utf8");
+  assert.match(release, /post-release-package-smoke/);
+  assert.match(release, /npm view "dsh-plugin-wsl-env@\$version" dist\.integrity/);
+  assert.match(release, /dsh-plugin-wsl-env@\$version/);
+  assert.match(release, /GitHub Release warning|issue/);
+  assert.doesNotMatch(release, /dsh-plugin-wsl-env@latest/);
+});
+
 let failed = 0;
 for (const [name, fn] of checks) await runCheck(name, fn);
 failed = checks.length - passed;

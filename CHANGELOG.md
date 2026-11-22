@@ -16,6 +16,14 @@ were part of the record.
 
 ## [Unreleased]
 
+### Changed
+
+- **Release workflow hardening.** The workflow default permission is now
+  `contents: read`; only the publish job holds `contents: write` and
+  `id-token: write`. The `upload-artifact` and `download-artifact` actions are
+  pinned to commit SHAs like the other actions. No plugin runtime behavior
+  changed.
+
 ## [0.28.0] - 2026-11-22
 
 Release-evidence release: the official-package smoke gates publication and

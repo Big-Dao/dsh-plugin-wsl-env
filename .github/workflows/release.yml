@@ -12,13 +12,12 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
-# `id-token: write` is what lets npm exchange this run's OIDC token for a
-# short-lived publish credential (trusted publishing), so no npm token is stored in
-# the repository. `contents: write` is for creating the GitHub Release. The
-# pack and smoke jobs drop both below: they publish nothing and create nothing.
+# The workflow default is read-only. Only the publish job raises it: `id-token:
+# write` lets npm exchange that run's OIDC token for a short-lived publish
+# credential (trusted publishing), so no npm token is stored in the repository,
+# and `contents: write` creates the GitHub Release.
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 # corepack resolves pnpm from the packageManager field; the flag silences its
 # interactive download confirmation, which has no TTY in CI.
@@ -73,7 +72,7 @@ jobs:
           echo "name=$file" >>"$GITHUB_OUTPUT"
           echo "integrity=$integrity" >>"$GITHUB_OUTPUT"
       - name: Keep the exact candidate tarball and pack identity
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: candidate-package
           path: candidate-package/
@@ -107,7 +106,7 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile --config.minimum-release-age=0
       - name: Download the candidate tarball
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: candidate-package
           path: candidate-package
@@ -121,7 +120,7 @@ jobs:
         run: pnpm run smoke:official-harness
       - name: Keep the smoke evidence
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: official-harness-smoke-logs
           path: test/probe/.scratch/
@@ -142,6 +141,9 @@ jobs:
     # are deliberately NOT configured: this is a single-maintainer repository and
     # the owner accepted tag-push auto-publish; see docs/RELEASING.md.
     environment: npm-publish
+    permissions:
+      contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -188,7 +190,7 @@ jobs:
       # candidate tarball packed once on Linux (no repack) and require its
       # sha512 integrity and pack metadata to equal the pack job's outputs.
       - name: Download the candidate tarball
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: candidate-package
           path: candidate-package
@@ -349,7 +351,7 @@ jobs:
         run: pnpm run smoke:official-harness
       - name: Keep the smoke evidence
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: post-release-package-smoke-logs-${{ github.ref_name }}
           path: test/probe/.scratch/

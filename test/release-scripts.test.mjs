@@ -262,6 +262,10 @@ check("release publish requires the candidate official-harness package smoke", (
   // The pack and smoke jobs publish nothing, so they need no write access.
   const smokeJob = release.slice(release.indexOf("  candidate-package-smoke:"), release.indexOf("  publish:"));
   assert.match(smokeJob, /contents: read/);
+  // Write access is scoped to the publish job; the workflow default is read-only.
+  assert.match(release, /^permissions:\s*\n\s+contents: read\s*\n/m);
+  const publishJob = release.slice(release.indexOf("  publish:"), release.indexOf("  post-release-package-smoke:"));
+  assert.match(publishJob, /permissions:\s*\n\s*contents: write\s*\n\s*id-token: write/);
   // A dispatch run is the candidate smoke's dry run: publish and post-release
   // only run for a tag push, and the tag checks only run then too.
   assert.match(release, /workflow_dispatch/);

@@ -233,7 +233,7 @@ jobs:
       # The upload action is a tag rather than a SHA because the artifact is a
       # short-lived CI transport, not shipped code; the shipped bytes are the
       # committed binaries after review.
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: native-package
           path: |
@@ -355,7 +355,7 @@ jobs:
           echo "probe suite completed at $(date -u +%Y-%m-%dT%H:%M:%SZ) on ${RUNNER_NAME:-unknown}" > probe-evidence.txt
       - name: Keep the probe evidence for this manual run
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: probe-evidence-${{ github.run_id }}
           path: probe-evidence.txt

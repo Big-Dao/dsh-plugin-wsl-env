@@ -404,6 +404,37 @@ test("the browser panel renders a blocked verdict, its rows and its remedies", a
   }
 });
 
+test("the browser keeps help collapsed and supports keyboard navigation", async () => {
+  const page = await open();
+  try {
+    await render(page, {
+      slots: ["panel"],
+      paths: [],
+      status: { distros: ["Ubuntu"], running: [], cached: [] },
+    });
+    await page.getByRole("heading", { name: "发行版与环境状态", exact: true }).waitFor({ state: "visible" });
+    assert.equal(await page.locator("details[open]").count(), 0, "long explanations start collapsed");
+
+    const helpSummary = page.getByText("检查与修复说明", { exact: true });
+    await helpSummary.focus();
+    assert.equal(await helpSummary.evaluate((element) => /** @type {any} */ (globalThis).document.activeElement === element), true, "the native summary is keyboard focusable");
+    await helpSummary.press("Enter");
+    assert.equal(await page.locator("details[open]").count(), 1, "Enter expands the focused help");
+
+    const quickCheck = page.getByRole("button", { name: "快速检查", exact: true });
+    await quickCheck.focus();
+    assert.equal(await quickCheck.evaluate((element) => /** @type {any} */ (globalThis).document.activeElement === element), true, "action buttons can receive keyboard focus");
+    await quickCheck.press("Enter");
+    await page.waitForFunction(() => {
+      const e2e = /** @type {any} */ (globalThis).__E2E__;
+      const fetches = /** @type {Array<{ url: string }>} */ (e2e.records.fetches);
+      return fetches.some((entry) => entry.url.endsWith("refresh=1"));
+    });
+  } finally {
+    await page.close();
+  }
+});
+
 test("the browser clears one distro's verdict and then all of them", async () => {
   const page = await open();
   try {
@@ -418,12 +449,12 @@ test("the browser clears one distro's verdict and then all of them", async () =>
     await rowClear.first().click();
     await page.getByText("已清除 Ubuntu 的检测结果；需要时可再次检查。", { exact: true }).waitFor({ state: "visible" });
     assert.equal(await page.getByRole("button", { name: "清除", exact: true }).count(), 1, "Debian keeps its result");
-    await page.getByText("尚未检查：点击“快速检查”（约 10 秒）或“完整诊断”；两者都会启动停止的发行版。", { exact: true }).waitFor({ state: "visible" });
+    await page.getByText("尚未检查：选择快速检查或完整诊断。检查可能启动已停止的发行版。", { exact: true }).waitFor({ state: "visible" });
     await page.getByRole("button", { name: "清除全部", exact: true }).click();
     await page.getByText("已清除全部检测结果（1 项）；发行版需要再次检查。", { exact: true }).waitFor({ state: "visible" });
     assert.equal(await page.getByRole("button", { name: "清除", exact: true }).count(), 0, "no row has a verdict left");
     assert.equal(
-      await page.getByText("尚未检查：点击“快速检查”（约 10 秒）或“完整诊断”；两者都会启动停止的发行版。", { exact: true }).count(),
+      await page.getByText("尚未检查：选择快速检查或完整诊断。检查可能启动已停止的发行版。", { exact: true }).count(),
       2,
       "both rows return to the unchecked state",
     );
@@ -470,9 +501,14 @@ test("the browser separates full read-only diagnosis from plugin-state repair", 
       status: { distros: ["Ubuntu"], running: [], cached: [BLOCKED_VIEW] },
       statusFor: { Ubuntu: BLOCKED_VIEW },
       full: fullDiagnosis,
+      fullDelayMs: 200,
       repair: repaired,
+      repairDelayMs: 200,
     });
     await page.getByRole("button", { name: "完整诊断", exact: true }).click();
+    const fullProgress = page.getByRole("status").filter({ hasText: "正在启动发行版（若已停止）并运行只读的完整诊断…" });
+    await fullProgress.waitFor({ state: "visible" });
+    assert.equal(await page.locator('[aria-busy="true"]').count(), 1, "the distro row exposes its busy state");
     await page.getByText(/完整诊断完成：发现 1 项插件状态可修复/).waitFor({ state: "visible" });
     await page.getByRole("button", { name: "修复插件状态（1）", exact: true }).waitFor({ state: "visible" });
     await page.getByText("可自动修复", { exact: true }).waitFor({ state: "visible" });
@@ -483,7 +519,9 @@ test("the browser separates full read-only diagnosis from plugin-state repair", 
     );
     assert.equal(callsNow.fetches.filter((entry) => entry.method === "POST").length, 0, "diagnosis does not repair");
     await page.getByRole("button", { name: "修复插件状态（1）", exact: true }).click();
+    await page.getByRole("status").filter({ hasText: "正在启动发行版（若已停止），修复插件自有状态并复检…" }).waitFor({ state: "visible" });
     await page.getByText("插件状态修复完成：已在 Ubuntu 修复 1 项；复检通过。", { exact: true }).waitFor({ state: "visible" });
+    await page.getByRole("status").filter({ hasText: "插件状态修复完成" }).waitFor({ state: "visible" });
     await page.getByText(/removed 1 stale scope/).waitFor({ state: "visible" });
     callsNow = await calls(page);
     const posts = callsNow.fetches.filter((entry) => entry.method === "POST");

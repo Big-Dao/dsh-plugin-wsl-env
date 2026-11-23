@@ -542,7 +542,7 @@ window.__ModuleLoader__.load({
         justifyContent: "space-between",
       },
       cardTitle: { fontSize: 13, fontWeight: 600 },
-      hint: { fontSize: 12, opacity: 0.6 },
+      hint: { fontSize: 12, opacity: 0.7 },
       row: {
         display: "flex",
         flexDirection: "column",
@@ -596,7 +596,7 @@ window.__ModuleLoader__.load({
       fixableTag: { fontSize: 11, color: "#5ecf86", marginLeft: 4, marginRight: 4 },
       summary: { display: "flex", flexDirection: "column", gap: 3, fontSize: 12 },
       summaryLine: { display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" },
-      summaryMuted: { opacity: 0.55 },
+      summaryMuted: { opacity: 0.7 },
       refreshTag: { fontSize: 12, color: "#e0b04a" },
       countOk: { color: "#5ecf86" },
       countWarn: { color: "#e0b04a" },
@@ -726,7 +726,7 @@ window.__ModuleLoader__.load({
       return h(
         "section",
         { style: styles.card },
-        h("div", { style: styles.cardHead }, h("div", { style: styles.cardTitle }, title), actions ?? null),
+        h("div", { style: styles.cardHead }, h("h2", { style: { ...styles.cardTitle, margin: 0 } }, title), actions ?? null),
         children,
       );
     }
@@ -1296,7 +1296,7 @@ window.__ModuleLoader__.load({
               typeof plugin.installed === "string" ? h(Pill, { label: `v${plugin.installed}`, tone: "idle", title: "已安装的插件版本" }) : null,
               pluginAvailable ? h(Pill, { label: `可升级 ${latest.version}`, tone: "blocked", title: "发现新的插件版本" }) : null,
             ),
-            h("div", { style: styles.subtitle }, "诊断、版本与安全修复：已安装的发行版、快速检查、插件升级，以及插件自有状态的修复。"),
+            h("div", { style: styles.subtitle }, "查看 WSL 发行版状态并管理插件版本。"),
           ),
           pluginAvailable ? h(
             "div",
@@ -1316,7 +1316,11 @@ window.__ModuleLoader__.load({
               })
               : null,
           ) : null,
-          notice === null ? null : h("div", { style: notice.kind === "ok" ? styles.noticeOk : notice.kind === "info" ? styles.noticeInfo : styles.notice }, notice.text),
+          notice === null ? null : h("div", {
+            role: notice.kind === "error" ? "alert" : "status",
+            "aria-live": notice.kind === "error" ? "assertive" : "polite",
+            style: notice.kind === "ok" ? styles.noticeOk : notice.kind === "info" ? styles.noticeInfo : styles.notice,
+          }, notice.text),
           h(
             Card,
             {
@@ -1348,10 +1352,9 @@ window.__ModuleLoader__.load({
               : pluginAvailable && plugin.updateSupported !== true
                 ? h("div", { style: styles.hint }, "当前宿主的插件管理器不支持一键升级；请在 Plugins 页升级。")
                 : null,
-            h(
-              "div",
-              { style: styles.hint },
-              "版本检查委托给宿主的插件管理器（与 Plugins 页同源）：读取 registry、弃用标记与 DSH/peer 兼容性。一键升级只在点击后执行，不会自动安装；完成后按提示刷新页面或重启 DSH。无法自动升级时，请在 Plugins 页手动安装新版本。",
+            h("details", null,
+              h("summary", { style: { ...styles.hint, cursor: "pointer" } }, "版本检查与升级说明"),
+              h("div", { style: styles.hint }, "版本检查委托给宿主的插件管理器（与 Plugins 页同源）：读取 registry、弃用标记与 DSH/peer 兼容性。一键升级只在点击后执行，不会自动安装；完成后按提示刷新页面或重启 DSH。无法自动升级时，请在 Plugins 页手动安装新版本。"),
             ),
           ),
           h(
@@ -1374,10 +1377,9 @@ window.__ModuleLoader__.load({
                 }),
               ),
             },
-            h(
-              "div",
-              { style: styles.hint },
-              "“快速检查”验证首条命令的前置项；“完整诊断”运行完整 doctor，二者均只读。完整诊断发现可修复的插件自有状态（残留 session scope、损坏的 agent 缓存）后，才显示独立的“修复插件状态”按钮；修复后复检并显示 before→after。修复不安装软件包、不改写 Windows 配置；其余告警按各自处理办法手动处理。检查会让停止的发行版启动，所以只在点击时执行；页面加载的后台复核只针对正在运行的发行版，失败会按实际观测覆盖并标为“后台”来源。“清除”删除该发行版本机保存的检测结果，“清除全部”清空所有结果；两者都不探测、不修改发行版，但清除后需再次检查。",
+            h("details", null,
+              h("summary", { style: { ...styles.hint, cursor: "pointer" } }, "检查与修复说明"),
+              h("div", { style: styles.hint }, "“快速检查”验证首条命令的前置项；“完整诊断”运行完整 doctor，二者均只读。完整诊断发现可修复的插件自有状态（残留 session scope、损坏的 agent 缓存）后，才显示独立的“修复插件状态”按钮；修复后复检并显示 before→after。修复不安装软件包、不改写 Windows 配置；其余告警按各自处理办法手动处理。检查会启动已停止的发行版，所以只在点击时执行；页面加载的后台复核只针对正在运行的发行版，失败会按实际观测覆盖并标为“后台”来源。“清除”删除该发行版本机保存的检测结果，“清除全部”清空所有结果；两者都不探测、不修改发行版，但清除后需再次检查。"),
             ),
             phase === "loading"
               ? h("div", { style: styles.empty }, "加载中…")
@@ -1402,7 +1404,7 @@ window.__ModuleLoader__.load({
                       : 0;
                     return h(
                       "div",
-                      { key: distro, style: styles.row },
+                      { key: distro, style: styles.row, "aria-busy": busy },
                       h(
                         "div",
                         { style: styles.rowHead },
@@ -1439,15 +1441,15 @@ window.__ModuleLoader__.load({
                           : null,
                       ),
                       state === undefined
-                        ? h("div", { style: styles.hint }, "尚未检查：点击“快速检查”（约 10 秒）或“完整诊断”；两者都会启动停止的发行版。")
+                        ? h("div", { style: styles.hint }, "尚未检查：选择快速检查或完整诊断。检查可能启动已停止的发行版。")
                         : state.phase === "checking"
-                          ? h("div", { style: styles.hint }, "正在运行快速检查…（会启动停止的发行版）")
+                          ? h("div", { role: "status", "aria-live": "polite", "aria-atomic": "true", style: styles.hint }, "正在启动发行版（若已停止）并运行快速检查…")
                           : state.phase === "fullChecking"
-                            ? h("div", { style: styles.hint }, "正在运行只读的完整诊断…")
+                            ? h("div", { role: "status", "aria-live": "polite", "aria-atomic": "true", style: styles.hint }, "正在启动发行版（若已停止）并运行只读的完整诊断…")
                             : state.phase === "repairing"
-                              ? h("div", { style: styles.hint }, "正在修复插件自有状态（残留 session scope、损坏的 agent 缓存）并复检…")
+                              ? h("div", { role: "status", "aria-live": "polite", "aria-atomic": "true", style: styles.hint }, "正在启动发行版（若已停止），修复插件自有状态并复检…")
                             : state.phase === "error"
-                              ? h("div", { style: styles.detail }, h("span", { style: styles.failure }, state.error))
+                              ? h("div", { role: "alert", "aria-live": "assertive", style: styles.detail }, h("span", { style: styles.failure }, state.error))
                               : h(
                                 "div",
                                 { style: styles.detail },

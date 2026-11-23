@@ -215,8 +215,16 @@ const render = (config = {}) => {
       if (method === "DELETE") {
         return json(config.clear ?? (distro === null ? { cleared: 1 } : { cleared: 1, distro }));
       }
-      if (method === "POST") return json(config.repair ?? config.status ?? WINDOWS_STATUS);
+      if (method === "POST") {
+        if (typeof config.repairDelayMs === "number") {
+          await new Promise((resolve) => setTimeout(resolve, config.repairDelayMs));
+        }
+        return json(config.repair ?? config.status ?? WINDOWS_STATUS);
+      }
       if (new URL(url, "http://harness").searchParams.get("full") === "1") {
+        if (typeof config.fullDelayMs === "number") {
+          await new Promise((resolve) => setTimeout(resolve, config.fullDelayMs));
+        }
         return json(config.full ?? config.statusFor?.[distro] ?? config.status ?? WINDOWS_STATUS);
       }
       if (distro !== null) return json(config.statusFor?.[distro] ?? config.status ?? WINDOWS_STATUS);

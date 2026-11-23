@@ -520,8 +520,9 @@ error-code map. Whether a row override applied, read from the profile's
 `cordis.patch.yml` and the Plugins page: the desktop app has no `dsh` command,
 so the composed profile has no command-line view.
 The sidebar's **WSL environment** panel renders the same quick digest over
-`GET /api/wsl-env/status` and posts the full-check action to the same route: a
-doctor run with `--fix-owned`, which sweeps stale session scopes and purges a
+`GET /api/wsl-env/status`; `?distro=<name>&full=1` runs a full read-only
+diagnosis. When it finds repairable plugin-owned state, a separate `POST` to
+the same route runs `--fix-owned`, sweeping stale session scopes or purging a
 broken agent cache, then re-verifies both. Each row states when the check ran, its source (manual or background) and its
 result structure (per-status totals and per-section tallies). The last result
 per distro is stored at `$DSH_HOME/cache/dsh-plugin-wsl-env/status.json`
@@ -532,12 +533,12 @@ the stored result. Nothing is labeled expired — each checked row offers
 **清除** and the card offers **清除全部**; both `DELETE` the same route
 (optionally with `?distro=`) to drop the stored verdict without enumerating,
 probing or modifying a distro. Deleting the file still resets the panel's
-history equivalently. Every row offers **快速检查** and **完整检查**: the
-latter is the full doctor with `--fix-owned`, which repairs plugin-owned state
-(stale session scopes or a broken agent cache) and re-verifies it. Both keep
-their names after a result and run again on every click; every other warning
-keeps its manual remedy. It never installs packages or rewrites Windows-owned
-or user configuration.
+history equivalently. Every row offers **快速检查** and **完整诊断**: both are
+read-only. When the full report finds repairable plugin-owned state (stale
+session scopes or a broken agent cache), a separate **修复插件状态** action
+runs `--fix-owned` and re-verifies it. Check actions remain available after a
+result; every other warning keeps its manual remedy. Repair never installs
+packages or rewrites Windows-owned or user configuration.
 Above the distro rows, the **Plugin version** card reads the installed and
 running plugin versions and the newest installable stable release; its
 **一键升级** button posts to `/api/wsl-env/plugin-update`, and only that click

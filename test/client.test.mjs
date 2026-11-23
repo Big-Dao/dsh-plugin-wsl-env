@@ -862,7 +862,7 @@ test("the panel clears one stored verdict and then all of them", async () => {
   );
   assert.equal(buttonOf(panel.current(), "清除"), undefined, "no row has a verdict left");
   assert.equal(buttonOf(panel.current(), "清除全部")?.props?.disabled, true, "clear-all is disabled without results");
-  assert.equal((shown.match(/尚未检查：点击“快速检查”（约 10 秒）或“完整检查”/g) ?? []).length, 2, "both rows return to the unchecked state");
+  assert.equal((shown.match(/尚未检查：点击“快速检查”（约 10 秒）或“完整诊断”/g) ?? []).length, 2, "both rows return to the unchecked state");
   panel.unmount();
 });
 

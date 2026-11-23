@@ -1,8 +1,8 @@
 // status.test.mjs — the sidebar panel's diagnostic route.
 //
 // The route is the panel's only Host data channel: a list answer, a
-// per-distro quick-doctor answer, the repair action (a full `--fix-owned`
-// doctor run), and the clear action (a local `DELETE` that never probes).
+// per-distro quick/full read-only doctor answers, the separate repair action
+// (a full `--fix-owned` doctor run), and the clear action (a local `DELETE`).
 // These checks pin the wire shape the client consumes, the cache/refresh
 // policy (a check boots a stopped distro, so it must run only when asked),
 // the failure posture, and the registration that makes the route reachable at
@@ -255,13 +255,38 @@ await check("a blocked bwrap finding advertises no repair", async () => {
   assert.deepEqual(body.repairable, [], "installing a package is not the panel's repair");
 });
 
-await check("a repair POST runs the full doctor with --fix-owned and answers its fix rows", async () => {
+await check("a full GET runs the full doctor read-only and advertises repairable state", async () => {
+  /** @type {string[][]} */
+  const calls = [];
+  const statePath = join(scratch, `status-full-${storeCounter += 1}.json`);
+  const { handler } = handlerFor({
+    statePath,
+    runCli: async (/** @type {string[]} */ argv) => {
+      calls.push(argv);
+      return JSON.stringify(SCOPE_WARN);
+    },
+  });
+  const { status, body } = await send(handler, "?distro=Ubuntu&full=1");
+  assert.equal(status, 200);
+  assert.equal(body.full, true);
+  assert.equal(body.repaired, false);
+  assert.deepEqual(body.repairable, ["runtime.scopes"]);
+  assert.deepEqual(body.repairs, []);
+  assert.deepEqual(calls[0], ["--json", "--distro", "Ubuntu"]);
+  const reloaded = handlerFor({ statePath });
+  const { body: list } = await get(reloaded.handler);
+  assert.equal(list.cached[0].full, true, "the stored result retains its full-diagnosis scope");
+  assert.equal(reloaded.calls.length, 0, "restoring it does not rerun the doctor");
+});
+
+await check("a repair POST runs --fix-owned and answers its fix rows", async () => {
   /** @type {string[][]} */
   const calls = [];
   const { handler } = handlerFor({ runCli: async (/** @type {string[]} */ argv) => { calls.push(argv); return JSON.stringify(REPAIRED); } });
   const { status, body } = await send(handler, "?distro=Ubuntu", "POST");
   assert.equal(status, 200);
   assert.equal(body.repaired, true);
+  assert.equal(body.full, true);
   assert.equal(body.verdict, "ready");
   assert.deepEqual(body.repairs, [
     { id: "fix.scopes", title: "Swept stale scopes", status: "ok", detail: "1 stale before → 0 after" },

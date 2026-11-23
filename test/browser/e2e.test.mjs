@@ -344,6 +344,7 @@ test("the browser wraps the warning inside a narrow composer without horizontal 
 const BLOCKED_VIEW = {
   distro: "Ubuntu",
   verdict: "blocked",
+  full: false,
   repaired: false,
   repairs: [],
   repairable: ["runtime.scopes"],
@@ -377,11 +378,11 @@ test("the browser panel renders a blocked verdict, its rows and its remedies", a
     await page.getByText("异常 · 1 项", { exact: true }).waitFor({ state: "visible" });
     await page.getByText("待修项（1）", { exact: true }).waitFor({ state: "visible" });
     await page.getByText("sandbox.bwrap", { exact: true }).first().waitFor({ state: "visible" });
-    await page.getByText("可自动修复", { exact: true }).waitFor({ state: "visible" });
+    assert.equal(await page.getByText("可自动修复", { exact: true }).count(), 0, "a quick report does not advertise repair before full diagnosis");
     await page.getByRole("button", { name: "快速检查", exact: true }).waitFor({ state: "visible" });
-    await page.getByRole("button", { name: "完整检查", exact: true }).waitFor({ state: "visible" });
+    await page.getByRole("button", { name: "完整诊断", exact: true }).waitFor({ state: "visible" });
     assert.equal(await page.getByRole("button", { name: "重新检查", exact: true }).count(), 0, "the quick action keeps its name after a result");
-    assert.equal(await page.getByRole("button", { name: "修复", exact: true }).count(), 0, "the full action is labeled as a check");
+    assert.equal(await page.getByRole("button", { name: /修复插件状态/ }).count(), 0, "a quick report does not offer a repair before full diagnosis");
     await page.getByRole("button", { name: "快速检查", exact: true }).click();
     await page.waitForFunction(() => {
       const e2e = /** @type {any} */ (globalThis).__E2E__;
@@ -417,17 +418,17 @@ test("the browser clears one distro's verdict and then all of them", async () =>
     await rowClear.first().click();
     await page.getByText("已清除 Ubuntu 的检测结果；需要时可再次检查。", { exact: true }).waitFor({ state: "visible" });
     assert.equal(await page.getByRole("button", { name: "清除", exact: true }).count(), 1, "Debian keeps its result");
-    await page.getByText("尚未检查：点击“快速检查”（约 10 秒）或“完整检查”；两者都会启动停止的发行版。", { exact: true }).waitFor({ state: "visible" });
+    await page.getByText("尚未检查：点击“快速检查”（约 10 秒）或“完整诊断”；两者都会启动停止的发行版。", { exact: true }).waitFor({ state: "visible" });
     await page.getByRole("button", { name: "清除全部", exact: true }).click();
     await page.getByText("已清除全部检测结果（1 项）；发行版需要再次检查。", { exact: true }).waitFor({ state: "visible" });
     assert.equal(await page.getByRole("button", { name: "清除", exact: true }).count(), 0, "no row has a verdict left");
     assert.equal(
-      await page.getByText("尚未检查：点击“快速检查”（约 10 秒）或“完整检查”；两者都会启动停止的发行版。", { exact: true }).count(),
+      await page.getByText("尚未检查：点击“快速检查”（约 10 秒）或“完整诊断”；两者都会启动停止的发行版。", { exact: true }).count(),
       2,
       "both rows return to the unchecked state",
     );
     assert.equal(await page.getByRole("button", { name: "快速检查", exact: true }).count(), 2, "both rows offer quick check");
-    assert.equal(await page.getByRole("button", { name: "完整检查", exact: true }).count(), 2, "both rows offer full check");
+    assert.equal(await page.getByRole("button", { name: "完整诊断", exact: true }).count(), 2, "both rows offer full diagnosis");
     assert.equal(await page.getByRole("button", { name: "检查", exact: true }).count(), 0, "there is no generic check button");
     assert.ok(await page.getByRole("button", { name: "清除全部", exact: true }).isDisabled(), "clear-all is disabled without results");
     const callsNow = await calls(page);
@@ -444,12 +445,14 @@ test("the browser clears one distro's verdict and then all of them", async () =>
   }
 });
 
-test("the browser full-check action posts the full run and runs again on a second click", async () => {
+test("the browser separates full read-only diagnosis from plugin-state repair", async () => {
   const page = await open();
   try {
+    const fullDiagnosis = { ...BLOCKED_VIEW, full: true, cached: false, source: "user" };
     const repaired = {
       ...BLOCKED_VIEW,
       verdict: "ready",
+      full: true,
       repaired: true,
       repairs: [{ id: "runtime.scopes", title: "Session scope", status: "ok", detail: "removed 1 stale scope" }],
       repairable: [],
@@ -466,21 +469,26 @@ test("the browser full-check action posts the full run and runs again on a secon
       paths: [],
       status: { distros: ["Ubuntu"], running: [], cached: [BLOCKED_VIEW] },
       statusFor: { Ubuntu: BLOCKED_VIEW },
+      full: fullDiagnosis,
       repair: repaired,
     });
-    await page.getByRole("button", { name: "完整检查", exact: true }).click();
-    await page.getByText("完整检查完成：已在 Ubuntu 修复 1 项；复检通过。", { exact: true }).waitFor({ state: "visible" });
+    await page.getByRole("button", { name: "完整诊断", exact: true }).click();
+    await page.getByText(/完整诊断完成：发现 1 项插件状态可修复/).waitFor({ state: "visible" });
+    await page.getByRole("button", { name: "修复插件状态（1）", exact: true }).waitFor({ state: "visible" });
+    await page.getByText("可自动修复", { exact: true }).waitFor({ state: "visible" });
+    let callsNow = await calls(page);
+    assert.ok(
+      callsNow.fetches.some((entry) => entry.url === "/api/wsl-env/status?distro=Ubuntu&full=1" && entry.method === "GET"),
+      "full diagnosis is a GET read-only request",
+    );
+    assert.equal(callsNow.fetches.filter((entry) => entry.method === "POST").length, 0, "diagnosis does not repair");
+    await page.getByRole("button", { name: "修复插件状态（1）", exact: true }).click();
+    await page.getByText("插件状态修复完成：已在 Ubuntu 修复 1 项；复检通过。", { exact: true }).waitFor({ state: "visible" });
     await page.getByText(/removed 1 stale scope/).waitFor({ state: "visible" });
-    await page.getByRole("button", { name: "完整检查", exact: true }).click();
-    await page.waitForFunction(() => {
-      const e2e = /** @type {any} */ (globalThis).__E2E__;
-      const fetches = /** @type {Array<{ method: string }>} */ (e2e.records.fetches);
-      return fetches.filter((entry) => entry.method === "POST").length === 2;
-    });
-    const callsNow = await calls(page);
+    callsNow = await calls(page);
     const posts = callsNow.fetches.filter((entry) => entry.method === "POST");
-    assert.equal(posts.length, 2, "the full action re-runs on every click");
-    assert.equal(posts[0]?.url, "/api/wsl-env/status?distro=Ubuntu", "the POST names the distro");
+    assert.equal(posts.length, 1, "repair runs only after its separate action");
+    assert.equal(posts[0]?.url, "/api/wsl-env/status?distro=Ubuntu", "the repair names the distro");
   } finally {
     await page.close();
   }

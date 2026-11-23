@@ -19,13 +19,11 @@
  * `updateBundle` only for that explicit click and the card reports the host's
  * applied/restart-required/rollback outcome.
  *
- * Every distro row offers two check actions: **快速检查** (the scoped quick
- * doctor, `GET` on the status route) and **完整检查** (the full doctor with
- * `--fix-owned`, `POST` on the same route). Both run again on every click —
- * there is no persistent "recheck" label. The full run also repairs plugin-owned
- * state (a stale session scope or a broken agent cache) and answers with its
- * `fix.*` before → after rows; it never installs packages or rewrites
- * Windows-owned configuration. Every other warning stays manual.
+ * Every distro row offers **快速检查** (the quick doctor) and **完整诊断**
+ * (the full doctor, read-only). When a full report identifies plugin-owned
+ * state it can repair, the row separately offers **修复插件状态**; that action
+ * uses `--fix-owned` and answers with its `fix.*` before → after rows. It never
+ * installs packages or rewrites Windows-owned configuration.
  *
  * The last result is persisted Host-side, so a page reload (or an app restart)
  * still shows the last guidance and when it ran. On load, a stored result for
@@ -61,7 +59,7 @@ window.__ModuleLoader__.load({
     const useState = React.useState;
     const useEffect = React.useEffect;
 
-    /** The plugin's status route (checks on GET, the full check on POST, clear on DELETE); the row registers this exact path. */
+    /** The plugin's status route (checks on GET, repair on POST, clear on DELETE); the row registers this exact path. */
     const STATUS_PATH = "/api/wsl-env/status";
     /** The plugin version/upgrade route: GET reads, POST performs the confirmed upgrade. */
     const PLUGIN_UPDATE_PATH = "/api/wsl-env/plugin-update";
@@ -107,11 +105,10 @@ window.__ModuleLoader__.load({
     };
 
     /**
-     * The doctor route: list/quick check on GET, the full check (which also
-     * repairs plugin-owned state) on POST, and clearing stored results on
-     * DELETE.
+     * The doctor route: list/quick/full read-only checks on GET, the explicit
+     * plugin-owned repair on POST, and clearing stored results on DELETE.
      * @param query - the query string, including `?`, or empty.
-     * @param method - `GET` for a check, `POST` for the full-check action,
+     * @param method - `GET` for a check, `POST` for repair,
      *   `DELETE` to clear one distro's result (named by `distro`) or all.
      * @returns the decoded body.
      */
@@ -744,11 +741,12 @@ window.__ModuleLoader__.load({
       if (state.phase === "checking") return h(Pill, { label: "快速检查中…", tone: "idle" });
       if (state.phase === "fullChecking") {
         return h(Pill, {
-          label: "完整检查中…",
+          label: "完整诊断中…",
           tone: "idle",
-          title: "正在运行完整检查并修复插件自有状态",
+          title: "正在运行只读的完整诊断",
         });
       }
+      if (state.phase === "repairing") return h(Pill, { label: "修复中…", tone: "idle", title: "正在修复插件自有状态并复检" });
       if (state.phase === "refreshing") return h(Pill, { label: "复核中…", tone: "idle", title: "面板正在后台复核上次结果" });
       if (state.phase === "error") return h(Pill, { label: "无法检查", tone: "error" });
       if (state.verdict === "ready") return h(Pill, { label: "正常", tone: "ready" });
@@ -763,7 +761,7 @@ window.__ModuleLoader__.load({
     /**
      * A numbered list of doctor findings.
      * @param props - heading, findings, whether they block, and the ids the
-     *   full check can repair.
+     * explicit repair can repair.
      * @returns the list, or null when there is nothing to show.
      */
     function IssueList({ heading, items, severity, repairable }) {
@@ -791,8 +789,8 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The full check's repair rows: what the doctor did, with its status mark.
-     * @param props - the `fix.*` rows the full run answered with.
+     * The repair action's rows: what the doctor did, with its status mark.
+     * @param props - the `fix.*` rows the repair answered with.
      * @returns the list, or null when the run has no repair rows.
      */
     function RepairList({ items }) {
@@ -869,7 +867,7 @@ window.__ModuleLoader__.load({
               )),
             )),
             typeof state.notRun === "number" && state.notRun > 0
-              ? h("div", { style: styles.hint }, `本次是快速检查，只覆盖首条命令的前置项；完整检查还会运行 ${String(state.notRun)} 项（agent 链路、工具、网络、配置等）。`)
+              ? h("div", { style: styles.hint }, `本次是快速检查，只覆盖首条命令的前置项；完整诊断还会运行 ${String(state.notRun)} 项（agent 链路、工具、网络、配置等）。`)
               : null,
           )
           : null,
@@ -920,8 +918,8 @@ window.__ModuleLoader__.load({
           { style: styles.summaryLine },
           h("span", { style: styles.summaryMuted }, state.verdict === "error" ? "尝试检查：" : "上次检查："),
           h("span", null, typeof state.checkedAt === "number" ? checkedLabel(state.checkedAt) : "时间未知"),
-          h("span", { style: styles.summaryMuted }, state.repaired === true
-            ? (Array.isArray(state.repairs) && state.repairs.length > 0 ? "完整检查 · 已修复" : "完整检查")
+          h("span", { style: styles.summaryMuted }, state.full === true
+            ? (state.repaired === true ? "完整诊断 · 已修复" : "完整诊断")
             : "快速检查"),
           h("span", { style: styles.summaryMuted }, `来源：${state.source === "background" ? "后台" : "手动"}`),
           state.cached === true ? h("span", { style: styles.summaryMuted }, "缓存结果") : null,
@@ -1136,15 +1134,39 @@ window.__ModuleLoader__.load({
       };
 
       /**
-       * Run the full doctor with `--fix-owned`. The button is always
-       * **完整检查**: the run may repair plugin-owned state on the way, but the
-       * row does not relabel itself as a separate repair action. Only the
-       * plugin's own state is touched.
+       * Run a full, read-only doctor report.
        * @param distro - the distro to run against.
        */
       const fullCheck = async (distro) => {
         setNotice(null);
         setChecks((previous) => ({ ...previous, [distro]: { ...previous[distro], phase: "fullChecking" } }));
+        try {
+          const answer = await statusRequest(`?distro=${encodeURIComponent(distro)}&full=1`);
+          setChecks((previous) => ({ ...previous, [distro]: { phase: "done", ...answer } }));
+          const repairable = Array.isArray(answer.repairable) ? answer.repairable.length : 0;
+          const remaining = (Array.isArray(answer.failures) ? answer.failures.length : 0)
+            + (Array.isArray(answer.warnings) ? answer.warnings.length : 0);
+          setNotice({
+            kind: remaining === 0 ? "ok" : "info",
+            text: repairable > 0
+              ? `完整诊断完成：发现 ${String(repairable)} 项插件状态可修复；点击“修复插件状态”可单独执行，其他 ${String(Math.max(0, remaining - repairable))} 项按处理办法手动处理。`
+              : remaining > 0
+                ? `完整诊断完成：发现 ${String(remaining)} 项需按下方处理办法处理；没有可自动修复的插件状态。`
+                : `已在 ${distro} 完成完整诊断，未发现待处理项。`,
+          });
+        } catch (error) {
+          setChecks((previous) => ({ ...previous, [distro]: { ...previous[distro], phase: "error", error: messageOf(error) } }));
+        }
+      };
+
+      /**
+       * Run the explicit plugin-owned repair after a full report identifies
+       * repairable findings.
+       * @param distro - the distro to repair.
+       */
+      const repair = async (distro) => {
+        setNotice(null);
+        setChecks((previous) => ({ ...previous, [distro]: { ...previous[distro], phase: "repairing" } }));
         try {
           const answer = await statusRequest(`?distro=${encodeURIComponent(distro)}`, "POST");
           setChecks((previous) => ({ ...previous, [distro]: { phase: "done", ...answer } }));
@@ -1155,17 +1177,18 @@ window.__ModuleLoader__.load({
           setNotice({
             kind: fixed > 0 || remaining === 0 ? "ok" : "info",
             text: fixed > 0 && remaining > 0
-              ? `完整检查完成：已在 ${distro} 修复 ${String(fixed)} 项；仍有 ${String(remaining)} 项需按下方处理办法手动处理。`
+              ? `插件状态修复完成：已在 ${distro} 修复 ${String(fixed)} 项；仍有 ${String(remaining)} 项需按下方处理办法手动处理。`
               : fixed > 0
-                ? `完整检查完成：已在 ${distro} 修复 ${String(fixed)} 项；复检通过。`
+                ? `插件状态修复完成：已在 ${distro} 修复 ${String(fixed)} 项；复检通过。`
                 : rows.length > 0
-                  ? `完整检查完成：尝试修复 ${String(rows.length)} 项但未通过复检；请按下方处理办法手动处理。`
+                  ? `已尝试修复 ${String(rows.length)} 项，但复检未通过；请按下方处理办法继续处理。`
                   : remaining > 0
-                    ? `完整检查完成；没有可自动修复项，${String(remaining)} 项需按下方处理办法手动处理。`
-                    : `已在 ${distro} 完成完整检查，未发现待修项。`,
+                    ? `未发现可自动修复的插件状态；${String(remaining)} 项需按下方处理办法手动处理。`
+                    : `已在 ${distro} 完成插件状态修复与复检。`,
           });
         } catch (error) {
-          setChecks((previous) => ({ ...previous, [distro]: { ...previous[distro], phase: "error", error: messageOf(error) } }));
+          setChecks((previous) => ({ ...previous, [distro]: { ...previous[distro], phase: "done" } }));
+          setNotice({ kind: "error", text: `插件状态修复失败：${messageOf(error)}` });
         }
       };
 
@@ -1253,7 +1276,7 @@ window.__ModuleLoader__.load({
       const busyAny = distros.some((distro) => {
         const state = checks[distro];
         return state !== undefined
-          && (state.phase === "checking" || state.phase === "fullChecking" || state.phase === "refreshing");
+          && (state.phase === "checking" || state.phase === "fullChecking" || state.phase === "repairing" || state.phase === "refreshing");
       });
       const hasAnyResult = distros.some((distro) => checks[distro] !== undefined);
 
@@ -1354,7 +1377,7 @@ window.__ModuleLoader__.load({
             h(
               "div",
               { style: styles.hint },
-              "“快速检查”运行一次 doctor 的快速检查（与 /wsl-doctor 同源）：验证该发行版的 bwrap、systemd 与 Linger 等前置项。“完整检查”运行完整 doctor，并只修复插件自有状态（残留 session scope、损坏的 agent 缓存）后复检、显示 before→after。两个按钮都可在结果出现后再次点击，每次都重新执行。自动修复不安装软件包、不改写 Windows 配置；其余告警按各自处理办法手动处理。检查会让停止的发行版启动，所以只在点击时执行；页面加载的后台复核只针对正在运行的发行版，失败会按实际观测覆盖并标为“后台”来源。“清除”删除该发行版本机保存的检测结果，“清除全部”清空所有结果；两者都不探测、不修改发行版，但清除后需再次检查。",
+              "“快速检查”验证首条命令的前置项；“完整诊断”运行完整 doctor，二者均只读。完整诊断发现可修复的插件自有状态（残留 session scope、损坏的 agent 缓存）后，才显示独立的“修复插件状态”按钮；修复后复检并显示 before→after。修复不安装软件包、不改写 Windows 配置；其余告警按各自处理办法手动处理。检查会让停止的发行版启动，所以只在点击时执行；页面加载的后台复核只针对正在运行的发行版，失败会按实际观测覆盖并标为“后台”来源。“清除”删除该发行版本机保存的检测结果，“清除全部”清空所有结果；两者都不探测、不修改发行版，但清除后需再次检查。",
             ),
             phase === "loading"
               ? h("div", { style: styles.empty }, "加载中…")
@@ -1368,10 +1391,11 @@ window.__ModuleLoader__.load({
                     const checking = state !== undefined && state.phase === "checking";
                     const fullChecking = state !== undefined && state.phase === "fullChecking";
                     const refreshing = state !== undefined && state.phase === "refreshing";
-                    const busy = checking || fullChecking || refreshing;
+                    const repairing = state !== undefined && state.phase === "repairing";
+                    const busy = checking || fullChecking || repairing || refreshing;
                     const hasResult = state !== undefined && (state.phase === "done" || state.phase === "error");
                     const repairable = Array.isArray(state?.repairable) ? state.repairable : [];
-                    const canRepair = done && repairable.length > 0;
+                    const canRepair = done && state.full === true && repairable.length > 0;
                     const findings = done
                       ? (Array.isArray(state.failures) ? state.failures.length : 0)
                         + (Array.isArray(state.warnings) ? state.warnings.length : 0)
@@ -1392,11 +1416,19 @@ window.__ModuleLoader__.load({
                           onClick: () => { void check(distro); },
                         }),
                         h(Btn, {
-                          label: fullChecking ? "完整检查中…" : "完整检查",
+                          label: fullChecking ? "完整诊断中…" : "完整诊断",
                           small: true,
                           disabled: busy,
                           onClick: () => { void fullCheck(distro); },
                         }),
+                        canRepair
+                          ? h(Btn, {
+                            label: repairing ? "修复中…" : `修复插件状态（${String(repairable.length)}）`,
+                            small: true,
+                            disabled: busy,
+                            onClick: () => { void repair(distro); },
+                          })
+                          : null,
                         hasResult
                           ? h(Btn, {
                             label: "清除",
@@ -1407,11 +1439,13 @@ window.__ModuleLoader__.load({
                           : null,
                       ),
                       state === undefined
-                        ? h("div", { style: styles.hint }, "尚未检查：点击“快速检查”（约 10 秒）或“完整检查”；两者都会启动停止的发行版。")
+                        ? h("div", { style: styles.hint }, "尚未检查：点击“快速检查”（约 10 秒）或“完整诊断”；两者都会启动停止的发行版。")
                         : state.phase === "checking"
                           ? h("div", { style: styles.hint }, "正在运行快速检查…（会启动停止的发行版）")
                           : state.phase === "fullChecking"
-                            ? h("div", { style: styles.hint }, "正在运行完整检查，并修复插件自有状态（残留 session scope、损坏的 agent 缓存）…")
+                            ? h("div", { style: styles.hint }, "正在运行只读的完整诊断…")
+                            : state.phase === "repairing"
+                              ? h("div", { style: styles.hint }, "正在修复插件自有状态（残留 session scope、损坏的 agent 缓存）并复检…")
                             : state.phase === "error"
                               ? h("div", { style: styles.detail }, h("span", { style: styles.failure }, state.error))
                               : h(
@@ -1426,17 +1460,17 @@ window.__ModuleLoader__.load({
                                   heading: `待修项（${String(Array.isArray(state.failures) ? state.failures.length : 0)}）`,
                                   items: state.failures,
                                   severity: "fail",
-                                  repairable,
+                                  repairable: canRepair ? repairable : [],
                                 }),
                                 h(IssueList, {
                                   heading: `告警（${String(Array.isArray(state.warnings) ? state.warnings.length : 0)}）`,
                                   items: state.warnings,
                                   severity: "warn",
-                                  repairable,
+                                  repairable: canRepair ? repairable : [],
                                 }),
                                 findings > 0
                                   ? h("div", { style: styles.hint }, canRepair
-                                    ? "标有“可自动修复”的项会由“完整检查”处理；其余项目需按处理办法手动处理。"
+                                    ? "标有“可自动修复”的项可由“修复插件状态”处理；其余项目需按处理办法手动处理。"
                                     : "以上项目没有可自动修复项，需按各自处理办法手动处理。自动修复只覆盖残留 session scope 与损坏的 agent 缓存。")
                                   : null,
                                 h(CheckDetails, { state }),

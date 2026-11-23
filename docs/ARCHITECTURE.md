@@ -81,7 +81,7 @@ functions.
 | `dsh-plugin-wsl-env/cwd-prompt-tool` | `wsl-cwd-prompt-tool` | [`lib/cwd-prompt-tool.js`](../lib/cwd-prompt-tool.js) | Serves the model's read/`cd` tool with the same semantics the harness ships, rewriting the returned `cwd` to the distro's POSIX form. |
 | `dsh-plugin-wsl-env/wsl-doctor-tool` | `wsl-doctor-tool` | [`lib/wsl-doctor-tool.js`](../lib/wsl-doctor-tool.js) | The `wsl_doctor` model tool: the doctor in-process (merging the live resident's state), scoped by `depth`/`section`, rendered as the itemized digest. |
 | `dsh-plugin-wsl-env/wsl-doctor-command` | `wsl-doctor-command` | [`lib/wsl-doctor-command.js`](../lib/wsl-doctor-command.js) | The `/wsl-doctor` UI command: spawns the standalone doctor CLI as a host subprocess and renders the same digest detached from model history. |
-| `dsh-plugin-wsl-env/status` | `wsl-status` | [`lib/status.js`](../lib/status.js) | The sidebar panel's route (`GET /api/wsl-env/status`): lists the installed distros and runs one distro's quick doctor; `POST` on the same route runs the full doctor with `--fix-owned` (which also repairs stale scopes or a broken agent cache and re-verifies both). `DELETE` on the same route clears one stored result (`?distro=<name>`) or every stored result, without listing or probing a distro. Answered over the Host connection's authenticated exact-Fetch channel; the last result per distro is persisted under `$DSH_HOME/cache/dsh-plugin-wsl-env/status.json` and stored results for running distros are refreshed in the background. |
+| `dsh-plugin-wsl-env/status` | `wsl-status` | [`lib/status.js`](../lib/status.js) | The sidebar panel's route (`GET /api/wsl-env/status`): lists installed distros and runs one distro's quick doctor; `GET ?distro=<name>&full=1` runs a full read-only diagnosis; an explicit `POST` runs `--fix-owned` to repair plugin-owned state and re-verify it. `DELETE` clears one stored result (`?distro=<name>`) or every result, without probing a distro. Answered over the Host connection's authenticated exact-Fetch channel; the last result per distro is persisted under `$DSH_HOME/cache/dsh-plugin-wsl-env/status.json` and stored results for running distros are refreshed in the background. |
 | `dsh-plugin-wsl-env` (bare name) | `wsl-env-client-host` | [`lib/client-host.js`](../lib/client-host.js) | The deliberate no-op host half whose bare-name mount lets the web client roster serve `./client`: the sidebar's WSL environment panel and the post-add access-mode prompt. |
 
 Three path and interop helpers import no DSH package.
@@ -600,8 +600,9 @@ standalone CLI (peer-free by design, so it starts when the plugin's own
 runtime is broken), the `/wsl-doctor` UI command (spawns the CLI host-side,
 renders detached from model history), and the `wsl_doctor` model tool
 (in-process, merging the live resident's state through `lib/doctor-live.js`).
-The sidebar panel renders the quick digest and posts the full-check action the
-same way (`--fix-owned`: plugin-owned state only). A run can be scoped (`--quick`, `--sections <csv>` on the CLI; `depth` /
+The sidebar panel renders the quick digest and a full read-only diagnosis;
+repairable plugin-owned findings are repaired only after the user separately
+starts `--fix-owned`. A run can be scoped (`--quick`, `--sections <csv>` on the CLI; `depth` /
 `section` on the tool), and the report itemizes every check grouped by
 distro. See [DIAGNOSTICS.md](DIAGNOSTICS.md) for the surfaces and the
 verdict contract.

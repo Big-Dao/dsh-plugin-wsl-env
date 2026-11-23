@@ -210,13 +210,15 @@ const render = (config = {}) => {
     if (url.startsWith("/api/wsl-env/status")) {
       const method = String(init.method ?? "GET").toUpperCase();
       const distro = new URL(url, "http://harness").searchParams.get("distro");
-      // A DELETE clears the stored verdict; a POST is the repair run; a GET
-      // with a `distro` is a manual or background check; the bare GET is the
-      // list-with-cached-results call.
+      // A DELETE clears the stored verdict; a POST is the explicit repair; a
+      // GET with full=1 is a read-only full doctor; other GETs check or list.
       if (method === "DELETE") {
         return json(config.clear ?? (distro === null ? { cleared: 1 } : { cleared: 1, distro }));
       }
       if (method === "POST") return json(config.repair ?? config.status ?? WINDOWS_STATUS);
+      if (new URL(url, "http://harness").searchParams.get("full") === "1") {
+        return json(config.full ?? config.statusFor?.[distro] ?? config.status ?? WINDOWS_STATUS);
+      }
       if (distro !== null) return json(config.statusFor?.[distro] ?? config.status ?? WINDOWS_STATUS);
       return json(config.status ?? WINDOWS_STATUS);
     }

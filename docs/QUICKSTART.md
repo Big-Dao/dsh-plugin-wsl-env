@@ -34,9 +34,9 @@ supplies the WSL environment.
 No terminal at hand? Several ways without one: the sidebar's **WSL
 environment** panel runs a quick doctor check per distro, listing the badge,
 numbered failing items and warnings. Every row offers **快速检查** and
-**完整检查**; the latter is the full doctor with `--fix-owned`, which also
-repairs plugin-owned state (stale scopes and a broken agent cache) when
-present. Both run again on every click; typing `/wsl-doctor [quick|full|<section>]`
+**完整诊断**; both are read-only. When the full report finds repairable
+plugin-owned state, a separate **修复插件状态** action appears and re-verifies
+the result. Typing `/wsl-doctor [quick|full|<section>]`
 in the composer also runs host-side and renders in the UI — no model turn, no
 tokens; in a session, ask for a diagnosis and the model runs the `wsl_doctor`
 tool (mounted by this plugin), the verdict landing in the transcript; and the
@@ -53,8 +53,8 @@ from `wsl.exe -l -v` itself, so no separate version check is needed. Doctor is
 read-only unless you pass `--fix`
 (the stale-scope sweep and a broken agent cache, both re-verified; the Windows
 git trust after a confirmation) or `--fix --install` (packages, after a
-confirmation); `--fix-owned` restricts a fix run to the plugin-owned state
-(the panel's full-check action); `--bundle <path>` writes
+confirmation); `--fix-owned` restricts a fix run to plugin-owned state
+(the panel's separate repair action); `--bundle <path>` writes
 the diagnostic file a setup report attaches (`--redact` strips the paths
 from it). A run can be scoped — `--quick` probes the first-command
 prerequisites plus one combined optional-tool probe (~10 s), `--sections
@@ -96,11 +96,12 @@ or an UNC path directly. The session's commands, file tools, terminal and previe
 all run in that distro; a Windows folder keeps the normal Windows environment.
 
 The sidebar's **WSL environment** panel is the diagnostic page: it lists the
-installed distros, runs one distro's quick doctor check on demand (showing
-whether bwrap, systemd and Linger are in place), and offers **快速检查** and
-**完整检查** on every row; the latter is the full doctor with `--fix-owned`,
-which also repairs plugin-owned state (a stale session scope or a broken agent
-cache). Both keep their names after a result and run again on every click; the
+installed distros, runs one distro's quick or full read-only doctor check on
+demand (showing whether bwrap, systemd and Linger are in place), and offers
+**快速检查** and **完整诊断** on every row. If the full report finds repairable
+plugin-owned state (a stale session scope or a broken agent cache), a separate
+**修复插件状态** action runs `--fix-owned` and re-verifies the result. Check
+actions remain available after a result; the
 row also shows when the check ran, its source (manual, or the page-load
 background refresh), and its result structure (pass/warn/fail/info/skip, plus
 the per-section tallies). Its **Plugin version** card reads the
@@ -108,11 +109,10 @@ installed/running versions and offers the one-click upgrade described above.
 The last result survives a page reload from the local store, and a stored
 result for a running distro is re-checked in the background on load. Each
 checked row offers **清除** and the card **清除全部** to drop local results
-without probing or modifying a distro. The run
-sweeps the scopes and purges the cache when they need it, then re-verifies;
-every other warning keeps its manual remedy, and the action never installs
+without probing or modifying a distro. The explicit repair sweeps the scopes and purges the cache when they need it,
+then re-verifies; every other warning keeps its manual remedy, and the action never installs
 packages or rewrites Windows-owned configuration (a check boots a stopped
-distro, so either action only runs on a click). Workspaces still open through
+distro, so checks and repairs only run on a click). Workspaces still open through
 **Add workspace**; selecting a folder inside a
 distro through the picker makes the app ask once how to open it: **Remote
 WSL** (the default — commands, files and the terminal all run in the distro) or

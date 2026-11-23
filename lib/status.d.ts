@@ -14,12 +14,13 @@
  *     restored from the store below;
  *   - `GET /api/wsl-env/status?distro=<name>` — one distro's quick doctor
  *     report, digested to the same shape the `/wsl-doctor` command renders;
- *   - `POST /api/wsl-env/status?distro=<name>` — the panel's full-check action:
+ *   - `GET /api/wsl-env/status?distro=<name>&full=1` — one distro's full,
+ *     read-only doctor report;
+ *   - `POST /api/wsl-env/status?distro=<name>` — the explicit repair action:
  *     a full doctor run with `--fix-owned`, which sweeps stale session scopes
  *     and purges a broken agent cache, then re-verifies both and answers with
  *     the same digest plus the `fix.*` rows. Nothing outside the plugin's own
- *     state is touched (no packages, no Windows git config), so the panel
- *     stays a diagnostic surface that can heal its own residue;
+ *     state is touched (no packages, no Windows git config);
  *   - `DELETE /api/wsl-env/status[?distro=<name>]` — the panel's clear action:
  *     drops one distro's stored verdict, or every stored verdict when no distro
  *     is named, and answers `{ cleared: <count> }`. Clearing is host-local on
@@ -125,7 +126,9 @@ export interface DistroStatusView {
     distro: string;
     /** `ready` and `blocked` come from the report; `error` means the run failed. */
     verdict: "ready" | "blocked" | "error";
-    /** Whether this answer came from the full-check action (a full `--fix-owned` run). */
+    /** Whether this answer came from a full doctor run rather than the quick scope. */
+    full: boolean;
+    /** Whether this answer came from the explicit full `--fix-owned` repair action. */
     repaired: boolean;
     /** The doctor's fix rows: what the repair did and whether it verified. */
     repairs: StatusRepair[];

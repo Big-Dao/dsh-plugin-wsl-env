@@ -45,9 +45,9 @@ of what it claims to have fixed, the affected checks carry the after state,
 and the verdict is recomputed — `ready`, or the remaining blockers. The
 plugin-owned state is repaired automatically: the stale-scope sweep and a
 purge of the agent cache when an entry is not executable (the handshake is
-re-probed after the purge). `--fix-owned` narrows a run to exactly those two —
-the sidebar panel's full-check action uses it — and cannot be combined with
-`--install`. Remedies that rewrite user- or distro-owned files (`.wslconfig`,
+re-probed after the purge). `--fix-owned` narrows a repair to exactly those two
+and cannot be combined with `--install`. Remedies that rewrite user- or
+distro-owned files (`.wslconfig`,
 `/etc/wsl.conf`, a WSL1 conversion, installing a distro) are never automated;
 the remedy text says so.
 
@@ -59,9 +59,10 @@ environment variables, and no telemetry.
 ## The surfaces
 
 The doctor answers through three surfaces with one report; the sidebar's
-**WSL environment** panel renders the same quick digest over its own route and
-posts the full-check action (`--fix-owned`, which also repairs plugin-owned
-state). The same panel's **Plugin version** card is separate from the doctor: it reads the
+**WSL environment** panel renders the quick digest and a full read-only report
+over its own route. Only after a full report identifies repairable plugin-owned
+state can the user separately trigger `--fix-owned`. The same panel's **Plugin
+version** card is separate from the doctor: it reads the
 installed/running plugin versions and offers the one-click upgrade through the
 host plugin manager ([CONFIGURATION](CONFIGURATION.md), `wsl-plugin-update`).
 
@@ -80,12 +81,12 @@ host plugin manager ([CONFIGURATION](CONFIGURATION.md), `wsl-plugin-update`).
   the itemized report renders detached from model history (no model turn, no
   tokens). The sidebar's **WSL environment** panel runs the same quick
   check per distro through the authenticated status route, showing a badge with
-  numbered failing items and warnings. Every row offers two fixed check
-  actions: **快速检查** (the quick doctor scope) and **完整检查** (the full
-  doctor with `--fix-owned`, which also repairs plugin-owned state — stale
-  scopes or a broken agent cache — and answers with its before → after fix
-  rows). Both keep their names after a result and run again on every click;
-  there is no separate "recheck" action. The row also states when the check ran, its source
+  numbered failing items and warnings. Every row offers **快速检查** (the quick
+  doctor scope) and **完整诊断** (the full doctor, read-only). When that report
+  finds repairable plugin-owned state — stale scopes or a broken agent cache —
+  the row separately offers **修复插件状态**. It uses `--fix-owned` and
+  answers with before → after repair rows; it never installs packages or
+  rewrites user configuration. Actions can be run again after a result. The row also states when the check ran, its source
   (manual or the page-load background refresh), and how its results landed —
   per-status totals and per-section tallies. Each checked row expands to the
   full list of checks that run executed, grouped by section with each status
@@ -96,8 +97,7 @@ host plugin manager ([CONFIGURATION](CONFIGURATION.md), `wsl-plugin-update`).
   are already up, and a failed one replaces the stored result as observed.
   Each checked row offers **清除** and the card offers **清除全部**; both
   `DELETE` the same route, dropping the local store without starting a doctor
-  run or enumerating a distro. Manual warnings keep their remedies; full
-  diagnosis still uses the entry above and `/wsl-doctor`. Without a command adapter (headless, ACP) the row is a no-op and
+  run or enumerating a distro. Manual warnings keep their remedies. Without a command adapter (headless, ACP) the row is a no-op and
   the CLI is the surface. Without `--distro` the handler names the distro from
   the session's live working directory (the agent-scoped `workingDirectory`
   service first, then the Session header's `cwd`); when neither yields a WSL

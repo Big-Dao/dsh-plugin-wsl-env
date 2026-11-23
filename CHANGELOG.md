@@ -16,13 +16,31 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-11-23
+
+WSL panel release: diagnosis and repair are separate actions, with clearer
+progress feedback and accessible controls.
+
 ### Changed
 
+- **Full diagnosis is read-only.** Repairing plugin-owned state now requires a
+  separate explicit action, followed by verification; it does not install
+  packages or rewrite Windows configuration.
+- **The WSL panel is more concise and accessible.** Detailed guidance starts
+  collapsed, and checks/repairs state the current action and possible distro
+  startup without inventing progress or elapsed-time estimates. Controls work
+  with the keyboard, and status/error updates expose screen-reader semantics.
 - **Release workflow hardening.** The workflow default permission is now
   `contents: read`; only the publish job holds `contents: write` and
   `id-token: write`. The `upload-artifact` and `download-artifact` actions are
   pinned to commit SHAs like the other actions. No plugin runtime behavior
   changed.
+
+### Verification
+
+- `pnpm test`, `pnpm run test:coverage`, and `pnpm run test:browser` passed.
+  The Windows/WSL real-machine probe suite was not run in this Linux
+  environment, which has no WSL or Harness installation.
 
 ## [0.28.0] - 2026-11-22
 

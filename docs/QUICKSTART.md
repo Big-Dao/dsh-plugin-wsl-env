@@ -124,6 +124,12 @@ running a non-WSL preset keeps a warning above the composer, with a one-click sw
 while the session is still blank and the access-record fix once a turn has started.
 Two distros can be open at once, each with its own environment.
 
+The panel keeps its initial guidance brief and puts detailed version and
+check/repair explanations in collapsed disclosures. While an action is running,
+it names the current operation and notes that a stopped distro may start; it
+does not invent a percentage or time estimate. Buttons and disclosures work
+with the keyboard, and status and error updates expose screen-reader semantics.
+
 ### Open the workspace in VS Code (Remote-WSL)
 
 Opening the WSL folder as a Windows UNC share works but is the degraded mode:

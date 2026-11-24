@@ -59,6 +59,33 @@
 2. 运行 `pnpm run build`，再运行 `pnpm test`。无需维护排除列表，也没有注册步骤：构建和 `lint:build` 从 `src/` 推导一切，`lib/` 是生成输出——绝不要手工编辑。
 3. 如果模块在 Plugins 页面拥有自己的一行，把它的显示元数据添加为 `locale/<name>/en.json` 和 `locale/<name>/zh.json`——各含一对 `meta.title` / `meta.description`——并通过 `exports` 暴露两者（`./<name>/locale/en.json`、`./<name>/locale/zh.json`），该页面会先读取它们，再回退到包的 `description`。bundle 自己的那一对是 `locale/en.json` / `locale/zh.json`，`subprocess`、`picker`、`shell-env` 和 `auto-preset` 各自带有自己的那一对。有一组运行时 catalog 不是 `exports` 条目：`locale/doctor/*.json` 为独立 CLI 的固定骨架提供本地化，由脚本自身从包根目录读取。`files` 已随包发布 `locale/**/*.json`，而 `lint:style` 会让不存在的 `exports` 目标失败。
 
+## 预设副本的同步（`preset-wsl`）
+
+`cordis.patch.yml` 的 `preset-wsl` 是应用自带标准 preset
+（`packages/bundle/web-app/presets/standard.patch.yml`）的派生副本：标准模式
+的各行挂到发行版的 shell 和文件系统上。应用给自己的 preset 加一行，WSL
+会话就缺一行，直到副本重新生成；而 pinned 依赖树里并没有这份 preset 可供
+比对，rc.2 新增的 office 工具、内置 skill 根和 subagent 开关因此漏了整条
+版本线。
+
+`pnpm run preset:sync`（`scripts/preset-sync.mjs`）把副本钉在一条可复现的
+版本线上。`test/fixtures/standard.patch.dsh-<版本>.yml` 是 dev pin 所指
+版本的那份上游文件；脚本用 include 自带的 `!!js` 方言解析两份文件，让上游
+各行经过副本注明的那几处改动（本插件自己的行、固定的 shell 工具选择），
+再逐行、按顺序比对，嵌套组一并比对。`pnpm test` 运行的是同一份检查。快照
+的文件名必须等于 `devDependencies` 里 `@deepseek-ai/dsh-fs` 的精确版本，
+所以只抬高 pin、不换快照会让检查失败；`--upstream <文件>` 可以指定 harness
+源码树里的任意一份 preset，在 pin 移动之前预览差异。
+
+跟随新版本线的步骤：
+
+1. 用新 tag 的 `standard.patch.yml` 替换快照：harness 源码树里是
+   `git show <tag>:packages/bundle/web-app/presets/standard.patch.yml`；发布包
+   `@deepseek-ai/dsh-web-app` 的 tarball 里带着同一份文件。
+2. 运行 `pnpm run preset:sync`，看上游改了什么。
+3. 按 `preset-wsl` 行上方的注释重新生成该行。
+4. 在同一提交里抬高 pin。
+
 ## 开发循环
 
 1. 在发行版内克隆仓库。多数贡献者在那里开发。
@@ -89,6 +116,7 @@ pnpm run sync:windows
 | `pnpm run lint:style` | 风格与 lint 规则 | 否 |
 | `pnpm run lint:build` | 构建新鲜度检查：每个源码都有产物，且提交的字节匹配真实构建 | 否 |
 | `pnpm run lint:types` | 对 `test/**` 和环境类型声明的 TypeScript 检查（`tsc --noEmit`） | 否 |
+| `pnpm run preset:sync` | `preset-wsl` 与 pinned 版本的标准 preset 快照逐行比对；`pnpm test` 内含同一检查 | 否 |
 | `pnpm run e2e:install` | 在临时 `DSH_HOME` 中安装/升级/卸载打包 tarball；“最新已发布版 → 当前版本”leg 会用 overlay 探针启动 profile，断言三个接管实际挂载 | 是；Windows + WSL |
 | `pnpm run doctor` | 环境前置项、peer 和缓存（脚本使用 `--json`；`diagnose` 是只读别名） | 否；在发行版内 |
 | `pnpm run probe` | 针对真实发行版的文件系统行为 | 是 |

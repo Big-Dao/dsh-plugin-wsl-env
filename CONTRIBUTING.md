@@ -156,6 +156,36 @@ Rules that keep this honest:
    `locale/**/*.json`, and `lint:style` fails an `exports` target that does not
    exist.
 
+## Keeping the preset copy in step (`preset-wsl`)
+
+`cordis.patch.yml`'s `preset-wsl` is a derived copy of the app's own standard
+preset (`packages/bundle/web-app/presets/standard.patch.yml`): the standard
+mode's rows, mounted on the distro's shell and filesystem. A row the app adds
+to its own preset is missing from every WSL session until the copy is
+regenerated, and the pinned dependency tree ships no preset to compare against
+— which is how the rc.2 line's office tool, bundled skill root and subagent
+switch went missing for a whole release line.
+
+`pnpm run preset:sync` (`scripts/preset-sync.mjs`) pins the copy to one
+reproducible line. `test/fixtures/standard.patch.dsh-<version>.yml` is the
+upstream file of the line the dev pins name; the script parses both files with
+the include's own `!!js` dialect, passes the upstream rows through exactly the
+changes the copy documents (the plugin's own rows, the fixed shell-tool
+choice), and compares row by row, in order, nested groups included. `pnpm
+test` runs the same check. The snapshot's name must equal the exact version
+`devDependencies` pins `@deepseek-ai/dsh-fs` at, so raising the pins without
+refreshing it fails the check; `--upstream <file>` takes any preset from a
+harness source tree, to preview the differences before the pins move.
+
+To follow a newer line:
+
+1. Replace the snapshot with the new tag's `standard.patch.yml`: in a harness
+   source tree, `git show <tag>:packages/bundle/web-app/presets/standard.patch.yml`;
+   the published `@deepseek-ai/dsh-web-app` tarball carries the same file.
+2. Run `pnpm run preset:sync` to see what moved upstream.
+3. Regenerate the row as the comment above `preset-wsl` describes.
+4. Raise the pins in the same commit.
+
 ## The development loop
 
 1. Clone the repository inside the distro. Most contributors develop there.
@@ -195,6 +225,7 @@ terminal if you would rather not see the prompt.
 | `pnpm run lint:style` | style and lint rules | no |
 | `pnpm run lint:build` | the build-freshness check: every source has its artifacts and the committed bytes match a real build | no |
 | `pnpm run lint:types` | the TypeScript check over `test/**` and the ambient types (`tsc --noEmit`) | no |
+| `pnpm run preset:sync` | `preset-wsl` against the snapshot of the pinned line's standard preset, row by row; `pnpm test` runs the same check | no |
 | `pnpm run e2e:install` | packed-tarball install/upgrade/uninstall into a temporary `DSH_HOME`; the newest published → current leg boots the profile with an overlay probe and asserts the three takeovers mount | yes; Windows + WSL |
 | `pnpm run doctor` | the environment prerequisites, peers and caches (`--json` for scripts; `diagnose` is the read-only alias) | no; inside the distro |
 | `pnpm run probe` | filesystem behaviour against a real distro | yes |

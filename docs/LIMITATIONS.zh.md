@@ -83,6 +83,23 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
   `FileReferenceTraversal` 接缝：
   [UPSTREAM-FILE-REFERENCE-SEAM.md](UPSTREAM-FILE-REFERENCE-SEAM.md)。
 
+## 内置 skill
+
+`preset-wsl` 与应用自带的标准模式保持同一份行集，其中 `skill-filesystem`
+的 `customSkillDirs` 照搬上游，指向应用安装目录里 agent preset 包自带的
+`skills` 目录。该目录在宿主上，而本 preset 的文件系统是发行版的：
+
+- **内置 skill 经发行版的 `/mnt/<盘符>/…` 读取**：`wsl-fs` 把宿主盘符路径
+  映射到发行版的挂载点，再由常驻 agent 读取（2026-11-24 实测：未打包的
+  宿主目录 `resolve` 与 `listDir` 正常）。发行版把盘符挂在别处
+  （`/etc/wsl.conf` 的 `automount.root`）时读不到。
+- **Desktop 安装包的 WSL 会话里没有内置 skill**：应用的 `node_modules` 打在
+  `app.asar` 归档内，`/mnt/c/…/app.asar/…` 在发行版内不是目录，`wsl-fs`
+  以 `FS_NOT_DIRECTORY` 拒绝（2026-11-24 实测）；skill 提供方把这类根按
+  「不存在」跳过，所以内置的 `dsh-doc` 不会出现在工具面，其余 skill 根
+  （项目目录、用户目录）不受影响。宿主模式由应用进程直接读归档，没有
+  这个限制。
+
 ## 沙箱
 
 - **一次性回退路径只有宿主截止时间** —— `wsl.exe` 被杀时不会把 kill 传进

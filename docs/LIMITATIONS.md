@@ -89,6 +89,28 @@ operations never use the 9p share.
   upstream `FileReferenceTraversal` seam:
   [UPSTREAM-FILE-REFERENCE-SEAM.md](UPSTREAM-FILE-REFERENCE-SEAM.md).
 
+## Bundled skills
+
+`preset-wsl` keeps the row set of the app's own standard mode, and its
+`skill-filesystem` row carries the upstream `customSkillDirs` unchanged: the
+`skills` directory the agent preset package ships inside the app's
+installation. That directory is on the host, while this preset's filesystem is
+the distro's:
+
+- **Bundled skills are read through the distro's `/mnt/<drive>/…`**: `wsl-fs`
+  maps a host drive path to the distro's mount point and the resident agent
+  reads it (measured 2026-11-24: an unpacked host directory resolves and
+  lists). A distro that mounts its drives elsewhere (`automount.root` in
+  `/etc/wsl.conf`) cannot read them.
+- **A WSL session on the Desktop package has no bundled skills**: the app's
+  `node_modules` live inside the `app.asar` archive, `/mnt/c/…/app.asar/…` is
+  not a directory inside the distro, and `wsl-fs` refuses it with
+  `FS_NOT_DIRECTORY` (measured 2026-11-24). The skill provider treats such a
+  root as absent and skips it, so the bundled `dsh-doc` never reaches the tool
+  surface, while the other skill roots (the project's and the user's
+  directories) are unaffected. The host mode reads the archive through the app
+  process and has no such limit.
+
 ## The sandbox
 
 - **The one-shot fallback has only the host deadline** — a killed `wsl.exe` does not

@@ -151,6 +151,25 @@ were part of the record.
   self-contained musl objects rather than by the CI job's `musl-gcc`/zig
   linkers; both pass the full 35-check suite (aarch64 under qemu-user), the
   native wiring check and the session-runtime probe.
+- **`preset-wsl` is regenerated from the rc.2 standard preset, and a parity
+  check keeps it there (#82).** The copy still followed `dsh-v0.2.2-rc.1`
+  while the peer pins had moved to rc.2, so every WSL session lacked three
+  things the app's own standard mode had: the `tool-office` row, the
+  `skill-filesystem` row's `customSkillDirs` (the preset package's bundled
+  skills), and `tool-subagent-control`'s `interrupt: false`. All three are
+  upstream's, verbatim. `pnpm run preset:sync`
+  ([scripts/preset-sync.mjs](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/scripts/preset-sync.mjs))
+  compares the row with a committed snapshot of the pinned line's
+  `standard.patch.yml` — the dependency tree ships none — row by row and in
+  order, nested groups included, and `pnpm test` runs the same check
+  (`test/preset-sync.test.mjs`). The snapshot's name is tied to the dev pin,
+  so raising the pins without refreshing it fails. Two things worth knowing:
+  the `customSkillDirs` expression is evaluated with the root Include's
+  `baseUrl` — the same for every row of the composition, this bundle's
+  included, which a real-Loader check now pins — and on the Desktop package
+  the bundled skills stay unreadable from a distro, because the app's
+  `node_modules` sit inside `app.asar`; that root is skipped as absent and is
+  documented in LIMITATIONS.
 
 ## [0.29.0] - 2026-11-23
 

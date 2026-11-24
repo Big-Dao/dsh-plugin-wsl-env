@@ -16,7 +16,7 @@
  *   node test/sandbox.test.mjs
  */
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bwrapFailure, bwrapUsable, createSandboxCore, withBwrapHint } from "../lib/sandbox-core.js";
@@ -226,6 +226,25 @@ await check("the family remedy keeps the direct command verbatim in the configur
   } finally {
     resetMessagesLocaleForTests();
   }
+});
+
+await check("the package-family probe is remembered across failed bwrap probes", async () => {
+  const log = join(dir, "family-calls.log");
+  const path = join(dir, "wsl-family-count.mjs");
+  await writeFile(path, [
+    'import { appendFileSync } from "node:fs";',
+    'const argv = process.argv.slice(2).join(" ");',
+    `appendFileSync(${JSON.stringify(log)}, argv + "\\n");`,
+    'if (argv.includes("command")) { console.log("/usr/bin/apt-get"); process.exit(0); }',
+    'console.log("wsl.exe failed: execv bwrap failed: No such file or directory");',
+    "process.exit(1);",
+    "",
+  ].join("\n"));
+  assert.equal(await bwrapUsable({ wslPath: path, distro: "family-cache" }), false);
+  assert.equal(await bwrapUsable({ wslPath: path, distro: "family-cache" }), false);
+  const lines = (await readFile(log, "utf8")).split("\n").filter(Boolean);
+  assert.equal(lines.filter((line) => line.includes("command")).length, 1, "the family probe runs once");
+  assert.equal(lines.filter((line) => !line.includes("command")).length, 2, "the bwrap probe still re-runs so a fix is believed");
 });
 
 await check("a remembered failure clears on the key's next success", async () => {

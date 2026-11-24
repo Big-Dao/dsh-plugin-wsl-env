@@ -386,7 +386,7 @@ export async function apply(ctx: AutoPresetContext, config: AutoPresetConfig = {
       return;
     }
     const original = facade.createSession;
-    facade.createSession = async function (this: unknown, request: SessionCreateRequestLike) {
+    const wrapped = async function (this: unknown, request: SessionCreateRequestLike) {
       // A non-default preset id always wins; the default id (or no id) is
       // automatic. Only a distro workspace is affected. A workspace the operator
       // opened for Windows access keeps the host preset even here: this is the
@@ -414,10 +414,14 @@ export async function apply(ctx: AutoPresetContext, config: AutoPresetConfig = {
         return original.call(this, request);
       }
     };
+    facade.createSession = wrapped;
     publishAutoPresetSeam("active", "agents.createSession is wrapped; distro sessions mount the WSL preset first", "createSession");
     trace("creation-time preset fix installed");
     controllerCtx.effect(() => () => {
-      facade.createSession = original;
+      // Restore only what is still ours: with two wrappers live (a hot reload
+      // that outlived its predecessor), the late disposer used to clobber the
+      // newer wrapper and silently disable the fix.
+      if (facade.createSession === wrapped) facade.createSession = original;
       publishAutoPresetSeam("inactive", "the auto-preset row was disposed");
     });
   });

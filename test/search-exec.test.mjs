@@ -87,6 +87,22 @@ function fakeAgent(script) {
   };
 }
 
+check("a stream the agent cut at the capture cap reports lossy", async () => {
+  // The shape the real agent produces: a cut lands EXACTLY on the budget, so
+  // no length test can see it. Read as whole, a search past the budget was
+  // reported with every later match missing.
+  const agent = fakeAgent([{
+    exitCode: 0,
+    stdout: Buffer.alloc(4096, 0x61),
+    stderr: Buffer.alloc(4096, 0x62),
+    truncated: { stdout: true, stderr: true },
+  }]);
+  const handle = searchExecutionHandle(/** @type {Parameters<typeof searchExecutionHandle>[0]} */ (/** @type {AgentSearchOptions} */ ({ agent, cwd: CWD, argv: ARGV, distro: DISTRO, maxOutputBytes: 4096 })));
+  await handle.done;
+  assert.equal(/** @type {SearchReader} */ (handle.collected.stdout).readFrom(0).lossy, true, "the stdout cut reaches the caller");
+  assert.equal(/** @type {SearchReader} */ (handle.collected.stderr).readFrom(0).lossy, true, "and the stderr cut");
+});
+
 check("a successful agent exec fills collected and reports the exit code", async () => {
   const agent = fakeAgent([{ exitCode: 0, stdout: Buffer.from("alpha\nbeta\n"), stderr: Buffer.alloc(0) }]);
   const handle = searchExecutionHandle(/** @type {Parameters<typeof searchExecutionHandle>[0]} */ (/** @type {AgentSearchOptions} */ ({ agent, cwd: CWD, argv: ARGV, distro: DISTRO, maxOutputBytes: 4096 })));

@@ -75,6 +75,12 @@ were part of the record.
   - A write sweeps the target's staging directories whose creating process is
     gone. Both agents now stage under `.<base>.<pid>.<token>.tmpdir`, so
     either sweep recognises the other's leftovers.
+- **Search and git results cut at the agent's capture cap are reported as
+  cut.** On the resident path neither handle read the agent's truncation
+  flags, so a result past the cap was parsed as complete — later matches and
+  changed files silently missing — and the git handle kept the head of an
+  over-budget stream where the one-shot handle keeps the tail. Both handles
+  now carry the flags, and a cut keeps the tail (#75).
 - **The packaged native binaries were rebuilt** from the hardened source with
   the pinned toolchain (1.99.1). They were linked with the toolchain's
   self-contained musl objects rather than by the CI job's `musl-gcc`/zig

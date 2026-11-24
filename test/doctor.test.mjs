@@ -62,6 +62,10 @@ const env = process.env;
 const state = env.FAKE_STATE_DIR ?? "/nonexistent";
 const out = (text) => process.stdout.write(text);
 const err = (text) => process.stderr.write(text);
+// The distro's HOME is a POSIX path even when the host's is not: the fake
+// answers what a Linux distro answers, so a Windows runner's C:\Users\...
+// never leaks into identity or cache paths.
+const home = /^[A-Za-z]:/.test(env.HOME ?? "") ? "/home/tester" : (env.HOME ?? "");
 const FLAKE = "connection attempt failed because the connected party did not properly respond Wsl/Service/WSAETIMEDOUT\\n";
 
 if (all === "-l -q" || all === "--list -q") {
@@ -219,9 +223,9 @@ else if (all.includes("--exec sh -c")) {
     out("TOOLS_B64=" + b64(tools) + "\\n");
     out("ARCH=x86_64\\n");
     let cache;
-    if (env.FAKE_CACHE === "noexec" && !existsSync(join(state, "cache-purged"))) cache = "noexec " + env.HOME + "/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent";
+    if (env.FAKE_CACHE === "noexec" && !existsSync(join(state, "cache-purged"))) cache = "noexec " + home + "/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent";
     else if (env.FAKE_CACHE === "noexec") cache = "none";
-    else cache = "exec " + env.HOME + "/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent";
+    else cache = "exec " + home + "/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent";
     out("CACHE_B64=" + b64(cache) + "\\n");
     out("HOMEEXEC=" + (env.FAKE_HOME_PROBE ?? "ok") + "\\n");
     process.exit(0);
@@ -279,8 +283,8 @@ else if (all.includes("--exec sh -c")) {
   if (all.includes(".cache/dsh-wsl/agent")) {
     if (existsSync(join(state, "cache-purged")) && env.FAKE_RECHECK === "cache") { err(FLAKE); process.exit(1); }
     if (env.FAKE_CACHE === "noexec") {
-      out(existsSync(join(state, "cache-purged")) ? "none" : "noexec " + env.HOME + "/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent");
-    } else out("exec " + env.HOME + "/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent");
+      out(existsSync(join(state, "cache-purged")) ? "none" : "noexec " + home + "/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent");
+    } else out("exec " + home + "/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent");
     process.exit(0);
   }
   if (all.includes("mktemp -d")) { out("/tmp/dsh-doctor-smoke-fixed"); process.exit(0); }
@@ -1212,6 +1216,7 @@ try {
   });
 
   await check("the Windows git trust check reports the whitelist and a missing-git info", () => {
+    if (process.platform === "win32") skip("git.exe is not faked on Windows; the real git answers instead");
     writeFileSync(join(stateDir, "git-whitelisted"), "");
     const report = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
     const ok = report.checks.find((entry) => entry.id === "git.win-safe");

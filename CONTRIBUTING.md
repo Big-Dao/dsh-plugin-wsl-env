@@ -336,16 +336,17 @@ in `package.json` name their files explicitly; a test that only touches this
 repository belongs in both. Keep the lists synchronized without duplicate entries.
 
 Both scripts run their list under `scripts/test-watchdog.mjs`, which bounds the
-whole run at 180 s (`DSH_TEST_WATCHDOG_MS` overrides). `node --test` has no
+whole run at 300 s (`DSH_TEST_WATCHDOG_MS` overrides). `node --test` has no
 per-file deadline, so a script-style file that leaves a handle alive behind an
 unsettled top-level await would otherwise hang the gate until the caller kills
 it; at the deadline the wrapper interrupts the run and node's "Interrupted while
 running" list names the file that never finished. The scripts also pass
-`--test-timeout=120000`. On Node 24 it bounds only tests a file registers
+`--test-timeout=240000`. On Node 24 it bounds only tests a file registers
 with `test()`, and the watchdog is what covers a hang at module evaluation;
 Node 22 also counts a script-style file's top-level evaluation against it,
 so it has to exceed the slowest file — the doctor suite, which starts
-dozens of fake processes per run and waits out the real delays of flake
+dozens of fake processes per run on two platforms now and waits out the
+real delays of flake
 retries, takes about a minute.
 
 `test:coverage` runs that list through `scripts/coverage-gate.mjs` as well.

@@ -177,7 +177,7 @@ Windows+WSL runner，请使用 `self-hosted-wsl` 等无歧义标签，不要复�
 
 单元测试在 `node --test` 下运行。`package.json` 中的 `test:unit` 和 `test:coverage` 列表显式列出各自的文件；只涉及本仓库的测试应同时出现在两者中。保持两个列表同步且没有重复条目。
 
-两个脚本都在 `scripts/test-watchdog.mjs` 下运行各自的列表，该 watchdog 把整次运行限制在 180 秒内（可用 `DSH_TEST_WATCHDOG_MS` 覆盖）。`node --test` 没有逐文件截止时间，因此一个脚本式文件如果在尚未完成的顶层 await 背后留下活动句柄，就会让检查挂起，直到调用方杀掉它；到达截止时间时，包装器会中断运行，node 的 “Interrupted while running” 列表会指出从未完成的文件。脚本还会传入 `--test-timeout=120000`。在 Node 24 上它只限制文件用 `test()` 注册的测试，模块求值阶段的挂起由 watchdog 覆盖；Node 22 还把脚本式文件的顶层求值整个计入这个时限，所以它必须高于最慢的文件——doctor 套件每次运行要起几十个假进程，还要等完抖动重试的真实延迟，约需一分钟。
+两个脚本都在 `scripts/test-watchdog.mjs` 下运行各自的列表，该 watchdog 把整次运行限制在 300 秒内（可用 `DSH_TEST_WATCHDOG_MS` 覆盖）。`node --test` 没有逐文件截止时间，因此一个脚本式文件如果在尚未完成的顶层 await 背后留下活动句柄，就会让检查挂起，直到调用方杀掉它；到达截止时间时，包装器会中断运行，node 的 “Interrupted while running” 列表会指出从未完成的文件。脚本还会传入 `--test-timeout=240000`。在 Node 24 上它只限制文件用 `test()` 注册的测试，模块求值阶段的挂起由 watchdog 覆盖；Node 22 还把脚本式文件的顶层求值整个计入这个时限，所以它必须高于最慢的文件——doctor 套件每次运行要起几十个假进程（两个平台都跑），还要等完抖动重试的真实延迟。
 
 `test:coverage` 还会通过 `scripts/coverage-gate.mjs` 运行该列表。Node 的覆盖率基于加载——没有测试 import 的模块不会有一行记录，因此全局百分比会静默地只衡量一个子集——所以该检查要求每个 `lib/*.js` 都被测量，或在 `test/coverage-allowlist.json` 中列出并说明为何无法被受检查的测试套件加载；每个被测量的模块都要满足 85 行 / 70 分支 / 60 函数的下限。没有测试的新模块会让检查失败，已不存在模块的允许列表条目同样如此。新增测试是首选修复；允许列表让其余仅由探针覆盖的行保持可见，而不是让它们从分母中消失。
 

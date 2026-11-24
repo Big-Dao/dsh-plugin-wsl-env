@@ -186,7 +186,7 @@ const spawnView = (executor) => /** @type {OneShotSeam} */ (/** @type {unknown} 
 /**
  * A filesystem provider over a fake substrate; the agent never spawns.
  * @param {{ sandbox?: boolean, restrictToDistro?: boolean, sessionSandbox?: boolean | "auto", distro?: string, policy?: { mode: "read-only"|"workspace-write"|"danger-full-access", workspaceRoot: string }, wslPath?: string, writableRoots?: string[], socketIsolation?: "off" | "session-bus" | "strict" }} [options] - the provider switches, the distro mode, the policy the fake resolves, an optional `wslPath` for the home and default-distro probes, root grants and the socket stance.
- * @returns {{ fs: WslFileSystem, substrate: MockSubstrate }} the provider and its scripted substrate.
+ * @returns {{ fs: WslFileSystem, substrate: MockSubstrate, ctx: Context }} the provider, its scripted substrate and its context.
  */
 function makeFs({ sandbox = true, restrictToDistro = true, distro = DISTRO, policy, sessionSandbox = false, wslPath, writableRoots, socketIsolation } = {}) {
   // The unit suite must never resolve the packaged native binary: no wsl.exe.
@@ -212,13 +212,13 @@ function makeFs({ sandbox = true, restrictToDistro = true, distro = DISTRO, poli
     },
   };
   fs.agentSubstrate = async () => /** @type {Awaited<ReturnType<WslFileSystem["agentSubstrate"]>>} */ (/** @type {unknown} */ (substrate));
-  return { fs, substrate };
+  return { fs, substrate, ctx };
 }
 
 /**
  * An executor whose agent and confinement are fakes at the seam.
  * @param {{ sandbox?: boolean, sessionSandbox?: boolean | "auto", distro?: string, writableRoots?: string[], additionalWritableRoots?: string[], socketIsolation?: "off" | "session-bus" | "strict" }} [options] - the executor switches, distro mode, root grants and socket stance.
- * @returns {{ executor: WslShellExecutor, agent: ScriptedAgent, agentCalls: AgentFrame[] }} the executor, its scripted frame-runner, and every frame it saw.
+ * @returns {{ executor: WslShellExecutor, agent: ScriptedAgent, agentCalls: AgentFrame[], ctx: Context }} the executor, its scripted frame-runner, every frame it saw, and its context.
  */
 function makeExecutor({ sandbox = true, sessionSandbox = false, distro = DISTRO, writableRoots, additionalWritableRoots, socketIsolation } = {}) {
   const policy = { mode: "workspace-write", workspaceRoot: WORKSPACE, ...(additionalWritableRoots === undefined ? {} : { additionalWritableRoots }) };
@@ -271,8 +271,51 @@ function makeExecutor({ sandbox = true, sessionSandbox = false, distro = DISTRO,
     },
   };
   executor.sandbox = /** @type {WslShellExecutor["sandbox"]} */ (/** @type {unknown} */ (sandboxCore));
-  return { executor, agent, agentCalls };
+  return { executor, agent, agentCalls, ctx };
 }
+
+/**
+ * The dispatch slice the providers' session-end listener hangs on: cordis's
+ * typed `Events` does not name the harness's agent events.
+ * @typedef {{ parallel: (event: "agent/disposed", payload: { agent: { id: string } }) => Promise<void> }} DisposalBus
+ */
+
+/**
+ * Deliver `agent/disposed` for one session to every listener a context
+ * carries, and wait for their teardowns.
+ * @param {Context} ctx - the provider's context.
+ * @param {string} sessionId - the session that ended.
+ */
+const disposeAgent = (ctx, sessionId) =>
+  /** @type {DisposalBus} */ (/** @type {unknown} */ (ctx)).parallel("agent/disposed", { agent: { id: sessionId } });
+
+/**
+ * A REAL registry over scripted spawn and stop edges: the refcount, the
+ * session end and the stale-entry check are the code under test, only systemd
+ * and the distro are faked.
+ * @returns {{ registry: SessionRuntimes, seen: { spawned: number }, stops: string[] }} the registry and what its edges saw.
+ */
+const realRegistry = () => {
+  const seen = { spawned: 0 };
+  /** @type {string[]} */
+  const stops = [];
+  const registry = new SessionRuntimes({
+    spawnAgent: () => {
+      seen.spawned += 1;
+      /** @type {ScriptedAgent & { close: () => Promise<void> }} */
+      const agent = {
+        exec: async () => ({ exitCode: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), truncated: { stdout: false, stderr: false } }),
+        close: async () => {},
+      };
+      return asAgent(agent);
+    },
+    stopScope: ({ unit }) => {
+      stops.push(unit);
+    },
+    token: () => `tok${seen.spawned}`,
+  });
+  return { registry, seen, stops };
+};
 
 // --- the filesystem guard chain -------------------------------------------
 
@@ -311,8 +354,10 @@ check("with sessionSandbox, a confined mutation runs in the shared session runti
     /** @param {{ distro: string, wslPath: string, workspaceRoot: string, mode: string, maskWindowsDrive?: boolean, sessionId?: string }} request - the runtime request. */
     acquire: (request) => {
       acquired.push(request);
-      return { key: "fs-runtime", unit: "u", agent: runtimeAgent, distro: request.distro, wslPath: "wsl.exe", refs: 1 };
+      return { key: "fs-runtime", unit: "u", agent: runtimeAgent, distro: request.distro, wslPath: "wsl.exe", refs: 1, sessionId: request.sessionId ?? "" };
     },
+    /** A scripted registry keeps everything it handed out. */
+    holds: () => true,
     /** @param {string} key - the registry key. */
     release: async (key) => {
       released.push(key);
@@ -932,8 +977,10 @@ check("with sessionSandbox, the command runs on the session runtime without the 
     /** @param {{ distro: string, wslPath: string, workspaceRoot: string, mode: string, maskWindowsDrive?: boolean, sessionId?: string }} request - the runtime request. */
     acquire: (request) => {
       acquired.push(request);
-      return { key: "k", unit: "u", agent: runtimeAgent, distro: request.distro, wslPath: "wsl.exe", refs: 1 };
+      return { key: "k", unit: "u", agent: runtimeAgent, distro: request.distro, wslPath: "wsl.exe", refs: 1, sessionId: request.sessionId ?? "" };
     },
+    /** A scripted registry keeps everything it handed out. */
+    holds: () => true,
     /** @param {string} key - the registry key. */
     release: async (key) => {
       released.push(key);
@@ -954,6 +1001,72 @@ check("with sessionSandbox, the command runs on the session runtime without the 
   assert.equal(acquired.length, 1, "one runtime per session key");
   await executor.disposeSessionRuntimes();
   assert.deepEqual(released, ["k"], "disposing the executor releases the runtime");
+});
+
+check("agent/disposed ends a session: both providers drop its runtime, another session keeps its", async () => {
+  // The two providers share one REAL registry. The preset realm they live in
+  // is disposed once per process, not per session, so the session's own end —
+  // the harness's `agent/disposed` — is what must release the scope.
+  const { fs, ctx: fsCtx } = makeFs({ sessionSandbox: true });
+  const { executor, ctx: shellCtx } = makeExecutor({ sessionSandbox: true });
+  fs.sandbox = coreStub(true);
+  fs.sessionScopeProbe = async () => "ok";
+  executor.sessionScopeProbe = async () => "ok";
+  const { registry, seen, stops } = realRegistry();
+  fs.sessionRuntimes = registry;
+  executor.sessionRuntimes = registry;
+  /** @type {{ mode: "workspace-write", workspaceRoot: string, sessionId: string }} */
+  const sessionA = { mode: "workspace-write", workspaceRoot: WORKSPACE, sessionId: "session-a" };
+  const sessionB = { ...sessionA, sessionId: "session-b" };
+  /**
+   * Run one confined command through the executor and settle it.
+   * @param {{ mode: "workspace-write", workspaceRoot: string, sessionId: string }} sandboxPolicy - the command's policy.
+   * @returns {Promise<unknown>} the settled result.
+   */
+  const run = async (sandboxPolicy) => (await executor.execute(spec({ command: "echo hi", workdir: WORKSPACE, timeoutMs: 5000, sandboxPolicy }))).result();
+  await fs.mutationAgent(sessionA);
+  await run(sessionA);
+  await run(sessionB);
+  assert.equal(seen.spawned, 2, "one runtime for session a — its write and its commands share it — and one for session b");
+  const entryB = [...executor.runtimeBook.sessionRuntimeEntries.values()].find((entry) => entry.sessionId === "session-b");
+  assert.ok(entryB !== undefined, "precondition: session b has a runtime");
+  assert.equal(executor.runtimeBook.sessionRuntimeEntries.size, 2);
+  assert.equal(fs.runtimeBook.sessionRuntimeEntries.size, 1);
+  // Each provider registered its listener on its own context.
+  await Promise.all([disposeAgent(fsCtx, "session-a"), disposeAgent(shellCtx, "session-a")]);
+  assert.deepEqual(stops, ["dsh-wsl-ubuntu-tok0"], "the ended session's scope stopped once");
+  assert.equal(fs.runtimeBook.sessionRuntimeEntries.size, 0, "the filesystem provider dropped its reference");
+  assert.equal(executor.runtimeBook.sessionRuntimeEntries.size, 1, "the shell executor dropped its reference to that session only");
+  assert.equal(registry.holds(entryB), true, "the other session's runtime is untouched");
+  assert.equal(seen.spawned, 2, "ending a session spawns nothing");
+  await run(sessionA);
+  assert.equal(seen.spawned, 3, "a session resumed under the same id acquires a fresh runtime");
+  await executor.disposeSessionRuntimes();
+  await fs.disposeSessionRuntimes();
+  assert.equal(stops.length, 3, "disposing the providers stops what is left");
+});
+
+check("a cached runtime the registry tore down is not reused: the session acquires afresh", async () => {
+  const { executor } = makeExecutor({ sessionSandbox: true });
+  executor.sessionScopeProbe = async () => "ok";
+  const { registry, seen, stops } = realRegistry();
+  executor.sessionRuntimes = registry;
+  const policy = { mode: "workspace-write", workspaceRoot: WORKSPACE, sessionId: "session-a" };
+  const resolved = spec({ command: "echo hi", workdir: WORKSPACE, timeoutMs: 5000 });
+  const first = executor.sessionRuntimeFor(policy, resolved, DISTRO);
+  assert.ok(first !== undefined, "precondition: the session has a runtime");
+  // The session ended through a path this executor never heard — another
+  // holder's sweep, or a host teardown — so its book still names the runtime.
+  await registry.releaseSession("session-a");
+  assert.equal(executor.runtimeBook.sessionRuntimeEntries.size, 1, "precondition: the executor still caches the entry");
+  const again = executor.sessionRuntimeFor(policy, resolved, DISTRO);
+  assert.ok(again !== undefined);
+  assert.notEqual(again, first, "a closed agent is never handed out as a live runtime");
+  assert.equal(seen.spawned, 2);
+  assert.equal(registry.holds(again), true);
+  assert.equal(executor.runtimeBook.sessionRuntimeEntries.size, 1, "the stale reference is replaced, not kept beside the new one");
+  await executor.disposeSessionRuntimes();
+  assert.equal(stops.length, 2);
 });
 
 check("sessionSandbox: auto falls back to the per-command sandbox and reports it", async () => {
@@ -987,8 +1100,11 @@ check("sessionSandbox: auto uses the scope when the platform can host it", async
       distro: DISTRO,
       wslPath: "wsl.exe",
       refs: 1,
+      sessionId: "",
     }),
     release: async () => {},
+    /** A scripted registry keeps everything it handed out. */
+    holds: () => true,
   }));
   const result = await (await executor.execute(spec({
     command: "echo hi",

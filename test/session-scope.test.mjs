@@ -59,12 +59,14 @@ check("the scope prefix puts systemd-run between wsl.exe and the agent argv", ()
   ]);
 });
 
-check("the stop argv asks the user manager to stop the unit", () => {
-  assert.deepEqual(sessionScopeStopArgv({ wslPath: "wsl.exe", distro: "ubuntu", unit: "u" }), [
-    "wsl.exe", "-d", "ubuntu", "--exec", "systemctl", "--user", "stop", "u",
+check("the stop argv asks the user manager to stop the SCOPE unit", () => {
+  // `systemd-run --scope` appends `.scope` to the bare name; a suffix-less
+  // `systemctl stop` resolves it as a `.service` and stops nothing.
+  assert.deepEqual(sessionScopeStopArgv({ wslPath: "wsl.exe", distro: "ubuntu", unit: "dsh-wsl-ubuntu-abc" }), [
+    "wsl.exe", "-d", "ubuntu", "--exec", "systemctl", "--user", "stop", "dsh-wsl-ubuntu-abc.scope",
   ]);
-  assert.deepEqual(sessionScopeStopArgv({ wslPath: "wsl.exe", distro: "", unit: "u" }), [
-    "wsl.exe", "--exec", "systemctl", "--user", "stop", "u",
+  assert.deepEqual(sessionScopeStopArgv({ wslPath: "wsl.exe", distro: "", unit: "dsh-wsl-ubuntu-abc" }), [
+    "wsl.exe", "--exec", "systemctl", "--user", "stop", "dsh-wsl-ubuntu-abc.scope",
   ], "an empty distro leaves the default distro to wsl.exe");
 });
 

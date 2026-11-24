@@ -103,6 +103,15 @@ operations never use the 9p share.
   A hard app crash can leave a stale `dsh-wsl-*.scope`; the
   preflight sweeps stale scopes on the next WSL session (never another live
   session's).
+- **A session runtime is released with the session's agent** — when the agent is
+  disposed (upstream's `agent/disposed`), both providers drop their references
+  for that session, the scope stops, and the background processes inside it are
+  reaped. The current harness (≤ 0.2.2-rc.5) does not dispose an agent when a
+  session view is closed — agents live until the app exits — so until then every
+  session that ran a command keeps one runtime. A fallback sweep underneath ends
+  a session whose runtimes have been quiet for ten minutes with no live agent
+  behind them (or that never named a session); a live session's runtime has no
+  idle limit.
 - **The sandbox does not govern WSL interop** — reported as `enforcement: partial`.
   `maskWindowsDrive` and `interopVisibility` narrow `/mnt` but are not a closure;
   even `interopVisibility: "disabled"` only produces the `wsl.conf`

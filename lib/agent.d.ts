@@ -295,6 +295,13 @@ export declare class WslAgent {
     revivalBackoffMs: number;
     /** The idle-shutdown timer. */
     idleTimer: NodeJS.Timeout | null;
+    /**
+     * When the resident last exchanged a frame with this host, in epoch ms; the
+     * construction time before the first one. A resident with no idle shutdown
+     * of its own (a session runtime) is still measured by it, so an owner can
+     * tell "quiet" from "abandoned".
+     */
+    lastActivityAt: number;
     /** The last failure, for `unavailableReason` and log messages. */
     lastError: string;
     /** Cumulative request metrics; see {@link metrics}. */
@@ -812,7 +819,7 @@ export declare class WslAgent {
      * @param lines - the lines to write.
      */
     private writeLinesSafe;
-    /** Restart the idle-shutdown countdown. */
+    /** Note the exchange, then restart the idle-shutdown countdown. */
     private rearmIdleTimer;
     /**
      * Detach an entry's timer and abort listener.

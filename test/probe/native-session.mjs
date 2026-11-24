@@ -6,6 +6,13 @@
  * checks the behaviours the native backend adds: the session scope, the
  * request/group KILL, the HELLO digest binding, and the scope teardown.
  *
+ * The teardown leg is measured where it can fail: a background process is
+ * left in the scope first (the way a session leaves a dev server behind), the
+ * session ends through `releaseSession`, and the `.scope` unit is the one
+ * read back. An empty scope dies with its agent with no help from the stop,
+ * and a suffix-less unit name resolves to a `.service` that was never loaded —
+ * either one makes a vacuous pass.
+ *
  * Run from a terminal with WSL and the packaged binary available; the app may
  * be running (the probe creates its own scope). Env overrides:
  *   DSH_WSL_PROBE_WSL, DSH_WSL_PROBE_DISTRO, DSH_WSL_AGENT_NATIVE.
@@ -65,6 +72,8 @@ setSessionNativeAgent(distro, prepared.path, prepared.digest);
 const registry = new SessionRuntimes();
 /** @type {import("../../lib/session-runtime.js").SessionRuntimeEntry | undefined} */
 let entry;
+/** The pid of the background process left in the scope; empty until one is. */
+let survivorPid = "";
 try {
   // The shape/digest check reads through the agent, so it also works when the
   // probe runs on Windows and the cache path is a Linux path.
@@ -146,11 +155,22 @@ try {
   } finally {
     await tampered.close();
   }
+
+  // A background process the way a session leaves a dev server behind: it
+  // must outlive the request that started it, and only the scope's teardown
+  // may reap it.
+  const survivor = `/tmp/dsh-native-survivor-${process.pid}`;
+  await agent.exec({ cwd: "/", argv: ["sh", "-c", `sleep 300 >/dev/null 2>&1 & printf '%s' $! > '${survivor}'`], timeoutMs: 5000 });
+  survivorPid = (await agent.exec({ cwd: "/", argv: ["sh", "-c", `cat '${survivor}'; rm -f '${survivor}'`], timeoutMs: 5000 })).stdout.toString().trim();
+  const surviving = await direct(["sh", "-c", `kill -0 ${survivorPid} 2>/dev/null; printf %s $?`]);
+  assert.equal(surviving.out, "0", "the background process outlives its request");
+  ok("a background process stays in the session scope", `pid ${survivorPid}`);
 } catch (error) {
   bad("native session probe", error);
 } finally {
   try {
-    if (entry !== undefined) await registry.release(entry.key);
+    // The session's end, by the door the providers take.
+    if (entry !== undefined) await registry.releaseSession(entry.sessionId);
   } catch (error) {
     bad("release", error);
   }
@@ -158,13 +178,22 @@ try {
   if (entry !== undefined) {
     let state = "";
     for (let attempt = 0; attempt < 20; attempt += 1) {
-      const shown = await direct(["systemctl", "--user", "show", entry.unit, "-p", "ActiveState,LoadState"]);
+      // The stop is not awaited by the release, and `wsl.exe` takes a moment.
+      const shown = await direct(["systemctl", "--user", "show", `${entry.unit}.scope`, "-p", "ActiveState,LoadState"]);
       state = shown.out;
       if (!/ActiveState=active/u.test(state)) break;
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
-    if (/ActiveState=active/u.test(state)) bad("the scope is stopped after release", state);
-    else ok("the scope is stopped after release", state.trim().replaceAll("\n", " "));
+    if (/ActiveState=active/u.test(state)) bad("the scope is stopped after the session ends", state);
+    else ok("the scope is stopped after the session ends", state.trim().replaceAll("\n", " "));
+  }
+  if (survivorPid !== "") {
+    const reaped = await direct(["sh", "-c", `kill -0 ${survivorPid} 2>/dev/null; printf %s $?`]);
+    if (reaped.out === "1") ok("the scope's teardown reaped the background process", `pid ${survivorPid}`);
+    else {
+      bad("the scope's teardown reaped the background process", `pid ${survivorPid} is still running`);
+      await direct(["kill", survivorPid]);
+    }
   }
   const kept = await direct(["test", "-x", prepared.path]);
   if (kept.code === 0) ok("the cache binary is kept for reuse");

@@ -51,6 +51,13 @@ export declare function sessionScopePrefix(unit: string): string[];
  * cleanup step that replaces the per-command PID namespace: the cgroup kills
  * every descendant, including a background dev server a command left behind.
  *
+ * The stop names the `.scope` unit systemd creates: `systemd-run --scope`
+ * appends that suffix to {@link sessionScopeUnit}'s bare name, while
+ * `systemctl stop` resolves a suffix-less name as a `.service` — never
+ * loaded, so the stop exits 5 and the scope outlives the session. (Without a
+ * background process the scope dies with its agent anyway, which is why only
+ * a session that leaves one shows the difference.)
+ *
  * @param options - the transport path, distro and unit name.
  * @returns the `wsl.exe --exec systemctl --user stop` argv.
  */
@@ -59,7 +66,7 @@ export declare function sessionScopeStopArgv({ wslPath, distro, unit }: {
     wslPath: string;
     /** The distro name; empty means the default distro. */
     distro: string;
-    /** The unit name from {@link sessionScopeUnit}. */
+    /** The bare unit name from {@link sessionScopeUnit}, exactly as it was started with. */
     unit: string;
 }): string[];
 /**

@@ -33,6 +33,25 @@ were part of the record.
   — in the executor's fact table for the life of the process, and a background
   process started through the resident reported no sandbox facts. The handle
   now settles exactly where upstream's own one does.
+- **A session runtime is released when its session ends.** The shell and
+  filesystem providers registered the release as a disposer on the preset's
+  realm, but upstream keeps that realm for the process and disposes it only
+  when the preset is unregistered — so nothing was released per session. The
+  providers now listen for the harness's `agent/disposed`, drop their own
+  references for that session, and end it in the registry
+  (`SessionRuntimes.releaseSession`); a session resumed under the same id
+  acquires a fresh runtime instead of reusing a closed agent. A sweep
+  underneath ends a session whose runtimes have been quiet for ten minutes
+  with no live agent behind them. Note: Harness 0.2.2-rc.5 disposes an agent
+  only at teardown, not when a session view is closed, so on that version a
+  session's runtime still lives as long as its agent (#73).
+- **Stopping a session scope now stops the scope.** The stop named the unit
+  without the `.scope` suffix `systemd-run --scope` adds, so `systemctl
+  --user stop` resolved a `.service` that was never loaded and exited 5. An
+  empty scope died with its agent anyway; a session that left a background
+  process behind kept it. The teardown leg of `test/probe/native-session.mjs`
+  was passing vacuously on the same two grounds and now leaves a background
+  process in the scope and reads the `.scope` unit back.
 
 ## [0.29.0] - 2026-11-23
 

@@ -6,7 +6,7 @@ import { SessionRuntimes } from "./session-runtime.js";
 import type { AgentBackend } from "./native-agent.js";
 import type { SessionRuntimeEntry } from "./session-runtime.js";
 import { type SocketIsolation } from "./socket-isolation.js";
-import { ProviderRuntimeBook } from "./provider-common.js";
+import { ProviderRuntimeBook, SessionEndWatch } from "./provider-common.js";
 import type { Context } from "@deepseek-ai/cordis";
 import type { SandboxExecutionPolicy, SandboxMode } from "@deepseek-ai/dsh-sandbox";
 import type { SubprocessSpawnSpec } from "@deepseek-ai/dsh-subprocess";
@@ -256,8 +256,8 @@ export declare class WslShellExecutor extends LocalBashExecutor {
          * Run this session's commands in one persistent systemd user scope (ADR
          * 0001): background processes survive the command that started them, `/tmp`
          * is the distro's real `/tmp` under workspace-write, and `ps` sees the
-         * session. The executor holds the runtime until the session's scope
-         * disposes, then stops it. Requires systemd, a reachable user manager and
+         * session. The executor holds the runtime until the session's agent is
+         * disposed, then stops it. Requires systemd, a reachable user manager and
          * `Linger`; the preflight refuses with the remedy when one is missing, and
          * only a success is cached. Off by default; requires `agent: true`.
          */
@@ -393,8 +393,8 @@ export declare class WslShellExecutor extends LocalBashExecutor {
          * Run this session's commands in one persistent systemd user scope (ADR
          * 0001): background processes survive the command that started them, `/tmp`
          * is the distro's real `/tmp` under workspace-write, and `ps` sees the
-         * session. The executor holds the runtime until the session's scope
-         * disposes, then stops it. Requires systemd, a reachable user manager and
+         * session. The executor holds the runtime until the session's agent is
+         * disposed, then stops it. Requires systemd, a reachable user manager and
          * `Linger`; the preflight refuses with the remedy when one is missing, and
          * only a success is cached. Off by default; requires `agent: true`.
          */
@@ -418,6 +418,8 @@ export declare class WslShellExecutor extends LocalBashExecutor {
     sessionRuntimes: SessionRuntimes;
     /** Isolates calls that have no session identity. */
     sessionRuntimeOwner: string;
+    /** Ends the session runtimes with their sessions; see `SessionEndWatch`. */
+    sessionEndWatch: SessionEndWatch;
     /** The preflight's host runner; tests substitute it. */
     sessionScopeProbe: (argv: string[]) => Promise<string>;
     /** The one-time writable-root check's runner; tests substitute it. */
@@ -515,8 +517,9 @@ export declare class WslShellExecutor extends LocalBashExecutor {
     executionAgent(distro: string): WslAgent;
     /**
      * The persistent session runtime for one policy, when `sessionSandbox` is
-     * on. The executor holds one reference per `(session, distro, workspace, policy)` and
-     * releases them when the session's scope disposes.
+     * on. The executor holds one reference per `(session, distro, workspace, policy)`;
+     * the session's end (`agent/disposed`, through {@link sessionEndWatch})
+     * releases them.
      *
      * @param policy - the resolved file-effect policy, when the executor has one.
      * @param resolved - the resolved spec, for the fallback workspace.
@@ -552,8 +555,9 @@ export declare class WslShellExecutor extends LocalBashExecutor {
     wantsSessionRuntime(distro: string): Promise<boolean>;
     /**
      * Release every runtime this executor holds, stopping each scope. Called
-     * from the session's dispose hook; public so tests and shutdown paths can
-     * await it.
+     * when the row goes away (the preset is unregistered, the app shuts down) —
+     * the sessions ended long before, each through {@link sessionEndWatch};
+     * public so tests and shutdown paths can await it.
      *
      * @returns resolved once every runtime is torn down.
      */

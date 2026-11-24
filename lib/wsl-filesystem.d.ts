@@ -10,7 +10,7 @@ import { type SocketIsolation } from "./socket-isolation.js";
 import type { Context } from "@deepseek-ai/cordis";
 import type { FileSystem, FsDeleteOutcome, FsDirEntry, FsEditOutcome, FsEditRequest, FsInfo, FsMoveOutcome, FsPathInfo, FsTarget, FsVersion, FsWriteIntent, FsWriteOutcome } from "@deepseek-ai/dsh-fs";
 import type { SandboxExecutionPolicy, SandboxMode } from "@deepseek-ai/dsh-sandbox";
-import { ProviderRuntimeBook } from "./provider-common.js";
+import { ProviderRuntimeBook, SessionEndWatch } from "./provider-common.js";
 type PatchHunks = Parameters<FileSystem["patchText"]>[1];
 type MoveFileOptions = Parameters<FileSystem["moveFile"]>[2];
 /**
@@ -288,6 +288,8 @@ export declare class WslFileSystem extends LocalFileSystem {
     sessionRuntimes: SessionRuntimes;
     /** Isolates calls that have no session identity. */
     sessionRuntimeOwner: string;
+    /** Ends the session runtimes with their sessions; see `SessionEndWatch`. */
+    sessionEndWatch: SessionEndWatch;
     /** The preflight's host runner; tests substitute it. */
     sessionScopeProbe: (argv: string[]) => Promise<string>;
     /** The one-time writable-root check's runner; tests substitute it. */
@@ -392,7 +394,8 @@ export declare class WslFileSystem extends LocalFileSystem {
      * The persistent session runtime for one confined mutation, when
      * `sessionSandbox` is on. The key is the shell executor's key for the same
      * session/policy, so the write and the commands share one agent, one mount
-     * view and one scope; the provider holds a reference until the session ends.
+     * view and one scope; the provider holds a reference until the session ends
+     * (`agent/disposed`, through {@link sessionEndWatch}).
      *
      * @param policy - the resolved confined policy.
      * @param distro - the resolved distro name.
@@ -423,8 +426,10 @@ export declare class WslFileSystem extends LocalFileSystem {
      */
     wantsSessionRuntime(distro: string): Promise<boolean>;
     /**
-     * Release every runtime this provider holds. Called from the preset's
-     * dispose effect; public so tests and shutdown paths can await it.
+     * Release every runtime this provider holds. Called when the row goes away
+     * (the preset is unregistered, the app shuts down) — the sessions ended long
+     * before, each through {@link sessionEndWatch}; public so tests and shutdown
+     * paths can await it.
      *
      * @returns resolved once every reference is released.
      */

@@ -1,12 +1,25 @@
 import { canonicalPath, SandboxInvalidRootError, writableRoots } from "@deepseek-ai/dsh-sandbox";
 import type { SandboxExecutionPolicy } from "@deepseek-ai/dsh-sandbox";
+import type { Context } from "@deepseek-ai/cordis";
 import type { SessionRuntimeEntry } from "./session-runtime.js";
+import type { WslAgent } from "./agent.js";
 import { isWslUnc, posixToUnc, toLinuxPath } from "./paths.js";
 import { distroOfUnc, isDefaultDistro, pinnedDistro } from "./distro-route.js";
 import { linuxHomePath } from "./wsl.js";
 import { WritableRootError, ensureWritableRoots, resolveWritableRoots } from "./writable-roots.js";
 
 const AUTO_SCOPE_RECHECK_MS = 60_000;
+
+/**
+ * How long a session runtime must have been quiet before the sweep may end
+ * the session of one that no live agent holds any more. The same window the
+ * shared resident idles out after; a live session's runtime is never subject
+ * to it, however long it sits quiet.
+ */
+export const ORPHAN_RUNTIME_IDLE_MS = 600_000;
+
+/** How often a provider sweeps its session runtimes for unheld ones. */
+export const ORPHAN_SWEEP_MS = 60_000;
 
 interface DistroHomeOwner {
   config: unknown;
@@ -155,4 +168,207 @@ export class ProviderRuntimeBook {
   readonly sessionRuntimePreflight = new Set<string>();
   /** Per-distro `auto` verdicts, re-probed when they were negative and stale. */
   readonly autoSessionScope = new Map<string, { usable: boolean, checkedAt: number }>();
+}
+
+/** The lifecycle slice the session-end wiring listens on. */
+export interface SessionLifecycle {
+  /** The harness's agent-disposed event, carrying the agent that left. */
+  on: (event: "agent/disposed", listener: (payload: { agent?: { id: string } | undefined } | undefined) => void | Promise<void>) => () => boolean;
+}
+
+/** The registry slice a provider's session-end wiring drives. */
+interface SessionRuntimeRegistry {
+  /** Release one reference. */
+  release: (key: string) => Promise<void>;
+  /** Whether the registry still keeps a cached entry. */
+  holds: (entry: SessionRuntimeEntry) => boolean;
+  /** End one session for every holder. */
+  releaseSession: (sessionId: string) => Promise<void>;
+}
+
+/** The provider state the session-end wiring reads and keeps. */
+export interface SessionEndOwner {
+  /** The provider's book. */
+  runtimeBook: ProviderRuntimeBook;
+  /** The registry; tests substitute it after construction. */
+  sessionRuntimes: SessionRuntimeRegistry;
+  /** The provider's token for requests that carry no session identity. */
+  sessionRuntimeOwner: string;
+}
+
+/**
+ * Drop one provider's references to every runtime a session used. The book
+ * entries go first and together — a request for that session arriving
+ * meanwhile acquires a fresh runtime instead of reusing one being torn down —
+ * and the references are released afterwards.
+ *
+ * @param owner - the provider dropping its references.
+ * @param sessionId - the session that ended.
+ * @returns resolved once every dropped reference is released.
+ */
+async function dropSessionRuntimes(owner: SessionEndOwner, sessionId: string): Promise<void> {
+  const keys = [...owner.runtimeBook.sessionRuntimeEntries]
+    .filter(([, entry]) => entry.sessionId === sessionId)
+    .map(([key]) => key);
+  for (const key of keys) owner.runtimeBook.sessionRuntimeEntries.delete(key);
+  for (const key of keys) await owner.sessionRuntimes.release(key);
+}
+
+/**
+ * The sessions to end: every one whose runtimes are quiet past the idle
+ * window and that nothing holds any more — no live agent serves it, or it
+ * was never a session at all (the provider's own token).
+ *
+ * The sweep is the safety net under `agent/disposed`, not a second way to end
+ * a session: a runtime used inside the window is spared whatever its session
+ * looks like, and when the harness exposes no agent registry to read, every
+ * runtime is spared — an unreadable fact is never read as "gone".
+ *
+ * @param object - the held runtimes and the facts the verdict needs.
+ * @returns the session ids to end, without duplicates.
+ */
+export function orphanedSessions({ entries, sessionless, sessionLive, now, idleMs = ORPHAN_RUNTIME_IDLE_MS }: {
+  /** The runtimes a provider holds. */
+  entries: Iterable<SessionRuntimeEntry>;
+  /** The token the provider keys sessionless requests by. */
+  sessionless: string;
+  /**
+   * Whether a live agent still serves a session; `undefined` when that cannot
+   * be read.
+   */
+  sessionLive: (sessionId: string) => boolean | undefined;
+  /** The current time, epoch ms. */
+  now: number;
+  /** How long a runtime must have been quiet; defaults to {@link ORPHAN_RUNTIME_IDLE_MS}. */
+  idleMs?: number;
+}): string[] {
+  const sessions = new Set<string>();
+  for (const entry of entries) {
+    if (!isQuiet(entry.agent, now, idleMs)) continue;
+    if (entry.sessionId !== sessionless && sessionLive(entry.sessionId) !== false) continue;
+    sessions.add(entry.sessionId);
+  }
+  return [...sessions];
+}
+
+/**
+ * Whether a runtime's resident has been quiet for the idle window. A resident
+ * that reports no activity time is never called quiet.
+ *
+ * @param agent - the runtime's resident.
+ * @param now - the current time, epoch ms.
+ * @param idleMs - the idle window.
+ * @returns true when the window has fully elapsed since its last exchange.
+ */
+function isQuiet(agent: Pick<WslAgent, "lastActivityAt">, now: number, idleMs: number): boolean {
+  return typeof agent.lastActivityAt === "number" && now - agent.lastActivityAt >= idleMs;
+}
+
+/**
+ * Tie one provider's session runtimes to the sessions they belong to.
+ *
+ * The preset realm both providers live in is shared by every session and
+ * outlives all of them: upstream disposes its scope only when the preset
+ * definition is unregistered, so nothing registered there runs "when the
+ * session ends". What fires per session is the harness's `agent/disposed` —
+ * the rows inside a preset inherit the preset scope's tag, and an agent's
+ * events are dispatched up the scope chain — so that event ends the session
+ * here. A periodic sweep underneath ends the sessions whose runtimes sit
+ * quiet with no live agent behind them: it covers a session end the event did
+ * not deliver, and requests that never named a session at all.
+ */
+export class SessionEndWatch {
+  /** The provider whose runtimes this watch ends. */
+  private readonly owner: SessionEndOwner;
+  /** Whether a live agent still serves a session; `undefined` when unreadable. */
+  private readonly sessionLive: (sessionId: string) => boolean | undefined;
+  /** The unheld-session sweep, running while the provider holds a runtime. */
+  private sweep: NodeJS.Timeout | null = null;
+  /** Detaches the `agent/disposed` listener. */
+  private readonly off: () => void;
+
+  /**
+   * @param owner - the provider; read at call time, so a test may substitute
+   *   its registry after construction.
+   * @param ctx - the provider's composition context.
+   */
+  constructor(owner: SessionEndOwner, ctx: Context) {
+    this.owner = owner;
+    this.sessionLive = sessionLiveReader(ctx);
+    // The promise is returned, not discarded: the harness contains and logs a
+    // listener's rejected teardown instead of turning it into an unhandled
+    // rejection.
+    this.off = (ctx as unknown as SessionLifecycle).on("agent/disposed", (payload) => {
+      const id = payload?.agent?.id;
+      return id === undefined ? undefined : this.endSession(id);
+    });
+  }
+
+  /**
+   * End one session for this provider: its own references go first, so its
+   * book never names a runtime being torn down, then the registry ends the
+   * session for every holder.
+   *
+   * @param sessionId - the session that ended.
+   * @returns resolved once the session's runtimes are torn down.
+   */
+  async endSession(sessionId: string): Promise<void> {
+    await dropSessionRuntimes(this.owner, sessionId);
+    await this.owner.sessionRuntimes.releaseSession(sessionId);
+    if (this.owner.runtimeBook.sessionRuntimeEntries.size === 0) this.stopSweep();
+  }
+
+  /**
+   * Make sure the unheld-session sweep runs; called once the provider holds a
+   * runtime. The timer never keeps the process alive.
+   */
+  ensureSweep(): void {
+    if (this.sweep !== null) return;
+    const timer = setInterval(() => {
+      for (const sessionId of orphanedSessions({
+        entries: this.owner.runtimeBook.sessionRuntimeEntries.values(),
+        sessionless: this.owner.sessionRuntimeOwner,
+        sessionLive: this.sessionLive,
+        now: Date.now(),
+      })) {
+        void this.endSession(sessionId).catch(() => {});
+      }
+    }, ORPHAN_SWEEP_MS);
+    timer.unref?.();
+    this.sweep = timer;
+  }
+
+  /** Stop the sweep while the provider holds nothing; a later acquire restarts it. */
+  stopSweep(): void {
+    if (this.sweep !== null) clearInterval(this.sweep);
+    this.sweep = null;
+  }
+
+  /** Detach the listener and stop the sweep: the provider is going away. */
+  dispose(): void {
+    this.off();
+    this.stopSweep();
+  }
+}
+
+/**
+ * Whether a live agent still serves a session, read from the harness's agent
+ * registry. `agents` is read with `ctx.get` because the providers do not
+ * inject it — a property read of an uninjected service throws in cordis 4 —
+ * and an unreadable registry answers `undefined`, which the sweep takes as
+ * "do not know", never as "gone".
+ *
+ * @param ctx - the provider's composition context.
+ * @returns the liveness reader.
+ */
+function sessionLiveReader(ctx: Context): (sessionId: string) => boolean | undefined {
+  return (sessionId) => {
+    try {
+      const agents = ctx.get("agents") as { get?: (id: string) => unknown } | undefined;
+      if (typeof agents?.get !== "function") return undefined;
+      return agents.get(sessionId) !== undefined;
+    } catch {
+      return undefined;
+    }
+  };
 }

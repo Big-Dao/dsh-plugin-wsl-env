@@ -420,6 +420,13 @@ export class WslAgent {
   declare revivalBackoffMs: number;
   /** The idle-shutdown timer. */
   declare idleTimer: NodeJS.Timeout | null;
+  /**
+   * When the resident last exchanged a frame with this host, in epoch ms; the
+   * construction time before the first one. A resident with no idle shutdown
+   * of its own (a session runtime) is still measured by it, so an owner can
+   * tell "quiet" from "abandoned".
+   */
+  declare lastActivityAt: number;
   /** The last failure, for `unavailableReason` and log messages. */
   declare lastError: string;
   /** Cumulative request metrics; see {@link metrics}. */
@@ -523,6 +530,7 @@ export class WslAgent {
     this.deadUntil = 0;
     this.revivalBackoffMs = config.revivalBackoffMs ?? DEFAULT_REVIVAL_BACKOFF_MS;
     this.idleTimer = null;
+    this.lastActivityAt = Date.now();
     this.lastError = "";
     this.protocolVersion = 0;
     this.caps = new Set();
@@ -1629,8 +1637,9 @@ export class WslAgent {
     }
   }
 
-  /** Restart the idle-shutdown countdown. */
+  /** Note the exchange, then restart the idle-shutdown countdown. */
   private rearmIdleTimer(): void {
+    this.lastActivityAt = Date.now();
     if (!this.idleMs) return;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => {

@@ -8,6 +8,18 @@
  * behind). The agent runs with no idle close — its lifetime is the session's —
  * but an explicit client lease still catches a wedged host.
  *
+ * The session's end is the harness's `agent/disposed`: a provider in the
+ * preset's realm hears it (rows there inherit the preset scope's tag, and
+ * agent events flow up the scope chain), and calls {@link
+ * SessionRuntimes.releaseSession}, which tears the session's runtimes down
+ * however many references they carry. Each holder drops its own book for the
+ * session on the same event, before it calls — and a holder that finds the
+ * registry no longer keeps an entry it cached ({@link SessionRuntimes.holds})
+ * acquires afresh rather than reusing a closed agent. The preset's own scope
+ * is NOT the session's: upstream disposes it only when the preset definition
+ * is unregistered, so a disposer registered by a provider there runs once per
+ * process, never once per session.
+ *
  * The confinement here is the agent's own bwrap mount profile, WITHOUT a PID
  * namespace: commands are the agent's children, so a background process
  * survives the command, `/tmp` is the distro's real `/tmp` under
@@ -77,7 +89,7 @@ interface SessionRuntimeRequest {
 export interface SessionRuntimeEntry {
     /** The registry key (`distro`, workspace, mode, mask). */
     key: string;
-    /** The systemd user unit name. */
+    /** The bare systemd unit name the scope was started with; the `.scope` suffix is systemd's to add. */
     unit: string;
     /** The resident agent. */
     agent: WslAgent;
@@ -87,6 +99,12 @@ export interface SessionRuntimeEntry {
     wslPath: string;
     /** How many providers hold the runtime. */
     refs: number;
+    /**
+     * The session the runtime belongs to, as the key's first component spells
+     * it. A caller with no session identity supplies a token of its own, which
+     * no `agent/disposed` ever names.
+     */
+    sessionId: string;
 }
 /** The injectable edges, so the registry is testable without systemd. */
 interface SessionRuntimeOptions {
@@ -166,6 +184,33 @@ export declare class SessionRuntimes {
      * @returns resolved once the last holder's teardown finished.
      */
     release(key: string): Promise<void>;
+    /**
+     * Whether the registry still keeps THIS entry. A holder caches the entry it
+     * acquired; a session end tears the entry down whatever references remain,
+     * so a holder that did not drop its cache itself asks here before reusing
+     * it — a closed agent must never be handed out as a live runtime.
+     *
+     * @param entry - the entry the holder cached.
+     * @returns true while the registry tracks that exact entry.
+     */
+    holds(entry: SessionRuntimeEntry): boolean;
+    /**
+     * End one session. Every runtime it named is torn down regardless of its
+     * reference count: the session is over, and a reference nobody will release
+     * again is not a reason to keep a scope. Holders drop their own books on the
+     * same event; a holder that did not notices through {@link
+     * SessionRuntimes.holds}. Idempotent: a second call finds nothing.
+     *
+     * @param sessionId - the session that ended.
+     * @returns resolved once every runtime of the session is torn down.
+     */
+    releaseSession(sessionId: string): Promise<void>;
+    /**
+     * Tear one runtime down: close the agent, then stop the scope.
+     *
+     * @param entry - the runtime, already removed from the map.
+     */
+    private teardown;
     /**
      * Release every runtime, for a host shutdown or a test. Sequential on
      * purpose: concurrent closes would race the shared agent's state.

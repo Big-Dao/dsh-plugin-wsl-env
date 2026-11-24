@@ -96,6 +96,13 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
   （无 systemd 时即按命令形态）或 `false` 保留旧的按命令形态。应用硬崩溃
   可能留下过期的 `dsh-wsl-*.scope`；预检会在下一个
   WSL 会话时清扫过期 scope（从不清扫其他活跃会话的）。
+- **会话 runtime 随会话的 agent 释放** —— 会话的 agent 被处置（上游的
+  `agent/disposed`）时，两个 provider 各自放掉该会话的引用，scope 被停止，
+  其中的后台进程一并回收。当前 Harness（≤ 0.2.2-rc.5）在关闭会话视图时并不
+  处置 agent，而是保留到应用退出，所以在此之前每个跑过命令的会话各有一个
+  runtime。另有一层兜底清扫：runtime 连续 10 分钟没有任何交换、且已没有活跃
+  agent 属于该会话（或它从未指明会话）时，该会话结束；会话仍活跃的 runtime
+  不设空闲时限。
 - **沙箱不管辖 WSL interop** —— 上报为 `enforcement: partial`。
   `maskWindowsDrive` 和 `interopVisibility` 收窄 `/mnt` 但不是关闭；即使是
   `interopVisibility: "disabled"` 也只是给出 `wsl.conf` 中

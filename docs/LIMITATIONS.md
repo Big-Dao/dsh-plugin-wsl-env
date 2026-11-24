@@ -268,9 +268,13 @@ sandbox's security statement: `enforcement: partial` is untouched.
 
 ## Ports
 
-- **The port poller keeps the resident agent permanently warm** per active distro
-  (refresh 10 s). Raising `portsRefreshMs` past the agent's idle timeout restores
-  idle shutdown, at the cost of staler port facts.
+- **The port poller keeps the resident agent warm for the distros in use** — it
+  refreshes every `portsRefreshMs` (10 s by default) while a live session works
+  in a distro, and stops with the last of them, which is when the agent can
+  idle out. Each round asks WSL which distros are running first: a stopped
+  distro is not probed (the probe would boot it) and `DSH_WSL_PORTS` reads
+  empty for it. Raising `portsRefreshMs` past the agent's idle timeout brings
+  idle shutdown forward, at the cost of staler port facts.
 
 ## The directory picker
 

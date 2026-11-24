@@ -19,11 +19,12 @@
  */
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import * as shellEnvRow from "../lib/shell-env.js";
+import { resetSharedAgents } from "../lib/agent-shared.js";
 import { setUpdateFact } from "../lib/update-check.js";
 
 /**
@@ -45,11 +46,22 @@ const emptyPath = await mkdtemp(join(tmpdir(), "dsh-wsl-env-no-shell-"));
  */
 const fakeBin = mkdtempSync(join(tmpdir(), "dsh-wsl-env-fake-"));
 const FAKE_WSL = `#!/bin/sh
+# Every invocation may be logged (DSH_FAKE_LOG): the poller checks count probes.
+[ -z "\$DSH_FAKE_LOG" ] || printf '%s\n' "\$*" >> "\$DSH_FAKE_LOG"
 case "\$1" in
   -l)
+    case " \$* " in
+      *" --running "*)
+        if [ -n "\$DSH_FAKE_RUNNING" ]; then printf '%b' "\$DSH_FAKE_RUNNING"; else printf 'ze-ubuntu\\r\\nze-debian\\r\\n'; fi
+        exit 0 ;;
+    esac
     if [ -n "\$DSH_FAKE_EMPTY_LIST" ]; then printf '\\r\\n'; else printf 'ze-ubuntu\\r\\nze-debian\\r\\n'; fi
     exit 0 ;;
   -d)
+    # A slow shared resident (DSH_FAKE_SLOW): the port scan stays in flight.
+    # sleep by absolute path: the resident is spawned with a pinned PATH
+    # that holds nothing but this directory.
+    case "\$*" in *"/wsl-agent.sh") [ -z "\$DSH_FAKE_SLOW" ] || /bin/sleep 1 ;; esac
     for arg in "\$@"; do
       case "\$arg" in *getent*) echo /bin/zsh; exit 0 ;; esac
       case "\$arg" in *HOME*) echo /home/ze-user; exit 0 ;; esac
@@ -265,6 +277,87 @@ if (POSIX) {
   assert.equal(warmed.DSH_WSL_SHELL, "/bin/zsh", "the in-scope event warmed the facts");
   mounted.restorePath();
   console.log("PASS  agent/created events outside the pin are dropped, inside it warm facts");
+}
+
+// The port poller follows the sessions (#80): it runs for a distro a live
+// session works in, stops with the last of them, asks WSL which distros are
+// running before it probes (a probe boots a stopped distro), and never
+// overlaps two scans of one distro.
+if (POSIX) {
+  /**
+   * @param {number} ms - how long to wait.
+   * @returns {Promise<void>} resolved after the given milliseconds.
+   */
+  const waits = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const log = join(fakeBin, "calls.log");
+  /** @returns {number} how many times the fake `wsl.exe` was asked to start `ze-ubuntu`'s shared resident. */
+  const probes = () => {
+    try {
+      return readFileSync(log, "utf8").split("\n").filter((line) => line.startsWith("-d ze-ubuntu ") && line.includes("wsl-agent.sh")).length;
+    } catch {
+      return 0;
+    }
+  };
+  const session = () => [{ session: { header: { cwd: "\\\\wsl.localhost\\ze-ubuntu\\home\\u" } } }];
+  /** @type {Awaited<ReturnType<typeof mount>> | undefined} */
+  let mounted;
+  /**
+   * Mount the row over the fake, with its PATH left in place for the ticks.
+   * @param {ReturnType<typeof session>} liveAgents - the live-agent list the row reads.
+   * @returns {Promise<Awaited<ReturnType<typeof mount>>>} the mounted row.
+   */
+  const mountPolled = async (liveAgents) => {
+    resetSharedAgents();
+    rmSync(log, { force: true });
+    process.env.DSH_FAKE_LOG = log;
+    return mount({ withAgents: true, fakeWsl: true, config: { distro: "ze-ubuntu", portsRefreshMs: 40 }, liveAgents });
+  };
+  const finish = async () => {
+    const fiber = /** @type {{ dispose?: () => Promise<void> } | undefined} */ (mounted?.fiber);
+    if (fiber !== undefined && typeof fiber.dispose === "function") await fiber.dispose();
+    mounted?.restorePath();
+    resetSharedAgents();
+    for (const name of ["DSH_FAKE_LOG", "DSH_FAKE_RUNNING", "DSH_FAKE_SLOW"]) delete process.env[name];
+  };
+  try {
+    const live = session();
+    process.env.DSH_FAKE_RUNNING = "ze-ubuntu\\r\\n";
+    mounted = await mountPolled(live);
+    await waits(300);
+    const whileUsed = probes();
+    assert.ok(whileUsed >= 2, `precondition: a distro a live session works in is polled (${whileUsed} probes in 300 ms)`);
+    live.length = 0;
+    await waits(150);
+    const afterGone = probes();
+    await waits(300);
+    assert.equal(probes(), afterGone, "a distro no live session works in is no longer polled");
+    console.log("PASS  the port poller stops with the last session that used the distro");
+  } finally {
+    await finish();
+  }
+  try {
+    process.env.DSH_FAKE_RUNNING = "\\r\\n";
+    mounted = await mountPolled(session());
+    await waits(250);
+    assert.equal(probes(), 0, "a distro WSL reports as stopped is not probed: the probe is a `wsl.exe -d`, which boots it");
+    const resolve = /** @type {NonNullable<Contributor["resolve"]>} */ (mounted.registered[0]?.resolve);
+    const resolved = resolve({ agent: { session: { header: { cwd: "\\\\wsl.localhost\\ze-ubuntu\\home\\u" } } } });
+    assert.equal(resolved.DSH_WSL_PORTS, "", "and it reads as having no listeners");
+    console.log("PASS  a stopped distro is left alone and reads as having no listeners");
+  } finally {
+    await finish();
+  }
+  try {
+    process.env.DSH_FAKE_RUNNING = "ze-ubuntu\\r\\n";
+    process.env.DSH_FAKE_SLOW = "1";
+    mounted = await mountPolled(session());
+    await waits(300);
+    // Seven ticks passed while the first scan was still inside its 1 s probe.
+    assert.ok(probes() <= 2, `a scan still in flight is not overlapped by the next tick (${probes()} probes in 300 ms); log:\n${readFileSync(log, "utf8")}`);
+    console.log("PASS  a slow scan is not overlapped by the next tick");
+  } finally {
+    await finish();
+  }
 }
 
 // Disposal clears the row's registration: a hot reload can re-apply without

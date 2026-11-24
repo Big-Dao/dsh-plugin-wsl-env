@@ -103,6 +103,15 @@ were part of the record.
   verdicts follow. An accepted handshake clears the last failure, so a
   resident that recovered is diagnosed by what it is instead of warning on
   the crash it survived until the app restarted.
+- **The port poller follows the sessions and leaves a stopped distro alone
+  (#80).** A polling timer, once started for a distro, ran until the row was
+  disposed: with no session left using the distro it kept scanning every ten
+  seconds and kept the shared resident from ever idling out, and after a
+  `wsl --terminate` or `--shutdown` its next `wsl.exe -d <distro>` booted the
+  distro back. Polling now stops when no live session works in the distro;
+  each round asks WSL which distros are running before it probes, so a
+  stopped distro is not probed and `DSH_WSL_PORTS` reads empty for it; and a
+  scan still in flight is not overlapped by the next tick.
 - **The packaged native binaries were rebuilt** from the hardened source with
   the pinned toolchain (1.99.1). They were linked with the toolchain's
   self-contained musl objects rather than by the CI job's `musl-gcc`/zig

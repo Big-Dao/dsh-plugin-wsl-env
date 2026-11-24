@@ -1988,9 +1988,11 @@ check("every mutation wrapper fences first: a refused target never reaches the s
   }
 });
 
-check("watch arms the distro watcher for an in-distro target", async () => {
+checkPosix("watch arms the distro watcher for an in-distro target", async () => {
   // The real `armDistroWatcher` over the fake `wsl.exe`: what the provider
-  // armed is what the fake was asked to run.
+  // armed is what the fake was asked to run. The fake is a POSIX script, so
+  // on Windows — where it cannot be spawned — the check is deferred rather
+  // than left to pass on any spawn error, which is what it used to do.
   const log = join(factBin, "watch-argv.log");
   rmSync(log, { force: true });
   const savedLog = process.env.DSH_FAKE_LOG;

@@ -8,19 +8,17 @@
 
 set -euo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="$(cd "$HERE/../.." && pwd)"
-
-if [ -d "$HOME/.local/share/fnm" ] && ! command -v node >/dev/null 2>&1; then
-  export PATH="$HOME/.local/share/fnm/aliases/default/bin:$PATH"
-fi
+# Shared preamble: PROBE_DIR/REPO_DIR, the distro (refused loudly when no host
+# names one), and the fnm PATH fallback.
+# shellcheck source=probe-env.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/probe-env.sh"
 command -v node >/dev/null 2>&1 || { echo "exec probe: node not found (fnm env not loaded?)" >&2; exit 1; }
 
-export DSH_WSL_ENV_EXEC_REPO="$REPO"
+export DSH_WSL_ENV_EXEC_REPO="$REPO_DIR"
 
 # A script FILE, not stdin (see test/probe/watch.sh for the reasoning).
-mkdir -p "$REPO/test/probe/.scratch"
-JS="$(mktemp "$REPO/test/probe/.scratch/exec-probe.XXXXXX.mjs")"
+mkdir -p "$REPO_DIR/test/probe/.scratch"
+JS="$(mktemp "$REPO_DIR/test/probe/.scratch/exec-probe.XXXXXX.mjs")"
 trap 'rm -f "$JS"' EXIT
 cat >"$JS" <<'EOF'
 import assert from "node:assert/strict";
@@ -28,6 +26,8 @@ import { execFileSync } from "node:child_process";
 const repo = process.env.DSH_WSL_ENV_EXEC_REPO;
 const { WslAgent } = await import(`${repo}/lib/agent.js`);
 const { agentExecutionHandle } = await import(`${repo}/lib/agent-exec.js`);
+const { makeCheck } = await import(`${process.env.DSH_WSL_ENV_PROBE_DIR}/check.mjs`);
+const { check, summary } = makeCheck();
 // The read-only profile comes from lib/bwrap.js itself — the builder the
 // shipped confinement composes from. An inline copy here (as this probe once
 // had) would mask a profile regression exactly the way lib/bwrap.js's module
@@ -36,20 +36,10 @@ const { agentExecutionHandle } = await import(`${repo}/lib/agent-exec.js`);
 const { bwrapArgvPrefix } = await import(`${repo}/lib/bwrap.js`);
 const readOnlyWrap = (argv) => [...bwrapArgvPrefix({ mode: "read-only", workspaceRoot: "/" }), ...argv];
 
-const distro = process.env.WSL_DISTRO_NAME || "ubuntu";
+const distro = process.env.DSH_WSL_ENV_DISTRO; // probe-env.sh resolved it or refused
 const agent = new WslAgent({ distro, scriptPath: `${repo}/agent/wsl-agent.sh`, idleMs: 0 });
 
-let passed = 0;
-async function check(name, fn) {
-  try {
-    await fn();
-    passed += 1;
-    console.log(`PASS  ${name}`);
-  } catch (error) {
-    console.log(`FAIL  ${name}\n      ${error.message}`);
-    process.exitCode = 1;
-  }
-}
+
 
 await check("a confined command completes through the handle", async () => {
   const confined = readOnlyWrap(["echo", "confined"]);
@@ -95,7 +85,7 @@ await check("kill() stops a running command", async () => {
 });
 
 await agent.close();
-console.log(`\n${passed} exec probe checks pass`);
+summary("exec probe");
 process.exit(process.exitCode ?? 0);
 EOF
 node "$JS"

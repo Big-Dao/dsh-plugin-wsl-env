@@ -14,24 +14,23 @@
 
 set -euo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="$(cd "$HERE/../.." && pwd)"
-
-if [ -d "$HOME/.local/share/fnm" ] && ! command -v node >/dev/null 2>&1; then
-  export PATH="$HOME/.local/share/fnm/aliases/default/bin:$PATH"
-fi
+# Shared preamble: PROBE_DIR/REPO_DIR, the distro (refused loudly when no host
+# names one), and the fnm PATH fallback.
+# shellcheck source=probe-env.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/probe-env.sh"
 command -v node >/dev/null 2>&1 || { echo "substrate probe: node not found (fnm env not loaded?)" >&2; exit 1; }
 command -v wsl.exe >/dev/null 2>&1 || { echo "substrate probe: wsl.exe not found (interop off?)" >&2; exit 1; }
 
-export DSH_WSL_ENV_SUBSTRATE_REPO="$REPO"
+export DSH_WSL_ENV_SUBSTRATE_REPO="$REPO_DIR"
 # A scratch dir inside the checkout: the probe creates real files there.
-mkdir -p "$REPO/test/probe/.scratch"
-export DSH_WSL_ENV_SUBSTRATE_DIR="$(mktemp -d "$REPO/test/probe/.scratch/substrate.XXXXXX")"
-FRESH_ROOT="$(mktemp -u "$REPO/test/probe/.scratch/substrate-fresh.XXXXXX")"
+mkdir -p "$REPO_DIR/test/probe/.scratch"
+export DSH_WSL_ENV_SUBSTRATE_DIR="$(mktemp -d "$REPO_DIR/test/probe/.scratch/substrate.XXXXXX")"
+FRESH_ROOT="$(mktemp -u "$REPO_DIR/test/probe/.scratch/substrate-fresh.XXXXXX")"
 export FRESH_ROOT
 
-JS="$(mktemp "$REPO/test/probe/.scratch/substrate-probe.XXXXXX.mjs")"
-trap 'rm -f "$JS"' EXIT
+JS="$(mktemp "$REPO_DIR/test/probe/.scratch/substrate-probe.XXXXXX.mjs")"
+# Every path this probe creates is removed on ANY exit, not just the happy one.
+trap 'rm -f "$JS"; rm -rf "$DSH_WSL_ENV_SUBSTRATE_DIR" "$FRESH_ROOT"' EXIT
 cat >"$JS" <<'EOF'
 import assert from "node:assert/strict";
 import { chmodSync, readFileSync, statSync } from "node:fs";
@@ -39,22 +38,14 @@ import { join } from "node:path";
 const REPO = process.env.DSH_WSL_ENV_SUBSTRATE_REPO;
 const { sharedAgent } = await import(`${REPO}/lib/agent-shared.js`);
 const { AgentSubstrate } = await import(`${REPO}/lib/fs-substrate.js`);
+const { makeCheck } = await import(`${process.env.DSH_WSL_ENV_PROBE_DIR}/check.mjs`);
+const { check, summary } = makeCheck();
 
-const distro = process.env.WSL_DISTRO_NAME || "ubuntu";
+const distro = process.env.DSH_WSL_ENV_DISTRO; // probe-env.sh resolved it or refused
 const root = process.env.DSH_WSL_ENV_SUBSTRATE_DIR;
 const freshRoot = process.env.FRESH_ROOT;
 
-let passed = 0;
-async function check(name, fn) {
-  try {
-    await fn();
-    passed += 1;
-    console.log(`PASS  ${name}`);
-  } catch (error) {
-    console.log(`FAIL  ${name}\n      ${error.message}`);
-    process.exitCode = 1;
-  }
-}
+
 
 const codeOf = (error) => (error && typeof error === "object" ? error.code : undefined);
 const agent = sharedAgent(distro);
@@ -173,8 +164,7 @@ await check("a confined resident starts with a workspace root that does not exis
 await fresh.close();
 
 await agent.close();
-console.log(`\n${passed} substrate probe checks pass`);
+summary("substrate probe");
 EOF
 
-rm -rf "$FRESH_ROOT"
 node "$JS"

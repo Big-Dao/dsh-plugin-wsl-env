@@ -11,24 +11,23 @@
 
 set -euo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="$(cd "$HERE/../.." && pwd)"
-
-if [ -d "$HOME/.local/share/fnm" ] && ! command -v node >/dev/null 2>&1; then
-  export PATH="$HOME/.local/share/fnm/aliases/default/bin:$PATH"
-fi
+# Shared preamble: PROBE_DIR/REPO_DIR, the distro (refused loudly when no host
+# names one), and the fnm PATH fallback.
+# shellcheck source=probe-env.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/probe-env.sh"
 command -v node >/dev/null 2>&1 || { echo "watch probe: node not found (fnm env not loaded?)" >&2; exit 1; }
 
-export DSH_WSL_ENV_WATCH_REPO="$REPO"
+export DSH_WSL_ENV_WATCH_REPO="$REPO_DIR"
 # A scratch dir inside the checkout: a confined shell cannot rely on /tmp.
-mkdir -p "$REPO/test/probe/.scratch"
-export DSH_WSL_ENV_WATCH_DIR="$(mktemp -d "$REPO/test/probe/.scratch/watch.XXXXXX")"
+mkdir -p "$REPO_DIR/test/probe/.scratch"
+export DSH_WSL_ENV_WATCH_DIR="$(mktemp -d "$REPO_DIR/test/probe/.scratch/watch.XXXXXX")"
 
 # A file, not stdin: a node stdin program keeps the pipe held and this
 # probe's child `wsl.exe` sessions behave differently under that arrangement
 # (the watcher never saw events). A plain script file sidesteps the question.
-JS="$(mktemp "$REPO/test/probe/.scratch/watch-probe.XXXXXX.mjs")"
-trap 'rm -f "$JS"' EXIT
+JS="$(mktemp "$REPO_DIR/test/probe/.scratch/watch-probe.XXXXXX.mjs")"
+# Every path this probe creates is removed on ANY exit, not just the happy one.
+trap 'rm -f "$JS"; rm -rf "$DSH_WSL_ENV_WATCH_DIR"' EXIT
 cat >"$JS" <<'EOF'
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -36,21 +35,13 @@ import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 const { pathToFileURL } = await import("node:url");
 const { armDistroWatcher } = await import(pathToFileURL(`${process.env.DSH_WSL_ENV_WATCH_REPO}/lib/watcher.js`).href);
+const { makeCheck } = await import(pathToFileURL(`${process.env.DSH_WSL_ENV_PROBE_DIR}/check.mjs`).href);
+const { check, summary } = makeCheck();
 
-const distro = process.env.WSL_DISTRO_NAME || "ubuntu";
+const distro = process.env.DSH_WSL_ENV_DISTRO; // probe-env.sh resolved it or refused
 const dir = process.env.DSH_WSL_ENV_WATCH_DIR;
 
-let passed = 0;
-async function check(name, fn) {
-  try {
-    await fn();
-    passed += 1;
-    console.log(`PASS  ${name}`);
-  } catch (error) {
-    console.log(`FAIL  ${name}\n      ${error.message}`);
-    process.exitCode = 1;
-  }
-}
+
 
 // Stamp the tree fresh from the distro side so the baseline is unambiguous.
 // Note every mutation below is ALSO performed from the distro side: this probe
@@ -197,8 +188,10 @@ await check("closed loops leave no stamp behind (EXIT trap)", async () => {
 });
 
 execFileSync("wsl.exe", ["-d", distro, "--exec", "rm", "-rf", dir]);
-for (let i = 1; i <= 6; i++) execFileSync("wsl.exe", ["-d", distro, "--exec", "rm", "-rf", `${dir}.c${i}`]);
-console.log(`\n${passed} watch probe checks pass`);
+// Every directory freshDir() handed out, by its own counter — the fixed loop
+// this replaces covered six of seven, leaving one behind on every run.
+for (let i = 1; i <= (freshDir.n ?? 0); i++) execFileSync("wsl.exe", ["-d", distro, "--exec", "rm", "-rf", `${dir}.c${i}`]);
+summary("watch probe");
 process.exit(process.exitCode ?? 0);
 EOF
 node "$JS"

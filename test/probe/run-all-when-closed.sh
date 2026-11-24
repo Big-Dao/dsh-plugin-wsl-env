@@ -27,6 +27,11 @@ mkdir -p "$SCRATCH"
 # them. `pnpm run probe:clean` removes everything without the age guard.
 find "$SCRATCH" -mindepth 1 -maxdepth 1 -mmin +1440 -exec rm -rf -- {} + 2>/dev/null
 LOG="${WSL_PROBE_LOG:-$(mktemp "$SCRATCH/full-probe.XXXXXX.log")}"
+# One probe's wall-clock budget. A wedged probe used to hold the whole suite
+# with nothing on the terminal (the output goes to the detached log); the
+# runner now bounds each probe and reports a timeout as its own verdict.
+# run.sh is the slowest by design; the default leaves it room on a slow VM.
+PROBE_TIMEOUT="${DSH_WSL_ENV_PROBE_TIMEOUT:-900}"
 
 echo "full probe suite; log: $LOG" >&2
 
@@ -185,13 +190,18 @@ for probe in "${SUITE[@]}"; do
   fi
   echo ""
   echo "═══ $probe ═══" | tee -a "$LOG"
-  if bash "$PROBE_DIR/$probe" >>"$LOG" 2>&1; then
+  if timeout --kill-after=10 "$PROBE_TIMEOUT" bash "$PROBE_DIR/$probe" >>"$LOG" 2>&1; then
     echo "PASS  $probe" | tee -a "$LOG"
     printf 'PASS\t%s\n' "$probe" >> "$RESULTS"
   else
     status=$?
-    echo "FAIL  $probe (status $status)" | tee -a "$LOG"
-    printf 'FAIL\t%s\t%s\n' "$probe" "$status" >> "$RESULTS"
+    if [ "$status" = 124 ] || [ "$status" = 137 ]; then
+      echo "FAIL  $probe (timeout after ${PROBE_TIMEOUT}s; the log tail names where it sat)" | tee -a "$LOG"
+      printf 'FAIL\t%s\ttimeout\n' "$probe" >> "$RESULTS"
+    else
+      echo "FAIL  $probe (status $status)" | tee -a "$LOG"
+      printf 'FAIL\t%s\t%s\n' "$probe" "$status" >> "$RESULTS"
+    fi
   fi
 done
 

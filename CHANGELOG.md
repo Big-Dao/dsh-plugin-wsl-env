@@ -308,6 +308,27 @@ were part of the record.
   runner's real git config through an unfaked `git.exe` defer with `skip()`
   on Windows; everything else — the probe batches, the fault injections, the
   spawn counts — runs there now.
+- **The probe suite bounds each probe and cleans up after itself (#90).** The
+  four no-boot probes (agent, exec, substrate, watch) share
+  `test/probe/probe-env.sh` and `test/probe/check.mjs` now: the distro comes
+  from `DSH_WSL_ENV_DISTRO`, then `WSL_DISTRO_NAME`, and a host that names
+  neither is refused loudly instead of the embedded Node silently probing a
+  distro called "ubuntu"; the fnm PATH fallback and the `check()`/`Skip`
+  runner live in one copy. Every probe runs under its own deadline
+  (`DSH_WSL_ENV_PROBE_TIMEOUT`, default 900 s) and a timeout is its own
+  `FAIL <probe> (timeout …)` verdict — a wedged probe no longer holds the
+  suite with nothing on the terminal (the output goes to the detached log).
+  Probe scratch directories go through EXIT traps on every exit path, not
+  just the happy one; watch's cleanup covers every directory its counter
+  handed out (the fixed loop covered six of seven and left one behind per
+  run), and the doctor's home-writability probe removes its temp dir when
+  the batch is killed halfway. The bundle's `--redact` also replaces the
+  DISTRO user's home (it rides the identity row and is not the host's home
+  on a real Windows machine — the old split left the distro user name in
+  the attachable file). RELEASING.md now states what the launcher
+  really does: it closes ordinary Harness processes itself, announcing the
+  PIDs, and `--wait-only` keeps the manual-close workflow — it never merely
+  "waits until it exits".
 
 ## [0.29.0] - 2026-11-23
 

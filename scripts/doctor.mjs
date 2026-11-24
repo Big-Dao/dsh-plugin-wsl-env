@@ -394,7 +394,7 @@ export function composeBatch(include) {
     lines.push(
       `printf 'ARCH=%s\\n' "$(uname -m 2>/dev/null)"`,
       `printf 'CACHE_B64=%s\\n' "$( { ${CACHE_REPORT} ; } 2>/dev/null | base64 | tr -d '\\n' )"`,
-      `printf 'HOMEEXEC=%s\\n' "$(d=$(mktemp -d "$HOME/.dsh-doctor-XXXXXXXX" 2>/dev/null) || { printf nowrite; exit 0; }; printf '#!/bin/sh\\n' > "$d/x" && chmod 755 "$d/x" && "$d/x" >/dev/null 2>&1 && printf ok || printf noexec; rm -rf "$d")"`,
+      `printf 'HOMEEXEC=%s\\n' "$(d=$(mktemp -d "$HOME/.dsh-doctor-XXXXXXXX" 2>/dev/null) || { printf nowrite; exit 0; }; trap 'rm -rf "\${d:-}" 2>/dev/null || :' EXIT; printf '#!/bin/sh\\n' > "$d/x" && chmod 755 "$d/x" && "$d/x" >/dev/null 2>&1 && printf ok || printf noexec; rm -rf "$d")"`,
     );
   }
   return lines.join("\n");
@@ -2950,7 +2950,16 @@ function report(checks, options, runInfo = {}) {
     if (runInfo.bundle.redact) {
       const homeReal = homedir();
       const dshReal = process.env.DSH_HOME !== undefined && process.env.DSH_HOME.length > 0 ? process.env.DSH_HOME : join(homeReal, ".dsh");
+      // The DISTRO user's home rides the identity row ("shell, /home/name"),
+      // and on a real Windows machine it is not the host's home — the split
+      // below never touched it, so `--redact` left the distro user name in
+      // the bundle. Replace it wherever it appears.
+      const distroHome = checks
+        .filter((entry) => entry.id === "distro.identity")
+        .map((entry) => /^[^,]+, (\/[^,]*)$/.exec(String(entry.detail ?? ""))?.[1] ?? "")
+        .find((value) => value.length > 1);
       payload = payload.split(homeReal).join("<redacted-home>").split(dshReal).join("<redacted-dsh-home>");
+      if (distroHome !== undefined) payload = payload.split(distroHome).join("<redacted-home>");
     }
     writeFileSync(runInfo.bundle.path, payload);
     // A note about a file, not report content: `--json` keeps stdout to the report.

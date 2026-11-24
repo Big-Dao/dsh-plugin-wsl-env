@@ -528,8 +528,10 @@ result structure (per-status totals and per-section tallies). The last result
 per distro is stored at `$DSH_HOME/cache/dsh-plugin-wsl-env/status.json`
 (`~/.dsh/...` when the host names no home), so a page reload or app restart
 still shows it. On load, a stored result for a distro that is currently
-running is re-checked in the background; a failed background run overwrites
-the stored result. Nothing is labeled expired — each checked row offers
+running is re-checked in the background with a quick check; a failed
+background run overwrites the stored result, while a **full diagnosis** or a
+**repair** result is never replaced by the background re-check. Nothing is
+labeled expired — each checked row offers
 **清除** and the card offers **清除全部**; both `DELETE` the same route
 (optionally with `?distro=`) to drop the stored verdict without enumerating,
 probing or modifying a distro. Deleting the file still resets the panel's

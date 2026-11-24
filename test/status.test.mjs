@@ -474,6 +474,105 @@ await check("a failed background run overwrites the stored result truthfully", a
   assert.equal(afterReload.body.cached[0].source, "background");
 });
 
+await check("a background refresh never replaces a full diagnosis or a repair", async () => {
+  /** @type {string[][]} */
+  const calls = [];
+  const { handler, advance } = handlerFor({
+    runCli: async (/** @type {string[]} */ argv) => {
+      calls.push(argv);
+      // A full run finds the stale scope (and its repair answers the fix
+      // rows); a quick one would answer "ready" with nothing to repair.
+      if (argv.includes("--quick")) return JSON.stringify(READY);
+      if (argv.includes("--fix")) return JSON.stringify(REPAIRED);
+      return JSON.stringify(SCOPE_WARN);
+    },
+  });
+  const full = await get(handler, "?distro=Ubuntu&full=1");
+  assert.equal(full.body.full, true);
+  assert.deepEqual(full.body.repairable, ["runtime.scopes"]);
+  // Past the cache window: a stored QUICK result would be re-checked here.
+  advance(60_000);
+  const refreshed = await get(handler, "?distro=Ubuntu&refresh=1&background=1");
+  assert.equal(refreshed.body.cached, true, "the full result is answered as stored");
+  assert.equal(refreshed.body.full, true);
+  assert.deepEqual(refreshed.body.repairable, ["runtime.scopes"], "the repair button's condition survives the page-load refresh");
+  assert.equal(calls.length, 1, "no doctor ran for the background request");
+
+  const repaired = await send(handler, "?distro=Ubuntu", "POST");
+  assert.equal(repaired.body.repaired, true);
+  advance(60_000);
+  const afterRepair = await get(handler, "?distro=Ubuntu&refresh=1&background=1");
+  assert.equal(afterRepair.body.cached, true);
+  assert.equal(afterRepair.body.repaired, true, "the repair survives the page-load refresh");
+  assert.deepEqual(afterRepair.body.repairs.map((/** @type {any} */ row) => row.id), ["fix.scopes", "fix.cache"], "and so does its before → after evidence");
+  assert.equal(calls.length, 2, "still no background doctor");
+
+  // The user's own quick check does replace it: that is an explicit action.
+  const quick = await get(handler, "?distro=Ubuntu&refresh=1");
+  assert.equal(quick.body.cached, false);
+  assert.equal(quick.body.full, false);
+  assert.equal(calls.length, 3);
+});
+
+await check("a failed full run is not protected from the background refresh", async () => {
+  const { handler, advance } = handlerFor({
+    runCli: async (/** @type {string[]} */ argv) => {
+      // A quick run answers; a full one fails.
+      if (!argv.includes("--quick")) throw new Error("doctor hung");
+      return JSON.stringify(READY);
+    },
+  });
+  const full = await get(handler, "?distro=Ubuntu&full=1");
+  assert.equal(full.body.verdict, "error");
+  advance(60_000);
+  const refreshed = await get(handler, "?distro=Ubuntu&refresh=1&background=1");
+  assert.equal(refreshed.body.cached, false, "an error has nothing to keep: the background refresh runs");
+  assert.equal(refreshed.body.verdict, "ready");
+});
+
+await check("requests for the same distro and mode share one run", async () => {
+  /** @type {string[][]} */
+  const calls = [];
+  /** @type {() => void} */
+  let release = () => {};
+  const gate = new Promise((resolve) => { release = /** @type {() => void} */ (resolve); });
+  const { handler } = handlerFor({
+    runCli: async (/** @type {string[]} */ argv) => {
+      calls.push(argv);
+      await gate;
+      return JSON.stringify(READY);
+    },
+  });
+  const first = get(handler, "?distro=Ubuntu&refresh=1");
+  const second = get(handler, "?distro=Ubuntu&refresh=1&background=1");
+  const full = get(handler, "?distro=Ubuntu&full=1");
+  // Let each request reach its run before anything is released.
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls, [["--json", "--quick", "--distro", "Ubuntu"], ["--json", "--distro", "Ubuntu"]], "one quick run for both quick requests; the full diagnosis is its own run");
+  release();
+  const [a, b, c] = await Promise.all([first, second, full]);
+  assert.equal(a.body.verdict, "ready");
+  assert.equal(b.body.verdict, "ready");
+  assert.equal(c.body.full, true);
+});
+
+await check("a shared run that fails answers every caller and leaves no entry behind", async () => {
+  let attempts = 0;
+  const { handler } = handlerFor({
+    runCli: async () => {
+      attempts += 1;
+      throw new Error("doctor hung");
+    },
+  });
+  const [first, second] = await Promise.all([get(handler, "?distro=Ubuntu&refresh=1"), get(handler, "?distro=Ubuntu&refresh=1")]);
+  assert.equal(first.body.verdict, "error");
+  assert.equal(second.body.verdict, "error");
+  assert.equal(attempts, 1, "both requests rode one run");
+  const again = await get(handler, "?distro=Ubuntu&refresh=1");
+  assert.equal(again.body.verdict, "error");
+  assert.equal(attempts, 2, "the next request runs again: the failed run left no entry in the map");
+});
+
 await check("a corrupt store is ignored instead of failing the panel", async () => {
   const statePath = join(scratch, "persist-corrupt.json");
   writeFileSync(statePath, "{not json");

@@ -531,3 +531,81 @@ test("the browser separates full read-only diagnosis from plugin-state repair", 
     await page.close();
   }
 });
+
+test("the page-load background refresh leaves a full diagnosis and a repair alone", async () => {
+  const page = await open();
+  try {
+    const repairedView = {
+      ...BLOCKED_VIEW,
+      verdict: "ready",
+      full: true,
+      repaired: true,
+      repairs: [{ id: "runtime.scopes", title: "Session scope", status: "ok", detail: "removed 1 stale scope" }],
+      repairable: [],
+      failures: [],
+      warnings: [],
+      checkedAt: 1,
+    };
+    const backgroundFetches = async () => (await calls(page)).fetches.filter((entry) => entry.url.includes("background=1")).length;
+
+    // A stored result older than a minute is what the page load re-checks.
+    await render(page, {
+      slots: ["panel"],
+      paths: [],
+      status: { distros: ["Ubuntu"], running: ["Ubuntu"], cached: [{ ...BLOCKED_VIEW, full: true, checkedAt: 1 }] },
+    });
+    await page.getByText("可自动修复", { exact: true }).waitFor({ state: "visible" });
+    await page.waitForTimeout(150);
+    assert.equal(await backgroundFetches(), 0, "a full diagnosis is the user's own result: no quick re-check replaces it");
+
+    await render(page, {
+      slots: ["panel"],
+      paths: [],
+      status: { distros: ["Ubuntu"], running: ["Ubuntu"], cached: [repairedView] },
+    });
+    await page.getByText(/removed 1 stale scope/).waitFor({ state: "visible" });
+    await page.waitForTimeout(150);
+    assert.equal(await backgroundFetches(), 0, "and neither does a repair's before → after evidence");
+
+    // The control: a stored QUICK result of the same age is re-checked.
+    await render(page, {
+      slots: ["panel"],
+      paths: [],
+      status: { distros: ["Ubuntu"], running: ["Ubuntu"], cached: [{ ...BLOCKED_VIEW, checkedAt: 1 }] },
+    });
+    await page.waitForFunction(() => {
+      const e2e = /** @type {any} */ (globalThis).__E2E__;
+      return /** @type {Array<{ url: string }>} */ (e2e.records.fetches).some((entry) => entry.url.includes("background=1"));
+    });
+  } finally {
+    await page.close();
+  }
+});
+
+test("a check in flight disables the list refresh until its answer lands", async () => {
+  const page = await open();
+  try {
+    const fullDiagnosis = { ...BLOCKED_VIEW, full: true, cached: false, source: "user" };
+    await render(page, {
+      slots: ["panel"],
+      paths: [],
+      status: { distros: ["Ubuntu"], running: [], cached: [BLOCKED_VIEW] },
+      statusFor: { Ubuntu: BLOCKED_VIEW },
+      full: fullDiagnosis,
+      fullDelayMs: 600,
+    });
+    const refresh = page.getByRole("button", { name: "刷新", exact: true });
+    await refresh.waitFor({ state: "visible" });
+    assert.equal(await refresh.isEnabled(), true, "idle, the list can be re-read");
+    await page.getByRole("button", { name: "完整诊断", exact: true }).click();
+    await page.getByRole("status").filter({ hasText: "正在启动发行版（若已停止）并运行只读的完整诊断…" }).waitFor({ state: "visible" });
+    // A list read now would put the row's stored result back under
+    // re-enabled buttons, and a second doctor could start beside the first.
+    assert.equal(await refresh.isDisabled(), true, "the refresh waits for the in-flight check");
+    await page.getByText(/完整诊断完成：发现 1 项插件状态可修复/).waitFor({ state: "visible" });
+    assert.equal(await refresh.isEnabled(), true, "and is back once the answer landed");
+    assert.equal(await page.getByRole("button", { name: "修复插件状态（1）", exact: true }).count(), 1, "the full result is what the row shows");
+  } finally {
+    await page.close();
+  }
+});

@@ -94,7 +94,10 @@ host plugin manager ([CONFIGURATION](CONFIGURATION.md), `wsl-plugin-update`).
   (`N more in the full run`), not listed as results. The last result is stored locally
   (`$DSH_HOME/cache/dsh-plugin-wsl-env/status.json`, falling back to `~/.dsh`)
   so a reload still shows it; a background refresh runs only for distros that
-  are already up, and a failed one replaces the stored result as observed.
+  are already up and is always a quick check — it never replaces a full
+  diagnosis or a repair result — and a failed one replaces the stored quick
+  result as observed. Requests for the same distro and mode while one is
+  running share that run, and **刷新** is disabled while any check is in flight.
   Each checked row offers **清除** and the card offers **清除全部**; both
   `DELETE` the same route, dropping the local store without starting a doctor
   run or enumerating a distro. Manual warnings keep their remedies. Without a command adapter (headless, ACP) the row is a no-op and

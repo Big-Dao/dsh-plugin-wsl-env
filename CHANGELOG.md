@@ -112,6 +112,21 @@ were part of the record.
   each round asks WSL which distros are running before it probes, so a
   stopped distro is not probed and `DSH_WSL_PORTS` reads empty for it; and a
   scan still in flight is not overlapped by the next tick.
+- **The WSL panel keeps a full diagnosis and a repair across a page load, and
+  one check at a time (#79).** The page load's background re-check is a quick
+  one; it used to replace a stored full diagnosis or repair sixty seconds
+  after the user last opened the panel, dropping the repair button and the
+  repair's before → after evidence. The panel no longer queues it for such a
+  result, and the route answers a stored full or repaired result as it is to
+  a background request that asks anyway (a failed full run is still
+  re-checkable). The list read now merges into the rows instead of replacing
+  the table, so a check in flight keeps its state, and **刷新** is disabled
+  while any check is running. The status route joins requests for the same
+  distro and mode into one run, so two doctors no longer sweep one distro
+  concurrently. The plugin-update route takes its one-at-a-time lock before
+  the version check instead of after it: inside a cold or stale check —
+  seconds of registry round trip — two clicks each ran their own removal and
+  install.
 - **The packaged native binaries were rebuilt** from the hardened source with
   the pinned toolchain (1.99.1). They were linked with the toolchain's
   self-contained musl objects rather than by the CI job's `musl-gcc`/zig

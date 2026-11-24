@@ -192,7 +192,10 @@ absolute path to pin one.
   (`doctorReport` merges `WslAgent.status()` via `mergeLiveResidentStatus`,
   0.18.0), but the CLI's handshake check still names its probe source
   (`probed: a fresh resident`); without an app-side call the `lastError`
-  stays in the app log.
+  stays in the app log. A resident that is dead fails the merged check and the
+  report's verdict follows; a resident that recovered keeps the fresh probe's
+  verdict, and when the reads are not on the native agent the merged detail
+  says why.
 - **`dsh-wsl-*.scope` counts are point-in-time**; `--fix` runs the preflight's sweep.
 - **The doctor's `git.win-safe` probe reports the Windows git trust through interop
   `git.exe`** — the `safe.directory` whitelist that WSL change review needs when

@@ -866,7 +866,7 @@ try {
       schemaVersion: 2,
       checks: [
         { id: "wsl.version", status: "ok", detail: "WSL version: 2.0.0" },
-        { id: "agent.handshake", status: "ok", detail: "probed: a fresh resident, pid 4242, protocol 6, digest matches", distro: "ubuntu", blocksFirstCommand: true },
+        { id: "agent.handshake", status: "ok", detail: "probed: a fresh resident, pid 4242, protocol 6, digest matches", distro: "ubuntu", blocksFirstCommand: false },
         { id: "runtime.scopes", status: "info", detail: "none" },
       ],
       summary: { ok: 1, info: 1, warn: 0, fail: 0, skipped: 0 },
@@ -874,7 +874,7 @@ try {
     /** A snapshot answering for a resident this process holds. @type {import("../lib/agent.js").AgentStatus} */
     const LIVE = { distro: "ubuntu", state: "ready", pid: 7000, lastError: "", deaths: 0, pending: 0 };
     assert.equal(mergeLiveResidentStatus(report, undefined), report, "no snapshot, no merge");
-    assert.equal(mergeLiveResidentStatus(report, { ...LIVE, pid: undefined }), report, "a never-started singleton says nothing about the app's resident");
+    assert.equal(mergeLiveResidentStatus(report, { ...LIVE, state: "idle", pid: undefined }), report, "a never-started singleton says nothing about the app's resident");
     const noHandshake = { ...report, checks: report.checks.filter((entry) => entry.id !== "agent.handshake") };
     assert.equal(mergeLiveResidentStatus(noHandshake, LIVE), noHandshake, "no handshake check, no merge");
 
@@ -884,7 +884,7 @@ try {
     assert.match(String(hand?.detail), /fresh-probe facts: probed: a fresh resident, pid 4242/, "the fresh probe's digest facts are kept");
     assert.equal(hand?.status, "ok", "no error, no verdict change");
     assert.equal(hand?.distro, "ubuntu", "the schema-2 shape fields ride through the merge");
-    assert.equal(hand?.blocksFirstCommand, true);
+    assert.equal(hand?.blocksFirstCommand, false, "the collector stamps `blocksFirstCommand` as \"this check fails\"; an unchanged verdict keeps its stamp");
     assert.equal(healthy.checks.find((entry) => entry.id === "wsl.version"), report.checks[0], "the other checks pass through");
 
     const wounded = mergeLiveResidentStatus(report, { ...LIVE, lastError: "agent handshake timed out after 30000ms", deaths: 2 });
@@ -896,8 +896,55 @@ try {
     assert.equal(wounded.summary.warn, 1, "the warn tally rises");
     assert.equal(report.summary.ok, 1, "the input report is not mutated");
 
-    const dead = mergeLiveResidentStatus(report, { ...LIVE, state: "dead", lastError: "permanently out after 4 deaths", deaths: 4 });
-    assert.equal(dead.checks.find((entry) => entry.id === "agent.handshake")?.status, "fail", "a dead live resident fails the check");
+    // The production shape of `dead`: every path into it clears the pid, so a
+    // pid-only test used to skip exactly the resident that was down — and with
+    // file operations failing closed behind it, the report read `ready`.
+    /** @type {import("../lib/agent.js").AgentStatus} */
+    const DOWN = { distro: "ubuntu", state: "dead", pid: undefined, lastError: "agent exited again (code=1); reviving in 2s, attempt 1/3", deaths: 1, pending: 0 };
+    const down = mergeLiveResidentStatus(report, DOWN);
+    const downHand = down.checks.find((entry) => entry.id === "agent.handshake");
+    assert.equal(downHand?.status, "fail", "a dead live resident fails the check");
+    assert.equal(downHand?.blocksFirstCommand, true, "a failing check blocks the first command, as the collector stamps it");
+    assert.match(String(downHand?.detail), /probed: the live resident \(pid none, state dead, deaths 1, pending 0\)/);
+    assert.equal(down.summary.fail, 1);
+
+    // A resident that came back is diagnosed by what it is now: an accepted
+    // handshake clears `lastError`, so a ready resident with no failure keeps
+    // the fresh probe's verdict. (It used to warn on the crash it survived
+    // until the app restarted.)
+    const recovered = mergeLiveResidentStatus(report, { ...LIVE, deaths: 1 });
+    assert.equal(recovered.checks.find((entry) => entry.id === "agent.handshake")?.status, "ok", "a recovered resident carries no unresolved failure");
+    assert.match(String(recovered.checks.find((entry) => entry.id === "agent.handshake")?.detail), /deaths 1, pending 0\); fresh-probe facts:/);
+
+    // The caller's note on why the resident is not on the native entry rides
+    // along as evidence, without touching the verdict.
+    const noted = mergeLiveResidentStatus(report, { ...LIVE, deaths: 1 }, { nativeNote: "the native agent failed to start" });
+    const notedHand = noted.checks.find((entry) => entry.id === "agent.handshake");
+    assert.equal(notedHand?.status, "ok");
+    assert.match(String(notedHand?.detail), /; native agent: the native agent failed to start$/);
+
+    // The verdict fields the collector derived from ITS checks are derived
+    // again from the merged ones: a digest trusts them over the checks.
+    /** A CLI-shaped report: every check stamped, the verdict fields derived. @type {import("../lib/doctor-live.js").DoctorReport} */
+    const derived = {
+      schemaVersion: 2,
+      checks: [
+        { id: "wsl.version", status: "ok", detail: "WSL version: 2.0.0" },
+        { id: "agent.handshake", status: "ok", detail: "probed: a fresh resident, pid 4242, protocol 6, digest matches", distro: "ubuntu", blocksFirstCommand: false },
+        { id: "runtime.scopes", status: "info", detail: "none" },
+      ],
+      summary: { ok: 2, info: 1, warn: 0, fail: 0, skipped: 0 },
+      blockers: [],
+      verdict: "ready",
+      distroVerdicts: [{ name: "ubuntu", verdict: "ready", blockers: [] }],
+    };
+    const blocked = mergeLiveResidentStatus(derived, DOWN);
+    assert.deepEqual(blocked.blockers, ["agent.handshake"], "the handshake failure reaches the blockers");
+    assert.equal(blocked.verdict, "blocked", "and the verdict");
+    assert.deepEqual(blocked.distroVerdicts, [{ name: "ubuntu", verdict: "blocked", blockers: ["agent.handshake"] }], "and the distro's own verdict");
+    const unchanged = mergeLiveResidentStatus(derived, { ...LIVE, deaths: 1 });
+    assert.deepEqual(unchanged.blockers, [], "an unchanged verdict leaves the derived fields as they were");
+    assert.equal(unchanged.verdict, "ready");
 
     // A fresh probe that carries a remedy keeps it through the merge — the
     // digest-mismatch shape, merged instead of discarded.
@@ -911,6 +958,7 @@ try {
 
     // Degenerate shapes: a detail-less check and a summary without the key
     // the tally shift touches must not crash the merge.
+    /** @type {import("../lib/doctor-live.js").DoctorReport} */
     const sparse = {
       schemaVersion: 1,
       checks: [{ id: "agent.handshake", status: "ok" }],

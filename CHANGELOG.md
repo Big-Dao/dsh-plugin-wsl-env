@@ -94,6 +94,15 @@ were part of the record.
   held against the native one. A failed native preparation (copy, digest,
   execute check) is no longer cached for the process — the next start
   prepares again — and its reason is kept for the doctor to report.
+- **`wsl_doctor` sees a dead resident, and stops warning after a recovery
+  (#81).** The merge that folds the live resident into a report required a
+  pid, and every path into `dead` clears it, so the resident that was down —
+  with file operations failing closed behind it — was reported as the fresh
+  probe's `ready`. The merge now fires for any resident this process held; a
+  dead one fails the check, and the report's blockers, verdict and per-distro
+  verdicts follow. An accepted handshake clears the last failure, so a
+  resident that recovered is diagnosed by what it is instead of warning on
+  the crash it survived until the app restarted.
 - **The packaged native binaries were rebuilt** from the hardened source with
   the pinned toolchain (1.99.1). They were linked with the toolchain's
   self-contained musl objects rather than by the CI job's `musl-gcc`/zig

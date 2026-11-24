@@ -61,12 +61,18 @@ doctor 通过三个入口给出同一份报告；侧边栏的 **WSL 环境** 面
 同一面板的「插件版本」卡片独立于 doctor：它读取已安装/运行中的插件版本，并提供
 经宿主插件管理器执行的一键升级（见 [CONFIGURATION.zh.md](CONFIGURATION.zh.md) 的 `wsl-plugin-update`）。
 
-- **独立 CLI**——`node scripts/doctor.mjs [distro] [--all] [--json] [--quick] [--sections host,sandbox,session,conf,net,agent] [--fix] [--fix-owned] [--install] [--yes] [--read-only] [--bundle <路径>] [--redact] [--locale <标签>]`
+- **独立 CLI**——`node scripts/doctor.mjs [distro] [--all] [--json] [--quick] [--sections host,sandbox,session,conf,net,agent] [--probe-timeout <毫秒>] [--fix] [--fix-owned] [--install] [--yes] [--read-only] [--bundle <路径>] [--redact] [--locale <标签>]`
   （与 `--help` 输出同一行）。
   这是权威入口：它**不加载任何 peer 依赖、任何宿主服务**，即使插件的运行时
   本身就是故障源，它也能启动。只 import 纯净、无 peer 的 `lib/` 模块；原先
   挂在 peer 污染模块（`lib/index.js`）后面的唯一 helper 已内联，并由
   `test/doctor.test.mjs` 与 lib 导出对拍防漂移。
+  发行版内的读取以合成批次发出：纯读事实一次 `wsl.exe`，systemd 类命令
+  另一小批且各自包 `timeout`——每个发行版的探针从十几次启动降到 quick 约 2 次、
+  full 约 8 次；修复复查（scope 清扫、缓存清理、bwrap 安装）仍用独立探针，
+  卡住的命令只损失自己的时间片。`--probe-timeout <毫秒>` 限定一次批次探针的
+  截止时间（缺省仍是共享的 60 秒）：一次截止触发的传输抖动按重试间隔（2 秒）
+  再试一次，所以最坏路径是 `2T + 2s`。
   退出码 0 = `ready`，1 = `blocked`，2 = 拒绝（`--read-only` 与
   `--fix`/`--install` 同用、`--fix-owned` 与 `--install` 同用，或对范围化
   运行使用 `--fix`）。
@@ -95,7 +101,9 @@ doctor 通过三个入口给出同一份报告；侧边栏的 **WSL 环境** 面
   随包预设的 `auto` 会逐个检查**所有**已安装发行版——多发行版机器上是数分钟
   的开销（收窄到单个发行版的 quick 运行只需数秒）。因此 handler 给子进程设了
   时限（解析出发行版时 120 秒、交给配置决定时 60 秒，均低于命令面自身的
-  截止时间），停摆或未收窄的运行会给出消息，说明本次检查的目标与如何收窄。
+  截止时间），并按 `2T + 2s < 预算` 传入 `--probe-timeout`，让一次卡住的探针
+  在自己的截止时间内落地为 `unknown`，而不是被外层整体超时掩盖；停摆或未收窄
+  的运行会给出消息，说明本次检查的目标与如何收窄。
 - **`wsl_doctor` 模型工具**——经 `doctorReport()` 进程内采集，会合并常驻
   agent 的实时状态。采集是异步的：doctor 子进程不再阻塞宿主，工具调用的取消
   会杀掉它，而两分钟时限加上有界的管道排空窗口，能让子进程不再报告时也有

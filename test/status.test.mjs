@@ -179,7 +179,7 @@ await check("a quick check runs the scoped doctor and answers the digested verdi
     ["session.preset-seam", "info", "session"],
   ], "the expandable detail carries every executed check, not just the findings");
   assert.ok(body.notRun > 0, "the catalog rows this quick run never executed are counted, not listed as fake results");
-  assert.deepEqual(calls[0], ["--json", "--quick", "--distro", "Ubuntu"]);
+  assert.deepEqual(calls[0], ["--json", "--quick", "--probe-timeout", "28999", "--distro", "Ubuntu"]);
 });
 
 await check("the effective-provider snapshot adds the takeover row", async () => {
@@ -272,7 +272,7 @@ await check("a full GET runs the full doctor read-only and advertises repairable
   assert.equal(body.repaired, false);
   assert.deepEqual(body.repairable, ["runtime.scopes"]);
   assert.deepEqual(body.repairs, []);
-  assert.deepEqual(calls[0], ["--json", "--distro", "Ubuntu"]);
+  assert.deepEqual(calls[0], ["--json", "--probe-timeout", "28999", "--distro", "Ubuntu"]);
   const reloaded = handlerFor({ statePath });
   const { body: list } = await get(reloaded.handler);
   assert.equal(list.cached[0].full, true, "the stored result retains its full-diagnosis scope");
@@ -294,7 +294,7 @@ await check("a repair POST runs --fix-owned and answers its fix rows", async () 
   ]);
   assert.deepEqual(body.warnings, []);
   assert.deepEqual(body.repairable, [], "nothing is left to repair after the fix");
-  assert.deepEqual(calls[0], ["--json", "--fix", "--fix-owned", "--distro", "Ubuntu"]);
+  assert.deepEqual(calls[0], ["--json", "--fix", "--fix-owned", "--probe-timeout", "28999", "--distro", "Ubuntu"]);
 });
 
 await check("a repair never lists its own fix rows as findings", async () => {
@@ -438,7 +438,7 @@ await check("a background run is labeled with its source", async () => {
   const { body } = await get(handler, "?distro=Ubuntu&refresh=1&background=1");
   assert.equal(body.source, "background");
   assert.equal(body.checkedAt, 1000);
-  assert.deepEqual(calls[0], ["--json", "--quick", "--distro", "Ubuntu"]);
+  assert.deepEqual(calls[0], ["--json", "--quick", "--probe-timeout", "28999", "--distro", "Ubuntu"]);
 });
 
 await check("the list names the running distros the panel may refresh", async () => {
@@ -548,7 +548,7 @@ await check("requests for the same distro and mode share one run", async () => {
   const full = get(handler, "?distro=Ubuntu&full=1");
   // Let each request reach its run before anything is released.
   await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(calls, [["--json", "--quick", "--distro", "Ubuntu"], ["--json", "--distro", "Ubuntu"]], "one quick run for both quick requests; the full diagnosis is its own run");
+  assert.deepEqual(calls, [["--json", "--quick", "--probe-timeout", "28999", "--distro", "Ubuntu"], ["--json", "--probe-timeout", "28999", "--distro", "Ubuntu"]], "one quick run for both quick requests; the full diagnosis is its own run");
   release();
   const [a, b, c] = await Promise.all([first, second, full]);
   assert.equal(a.body.verdict, "ready");

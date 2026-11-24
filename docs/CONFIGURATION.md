@@ -200,7 +200,7 @@ takes no configuration.
 | | `retryMs` | `150` | Delay between attempts, in milliseconds. |
 | | `windowsWorkspaces` | `[]` | Distro directories opened for Windows access (UNC paths). Sessions under them keep the host preset; the add-workspace prompt writes here, and Settings can change it back. A session in one of them is called out above the composer and in the **WSL environment** panel, with the way back to the distro environment. |
 | `wsl-status` | `cacheMs` | `15000` | How long one distro's verdict stays fresh in memory, in milliseconds (the last result is persisted separately). |
-| | `timeoutMs` | `90000` | Deadline for one check or repair run, in milliseconds. |
+| | `timeoutMs` | `90000` | Deadline for one check or repair run, in milliseconds. The doctor's `--probe-timeout` is derived from it (`2T + 2s` below the budget), so a stuck probe settles into its own verdict instead of vanishing under the outer kill. |
 | | `wslPath` | `wsl.exe` | `wsl.exe` used to list the distros. |
 | `wsl-open-in-app` | `executable` | `''` | Editor executable for the session-header "open in app" action. Empty resolves VS Code from its usual Windows install locations, then `Code.exe` on `PATH`. |
 | | `watchMs` | `1500` | Early-failure watch window per launch, in milliseconds; an editor that exits inside it is reported as a launch failure. |

@@ -99,17 +99,19 @@ await check("apply registers the command and the handler runs the CLI with the r
 
   const run = await definition.handler({ rawInput: "full --distro ubuntu" });
   assert.equal(run.kind, "success");
-  assert.deepEqual(seen[0], ["--json", "--distro", "ubuntu"]);
+  // 2T + 2 s < the 120 s scoped budget (the 2 s is the doctor's flake settle).
+  assert.deepEqual(seen[0], ["--json", "--distro", "ubuntu", "--probe-timeout", "58999"]);
   assert.match(run.text, /distro\.present/);
   assert.match(run.text, /install it/);
 
   const quick = await definition.handler({ rawInput: "", agent: undefined });
   assert.equal(quick.kind, "success");
-  assert.deepEqual(seen[1], ["--json", "--quick"]);
+  // An unresolved target sweeps under the tighter 60 s budget.
+  assert.deepEqual(seen[1], ["--json", "--quick", "--probe-timeout", "28999"]);
 
   const section = await definition.handler({ rawInput: "conf" });
   assert.equal(section.kind, "success");
-  assert.deepEqual(seen[2], ["--json", "--sections", "conf"]);
+  assert.deepEqual(seen[2], ["--json", "--sections", "conf", "--probe-timeout", "28999"]);
 });
 
 await check("the session's working directory names the distro when none is passed", async () => {
@@ -126,7 +128,7 @@ await check("the session's working directory names the distro when none is passe
   });
   const run = await soleDefinition(fake).handler({ rawInput: "quick", agent: { id: "agent-1" } });
   assert.equal(run.kind, "success");
-  assert.deepEqual(seen, [["--json", "--quick", "--distro", "ubuntu"]]);
+  assert.deepEqual(seen, [["--json", "--quick", "--distro", "ubuntu", "--probe-timeout", "58999"]]);
 });
 
 await check("a non-UNC working directory leaves the distro to the CLI's own selection", async () => {
@@ -143,7 +145,7 @@ await check("a non-UNC working directory leaves the distro to the CLI's own sele
   });
   const run = await soleDefinition(fake).handler({ rawInput: "", agent: { id: "agent-1" } });
   assert.equal(run.kind, "success");
-  assert.deepEqual(seen, [["--json", "--quick"]]);
+  assert.deepEqual(seen, [["--json", "--quick", "--probe-timeout", "28999"]]);
 });
 
 await check("a broken cwd read falls back to the CLI's own selection instead of failing", async () => {
@@ -160,7 +162,7 @@ await check("a broken cwd read falls back to the CLI's own selection instead of 
   });
   const run = await soleDefinition(fake).handler({ rawInput: "", agent: { id: "agent-1" } });
   assert.equal(run.kind, "success");
-  assert.deepEqual(seen, [["--json", "--quick"]]);
+  assert.deepEqual(seen, [["--json", "--quick", "--probe-timeout", "28999"]]);
 });
 
 await check("a cwd service that throws synchronously falls back instead of failing", async () => {
@@ -177,7 +179,7 @@ await check("a cwd service that throws synchronously falls back instead of faili
   });
   const run = await soleDefinition(fake).handler({ rawInput: "", agent: { id: "agent-1" } });
   assert.equal(run.kind, "success");
-  assert.deepEqual(seen, [["--json", "--quick"]]);
+  assert.deepEqual(seen, [["--json", "--quick", "--probe-timeout", "28999"]]);
 });
 
 await check("the agent-scoped cwd service names the distro (the production shape)", async () => {
@@ -202,7 +204,7 @@ await check("the agent-scoped cwd service names the distro (the production shape
   };
   const run = await soleDefinition(fake).handler({ rawInput: "quick", agent });
   assert.equal(run.kind, "success");
-  assert.deepEqual(seen, [["--json", "--quick", "--distro", "debian"]], "the live cd wins over the header cwd");
+  assert.deepEqual(seen, [["--json", "--quick", "--distro", "debian", "--probe-timeout", "58999"]], "the live cd wins over the header cwd");
 });
 
 await check("the session header's cwd names the distro when no service is reachable", async () => {
@@ -220,7 +222,7 @@ await check("the session header's cwd names the distro when no service is reacha
   const agent = { id: "agent-1", session: { header: { cwd: "\\\\wsl.localhost\\ubuntu\\home\\andy" } } };
   const run = await soleDefinition(fake).handler({ rawInput: "quick", agent });
   assert.equal(run.kind, "success");
-  assert.deepEqual(seen, [["--json", "--quick", "--distro", "ubuntu"]]);
+  assert.deepEqual(seen, [["--json", "--quick", "--distro", "ubuntu", "--probe-timeout", "58999"]]);
 });
 
 await check("an unreadable agent scope still falls through to the header cwd", async () => {
@@ -242,7 +244,7 @@ await check("an unreadable agent scope still falls through to the header cwd", a
   };
   const run = await soleDefinition(fake).handler({ rawInput: "", agent });
   assert.equal(run.kind, "success");
-  assert.deepEqual(seen, [["--json", "--quick", "--distro", "FedoraLinux-44"]]);
+  assert.deepEqual(seen, [["--json", "--quick", "--distro", "FedoraLinux-44", "--probe-timeout", "58999"]]);
 });
 
 await check("a resolved target gets the long budget, an unresolved one the sweep budget", async () => {

@@ -27,6 +27,7 @@ import { AgentUnavailableError } from "../lib/agent-errors.js";
 import { WslDirectoryPicker } from "../lib/picker.js";
 import { DISTRO_GIT_SENTINEL } from "../lib/git-route.js";
 import { WslSubprocessRuntime } from "../lib/subprocess.js";
+import { resetWslProbeCacheForTests } from "../lib/wsl.js";
 
 const scratch = mkdtempSync(join(tmpdir(), "dsh-takeover-"));
 const hostCwd = join(scratch, "host");
@@ -38,7 +39,10 @@ const args = process.argv.slice(2);
 const write = (text) => process.stdout.write(text);
 if (process.env.FAKE_WSL_LOG !== undefined) require("node:fs").appendFileSync(process.env.FAKE_WSL_LOG, args.join(" ") + "\\n");
 if (args.includes("-l") && args.includes("-q")) { write(process.env.FAKE_DISTROS ?? "ubuntu\\n"); process.exit(0); }
-if (args.includes("--exec") && args.includes("sh")) { write(process.env.FAKE_HOME ?? "/home/andy"); process.exit(0); }
+if (args.includes("--exec") && args.includes("sh")) {
+  if (process.env.FAKE_HOME_FAIL === "1") { process.stderr.write("no home\\n"); process.exit(1); }
+  write(process.env.FAKE_HOME ?? "/home/andy"); process.exit(0);
+}
 if (args.includes("--exec") && args.includes("find")) { write(require("node:fs").readFileSync(process.env.FAKE_LISTING_FILE, "utf8")); process.exit(0); }
 if (args.includes("--exec") && args.includes("mkdir")) {
   const target = args[args.length - 1];
@@ -425,6 +429,20 @@ check("an unqualified path is refused with the picker's own code", async () => {
     () => row.createDirectory("/tmp/whatever", "x"),
     (error) => error instanceof DirectoryPickerError && error.code === "directory-create-failed",
   );
+});
+
+checkPosix("a failed home probe is retried instead of being pinned to the root fallback", async () => {
+  process.env.FAKE_DISTROS = "ubuntu\n";
+  process.env.FAKE_HOME_FAIL = "1";
+  resetWslProbeCacheForTests();
+  const { row } = await mountPicker({});
+  try {
+    assert.equal(await row.homeOf("ubuntu"), "\\\\wsl.localhost\\ubuntu", "a stopped distro still opens at its root");
+    process.env.FAKE_HOME_FAIL = "0";
+    assert.equal(await row.homeOf("ubuntu"), "\\\\wsl.localhost\\ubuntu\\home\\andy", "the next call probes again");
+  } finally {
+    delete process.env.FAKE_HOME_FAIL;
+  }
 });
 
 checkPosix("the distro list is cached until its TTL expires", async () => {

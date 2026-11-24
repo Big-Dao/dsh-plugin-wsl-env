@@ -182,7 +182,8 @@ export declare class WslDirectoryPicker extends DirectoryPicker {
     /**
      * A distro's Linux home directory as a UNC path, best effort: a distro that
      * cannot be queried (stopped, and unable to start) falls back to its root so
-     * the dialog still opens somewhere real.
+     * the dialog still opens somewhere real. Only a real answer is cached; the
+     * fallback is retried on the next call.
      *
      * @param distro - distro name.
      * @param signal - optional cancellation.

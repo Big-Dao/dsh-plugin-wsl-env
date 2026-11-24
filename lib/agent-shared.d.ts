@@ -7,10 +7,12 @@
  * port snapshot all queue on ONE agent per distro, and the per-distro startup
  * cost is paid once per process.
  *
- * One instance per distro for the life of the process, and never a second:
- * every holder (the executor, the filesystem provider, the picker, the git
- * and search handles, the doctor) addresses the same object, so the state a
- * diagnosis reads is the state the file operations run on. The instance owns
+ * One instance per `(wslPath, distro)` for the life of the process, and never a
+ * second for that pair: every holder (the executor, the filesystem provider,
+ * the picker, the git and search handles, the doctor) addresses the same
+ * object, so the state a diagnosis reads is the state the file operations run
+ * on. The transport is part of the key because a row with a custom `wslPath`
+ * must not keep talking through the default executable. The instance owns
  * its own recovery — one rebuild per death, then a bounded revival — and this
  * module does not second-guess it by swapping in a fresh one, which used to
  * reset that budget at the first death and, at the same time, retire the
@@ -79,15 +81,20 @@ export declare const agentScriptPath: string;
 /** The sha256 of the shipped agent script; every resident verifies its HELLO against it. */
 export declare const agentScriptDigest: string;
 /**
- * The shared agent for one distro: created on first use, and the same
- * instance on every call after that — through deaths, revivals and a change
- * of entry. Its own lifecycle is the recovery; a caller that finds it
+ * The shared agent for one distro and transport: created on first use, and the
+ * same instance on every call after that — through deaths, revivals and a
+ * change of entry. Its own lifecycle is the recovery; a caller that finds it
  * unavailable (`status().state === "dead"`) falls back for that call.
  *
+ * The transport is part of the identity: a row pointed at a custom `wslPath`
+ * must not keep talking through the default executable, and a native entry
+ * staged through one transport cannot be assumed reachable through another.
+ *
  * @param distro - the distro name.
+ * @param wslPath - the `wsl.exe` path the row configured.
  * @returns the shared agent.
  */
-export declare function sharedAgent(distro: string): WslAgent;
+export declare function sharedAgent(distro: string, wslPath?: string): WslAgent;
 /**
  * Why the shared resident is not on the native entry though the backend asks
  * for it, for a diagnosis: the entry is demoted, or it just failed a start.

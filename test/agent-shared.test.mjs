@@ -1,7 +1,7 @@
 /**
  * Checks the shared-agent selection (A7): the `agentBackend` mode picks the
  * native entry when prepared, and the shell otherwise; the app-wide singleton
- * is keyed by distro.
+ * is keyed by transport and distro.
  *
  *   node test/agent-shared.test.mjs
  */
@@ -33,6 +33,18 @@ await check("agentBackend shell keeps the shared reads on the shell script", asy
   assert.equal(agent.expectedDigest, agentScriptDigest);
   assert.equal(sharedAgent("ubuntu"), agent, "the agent is one per distro");
   await agent.close();
+});
+
+await check("a custom wslPath is its own shared agent", async () => {
+  configureAgentBackend("shell");
+  resetSharedAgents();
+  const custom = sharedAgent("ze-transport", "C:\\custom\\wsl.exe");
+  const fallback = sharedAgent("ze-transport");
+  assert.notEqual(custom, fallback, "the configured transport is not the default one");
+  assert.equal(sharedAgent("ze-transport", "C:\\custom\\wsl.exe"), custom, "one agent per transport and distro");
+  await custom.close();
+  await fallback.close();
+  resetSharedAgents();
 });
 
 await check("one instance per distro for the life of the process, through a death", async () => {

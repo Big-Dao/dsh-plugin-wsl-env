@@ -15,6 +15,10 @@ inputs:
   distro:
     description: The distro to install and make default, e.g. Ubuntu-24.04.
     required: true
+  extra-packages:
+    description: Space-separated extra apt packages (e.g. unzip for a probe caller).
+    required: false
+    default: ""
 runs:
   using: composite
   steps:
@@ -56,4 +60,11 @@ runs:
         $null = Invoke-Wsl @("--set-default", $distro) 120 2
         $null = Invoke-Wsl @("-d", $distro, "-u", "root", "--exec", "apt-get", "update") 600 2
         $null = Invoke-Wsl @("-d", $distro, "-u", "root", "--exec", "apt-get", "install", "-y", "--no-install-recommends", "bubblewrap", "dbus", "git", "ca-certificates", "curl", "build-essential") 900 2
+        # Callers may need one or two packages beyond the plugin's own set; a
+        # separate invocation keeps the pinned list (and its test) unchanged.
+        $extra = "${{ inputs['extra-packages'] }}".Trim()
+        if ($extra) {
+          $extraArgs = @("-d", $distro, "-u", "root", "--exec", "apt-get", "install", "-y", "--no-install-recommends") + ($extra -split "\s+")
+          $null = Invoke-Wsl $extraArgs 600 2
+        }
         $null = Invoke-Wsl @("-d", $distro, "-u", "root", "--exec", "loginctl", "enable-linger", "root") 120 2

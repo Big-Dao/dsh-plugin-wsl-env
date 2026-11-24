@@ -531,7 +531,7 @@ export class WslShellExecutor
    * @returns the shared agent.
    */
   executionAgent(distro: string): WslAgent {
-    return sharedAgent(distro);
+    return sharedAgent(distro, this.wslConfig.wslPath);
   }
 
   /**

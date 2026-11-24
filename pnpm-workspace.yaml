@@ -53,8 +53,9 @@ minimumReleaseAgeExclude:
 # itself still enforces the policies it can.
 #
 # RESTORE CONDITION (tracked by #52): once pnpm honors this list during the
-# lockfile re-verification, delete `--config.minimum-release-age=0` from the
-# seven CI installs (ci.yml five, release.yml one, peer-canary.yml one) and
-# turn this back on; until then the exact pins plus the lockfile hash are the
-# 24h-window defense.
+# lockfile re-verification, delete `--config.minimum-release-age=0` from every
+# CI install (each `run: pnpm install` in .github/workflows) and turn this back
+# on; until then the exact pins plus the lockfile hash are the 24h-window
+# defense. The list is deliberately not counted here: it has drifted before,
+# and `grep -rn "run: pnpm install" .github/workflows` is the authority.
 verifyDepsBeforeRun: false

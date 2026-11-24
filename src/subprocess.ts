@@ -356,7 +356,7 @@ export class WslSubprocessRuntime extends LocalSubprocessRuntime {
     return async () => {
       try {
         const probe = terminalActivityProbe(terminalId);
-        const result = await sharedAgent(distro).exec({
+        const result = await sharedAgent(distro, this.config.wslPath).exec({
           cwd: probe.cwd,
           argv: probe.argv,
           maxOutputBytes: 256,
@@ -431,7 +431,7 @@ export class WslSubprocessRuntime extends LocalSubprocessRuntime {
       const stdoutCap = (spec.stdio.stdout as SubprocessCollect | undefined)?.maxBytes ?? 0;
       const stderrCap = (spec.stdio.stderr as SubprocessCollect | undefined)?.maxBytes ?? 0;
       return gitExecutionHandle({
-        agent: sharedAgent(gitRewrite.distro),
+        agent: sharedAgent(gitRewrite.distro, this.config.wslPath),
         cwd: gitRewrite.linuxCwd,
         argv: gitRewrite.gitArgv,
         env: agentEnv,
@@ -449,7 +449,7 @@ export class WslSubprocessRuntime extends LocalSubprocessRuntime {
     // (`done`, `collected`, `kill`); the seam's full handle surface is the
     // one-shot fallback's, so the override's declared return is the cast's.
     return searchExecutionHandle({
-      agent: sharedAgent(rewrite.distro),
+      agent: sharedAgent(rewrite.distro, this.config.wslPath),
       cwd: rewrite.linuxCwd,
       argv: rewrite.rgArgv,
       distro: rewrite.distro,

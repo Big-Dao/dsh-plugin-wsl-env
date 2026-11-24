@@ -142,7 +142,7 @@ pnpm run sync:windows
 
 CI 在 `ubuntu-latest` 和 `windows-latest` 上，用 Node 22 和 24 运行 `pnpm test`；在 Node 24 上运行 `pnpm run test:coverage`，并在安装 Chromium 后于一个 Ubuntu runner 上运行 `pnpm run test:browser`。Windows runner 的存在是因为插件面向 Windows；覆盖率门槛需要 Node 22.8 或更新版本，因此该任务只在一个版本上运行。
 
-`.github/workflows/cloud-wsl-gate.yml` 增加了一道托管 DeepSeek Harness 桌面版与 WSL 门禁。它在每次目标为 `main` 的 pull request 和手动 `workflow_dispatch` 时，在 `windows-latest` 上从 upstream tag 构建 unsigned Windows Desktop，安装 Ubuntu 24.04、第二个 Ubuntu probe 实例、Node 24、systemd 与 `bubblewrap`，通过桌面 app 自带 CLI 创建 `wsl` profile、向 profile 安装当前检出的本地插件并核对组合配置，启动桌面应用的配置化 Web 服务并等待 HTTP 可访问，验证发行版内的 bwrap 工作区围栏，准备 `wslfs` probe profile 后在应用退出时运行 `test/probe/run-all-when-closed.sh --include-fs`。只有每项 probe 都报告 PASS 且没有 SKIP 或 NOT RUN 时，托管门禁才算通过。
+`.github/workflows/cloud-wsl-gate.yml` 增加了一道托管 DeepSeek Harness 桌面版与 WSL 门禁。它在目标为 `main`、且改动触及插件源码、组合、探针或该 workflow 的 push/pull request（以及手动 `workflow_dispatch`）时，在 `windows-latest` 上从 upstream tag 构建 unsigned Windows Desktop——构建产物按固定 tag 与 workflow 配方缓存——经 `.github/actions/provision-wsl` 安装 Ubuntu 24.04、第二个 Ubuntu probe 实例、Node 24、systemd 与 `bubblewrap`，通过桌面 app 自带 CLI 创建 `wsl` profile、向 profile 安装当前检出的本地插件并核对组合配置，启动桌面应用的配置化 Web 服务并等待 HTTP 可访问，验证发行版内的 bwrap 工作区围栏，准备 `wslfs` probe profile 后在应用退出时运行 `test/probe/run-all-when-closed.sh --include-fs`。只有每项 probe 都报告 PASS 且没有 SKIP 或 NOT RUN 时，托管门禁才算通过。
 
 当前闭合套件共有 19 项：`run.sh`、`terminal.sh`、`mode.sh`、
 `missing-wsl.sh`、`sandbox.sh`、`cache-write.sh`、`sandbox-shell.sh`、

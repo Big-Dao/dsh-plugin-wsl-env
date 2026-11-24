@@ -21,7 +21,24 @@ const workflow = readFileSync(
 );
 
 assert.match(workflow, /runs-on:\s*windows-latest/);
-assert.match(workflow, /wsl\.exe --install -d Ubuntu-24\.04/);
+// The primary distro is provisioned through the shared composite action (the
+// hosted-runner watchdog lives there); the workflow must not inline a second
+// copy of that sequence (#88).
+assert.match(workflow, /uses:\s*\.\/plugin\/\.github\/actions\/provision-wsl/);
+assert.match(workflow, /distro:\s*Ubuntu-24\.04/);
+assert.match(workflow, /extra-packages:\s*unzip/);
+const provision = readFileSync(resolve(ROOT, ".github/actions/provision-wsl/action.yml"), "utf8");
+assert.match(provision, /--install", "-d", \$distro/);
+assert.match(provision, /"bubblewrap", "dbus", "git", "ca-certificates", "curl", "build-essential"/);
+assert.match(provision, /"enable-linger", "root"/);
+assert.match(provision, /Wait-Job \$job -Timeout \$timeoutSec/);
+// A docs-only change cannot move the gate's inputs; the Desktop build is
+// cached on the pinned upstream ref plus this workflow's recipe (#88).
+assert.match(workflow, /paths:\s*&gate-paths/);
+assert.match(workflow, /actions\/cache@[0-9a-f]{40}/);
+assert.match(workflow, /key:\s*dsh-desktop-win-x64-\$\{\{ runner\.os \}\}-\$\{\{ env\.HARNESS_REF \}\}-r\$\{\{ env\.DESKTOP_BUILD_RECIPE \}\}/);
+assert.match(workflow, /DESKTOP_BUILD_RECIPE: "1"/, "the cache recipe is bumped deliberately");
+assert.match(workflow, /if:\s*steps\.desktop-cache\.outputs\.cache-hit != 'true'/);
 assert.match(workflow, /resources\\app\.asar/);
 assert.match(workflow, /resources\\runtime\\cli\\bin\\dsh\.cmd/);
 assert.match(workflow, /Test-Path \$dshCommand/);
@@ -39,7 +56,7 @@ assert.match(workflow, /Invoke-WebRequest -Uri \$webUrl/);
 assert.match(workflow, /wslfs-profile\.patch\.yml/);
 assert.match(workflow, /wsl\.exe --export Ubuntu-24\.04/);
 assert.match(workflow, /wsl\.exe --import \$secondDistro/);
-assert.match(workflow, /fnm.*install 24\.9\.0/);
+assert.match(workflow, /fnm.*install \$\{\{ env\.NODE_VERSION \}\}/);
 assert.match(workflow, /run-all-when-closed\.sh --include-fs/);
 assert.match(workflow, /run-all-when-closed\.sh --include-fs --wait-only/);
 assert.match(workflow, /plugin\/test\/probe\/\.scratch\/full-probe\.\*\.log/);
@@ -59,7 +76,7 @@ assert.match(workflow, /FENCE-OK/);
 assert.match(workflow, /FULL PASS/);
 assert.match(workflow, /NOT RUN/);
 assert.match(workflow, /if-no-files-found:\s*error/);
-assert.match(workflow, /apt-get install -y --no-install-recommends[^\n]*dbus/);
+assert.match(provision, /"bubblewrap", "dbus"/);
 assert.match(workflow, /\$fenceOutput\s*=/);
 assert.match(workflow, /\$hostedRepoLinux\s*=\s*"\/root\/dsh-hosted-plugin"/);
 assert.match(workflow, /SUITE_COUNT/);

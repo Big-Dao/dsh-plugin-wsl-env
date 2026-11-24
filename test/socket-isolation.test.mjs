@@ -6,6 +6,7 @@
  */
 import assert from "node:assert/strict";
 import {
+  SOCKET_FACTS_TTL_MS,
   SocketIsolationError,
   parseSocketIsolationFacts,
   resetSocketIsolationCache,
@@ -96,6 +97,30 @@ await check("a failed probe throws a SocketIsolationError and is retried", async
   const masks = await socketMasksFor({ mode: "session-bus", wslPath: "wsl.exe", distro: "ubuntu", run: flaky });
   assert.equal(calls, 2, "a failure is not cached");
   assert.deepEqual(masks, ["/run/user/1000/bus", "/run/user/1000/systemd/private"]);
+});
+
+await check("the facts cache expires, so a socket that appears later is masked", async () => {
+  resetSocketIsolationCache();
+  let calls = 0;
+  const run = async () => {
+    calls += 1;
+    return FACTS;
+  };
+  let now = 1_000_000;
+  const realNow = Date.now;
+  Date.now = () => now;
+  try {
+    await socketMasksFor({ mode: "session-bus", wslPath: "wsl.exe", distro: "ubuntu", run });
+    assert.equal(calls, 1);
+    now += SOCKET_FACTS_TTL_MS - 1;
+    await socketMasksFor({ mode: "session-bus", wslPath: "wsl.exe", distro: "ubuntu", run });
+    assert.equal(calls, 1, "the facts are still fresh inside the TTL");
+    now += 1;
+    await socketMasksFor({ mode: "session-bus", wslPath: "wsl.exe", distro: "ubuntu", run });
+    assert.equal(calls, 2, "the TTL re-runs the probe");
+  } finally {
+    Date.now = realNow;
+  }
 });
 
 await check("the probe script names the runtime directory and the strict sockets", async () => {

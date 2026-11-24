@@ -43,17 +43,22 @@ try {
   $installer = Join-Path $work $env:DSH_SMOKE_INSTALLER_NAME
 
   Step "installer-download" {
-    Invoke-WebRequest -Uri $env:DSH_SMOKE_INSTALLER_URL -OutFile $installer -UseBasicParsing
+    # The installer is ~300 MB; the timeout bounds a stalled CDN without
+    # cutting a slow but healthy download. Raising it further would exceed the
+    # job's own budget.
+    Invoke-WebRequest -Uri $env:DSH_SMOKE_INSTALLER_URL -OutFile $installer -UseBasicParsing -TimeoutSec 600
     $installer
   }
 
-  # The official CDN publishes no checksum object, so unless a checksum URL was
-  # resolved upstream this step RECORDS the downloaded file's sha256 as evidence
-  # instead of verifying a published one.
+  # The CDN publishes no checksum object, so the sha256 is recorded as evidence
+  # (or verified when a checksum URL was resolved upstream). Authenticode is
+  # the publisher-identity check that does not depend on the CDN: the bytes are
+  # executed right after this step, so an unsigned or foreign-signed binary must
+  # stop the smoke here.
   Step "installer-checksum" {
     $expected = $env:DSH_SMOKE_INSTALLER_SHA256
     if (-not $expected -and $env:DSH_SMOKE_CHECKSUM_URL) {
-      $sums = (Invoke-WebRequest -Uri $env:DSH_SMOKE_CHECKSUM_URL -UseBasicParsing).Content
+      $sums = (Invoke-WebRequest -Uri $env:DSH_SMOKE_CHECKSUM_URL -UseBasicParsing -TimeoutSec 60).Content
       $line = ($sums -split "`n") | Where-Object { $_ -match [regex]::Escape($env:DSH_SMOKE_INSTALLER_NAME) } | Select-Object -First 1
       if ($line -match "(?i)\b([0-9a-f]{64})\b") { $expected = $Matches[1] }
     }
@@ -66,9 +71,29 @@ try {
     }
   }
 
+  # The bytes are executed right after this step, so an unsigned or
+  # foreign-signed binary must stop the smoke even when no checksum exists.
+  Step "installer-signature" {
+    $signature = Get-AuthenticodeSignature -LiteralPath $installer
+    if ($signature.Status -ne "Valid") { throw "Authenticode status is $($signature.Status): $($signature.StatusMessage)" }
+    $signer = $env:DSH_SMOKE_INSTALLER_SIGNER
+    if (-not $signer) { throw "DSH_SMOKE_INSTALLER_SIGNER is not set" }
+    $subject = $signature.SignerCertificate.Subject
+    if (-not $subject.StartsWith("CN=`"$signer`"")) {
+      throw "installer signer is '$subject', expected CN='$signer'"
+    }
+    "Authenticode valid, signer CN=$signer"
+  }
+
   $installDir = Join-Path $work "harness"
   Step "desktop-install" {
-    $p = Start-Process -FilePath $installer -ArgumentList @("/S", "/D=$installDir") -Wait -PassThru
+    # -Wait has no upper bound: a wedged installer would hold the job until
+    # its 45-minute timeout with no named cause. Wait explicitly instead.
+    $p = Start-Process -FilePath $installer -ArgumentList @("/S", "/D=$installDir") -PassThru
+    if (-not $p.WaitForExit(600000)) {
+      try { $p.Kill() } catch { }
+      throw "installer did not finish within 600s"
+    }
     if ($p.ExitCode -ne 0) { throw "installer exited $($p.ExitCode)" }
     $installDir
   }

@@ -102,10 +102,12 @@ export declare function parseDistroList(stdout: string): string[];
  * @throws when no distro is installed.
  */
 export declare function defaultDistro(options?: WslCallOptions): Promise<string>;
+/** Test hook: forget the shared home and shell probes. */
+export declare function resetWslProbeCacheForTests(): void;
 /**
  * The Linux home directory of a distro's default user, as a Linux path. `$HOME`
  * is set by `wsl.exe` itself from the distro's default user, so this needs no
- * passwd parsing.
+ * passwd parsing. Resolved once per `(wslPath, distro)` per process.
  *
  * @param distro - distro name.
  * @param options - the `wsl.exe` path and optional cancellation.

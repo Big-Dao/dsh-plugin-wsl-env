@@ -62,8 +62,9 @@
  * @property {(key: string) => string | null} getItem
  * @property {(key: string, value: string) => void} setItem
  */
-/** @typedef {{ key?: string }} ClientKeyEvent */
+/** @typedef {{ key?: string, shiftKey?: boolean, preventDefault?: () => void }} ClientKeyEvent */
 /** @typedef {{ target?: unknown, currentTarget?: unknown }} ClientMouseEvent */
+/** @typedef {{ focus?: () => void, querySelector?: (selector: string) => ClientElement | null, querySelectorAll?: (selector: string) => ArrayLike<ClientElement> }} ClientElement */
 /** @typedef {{ load: (module: { id: string, factory: (require: (name: string) => unknown) => unknown }) => void }} ClientModuleLoader */
 /**
  * @typedef {object} ClientWindow
@@ -72,6 +73,7 @@
  */
 /**
  * @typedef {object} ClientDocument
+ * @property {ClientElement | null} [activeElement]
  * @property {(type: string, listener: (event: ClientKeyEvent) => void) => void} addEventListener
  * @property {(type: string, listener: (event: ClientKeyEvent) => void) => void} removeEventListener
  */
@@ -88,6 +90,7 @@
  * @property {(type: unknown, props?: Record<string, unknown> | null, ...children: unknown[]) => unknown} createElement
  * @property {<T>(initial: T | (() => T)) => [T, (next: T | ((prev: T) => T)) => void]} useState
  * @property {(effect: () => void | (() => void), deps?: readonly unknown[]) => void} useEffect
+ * @property {<T>(initial: T) => { current: T }} useRef
  */
 const platform = /** @type {ClientPlatform} */ (/** @type {unknown} */ (globalThis));
 
@@ -289,6 +292,7 @@ platform.window.__ModuleLoader__.load({
     const h = React.createElement;
     const useState = React.useState;
     const useEffect = React.useEffect;
+    const useRef = React.useRef;
 
     /** The plugin's status route (checks on GET, repair on POST, clear on DELETE); the row registers this exact path. */
     const STATUS_PATH = "/api/wsl-env/status";
@@ -1839,6 +1843,7 @@ platform.window.__ModuleLoader__.load({
       const [request, setRequest] = useState(accessPrompt.get());
       const [busy, setBusy] = useState(false);
       const [error, setError] = useState(/** @type {string | null} */ (null));
+      const dialogRef = useRef(/** @type {ClientElement | null} */ (null));
 
       useEffect(() => accessPrompt.subscribe(() => {
         setRequest(accessPrompt.get());
@@ -1846,14 +1851,44 @@ platform.window.__ModuleLoader__.load({
         setBusy(false);
       }), []);
 
-      // Dismissing the prompt takes the default: Remote WSL. Nothing is written,
+      // A modal that owns the keyboard: focus moves to the recommended choice
+      // when it opens, Tab/Shift+Tab cycle its buttons instead of walking into
+      // the page behind it, and closing returns focus where it was. Escape and
+      // the backdrop keep taking the default: Remote WSL. Nothing is written,
       // which is exactly what "keep the default" means for this record.
       useEffect(() => {
         if (request === null) return undefined;
+        const previous = platform.document.activeElement ?? null;
+        const dialog = dialogRef.current;
+        /** @returns {ClientElement[]} the dialog's enabled buttons, in DOM order. */
+        const focusables = () => Array.from(dialog?.querySelectorAll?.("button:not([disabled])") ?? []);
+        const first = focusables()[0];
+        first?.focus?.();
         /** @param {ClientKeyEvent} event - the key event on the document. */
-        const onKey = (event) => { if (event.key === "Escape") accessPrompt.set(null); };
+        const onKey = (event) => {
+          if (event.key === "Escape") {
+            accessPrompt.set(null);
+            return;
+          }
+          if (event.key !== "Tab") return;
+          const items = focusables();
+          if (items.length === 0) return;
+          const active = platform.document.activeElement ?? null;
+          const index = active === null ? -1 : items.indexOf(active);
+          const backwards = event.shiftKey === true;
+          const next = index < 0
+            ? items[backwards ? items.length - 1 : 0]
+            : items[(index + (backwards ? -1 : 1) + items.length) % items.length];
+          if (next !== undefined) {
+            event.preventDefault?.();
+            next.focus?.();
+          }
+        };
         platform.document.addEventListener("keydown", onKey);
-        return () => platform.document.removeEventListener("keydown", onKey);
+        return () => {
+          platform.document.removeEventListener("keydown", onKey);
+          previous?.focus?.();
+        };
       }, [request]);
 
       if (request === null) return null;
@@ -1902,6 +1937,7 @@ platform.window.__ModuleLoader__.load({
         h(
           "div",
           {
+            ref: dialogRef,
             role: "dialog",
             "aria-modal": "true",
             "aria-label": "选择 WSL 工作区的打开方式",

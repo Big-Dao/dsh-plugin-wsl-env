@@ -528,6 +528,8 @@ src/index.ts                 public provider exports
 src/wsl-shell.ts             WslShellExecutor (ctx.shell)
 src/wsl-filesystem.ts        WslFileSystem (ctx.fs)
 src/doctor-report.ts         in-process doctor collector used by the tool
+src/doctor-process.ts        the bounded doctor subprocess collector shared by the
+                             report and command runners
 src/provider-common.ts       distro, home, runtime and writable-root helpers
 src/listing.ts               pure directory listing and breadcrumb helpers
 src/messages.ts              the en/zh message catalogs and the host-locale wiring

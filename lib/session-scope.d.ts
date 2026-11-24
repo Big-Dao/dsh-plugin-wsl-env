@@ -20,6 +20,13 @@
  * @module dsh-plugin-wsl-env/session-scope
  */
 /**
+ * How long a `dsh-wsl-*.scope` may stay agent-less before the sweep may stop
+ * it. `systemd-run --scope` creates the unit before it execs the agent, so a
+ * scope that is merely starting has an empty cgroup for a moment; the sweep
+ * must not mistake that for a crash leftover.
+ */
+export declare const SCOPE_STARTUP_GRACE_SECONDS = 120;
+/**
  * Build the systemd user unit name for one session runtime.
  *
  * The caller supplies a token that is unique for the session (a random hex
@@ -95,6 +102,13 @@ export declare function sessionScopeProbeScript(): string;
  * The script only lists `dsh-wsl-*.scope` units and only stops the ones it
  * can prove stale; if there is no user manager it exits 0 (the session
  * preflight reports that condition separately).
+ *
+ * Two checks keep a scope that is still starting from being swept: an
+ * unreadable `cgroup.procs` says nothing (the cgroup may not exist yet), and
+ * a unit younger than {@link SCOPE_STARTUP_GRACE_SECONDS} is left alone —
+ * `systemd-run --scope` creates the unit before exec'ing the agent, so its
+ * `cgroup.procs` is briefly empty. Only a scope older than that with no agent
+ * in its cgroup is provably stale.
  *
  * @returns the shell script.
  */

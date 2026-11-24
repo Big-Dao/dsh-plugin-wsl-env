@@ -17,6 +17,9 @@ on:
 
 permissions:
   contents: read
+  # A weekly red run otherwise lives only in that run's step summary; keep a
+  # persistent reminder in the issue tracker instead.
+  issues: write
 
 # Two canaries at once would produce two divergent canary-summary.md deltas.
 concurrency:
@@ -47,3 +50,26 @@ jobs:
       - name: Publish the delta table
         if: always()
         run: cat canary-summary.md >> "$GITHUB_STEP_SUMMARY" || true
+      - name: Report the failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          {
+            echo "> **Warning:** the peer canary failed. The \`next\` peer line may have moved past the floor or broken the plugin."
+            echo
+            echo "Run: $run_url"
+            if [ -s canary-summary.md ]; then
+              echo
+              cat canary-summary.md
+            fi
+          } >canary-failure.md
+          title="peer-canary failed"
+          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body-file canary-failure.md
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file canary-failure.md
+          fi

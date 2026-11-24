@@ -251,6 +251,20 @@ if (POSIX) {
   console.log("PASS  default mode scopes resolve to the default distro");
 }
 
+// One distro spelled two ways is still one distro: facts, port timers and
+// snapshots are keyed by the listed name, not the session's casing.
+if (POSIX) {
+  const live = [{ session: { header: { cwd: "\\\\wsl.localhost\\ZE-UBUNTU\\home\\u" } } }];
+  const mounted = await mount({ withAgents: true, fakeWsl: true, config: { distro: "", portsRefreshMs: 3_600_000 }, liveAgents: live });
+  const resolve = /** @type {NonNullable<Contributor["resolve"]>} */ (mounted.registered[0]?.resolve);
+  const upper = resolve({ agent: { session: { header: { cwd: "\\\\wsl.localhost\\ZE-UBUNTU\\home\\u" } } } });
+  assert.equal(upper.DSH_WSL_DISTRO, "ze-ubuntu", "the listed spelling is canonical");
+  const lower = resolve({ agent: { session: { header: { cwd: "\\\\wsl.localhost\\ze-ubuntu\\home\\u" } } } });
+  assert.equal(lower.DSH_WSL_DISTRO, "ze-ubuntu");
+  mounted.restorePath();
+  console.log("PASS  case variants of one distro share one key");
+}
+
 // The agent/created listener and the live-agent sweep share `consider`: a
 // session inside scope warms facts and arms the port refresher, everything
 // else is dropped before any probe fires.

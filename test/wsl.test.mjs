@@ -1,18 +1,28 @@
 /**
  * Assertion checks for the `wsl.exe` interop primitives' spawning half: the
  * capture deadline that keeps a wedged WSL service from hanging a tool call
- * forever, and the abort path staying cancellation rather than looking like a
- * deadline.
- *
- * The resolution helpers around `runCapture` are thin argv builders covered by
- * the probe suite (`test/probe/*.sh`) against a real distro; only the deadline
- * semantics need a unit here. `process.execPath` plays the executable, so the
- * checks run on both platform families.
+ * forever, the abort path staying cancellation rather than looking like a
+ * deadline, and the process-level single-flight cache behind the distro's
+ * home and login-shell probes. `process.execPath` plays the executable, so the
+ * deadline checks run on both platform families; the cache checks need a
+ * POSIX-executable fake and skip on Windows.
  *
  *   node test/wsl.test.mjs
  */
 import assert from "node:assert/strict";
-import { runCapture, runCaptureRaw, DEFAULT_WSL_DEADLINE_MS, parseDistroList, parseHomePath } from "../lib/wsl.js";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  DEFAULT_WSL_DEADLINE_MS,
+  defaultShell,
+  linuxHomePath,
+  parseDistroList,
+  parseHomePath,
+  resetWslProbeCacheForTests,
+  runCapture,
+  runCaptureRaw,
+} from "../lib/wsl.js";
 
 /**
  * A Node child that outlives any deadline the checks use.
@@ -131,6 +141,101 @@ checks.push(["runCaptureRaw preserves NUL separators", async () => {
   const nul = ["/home/andy/a", "/home/andy/b", ""].join("\u0000");
   const out = await runCaptureRaw([process.execPath, "-e", `process.stdout.write(${JSON.stringify(nul)})`]);
   assert.equal(out, nul, "a find -print0 listing keeps its separators");
+}]);
+
+// ── the shared split cache behind the home/shell probes ──────────────────────
+
+const probeDir = mkdtempSync(join(tmpdir(), "dsh-wsl-probe-"));
+const fakeWsl = join(probeDir, "wsl.exe");
+writeFileSync(fakeWsl, `#!${process.execPath}
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.FAKE_WSL_LOG, args.join(" ") + "\\n");
+if (process.env.FAKE_WSL_FAIL === "1") { process.stderr.write("probe failed\\n"); process.exit(1); }
+const script = args[args.length - 1] ?? "";
+if (script.includes("getent")) { process.stdout.write(process.env.FAKE_WSL_SHELL ?? "/bin/bash"); process.exit(0); }
+if (script.includes("SHELL")) { process.stdout.write(process.env.FAKE_WSL_SHELL ?? "/bin/bash"); process.exit(0); }
+process.stdout.write(process.env.FAKE_WSL_HOME ?? "/home/andy");
+`);
+chmodSync(fakeWsl, 0o755);
+process.on("exit", () => rmSync(probeDir, { recursive: true, force: true }));
+
+/**
+ * Point the fake at a fresh log and clear the process-level probe cache.
+ * @returns {string} the log path.
+ */
+const freshProbeLog = () => {
+  resetWslProbeCacheForTests();
+  delete process.env.FAKE_WSL_FAIL;
+  const log = join(probeDir, "probe.log");
+  writeFileSync(log, "");
+  process.env.FAKE_WSL_LOG = log;
+  return log;
+};
+
+/**
+ * The fake's argv log as lines.
+ * @param {string} log - the log path.
+ * @returns {string[]} one entry per spawn.
+ */
+const probeLines = (log) => readFileSync(log, "utf8").split("\n").filter(Boolean);
+
+checks.push(["a distro's home is resolved once per process, not once per call site", async () => {
+  if (process.platform === "win32") {
+    console.log("SKIP  the process-level probe cache (the fake wsl.exe is a POSIX executable)");
+    return;
+  }
+  const log = freshProbeLog();
+  assert.equal(await linuxHomePath("ubuntu", { wslPath: fakeWsl }), "/home/andy");
+  assert.equal(await linuxHomePath("ubuntu", { wslPath: fakeWsl }), "/home/andy");
+  assert.equal(probeLines(log).length, 1, "the second call reused the shared probe");
+  assert.equal(await linuxHomePath("debian", { wslPath: fakeWsl }), "/home/andy");
+  assert.equal(probeLines(log).length, 2, "a different distro is its own probe");
+}]);
+
+checks.push(["concurrent callers share one in-flight probe", async () => {
+  if (process.platform === "win32") {
+    console.log("SKIP  single-flight (the fake wsl.exe is a POSIX executable)");
+    return;
+  }
+  const log = freshProbeLog();
+  const [first, second] = await Promise.all([
+    linuxHomePath("ubuntu", { wslPath: fakeWsl }),
+    linuxHomePath("ubuntu", { wslPath: fakeWsl }),
+  ]);
+  assert.equal(first, "/home/andy");
+  assert.equal(second, "/home/andy");
+  assert.equal(probeLines(log).length, 1, "the second caller joined the in-flight probe");
+}]);
+
+checks.push(["a failed home probe stays retryable", async () => {
+  if (process.platform === "win32") {
+    console.log("SKIP  failed-probe retry (the fake wsl.exe is a POSIX executable)");
+    return;
+  }
+  const log = freshProbeLog();
+  process.env.FAKE_WSL_FAIL = "1";
+  await assert.rejects(() => linuxHomePath("ubuntu", { wslPath: fakeWsl }), /probe failed/);
+  delete process.env.FAKE_WSL_FAIL;
+  assert.equal(await linuxHomePath("ubuntu", { wslPath: fakeWsl }), "/home/andy");
+  assert.equal(probeLines(log).length, 2, "the failure was not cached");
+}]);
+
+checks.push(["a confirmed login shell is cached, an unresolved one is retried", async () => {
+  if (process.platform === "win32") {
+    console.log("SKIP  the login-shell cache (the fake wsl.exe is a POSIX executable)");
+    return;
+  }
+  const log = freshProbeLog();
+  assert.equal(await defaultShell("ubuntu", { wslPath: fakeWsl }), "/bin/bash");
+  assert.equal(await defaultShell("ubuntu", { wslPath: fakeWsl }), "/bin/bash");
+  assert.equal(probeLines(log).length, 1, "the confirmed shell was resolved once");
+  process.env.FAKE_WSL_FAIL = "1";
+  resetWslProbeCacheForTests();
+  assert.equal(await defaultShell("debian", { wslPath: fakeWsl }), undefined, "both probes failed");
+  delete process.env.FAKE_WSL_FAIL;
+  assert.equal(await defaultShell("debian", { wslPath: fakeWsl }), "/bin/bash");
+  assert.equal(probeLines(log).length, 4, "the unresolved answer was not cached: two failed asks, then one retry");
 }]);
 
 for (const [name, fn] of checks) await check(name, fn);

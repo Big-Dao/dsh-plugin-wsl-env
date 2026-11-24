@@ -35,12 +35,15 @@ const records = {
 
 /** Live React roots, unmounted before the next scenario. */
 const roots = [];
+/** The current scenario's workspace-catalog mutator, exposed to Playwright. */
+let addWorkspace = (/** @type {{ workspaceId: string, path: string }} */ _item) => {};
 
 /** The slot name for each scenario kind. */
 const SLOTS = {
   banner: "conversation.input.dock",
   badge: "conversation.session.header.utilities",
   panel: "main",
+  overlay: "shell.overlay",
 };
 
 /**
@@ -99,11 +102,18 @@ const createCtx = (config) => {
   /** @type {any[]} */
   const menus = [];
   const settings = settingsService(config);
+  /** @type {{ phase: string, items: Array<{ workspaceId: string, path: string }> }} */
+  const snapshot = config.workspaceSnapshot ?? { phase: "ready", items: [] };
+  /** @type {Set<() => void>} */
+  const workspaceListeners = new Set();
   const services = {
     workspaces: {
       list: {
-        getSnapshot: () => config.workspaceSnapshot ?? { phase: "ready", items: [] },
-        subscribe: () => () => {},
+        getSnapshot: () => snapshot,
+        subscribe: (/** @type {() => void} */ listener) => {
+          workspaceListeners.add(listener);
+          return () => workspaceListeners.delete(listener);
+        },
       },
     },
     "remote.agentPresets": {
@@ -149,7 +159,12 @@ const createCtx = (config) => {
       }
     },
   };
-  return { ctx, registrations, menus };
+  /** @param {{ workspaceId: string, path: string }} item - one newly added workspace. */
+  const addWorkspace = (item) => {
+    snapshot.items.push(item);
+    for (const listener of workspaceListeners) listener();
+  };
+  return { ctx, registrations, menus, addWorkspace };
 };
 
 /** Unmount every root and clear the page before the next scenario. */
@@ -237,9 +252,11 @@ const render = (config = {}) => {
     if (name === "react") return React;
     throw new Error(`unexpected require(${name})`);
   });
-  const { ctx, registrations, menus } = createCtx(config);
+  const created = createCtx(config);
+  const { ctx, registrations } = created;
+  addWorkspace = created.addWorkspace;
   client.apply(ctx);
-  records.menus.push(...menus);
+  records.menus.push(...created.menus);
   const mounted = [];
   for (const kind of wanted) {
     const name = /** @type {Record<string, string>} */ (SLOTS)[kind];
@@ -256,4 +273,10 @@ const render = (config = {}) => {
   return { slots: mounted, menus: records.menus.length };
 };
 
-/** @type {any} */ (window).__E2E__ = { render, clear, records };
+/** @type {any} */ (window).__E2E__ = {
+  render,
+  clear,
+  records,
+  /** @param {{ workspaceId: string, path: string }} item - add one workspace and notify subscribers. */
+  addWorkspace: (item) => addWorkspace(item),
+};

@@ -4,11 +4,45 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    # Documentation-only changes cannot move the plugin, the composition or the
+    # probe suite; keep them from paying for a full Desktop build (#88).
+    paths: &gate-paths
+      - ".github/workflows/cloud-wsl-gate.yml"
+      - ".github/actions/provision-wsl/**"
+      - "src/**"
+      - "lib/**"
+      - "agent/**"
+      - "client.js"
+      - "client.d.ts"
+      - "cordis.patch.yml"
+      - "locale/**"
+      - "test/**"
+      - "scripts/**"
+      - "types/**"
+      - "examples/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "tsconfig.json"
+      - "tsconfig.build.json"
   pull_request:
     branches: [main]
+    paths: *gate-paths
 
 permissions:
   contents: read
+
+# One pinned upstream line, named once: the checkout ref, the Desktop build
+# version and the toolchain versions used to be repeated per step (#88).
+env:
+  HARNESS_REF: dsh-v0.2.2-rc.5
+  HARNESS_VERSION: "0.2.2-rc.5"
+  NODE_VERSION: "24.9.0"
+  PNPM_VERSION: "11.28.5"
+  # Bump this whenever the Desktop build inputs below change (the .env.windows
+  # content, the package script or the toolchain). It is the cache recipe's
+  # identity, separate from this workflow's unrelated steps.
+  DESKTOP_BUILD_RECIPE: "1"
 
 concurrency:
   group: cloud-desktop-wsl-${{ github.ref }}
@@ -28,25 +62,39 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: deepseek-ai/deepseek-harness
-          ref: dsh-v0.2.2-rc.5
+          ref: ${{ env.HARNESS_REF }}
           path: harness
           persist-credentials: false
 
+      # The upstream Desktop build is a pure function of the pinned ref and the
+      # build recipe below (the workflow file): cache the unpacked target so a
+      # PR that only touches the plugin does not spend ~10 minutes rebuilding
+      # it. A cache key's content is immutable, so a stale recipe cannot be
+      # reused — editing this workflow changes the key (#88).
+      - name: Restore the built Desktop
+        id: desktop-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: harness/apps/desktop/.desktop-build/targets/win-x64
+          key: dsh-desktop-win-x64-${{ runner.os }}-${{ env.HARNESS_REF }}-r${{ env.DESKTOP_BUILD_RECIPE }}
+
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24.9.0"
+          node-version: ${{ env.NODE_VERSION }}
 
       - run: corepack enable pnpm
 
       - name: Prepare upstream Harness toolchain
+        if: steps.desktop-cache.outputs.cache-hit != 'true'
         working-directory: harness
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          corepack prepare pnpm@11.28.5 --activate
+          corepack prepare pnpm@${{ env.PNPM_VERSION }} --activate
           pnpm install --frozen-lockfile --config.minimum-release-age=0
 
       - name: Build unsigned Windows Desktop
+        if: steps.desktop-cache.outputs.cache-hit != 'true'
         working-directory: harness
         shell: pwsh
         run: |
@@ -66,10 +114,18 @@ jobs:
           DSH_DESKTOP_WINDOWS_COMPRESSION_LEVEL=3
           "@
           Set-Content -LiteralPath "apps/desktop/.env.windows" -Value $envFile -Encoding utf8
-          pnpm run package:desktop:win:x64:dir -- --unsigned --build-version 0.2.2-rc.5
-          $exe = Get-ChildItem -Path "apps/desktop/.desktop-build/targets/win-x64" -Recurse -Filter "DeepSeek Harness.exe" |
+          pnpm run package:desktop:win:x64:dir -- --unsigned --build-version ${{ env.HARNESS_VERSION }}
+
+      # Runs on a cache hit too: the cached target is the build output, while
+      # the two paths every later step needs come from here either way.
+      - name: Locate the Desktop package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $target = "harness\apps\desktop\.desktop-build\targets\win-x64"
+          $exe = Get-ChildItem -Path $target -Recurse -Filter "DeepSeek Harness.exe" |
             Select-Object -First 1
-          if ($null -eq $exe) { throw "unsigned Windows Desktop executable was not produced" }
+          if ($null -eq $exe) { throw "unsigned Windows Desktop executable was not produced or restored: $target" }
           "DESKTOP_EXE=$($exe.FullName)" >> $env:GITHUB_ENV
           $appAsar = Join-Path $exe.DirectoryName "resources\app.asar"
           if (-not (Test-Path $appAsar)) { throw "desktop app.asar was not produced: $appAsar" }
@@ -77,25 +133,16 @@ jobs:
           if (-not (Test-Path $dshCommand)) { throw "desktop bundled dsh command was not produced: $dshCommand" }
           "DESKTOP_DSH=$dshCommand" >> $env:GITHUB_ENV
 
-      - name: Install Ubuntu 24.04 and bwrap
+      - name: Provision Ubuntu 24.04 and bwrap
+        uses: ./plugin/.github/actions/provision-wsl
+        with:
+          distro: Ubuntu-24.04
+          extra-packages: unzip
+
+      - name: Import the second probe distro
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          & wsl.exe --install -d Ubuntu-24.04 --no-launch --web-download
-          if ($LASTEXITCODE -ne 0) { throw "Ubuntu install failed: exit=$LASTEXITCODE" }
-          & wsl.exe -d Ubuntu-24.04 -u root --exec bash -lc "printf '[boot]\nsystemd=true\n' > /etc/wsl.conf"
-          if ($LASTEXITCODE -ne 0) { throw "Ubuntu systemd configuration failed: exit=$LASTEXITCODE" }
-          & wsl.exe --shutdown
-          if ($LASTEXITCODE -ne 0) { throw "WSL shutdown failed before probe setup: exit=$LASTEXITCODE" }
-          & wsl.exe --set-default Ubuntu-24.04
-          if ($LASTEXITCODE -ne 0) { throw "default distro selection failed: exit=$LASTEXITCODE" }
-          & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get update
-          if ($LASTEXITCODE -ne 0) { throw "apt-get update failed: exit=$LASTEXITCODE" }
-          & wsl.exe -d Ubuntu-24.04 -u root --exec apt-get install -y --no-install-recommends bubblewrap dbus git ca-certificates curl build-essential unzip
-          if ($LASTEXITCODE -ne 0) { throw "bwrap package install failed: exit=$LASTEXITCODE" }
-          & wsl.exe -d Ubuntu-24.04 -u root --exec loginctl enable-linger root
-          if ($LASTEXITCODE -ne 0) { throw "Ubuntu linger setup failed: exit=$LASTEXITCODE" }
-
           $secondDistro = "Ubuntu-24.04-probe"
           $secondRoot = Join-Path $env:GITHUB_WORKSPACE "cloud-probe-distro"
           New-Item -ItemType Directory -Force -Path $secondRoot | Out-Null
@@ -140,7 +187,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          corepack prepare pnpm@11.28.5 --activate
+          corepack prepare pnpm@${{ env.PNPM_VERSION }} --activate
           Push-Location "${{ github.workspace }}\plugin"
           try {
             pnpm install --frozen-lockfile --config.minimum-release-age=0
@@ -156,8 +203,10 @@ jobs:
           & robocopy $source $mirror /E /XD .git node_modules test\probe\.scratch .v2c .video_agent
           if ($LASTEXITCODE -gt 7) { throw "runtime mirror copy failed: exit=$LASTEXITCODE" }
 
-          & wsl.exe -d Ubuntu-24.04 --exec bash -lc "set -eu; export FNM_DIR=`"`$HOME/.local/share/fnm`"; curl -fsSL https://fnm.vercel.app/install | bash -s -- --skip-shell; `"`$FNM_DIR/fnm`" install 24.9.0"
-          if ($LASTEXITCODE -ne 0) { throw "Ubuntu Node 24.9.0 installation failed: exit=$LASTEXITCODE" }
+          # Pin the installer instead of `curl | bash`: v1.39.0, sha256 from the
+          # release asset. The archive holds a bare `fnm` binary.
+          & wsl.exe -d Ubuntu-24.04 --exec bash -lc 'set -euo pipefail; export FNM_DIR="$HOME/.local/share/fnm"; mkdir -p "$FNM_DIR"; tmp="$(mktemp -d)"; trap "rm -rf $tmp" EXIT; curl -fsSL --retry 3 -o "$tmp/fnm-linux.zip" https://github.com/Schniz/fnm/releases/download/v1.39.0/fnm-linux.zip; printf "%s  %s\n" "7807664f39d39fc518da1c35ba0181e4b3267603c4b1dedeb4b5fc6ae440a224" "$tmp/fnm-linux.zip" | sha256sum -c -; unzip -q -o "$tmp/fnm-linux.zip" -d "$tmp"; install -m 0755 "$tmp/fnm" "$FNM_DIR/fnm"; "$FNM_DIR/fnm" install ${{ env.NODE_VERSION }}'
+          if ($LASTEXITCODE -ne 0) { throw "Ubuntu Node ${{ env.NODE_VERSION }} installation failed: exit=$LASTEXITCODE" }
 
           & "$env:DESKTOP_DSH" wslfs --from-default-profile web --dump-config
           if ($LASTEXITCODE -ne 0) { throw "wslfs profile initialization failed" }
@@ -269,7 +318,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "hosted terminal distro prewarm failed" }
           if ($prewarmOutput -join "`n" -notmatch "HOSTED-TERMINAL-PREWARM-OK") { throw "hosted terminal distro prewarm lacked marker" }
 
-          & wsl.exe -d Ubuntu-24.04 -u root --exec bash -lc "set -euo pipefail; echo HOSTED-PROBE-STAGING-OK; hosted_repo=`"`$HOME/dsh-hosted-plugin`"; rm -rf `"`$hosted_repo`"; mkdir -p `"`$hosted_repo`"; tar -C '$workspace' --exclude=./.git --exclude=./test/probe/.scratch -cf - . | tar -C `"`$hosted_repo`" -xf -; cd `"`$hosted_repo`"; export FNM_DIR=`"`$HOME/.local/share/fnm`"; eval `"`$(`"`$FNM_DIR/fnm`" env --shell bash)`"; `$FNM_DIR/fnm use 24.9.0 >/dev/null; bash test/probe/run-all-when-closed.sh --include-fs --wait-only"
+          & wsl.exe -d Ubuntu-24.04 -u root --exec bash -lc "set -euo pipefail; echo HOSTED-PROBE-STAGING-OK; hosted_repo=`"`$HOME/dsh-hosted-plugin`"; rm -rf `"`$hosted_repo`"; mkdir -p `"`$hosted_repo`"; tar -C '$workspace' --exclude=./.git --exclude=./test/probe/.scratch -cf - . | tar -C `"`$hosted_repo`" -xf -; cd `"`$hosted_repo`"; export FNM_DIR=`"`$HOME/.local/share/fnm`"; eval `"`$(`"`$FNM_DIR/fnm`" env --shell bash)`"; `$FNM_DIR/fnm use ${{ env.NODE_VERSION }} >/dev/null; bash test/probe/run-all-when-closed.sh --include-fs --wait-only"
           $probeStatus = $LASTEXITCODE
 
           & wsl.exe -d Ubuntu-24.04 -u root --exec bash -lc "set -eu; hosted_repo=`"`$HOME/dsh-hosted-plugin`"; log=`"`$(ls -t `"`$hosted_repo`"/test/probe/.scratch/full-probe.*.log 2>/dev/null | head -1)`"; results=`"`$(ls -t `"`$hosted_repo`"/test/probe/.scratch/full-probe.*.results 2>/dev/null | head -1)`"; test -n `"`$log`"; test -n `"`$results`"; cp -f `"`$log`" '$workspace/cloud-probe-full.log'; cp -f `"`$results`" '$workspace/cloud-probe-results.txt'; cp -a `"`$hosted_repo`"/test/probe/*-report.txt '$workspace/test/probe/' 2>/dev/null || true"

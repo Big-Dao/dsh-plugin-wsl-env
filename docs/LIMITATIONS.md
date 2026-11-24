@@ -127,6 +127,14 @@ the distro's:
   [COMPATIBILITY.md](COMPATIBILITY.md#scope-decisions)). `auto` still selects the
   packaged binary; `native` refuses on preparation failure; `shell` forces the shell
   agent.
+- **The hosted cloud WSL gate runs the full probe suite as the distro's root
+  user** — `.github/workflows/cloud-wsl-gate.yml` executes
+  `run-all-when-closed.sh` through `-u root` and enables linger for root only. A
+  real deployment uses an ordinary distro user: the unprivileged user namespace,
+  the user-level systemd manager and its linger are a different path, so passing
+  as root does not prove the non-root path. That path stays with the
+  maintainer-run real-machine probes; this gate does not claim to cover it
+  (#88).
 - **The session runtime needs systemd and a lingering user manager** — refused on the
   first command with the remedy otherwise; `sessionSandbox` set to `auto`
   (per-command without systemd) or `false` keeps the old per-command shape.

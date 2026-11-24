@@ -128,7 +128,11 @@ CDN's exact-version path
 (`download.deepseek.com/dsh-desk/bin/win-x64/deepseek-harness-<version>-win-x64.exe`);
 the CDN publishes no checksum object, so the smoke records the downloaded
 file's sha256 instead of verifying a published one, and requires `dsh
---version` to report the exact requested version. The smoke identifies the
+--version` to report the exact requested version. Before executing it, the
+smoke also requires a `Valid` Authenticode signature whose signer CN is
+`Hangzhou DeepSeek Artificial Intelligence Co., Ltd.` (overridable through
+`DSH_OFFICIAL_HARNESS_SIGNER`); the download and the silent install each have
+a 600-second ceiling. The smoke identifies the
 package by its tarball/registry identity (name, version, sha512);
 `--dump-config` proves the profile composes the plugin with no skipped
 entries, and the through-plugin probe (`test/probe/official-smoke-probe.mjs`)
@@ -149,8 +153,12 @@ in this order:
 2. Runs the official-Harness candidate smoke on Windows
    (`candidate-package-smoke`). Publish depends on this job, so a failing
    candidate blocks the release.
-3. Runs `pnpm test`, `pnpm run test:coverage`, and the shipped x86_64 and
-   aarch64 native-agent tests (the latter under QEMU).
+3. Runs the source gates in the separate read-only `gates` job, in parallel
+   with the Windows smoke: `pnpm test`, `pnpm run test:coverage`, the browser
+   suite, and the shipped x86_64 and aarch64 native-agent tests (the latter
+   under QEMU). Keeping this job away from publish means the write/OIDC
+   credentials never sit beside test code, and a red gate is reported without
+   waiting for the 45-minute Windows job.
 4. Downloads the `candidate-package` artifact, verifies its sha512 integrity
    and `pack.json` identity equal the pack job's outputs, asks the registry
    whether this version is already published, and skips the upload when it
@@ -159,7 +167,7 @@ in this order:
 5. Publishes the downloaded candidate tarball with
    `npm publish <tgz> --provenance --access public`. That attaches a signed
    attestation tying the tarball to this workflow run and this commit. A
-   tarball publish runs no lifecycle scripts; the Gates step has already run
+   tarball publish runs no lifecycle scripts; the gates job has already run
    the full chain. A hand-run publish from the package directory keeps the
    `prepublishOnly` hook as its safety net.
 6. Reads back what the registry serves (integrity, file count, README name)

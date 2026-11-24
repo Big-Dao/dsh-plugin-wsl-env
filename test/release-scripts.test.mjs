@@ -305,6 +305,17 @@ check("release publish requires the candidate official-harness package smoke", (
   assert.match(release, /^permissions:\s*\n\s+contents: read\s*\n/m);
   const publishJob = release.slice(release.indexOf("  publish:"), release.indexOf("  post-release-package-smoke:"));
   assert.match(publishJob, /permissions:\s*\n\s*contents: write\s*\n\s*id-token: write/);
+  // The source gates are a separate read-only job, defined before publish and
+  // required by it, so publish cannot be blocked behind the Windows smoke's
+  // 45-minute ceiling and no write/OIDC token sits beside test code (#87).
+  const gatesJob = release.slice(release.indexOf("  gates:"), release.indexOf("  publish:"));
+  assert.match(gatesJob, /permissions:\s*\n\s*contents: read/);
+  assert.match(gatesJob, /pnpm test && pnpm run test:coverage && pnpm run test:browser/);
+  assert.doesNotMatch(gatesJob, /id-token: write/);
+  assert.match(publishJob, /needs:[\s\S]*?- gates/);
+  // Publishing plus the 10-minute registry poll no longer shares the gates'
+  // budget (#87).
+  assert.match(publishJob, /timeout-minutes: 20/);
   // A dispatch run is the candidate smoke's dry run: publish and post-release
   // only run for a tag push, and the tag checks only run then too.
   assert.match(release, /workflow_dispatch/);

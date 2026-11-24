@@ -126,6 +126,41 @@ jobs:
           path: test/probe/.scratch/
           include-hidden-files: true
           if-no-files-found: error
+  # The full source gate is read-only and deliberately separate from publish:
+  # it executes test code, installs Chromium and (through apt) qemu, so it must
+  # not run beside `contents: write` / `id-token: write`. Defining it as its own
+  # job also starts it at the same time as the Windows smoke instead of after
+  # that job's 45-minute ceiling, so a red test is known early (#87).
+  gates:
+    name: source gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: corepack enable pnpm
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: "pnpm"
+      - name: Install
+        run: pnpm install --frozen-lockfile --config.minimum-release-age=0
+      # The browser gate needs a downloaded browser; --with-deps installs its
+      # shared libraries on the hosted runner.
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Gates
+        run: pnpm test && pnpm run test:coverage && pnpm run test:browser
+      - name: Test shipped native agents
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-user qemu-user-binfmt
+          node agent/native/spike/test.mjs agent/native/linux-x86_64/dsh-wsl-agent
+          node agent/native/spike/test.mjs agent/native/linux-aarch64/dsh-wsl-agent
   publish:
     name: publish and release
     # A manual dispatch is the candidate smoke's dry run: it stops before any
@@ -134,8 +169,13 @@ jobs:
     needs:
       - candidate-package-smoke
       - pack-candidate
+      - gates
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Publishing plus the registry read-back is far below this; the 10-minute
+    # propagation window used to share a 15-minute budget with the source
+    # gates, which made a slow but successful publish look like a timeout
+    # (#87). Gates now live in their own job.
+    timeout-minutes: 20
     # The environment is npm's trusted-publishing binding (repository + workflow
     # file + environment) and the audit anchor for each run. Required reviewers
     # are deliberately NOT configured: this is a single-maintainer repository and
@@ -159,33 +199,11 @@ jobs:
           cache: "pnpm"
       - name: Tag matches the package version
         run: node scripts/check-release-tag.mjs "$GITHUB_REF_NAME"
-      # The gates import pinned dev dependencies (the composition and boot tests
-      # run the loader's real patch algorithm); `pnpm install --frozen-lockfile`
-      # reproduces the locked tree.
-      #
-      # pnpm 11.7's lockfile supply-chain re-verification ignores the
-      # `minimumReleaseAgeExclude` list in pnpm-workspace.yaml (the exact list
-      # passed on the command line IS honored in small batches but behaves
-      # erratically in bulk), so a fresh pin that is under 24h old fails the
-      # install with ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION. The pins are
-      # exact release candidates the maintainers choose deliberately — the
-      # exclusion IS the policy — so install runs with the age window off;
-      # the tarball-URL binding and trust checks stay active. Revisit when
-      # pnpm reads the yaml list again.
-      - name: Install
-        run: pnpm install --frozen-lockfile --config.minimum-release-age=0
-      # The browser gate needs a downloaded browser; --with-deps installs its
-      # shared libraries on the hosted runner.
-      - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
-      - name: Gates
-        run: pnpm test && pnpm run test:coverage && pnpm run test:browser
-      - name: Test shipped native agents
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends qemu-user qemu-user-binfmt
-          node agent/native/spike/test.mjs agent/native/linux-x86_64/dsh-wsl-agent
-          node agent/native/spike/test.mjs agent/native/linux-aarch64/dsh-wsl-agent
+      # The source gates (installing the pinned dev dependencies, tests,
+      # coverage, browser and native agents) run in the read-only `gates` job.
+      # Keeping them out of this job is what lets publish stay a
+      # checksum-and-upload step with only write permissions; the scripts used
+      # here need Node builtins only.
       # The bytes that passed the smoke are the bytes that ship: download the
       # candidate tarball packed once on Linux (no repack) and require its
       # sha512 integrity and pack metadata to equal the pack job's outputs.
@@ -233,7 +251,7 @@ jobs:
         # scripts/check-release-tag.mjs: `--dist-tag` answers `next` for ANY
         # prerelease segment, where the list of identifiers this step used to
         # grep for let `0.30.0-preview.1` through to `latest`. Publishing a
-        # tarball path runs no lifecycle scripts, and the Gates step has
+        # tarball path runs no lifecycle scripts, and the gates job has
         # already run the full chain.
         # The ./ prefix is load-bearing: a bare owner/name-shaped relative
         # path is parsed as a GitHub slug and npm dies in `git ls-remote`

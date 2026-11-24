@@ -124,6 +124,10 @@ test("scripts keep the behavior contract", () => {
   const ps = read("../scripts/official-harness-smoke.ps1");
   for (const needle of [
     "Get-FileHash",
+    "Get-AuthenticodeSignature",
+    "DSH_SMOKE_INSTALLER_SIGNER",
+    "-TimeoutSec 600",
+    "WaitForExit(600000)",
     "/S",
     "plugin",
     "--dump-config",
@@ -145,6 +149,11 @@ test("scripts keep the behavior contract", () => {
     assert.ok(ps.includes(needle), needle);
   }
   assert.doesNotMatch(ps, /Smoke test passed/);
+  // The signer the CDN installer is checked against travels with the smoke;
+  // an unsigned or foreign-signed binary is never executed.
+  const smokeMjs = read("../scripts/official-harness-smoke.mjs");
+  assert.match(smokeMjs, /DEFAULT_INSTALLER_SIGNER = "Hangzhou DeepSeek Artificial Intelligence Co\., Ltd\."/);
+  assert.match(smokeMjs, /DSH_SMOKE_INSTALLER_SIGNER: String\(env\.DSH_OFFICIAL_HARNESS_SIGNER \?\? DEFAULT_INSTALLER_SIGNER\)/);
   const probe = read("../test/probe/official-smoke-probe.mjs");
   for (const needle of ["workspace-write", "denied", "RESULT: all steps passed", "wsl.localhost"]) {
     assert.ok(probe.includes(needle), needle);

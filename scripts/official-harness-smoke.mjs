@@ -21,6 +21,14 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const RESULTS_FILE = join(ROOT, "test", "probe", ".scratch", "official-harness-smoke.results");
 export const CDN_BASE = "https://download.deepseek.com/dsh-desk/bin/win-x64";
 export const PACKAGE_NAME = "dsh-plugin-wsl-env";
+/**
+ * The signer the official Windows installer is expected to carry. The CDN
+ * publishes no checksum and no sidecar signature, so Authenticode is the
+ * publisher-identity check available for the bytes that get executed. The
+ * subject is pinned rather than matched loosely: a new certificate subject is a
+ * release-readiness change that must be reviewed, not silently accepted.
+ */
+export const DEFAULT_INSTALLER_SIGNER = "Hangzhou DeepSeek Artificial Intelligence Co., Ltd.";
 const REQUIRED_ENV = [
   "DSH_OFFICIAL_HARNESS_VERSION",
   "DSH_PLUGIN_PACKAGE_TARBALL",
@@ -96,6 +104,9 @@ export async function resolveInstaller(version, fetchImpl = /** @type {Fetch} */
   const res = await fetchImpl(url, {
     method: "HEAD",
     headers: { "User-Agent": "dsh-plugin-wsl-env-smoke" },
+    // A HEAD that never answers would hold the whole smoke past its job
+    // timeout with no diagnostic; 30s is far beyond any healthy CDN response.
+    signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) throw new Error(`official installer for ${version} not resolvable at ${url} (HTTP ${res.status})`);
   return /** @type {Installer} */ ({ name, url, sha256: "", checksumUrl: "" });
@@ -209,6 +220,7 @@ export async function run(env = process.env, platform = process.platform) {
         DSH_SMOKE_INSTALLER_NAME: installer.name,
         DSH_SMOKE_INSTALLER_SHA256: installer.sha256,
         DSH_SMOKE_CHECKSUM_URL: installer.checksumUrl,
+        DSH_SMOKE_INSTALLER_SIGNER: String(env.DSH_OFFICIAL_HARNESS_SIGNER ?? DEFAULT_INSTALLER_SIGNER),
         DSH_SMOKE_PACKAGE_IDENTITY: pkg.identity,
         DSH_SMOKE_CHECKS_FILE: checksFile,
       },

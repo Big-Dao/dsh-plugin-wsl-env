@@ -23,6 +23,12 @@ Post-release gate: 每个 stable/next tag 在 registry 传播后
 - 官方 Harness 安装包从官方 CDN 的精确版本路径解析
   （`download.deepseek.com/dsh-desk/bin/win-x64/deepseek-harness-<version>-win-x64.exe`）；
   CDN 不提供官方 checksum，smoke 记录下载文件的 sha256 作为证据而非比对。
+  执行前还校验 Authenticode：签名状态必须为 `Valid`，签署者 CN 必须是
+  `Hangzhou DeepSeek Artificial Intelligence Co., Ltd.`（可用
+  `DSH_OFFICIAL_HARNESS_SIGNER` 覆盖）；下载与静默安装各设 600 秒上限。
+- 源码门禁（`pnpm test`、覆盖率、浏览器与原生 agent）在独立的只读 `gates` 任务
+  中与 Windows smoke 并行执行；publish 只做 tarball 校验、发布与 registry 回读，
+  预算 20 分钟（含最长 10 分钟的传播轮询）。
 - smoke 用 `dsh --version` 验证实际安装版本等于请求版本；两个 Windows 任务在
   smoke 前均先经 `.github/actions/provision-wsl` 安装 distro 与 WSL 前置依赖。
 - smoke 以 tarball/registry 身份（名称、版本、sha512）标识包；`--dump-config`

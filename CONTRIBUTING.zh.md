@@ -185,6 +185,8 @@ import 固定版本 `@deepseek-ai/*` 包的测试也进入同样的列表，无�
 
 凡是存在无 peer 的接缝，优先使用它。`test/sandbox.test.mjs` 针对 `lib/sandbox-core.js` 运行，并用一个替身代替 peer 的 `SandboxUnavailableError` 契约，这样 `lib/sandbox.js` 中只剩一行 peer 绑定。那一行由 harness 探针覆盖——它们启动插件，从而通过 `lib/index.js` 到达 `WslSandbox`——而不是由 `probe:sandbox` 覆盖，后者只从 `lib/bwrap.js` 读取参数构建器。无法在所有环境运行的测试必须自行跳过——打印一行 `SKIP` 并以 0 退出——就像该文件在 `win32` 上的做法，在那里它的 fake `wsl.exe`（一个 POSIX 脚本）无法执行。
 
+脚本式套件里的单条检查经 `test/skip.mjs` 延后：检查体确认本机跑不了时调用 `skip("<原因>")`（它会抛出，其后的代码不再执行），由共享的 `runCheck` 打印带原因的 `SKIP` 行，汇总行（`summaryLine` / `skipNote`）写出 `(N skipped: <原因>)`。不要用提前 `return` 代替——runner 在函数返回后打印 PASS，这样的检查在日志里是绿的，实际从未运行；Windows CI 上宿主真实 cancel 路径的唯一单测曾长期如此。跳过要带具体原因：一次跳过若让某条行为在所有环境都没有单测，应先问这条检查能否改成在所有环境运行（例如把 inotify 目录监听换成文件目标）。
+
 ### 浏览器 E2E
 
 `test/browser/e2e.test.mjs` 用 React 打包 `client.js`，并在无头 Chromium 中挂载真实的 slot 组件。它负责 Node 测试套件看不到的内容：计算后的布局、可见性、真实点击，以及跨两个已挂载组件的效果时序（从 banner 到 header badge 的“收起”交接）。它不启动 Desktop shell；失败指向插件的 web bundle，而不是宿主。

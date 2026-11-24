@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { mock } from "node:test";
+import { newTally, runCheck, skip, summaryLine } from "./skip.mjs";
 import { AGENT_NAME, PROTOCOL_VERSION, encodeB64, MIN_PROTOCOL_VERSION } from "../lib/agent-protocol.js";
 import { AgentRequestStateUnknownError, AgentUnavailableError, CwdError, SpawnError } from "../lib/agent-errors.js";
 import { WslAgent, agentLeaseEnv, pinnedWindowsEnv } from "../lib/agent.js";
@@ -22,21 +23,15 @@ import { effectiveMaskWindowsDrive } from "../lib/index.js";
 import { confinedAgent, resetConfinedAgents, runSpawnChecklist, spawnChecklistScript } from "../lib/agent-confined.js";
 import { bwrapProfileArgs } from "../lib/bwrap.js";
 
-let passed = 0;
+/** The suite's totals: a check this host cannot run counts as skipped, never as passed. */
+const tally = newTally();
 /**
  * Runs one check now, printing its verdict; a throw fails the process exit code.
  * @param {string} name - the check's name.
  * @param {() => void | Promise<void>} fn - the check's assertions.
  */
 const check = async (name, fn) => {
-  try {
-    await fn();
-    passed += 1;
-    console.log(`PASS  ${name}`);
-  } catch (error) {
-    console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
-    process.exitCode = 1;
-  }
+  await runCheck(name, fn, tally);
 };
 
 /** @type {Array<[string, () => void | Promise<void>]>} */
@@ -1380,6 +1375,9 @@ checkReg("a PID-namespaced resident is never signalled by its HELLO pid", async 
   await flush();
   controller.abort(new Error("stop"));
   await run;
+  // The out-of-band USR1 is deliberately delayed; asserting before it could
+  // fire would pass no matter whom the agent signals.
+  await settleCancel();
   assert.equal(signals.length, 0, "the confined resident's namespace PID is not addressable");
   await agent.close();
 });
@@ -1412,7 +1410,7 @@ checkReg("a prefixed but PID-shared session runtime is signalable", async () => 
 });
 
 checkReg("the default signal path runs a second wsl.exe with the cancel argv", async () => {
-  if (process.platform === "win32") return;
+  if (process.platform === "win32") skip("the fake wsl.exe is a POSIX script");
   const dir = mkdtempSync(join(tmpdir(), "wsl-signal-"));
   try {
     const record = join(dir, "argv");
@@ -1673,4 +1671,4 @@ for (const [name, fn] of checks) {
   await check(name, fn);
 }
 
-console.log(`\n${passed} agent lifecycle checks pass`);
+console.log(`\n${summaryLine(tally, "agent lifecycle")}`);

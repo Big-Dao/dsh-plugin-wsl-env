@@ -20,7 +20,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { configureAgentBackend } from "../lib/native-agent.js";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -28,13 +28,15 @@ import { FsError, FsTargetKey } from "@deepseek-ai/dsh-fs";
 import { SandboxUnavailableError } from "@deepseek-ai/dsh-sandbox";
 import { WslShellExecutor, WslFileSystem } from "../lib/index.js";
 import { resetSocketIsolationCache } from "../lib/socket-isolation.js";
+import { newTally, runCheck, skip, skipNote } from "./skip.mjs";
 import shellEntry, { WslShellExecutor as ShellEntryNamed } from "../lib/shell.js";
 import fsEntry, { WslFileSystem as FsEntryNamed } from "../lib/fs.js";
 import { FsCodedError } from "../lib/fsio-text.js";
 import { WslAgent } from "../lib/agent.js";
 import { SessionRuntimes } from "../lib/session-runtime.js";
 
-let passed = 0;
+/** The suite's totals: a check this host cannot run counts as skipped, never as passed. */
+const tally = newTally();
 /** @type {Array<[string, () => void | Promise<void>]>} */
 const checks = [];
 /**
@@ -47,33 +49,16 @@ const check = (name, fn) => checks.push([name, fn]);
  * `check` for the checks whose fixture is a `#!/bin/sh` stand-in for `wsl.exe`.
  * Only a POSIX host can spawn such a file; on Windows the executor's probe gets
  * `spawn UNKNOWN` and the check would report a fixture failure, not a product
- * one. The Windows leg prints a skip instead — the covered arms are POSIX-side
- * probe plumbing that the Linux legs and the coverage job already measure.
+ * one. The body defers there (`skip`), so the runner prints SKIP with the
+ * reason and the summary counts it — the covered arms are POSIX-side probe
+ * plumbing that the Linux legs and the coverage job already measure.
  * @param {string} name - the check's name.
  * @param {() => void | Promise<void>} fn - the check's assertions.
  */
-const checkPosix = (name, fn) => {
-  if (process.platform === "win32") {
-    console.log(`SKIP  ${name} (the fake wsl.exe is a POSIX script)`);
-    return;
-  }
-  check(name, fn);
-};
-/**
- * Runs one check now, printing its verdict; a throw fails the process exit code.
- * @param {string} name - the check's name.
- * @param {() => void | Promise<void>} fn - the check's assertions.
- */
-const runCheck = async (name, fn) => {
-  try {
-    await fn();
-    passed += 1;
-    console.log(`PASS  ${name}`);
-  } catch (error) {
-    console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
-    process.exitCode = 1;
-  }
-};
+const checkPosix = (name, fn) => check(name, () => {
+  if (process.platform === "win32") skip("the fake wsl.exe is a POSIX script");
+  return fn();
+});
 
 const DISTRO = "ubuntu";
 const WORKSPACE = "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj";
@@ -1549,13 +1534,23 @@ check("the package entry points re-export the composed classes", () => {
 
 /**
  * A `wsl.exe` stand-in for the fact probes the executor makes directly through
- * its configured `wslPath`: the passwd shell and the distro home. Everything
- * else fails fast, so a stray resident spawn cannot hang the suite.
+ * its configured `wslPath`: the passwd shell and the distro home. It also
+ * plays the watcher's loop (its pid, then readiness, then idle until the host
+ * kills it) and the stopper that follows a close; with `DSH_FAKE_LOG` set,
+ * both record their argv there — one spawn per record, arguments separated by
+ * \x1f and records by \x1e, since the loop's own script argument spans lines —
+ * which is how a check proves what the provider armed. Everything else fails
+ * fast, so a stray resident spawn cannot hang the suite.
  */
 const factBin = mkdtempSync(join(tmpdir(), "dsh-wsl-facts-"));
 const FACT_WSL = `#!/bin/sh
 if [ "\$1" = "-l" ]; then echo ze-ubuntu; exit 0; fi
-for arg in "$@"; do
+log() { [ -z "\${DSH_FAKE_LOG:-}" ] || { printf '%s\\037' "\$@" >> "\$DSH_FAKE_LOG"; printf '\\036' >> "\$DSH_FAKE_LOG"; }; }
+case "\$*" in
+  *wsl-watch*) log "\$@"; printf 'P %s\\nR\\n' "\$\$"; exec sleep 60 ;;
+  *'kill -TERM'*) log "\$@"; exit 0 ;;
+esac
+for arg in "\$@"; do
   case "\$arg" in *getent*) echo /bin/zsh; exit 0 ;; esac
   case "\$arg" in *HOME*) echo /home/ze-user; exit 0 ;; esac
 done
@@ -1936,19 +1931,102 @@ check("the v7 mutation wrappers fence through checkedTarget and ride the substra
   }
 });
 
-check("watch arms the distro watcher for an in-distro target", async () => {
-  const { fs } = makeFs({ wslPath: join(factBin, "wsl.exe") }); // the fake fails the watch spawn fast
-  const target = { displayPath: "/home/andy/proj", targetKey: FsTargetKey(WORKSPACE) };
-  const controller = new AbortController();
-  await assert.rejects(
-    () => fs.watch(target, () => {}, controller.signal),
-    (error) => error instanceof Error,
-    "the watcher surfaces its spawn failure instead of watching nothing",
-  );
+check("every mutation wrapper fences first: a refused target never reaches the substrate", async () => {
+  const hunks = [{ lineNumber: 1, oldLines: ["one"], newLines: ["two"], isEndOfFile: false }];
+  /** A target inside the workspace, as the fence's re-resolve hands it back. */
+  const inside = { displayPath: "/home/andy/proj/a.ts", targetKey: FsTargetKey(`${WORKSPACE}\\a.ts`) };
+  /** A target outside every writable root. */
+  const outside = { displayPath: "/etc/passwd", targetKey: FsTargetKey("\\\\wsl.localhost\\ubuntu\\etc\\passwd") };
+  /**
+   * The fence's verdicts a check can ask for.
+   * @typedef {{ mode: "read-only" | "workspace-write" | "danger-full-access", workspaceRoot: string }} FencePolicy
+   */
+  /**
+   * One mutation route: the provider's call, and the substrate methods it would reach.
+   * @typedef {(fs: WslFileSystem, target: { displayPath: string, targetKey: FsTargetKey }, policy: FencePolicy) => Promise<unknown>} Mutation
+   */
+  /** @type {Array<[string, Mutation, string[]]>} */
+  const mutations = [
+    ["writeText", (fs, target, policy) => fs.writeText(target, "x", undefined, undefined, policy), ["writeText"]],
+    ["editText", (fs, target, policy) => fs.editText(target, { oldString: "a", newString: "b", replaceAll: false }, undefined, undefined, policy), ["editText"]],
+    ["patchText", (fs, target, policy) => fs.patchText(target, hunks, undefined, undefined, policy), ["patchText"]],
+    ["deleteFile", (fs, target, policy) => fs.deleteFile(target, undefined, undefined, policy), ["deleteFile"]],
+    ["moveFile, source refused", (fs, target, policy) => fs.moveFile(target, inside, {}, undefined, policy), ["moveFile"]],
+    ["moveFile, destination refused", (fs, target, policy) => fs.moveFile(inside, target, {}, undefined, policy), ["moveFile"]],
+  ];
+  /** Script the substrate so it records every route it is asked for. */
+  const wired = (/** @type {string[]} */ routes) => {
+    const made = makeFs();
+    /** @type {string[]} */
+    const reached = [];
+    const methods = methodTable(made.substrate);
+    for (const route of routes) methods[route] = async () => { reached.push(route); return {}; };
+    return { ...made, reached };
+  };
+  /** @type {Array<[string, FencePolicy, { displayPath: string, targetKey: FsTargetKey }]>} */
+  const refusals = [
+    ["workspace-write, target outside every writable root", { mode: "workspace-write", workspaceRoot: WORKSPACE }, outside],
+    ["read-only, target inside the workspace", { mode: "read-only", workspaceRoot: WORKSPACE }, inside],
+  ];
+  for (const [scenario, policy, target] of refusals) {
+    for (const [name, mutate, routes] of mutations) {
+      const { fs, reached } = wired(routes);
+      await assert.rejects(
+        () => mutate(fs, target, policy),
+        (error) => /** @type {{ code?: string }} */ (error).code === "FS_SANDBOX_DENIED",
+        `${scenario}: ${name} refuses with the sandbox code`,
+      );
+      assert.deepEqual(reached, [], `${scenario}: ${name} never reaches the substrate`);
+    }
+  }
+  // The control: under an allowing policy each route does reach its stub, so
+  // the refusals above are the fence's doing, not a stub wired to nothing.
+  for (const [name, mutate, routes] of mutations) {
+    const { fs, reached } = wired(routes);
+    await mutate(fs, inside, { mode: "workspace-write", workspaceRoot: WORKSPACE });
+    assert.deepEqual(reached, routes, `${name} reaches its substrate under an allowing policy`);
+  }
 });
 
-let failed = 0;
-for (const [name, fn] of checks) await runCheck(name, fn);
-failed = checks.length - passed;
-console.log(`\n${passed}/${checks.length} provider checks pass`);
+check("watch arms the distro watcher for an in-distro target", async () => {
+  // The real `armDistroWatcher` over the fake `wsl.exe`: what the provider
+  // armed is what the fake was asked to run.
+  const log = join(factBin, "watch-argv.log");
+  rmSync(log, { force: true });
+  const savedLog = process.env.DSH_FAKE_LOG;
+  process.env.DSH_FAKE_LOG = log;
+  try {
+    const { fs } = makeFs({ wslPath: join(factBin, "wsl.exe") });
+    const target = { displayPath: "/home/andy/proj", targetKey: FsTargetKey(WORKSPACE) };
+    const controller = new AbortController();
+    /** @type {Array<Error | undefined>} */
+    const reports = [];
+    /** Every spawn the fake saw, one argv each. */
+    const spawns = () => (existsSync(log) ? readFileSync(log, "utf8").split("\x1e").filter((record) => record.length > 0).map((record) => record.replace(/\x1f$/, "").split("\x1f")) : []);
+    const close = await fs.watch(target, (error) => reports.push(error), controller.signal);
+    const loop = spawns()[0] ?? [];
+    assert.deepEqual(loop.slice(0, 5), ["-d", "ubuntu", "--exec", "sh", "-c"], "the watcher runs inside the target's distro");
+    assert.deepEqual(loop.slice(-2), ["wsl-watch", "/home/andy/proj"], "armed on the Linux coordinate the UNC target names");
+    assert.deepEqual(reports, [], "an armed watch reports nothing");
+    await close();
+    // The stopper is fire-and-forget on the host; its line lands a beat later.
+    let stopper = spawns()[1] ?? [];
+    for (let attempt = 0; attempt < 100 && stopper.length === 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      stopper = spawns()[1] ?? [];
+    }
+    assert.deepEqual(stopper.slice(0, -1), ["-d", "ubuntu", "--exec", "sh", "-c", 'kill -TERM "$1" 2>/dev/null', "sh"], "closing stops the loop inside the distro");
+    assert.match(stopper.at(-1) ?? "", /^[1-9][0-9]*$/, "by the pid the loop reported");
+    assert.deepEqual(reports, [], "a closed watch reports no error");
+  } finally {
+    if (savedLog === undefined) delete process.env.DSH_FAKE_LOG;
+    else process.env.DSH_FAKE_LOG = savedLog;
+  }
+});
+
+for (const [name, fn] of checks) await runCheck(name, fn, tally);
+const failed = checks.length - tally.passed - tally.skipped;
+const ran = checks.length - tally.skipped;
+const note = skipNote(tally);
+console.log(`\n${tally.passed}/${ran} provider checks pass${note.length === 0 ? "" : ` (${note})`}`);
 if (failed > 0) process.exitCode = 1;

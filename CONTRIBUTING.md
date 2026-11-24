@@ -366,6 +366,17 @@ the argument builder out of `lib/bwrap.js`. A test that cannot run everywhere
 must skip itself — print a `SKIP` line and exit 0 — the way that file does on
 `win32`, where its fake `wsl.exe` (a POSIX script) cannot execute.
 
+One check inside a script-style suite defers through `test/skip.mjs`: when its
+body finds this host cannot run it, it calls `skip("<reason>")` — which throws,
+so nothing after it executes — and the shared `runCheck` prints a `SKIP` line
+with the reason, while the summary (`summaryLine` / `skipNote`) says
+`(N skipped: <reason>)`. Do not return early instead: a runner prints PASS
+once the body returns, so such a check reads green in the log while it never
+ran — as the only unit test of the host's real cancel path did on the Windows
+CI leg. Give a skip its specific reason, and when one leaves a behaviour
+without a unit test on every host, first ask whether the check can be made to
+run everywhere (a file target instead of an inotify directory watch, say).
+
 ### Browser E2E
 
 `test/browser/e2e.test.mjs` bundles `client.js` with React and mounts the real

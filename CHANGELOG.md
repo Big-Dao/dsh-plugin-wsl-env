@@ -202,6 +202,32 @@ were part of the record.
     into every following line of the stale-scope report, and the `--bundle`
     note and the confirmation prompt go to stderr, so `--json` output is the
     report alone.
+- **The test suite's own gaps close (#84).** Three places where a green line
+  did not mean the named behaviour was exercised:
+  - The fence around `deleteFile`, `moveFile`, `patchText` and `editText` had
+    no test — only `writeText` did — although a test named for it existed and
+    proved only that the wrappers reached a stub. A table-driven check now
+    refuses every mutation route under workspace-write with a target outside
+    every writable root and under read-only with a target inside the
+    workspace, asserts `FS_SANDBOX_DENIED` and that the substrate was never
+    asked, and runs the same table once under an allowing policy as the
+    control. Removing one wrapper's fence fails it.
+  - Three checks could not see what they were named for. The PID-namespaced
+    resident asserted before the delayed cancel signal could fire (it now
+    waits, and fails when a prefixed resident is signalled); the watch check
+    asserted only "some error" (it now runs the real `armDistroWatcher` over a
+    recording `wsl.exe` and reads back the argv: the distro, the Linux path,
+    and the stopper's pid); the workspace-prompt check had no WSL workspace in
+    its startup catalog (it now covers a WSL-only catalog, a reorder, and a
+    later addition).
+  - A check that returned early because the host could not run it printed
+    PASS. The script-style suites now defer through a shared `skip()`
+    (`test/skip.mjs`), print `SKIP` with the reason and count it in the
+    summary. On the Windows CI leg that is one agent check, two native-agent
+    checks, three watcher checks and seven provider checks that now say so.
+    The honest SKIP surfaced one more: the watcher's pipe-close check skipped
+    itself on every host with `inotify-tools`, although its file target never
+    starts inotify — it runs there now.
 
 ## [0.29.0] - 2026-11-23
 

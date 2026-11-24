@@ -1,12 +1,13 @@
 /**
- * Tests for `scripts/doctor.mjs`, driven through a fake `wsl.exe`/`cmd.exe` on
- * PATH — the same seam the doctor uses on a real machine, so the checks are
- * exercised as subprocesses rather than mocked in-process.
+ * Tests for `scripts/doctor.mjs`, driven through fake `wsl.exe`/`cmd.exe`
+ * Node scripts passed with `--wsl`/`--cmd` — the same seam the doctor uses on
+ * a real machine, so the checks are exercised as subprocesses rather than
+ * mocked in-process. Windows resolves the real `System32` binaries before
+ * PATH, so the fakes are Node scripts riding the doctor's `.mjs` seam and the
+ * suite runs on Windows too; the few checks that write real host state
+ * through an unfaked `git.exe` defer with `skip()` there.
  *
  *   node test/doctor.test.mjs
- *
- * The fakes are POSIX shell scripts, so the suite skips on Windows (the doctor
- * itself runs there; only this harness cannot).
  */
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
@@ -16,6 +17,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Skipped, skip } from "./skip.mjs";
 import { peerSatisfied, peerPackageDir, parseWslConfig, parseWslSize, parseIni, parseWslVerbose, effectiveMaskWindowsDrive, distroPath, hostDiskVerdict, localeNameFromReg, localeFromTag, overrideLocale, setDoctorLocale, doctorT, probeHandshake, STALE_SCOPE_REPORT, composeBatch, composeSystemdBatch, parseBatchFacts } from "../scripts/doctor.mjs";
 import { mergeLiveResidentStatus } from "../lib/doctor-live.js";
 import { doctorReport } from "../lib/index.js";
@@ -31,11 +33,6 @@ const CACHE_DIGEST = "a".repeat(64);
 /** @typedef {{ id: string, status: string, detail?: string, remedy?: string, distro?: string, blocksFirstCommand?: boolean }} Check */
 /** @typedef {{ schemaVersion: number, checks: Check[], summary: Record<string, number>, verdict?: string, blockers?: string[], distroVerdicts?: Array<{ name: string, verdict: string, blockers: string[] }>, config?: Record<string, string | string[]>, scope?: { sections: string[], quick: boolean } }} Report */
 
-if (process.platform === "win32") {
-  console.log("SKIP  doctor tests: the fake wsl.exe is a POSIX script");
-  process.exit(0);
-}
-
 const scratch = mkdtempSync(join(tmpdir(), "dsh-doctor-"));
 const bin = join(scratch, "bin");
 const home = join(scratch, "dsh-home");
@@ -44,187 +41,278 @@ mkdirSync(bin);
 mkdirSync(home);
 mkdirSync(stateDir);
 
-const FAKE_WSL = `#!/bin/sh
-case "$*" in
-  "-l -q"|"--list -q") printf '%s\\n' \${FAKE_DISTROS:-ubuntu} | tr ' ' '\\n'; exit 0 ;;
-  "-l -v") printf '  NAME            STATE           VERSION\\n  ubuntu*         Running         %s\\n' "$([ "\${FAKE_WSL1:-no}" = yes ] && printf 1 || printf 2)"; case "\${FAKE_DISTROS:-ubuntu}" in *debian*) printf '  debian          Stopped         2\\n' ;; esac; exit 0 ;;
-  "--list --running") printf 'hdr\\nubuntu\\n'; exit 0 ;;
-  "--version") printf 'WSL version: 2.0.0\\nKernel version: 6.6.87.2\\n'; exit 0 ;;
-esac
-all="$*"
-case "$all" in
-  *"-d ubuntu"*) [ "\${FAKE_STOPPED:-no}" = yes ] && { printf 'WSL_E_DISTRO_NOT_FOUND\\n' >&2; exit 1; } ;;
-esac
-case "$all" in
-  *"-d debian"*) [ "\${FAKE_STOP_DEBIAN:-no}" = yes ] && { printf 'WSL_E_DISTRO_NOT_FOUND\\n' >&2; exit 1; } ;;
-esac
-case "$all" in
-  *"-u root"*)
-    state="\${FAKE_STATE_DIR:-/nonexistent}"
-    printf '%s\n' "$all" > "$state/install-args"
-    if [ "\${FAKE_INSTALL_FAIL:-no}" = yes ]; then
-      runs=$(cat "$state/install-runs" 2>/dev/null || echo 0); echo $((runs + 1)) > "$state/install-runs"
-      printf 'Reading package lists... 0%%\n' >&2
-      printf 'E: Unable to locate package bubblewrap\n' >&2
-      exit 100
-    fi
-    : > "$state/installed-bwrap"; exit 0 ;;
-esac
-case "$all" in
-  *"--exec bwrap"*)
-    case "$all" in
-      *dsh-doctor-smoke-refuse*) exit 1 ;;
-      *'inside'*) printf 'ok' ;;
-      *) exit 0 ;;
-    esac ;;
-esac
-case "$all" in
-  *"--exec /"*)
-    printf 'HELLO|wsl-agent|7|${CACHE_DIGEST}|5150|conc,batch\n'
-    [ "\${FAKE_NATIVE:-ok}" = bad ] && exit 0
-    while IFS= read -r line; do
-      case "$line" in
-        SHUTDOWN) exit 0 ;;
-        PING) printf 'PONG\\n' ;;
-        EXEC\\|*|FS\\|*|FSB\\|*)
-          id="$(printf '%s' "$line" | cut -d'|' -f2)"
-          printf 'ACK|%s\\n' "$id"
-          case "$line" in
-            FSB\\|*) payload="$(printf 'OK 1|eA==\\nOK 2|eA==\\n' | base64 | tr -d '\\n')"; printf 'RES|%s|0|%s||0|0\\n' "$id" "$payload" ;;
-            *) printf 'RES|%s|0|%s||0|0\\n' "$id" "$(printf 'x86_64' | base64 | tr -d '\\n')" ;;
-          esac ;;
-      esac
-    done
-    exit 0 ;;
-esac
-case "$all" in
-  *"--exec sh /"*)
-    state="\${FAKE_STATE_DIR:-/nonexistent}"
-    echo x >> "$state/handshake-spawns"
-    case "\${FAKE_HANDSHAKE:-ok}" in
-      flake-once)
-        if [ ! -f "$state/handshake-flaked" ]; then : > "$state/handshake-flaked"; printf 'connection attempt failed because the connected party did not properly respond Wsl/Service/WSAETIMEDOUT\n' >&2; exit 1; fi ;;
-      flake-always) printf 'connection attempt failed because the connected party did not properly respond Wsl/Service/WSAETIMEDOUT\n' >&2; exit 1 ;;
-      hanging) exec sleep 20 ;;
-      garbage) printf 'not a hello\n'; exit 0 ;;
-    esac
-    if [ "\${FAKE_HANDSHAKE:-ok}" = fail ] && [ ! -f "$state/cache-purged" ]; then exit 0; fi
-    if [ "\${FAKE_AGENT_DIGEST:-}" = bad ]; then printf 'HELLO|wsl-agent|7|deadbeef|4242|batch\\n'; else printf 'HELLO|wsl-agent|7|${AGENT_DIGEST}|4242|batch\\n'; fi
-    [ "\${FAKE_RESIDENT_DIES:-no}" = yes ] && exit 0
-    while IFS= read -r line; do
-      case "$line" in
-        SHUTDOWN) exit 0 ;;
-        PING) printf 'PONG\\n' ;;
-        EXEC\\|*|FS\\|*|FSB\\|*)
-          id="$(printf '%s' "$line" | cut -d'|' -f2)"
-          printf 'ACK|%s\\n' "$id"
-          case "$line" in
-            FSB\\|*)
-              if [ "\${FAKE_FSB:-ok}" = busybox ]; then
-                inner="$(printf 'find: unrecognized: -printf\\nBusyBox v1.37.0' | base64 | tr -d '\\n')"
-                payload="$(printf 'BAD 1|io|%s' "$inner" | base64 | tr -d '\\n')"
-              else
-                payload="$(printf 'OK 1|eA==\\nOK 2|eA==\\n' | base64 | tr -d '\\n')"
-              fi
-              printf 'RES|%s|0|%s||0|0\\n' "$id" "$payload" ;;
-            *) printf 'RES|%s|0|%s||0|0\\n' "$id" "$(printf 'x86_64' | base64 | tr -d '\\n')" ;;
-          esac ;;
-      esac
-    done
-    exit 0 ;;
-esac
-case "$all" in
-  *"--exec sh -c"*)
-    # One line per spawn (batch scripts are flattened), so a test can count
-    # and inspect invocations.
-    printf '%s\n' "\$(printf '%s' "\$all" | tr '\n' '|')" >> "\${FAKE_STATE_DIR:-/nonexistent}/sh-c-spawns"
-    case "$all" in
-      *'DSHBATCH=ok'*)
-        # The composed pure-read batch: the canned block is built from the
-        # same knobs the single-probe branches used to answer with.
-        if [ "$FAKE_FLAKE" = always ]; then printf 'connection attempt failed because the connected party did not properly respond Wsl/Service/WSAETIMEDOUT\n' >&2; exit 1; fi
-        if [ "$FAKE_FLAKE" = once ] && [ ! -f "\${FAKE_STATE_DIR:-/nonexistent}/flake-once" ]; then : > "\${FAKE_STATE_DIR:-/nonexistent}/flake-once"; printf 'connection attempt failed because the connected party did not properly respond Wsl/Service/WSAETIMEDOUT\n' >&2; exit 1; fi
-        [ "\${FAKE_BATCH_HANG:-no}" = yes ] && sleep 30
-        printf 'DSHBATCH=ok\n'
-        [ "\${FAKE_IDENTITY:-ok}" = bad ] && printf 'SH=\nHM=\n' || printf 'SH=/bin/bash\nHM=%s\n' "\${FAKE_DISTRO_HOME:-\$HOME}"
-        printf 'FAMILY=%s\n' "\${FAKE_FAMILY:-apt-get}"
-        printf 'DF=%s\n' "\$(printf '/dev/sdc 262030 151898 110132 %s%% /' "\${FAKE_DISK:-42}")"
-        printf 'DATE=%s\n' "\${FAKE_CLOCK:-\$(date +%s)}"
-        printf 'CONF_B64=%s\n' "\$(printf '%s' "\${FAKE_WSLCONF:-}" | base64 | tr -d '\n')"
-        if [ -f "\${FAKE_STATE_DIR:-/nonexistent}/installed-bwrap" ] || [ "\${FAKE_BWRAP:-yes}" != no ]; then printf 'BWRAP=/usr/bin/bwrap\n'; fi
-        printf 'BWTEST=ok\n'
-        printf 'SOCK_B64=%s\n' "\$(printf 'R /run/user/1000\nU /run/user/1000/bus\nU /run/user/1000/systemd/private\nS /run/dbus/system_bus_socket\n' | base64 | tr -d '\n')"
-        [ "\${FAKE_SYSTEMD:-yes}" = no ] && printf 'PID1=none init\n' || printf 'PID1=systemd systemd\n'
-        printf 'SYSTEMD_RUN=/usr/bin/systemd-run\n'
-        [ "\${FAKE_BINFMT:-yes}" = no ] || printf 'BINFMT=yes\n'
-        printf 'RESOLV=%s\n' "\${FAKE_RESOLV:-365}"
-        [ "\${FAKE_DNS:-yes}" = no ] || printf 'DNS=1.2.3.4 deb.debian.org\n'
-        printf 'TOOLS_B64=%s\n' "\$( { [ "\${FAKE_RG:-yes}" = no ] && printf 'missing rg\n' || printf 'found rg /usr/bin/rg\n'; [ "\${FAKE_GIT_TOOL:-yes}" = no ] && printf 'missing git\n' || printf 'found git /usr/bin/git\n'; printf 'found inotifywait /usr/bin/inotifywait\n'; } | base64 | tr -d '\n')"
-        printf 'ARCH=x86_64\n'
-        if [ "\${FAKE_CACHE:-good}" = noexec ] && [ ! -f "\${FAKE_STATE_DIR:-/nonexistent}/cache-purged" ]; then
-          cache="noexec \$HOME/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent"
-        elif [ "\${FAKE_CACHE:-good}" = noexec ]; then
-          cache="none"
-        else
-          cache="exec \$HOME/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent"
-        fi
-        printf 'CACHE_B64=%s\n' "\$(printf '%s' "\$cache" | base64 | tr -d '\n')"
-        printf 'HOMEEXEC=%s\n' "\${FAKE_HOME_PROBE:-ok}"
-        ;;
-      *'DSHBATCHB=ok'*)
-        [ "\${FAKE_BATCH_HANG:-no}" = yes ] && sleep 30
-        printf 'DSHBATCHB=ok\n'
-        printf 'USER=running\n'
-        printf 'LINGER=Linger=yes\n'
-        scope=""
-        { [ -f "\${FAKE_STATE_DIR:-/nonexistent}/swept-scopes" ] || [ "\${FAKE_STALE:-no}" != yes ]; } || scope='dsh-wsl-ubuntu-x.scope stale'
-        printf 'SCOPES_B64=%s\n' "\$(printf '%s' "\$scope" | base64 | tr -d '\n')"
-        case "\${FAKE_SCRIPT_READABLE:-yes}" in
-          debian) case "\$all" in *"-d debian"*) printf 'AGENT_READ=no\n' ;; *) printf 'AGENT_READ=yes\n' ;; esac ;;
-          no) printf 'AGENT_READ=no\n' ;;
-          *) printf 'AGENT_READ=yes\n' ;;
-        esac
-        ;;
-      *'wsl-writable-roots'*)
-        case "\${FAKE_GRANTS:-ok}" in
-          missing) printf '0|missing\n'; exit 3 ;;
-          unreadable) printf '0|unreadable\n'; exit 4 ;;
-          symlink) printf '0|symlink -> /real/path\n'; exit 5 ;;
-        esac ;;
-      *'command -v bwrap'*) [ -f "\${FAKE_STATE_DIR:-/nonexistent}/installed-bwrap" ] && printf '/usr/bin/bwrap' || { [ "\${FAKE_BWRAP:-yes}" = no ] || printf '/usr/bin/bwrap'; } ;;
-      *'bwrap --ro-bind'*)
-        case "$all" in
-          *dsh-doctor-smoke-refuse*) exit 1 ;;
-          *'inside'*) printf 'ok' ;;
-          *) exit 0 ;;
-        esac ;;
-      *'systemctl --user stop'*) : > "\${FAKE_STATE_DIR:-/nonexistent}/swept-scopes"; exit 0 ;;
-      *'echo "$unit'*)
-        if [ -f "\${FAKE_STATE_DIR:-/nonexistent}/swept-scopes" ] && [ "\${FAKE_RECHECK:-}" = scopes ]; then printf 'connection attempt failed because the connected party did not properly respond Wsl/Service/WSAETIMEDOUT\n' >&2; exit 1; fi
-        { [ -f "\${FAKE_STATE_DIR:-/nonexistent}/swept-scopes" ] || [ "\${FAKE_STALE:-no}" != yes ]; } || printf 'dsh-wsl-ubuntu-x.scope stale' ;;
-      *'[ -f'*) case "\${FAKE_SCRIPT_READABLE:-yes}" in debian) case "$all" in *"-d debian"*) printf no ;; *) printf yes ;; esac ;; no) printf no ;; *) printf yes ;; esac ;;
-      *'rm -rf "$HOME/.cache/dsh-wsl/agent"'*) : > "\${FAKE_STATE_DIR:-/nonexistent}/cache-purged"; exit 0 ;;
-      *'.cache/dsh-wsl/agent'*)
-        if [ -f "\${FAKE_STATE_DIR:-/nonexistent}/cache-purged" ] && [ "\${FAKE_RECHECK:-}" = cache ]; then printf 'connection attempt failed because the connected party did not properly respond Wsl/Service/WSAETIMEDOUT\n' >&2; exit 1; fi
-        if [ "\${FAKE_CACHE:-good}" = noexec ]; then
-          [ -f "\${FAKE_STATE_DIR:-/nonexistent}/cache-purged" ] && printf 'none' || printf 'noexec %s/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent' "$HOME"
-        else printf 'exec %s/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent' "$HOME"; fi ;;
-      *'mktemp -d'*) printf '/tmp/dsh-doctor-smoke-fixed' ;;
-      *'cat /proc/net/tcp'*) printf '  sl  local_address rem_address   st tx_queue rx_queue\n   0: 00000000:0BB8 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 0 1\n' ;;
-      *'hostname -I'*) printf '172.20.0.5 ' ;;
-      *'rm -rf'*) exit 0 ;;
-      *) : ;;
-    esac
-    ;;
-esac
-exit 0
+/**
+ * The fake `wsl.exe` as a Node script, handed to the doctor with `--wsl`. A
+ * script rather than a shell one because Windows resolves the real
+ * `System32\wsl.exe` before PATH — the cross-platform fake rides the
+ * doctor's `.mjs` seam. The canned answers read the same FAKE_* knobs the
+ * single-probe branches used to, so the fault injections carry over; the
+ * composed probe batches (the `DSHBATCH` markers) answer with whole blocks
+ * built from those knobs.
+ */
+const FAKE_WSL = `import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+// The whole fake is one function, so a branch can return out of a hanging or
+// answering shape without falling into a later one.
+const main = () => {
+const argv = process.argv.slice(2);
+const all = argv.join(" ");
+const env = process.env;
+const state = env.FAKE_STATE_DIR ?? "/nonexistent";
+const out = (text) => process.stdout.write(text);
+const err = (text) => process.stderr.write(text);
+// The distro's HOME is a POSIX path even when the host's is not: the fake
+// answers what a Linux distro answers, so a Windows runner's C:\Users\...
+// never leaks into identity or cache paths.
+const rawHome = env.HOME ?? env.USERPROFILE ?? "";
+const home = /^[A-Za-z]:/.test(rawHome) ? "/home/tester" : rawHome;
+const FLAKE = "connection attempt failed because the connected party did not properly respond Wsl/Service/WSAETIMEDOUT\\n";
+
+if (all === "-l -q" || all === "--list -q") {
+  out((env.FAKE_DISTROS ?? "ubuntu").split(" ").join("\\n") + "\\n");
+  process.exit(0);
+}
+if (all === "-l -v") {
+  out("  NAME            STATE           VERSION\\n");
+  out("  ubuntu*         Running         " + (env.FAKE_WSL1 === "yes" ? "1" : "2") + "\\n");
+  if ((env.FAKE_DISTROS ?? "ubuntu").includes("debian")) out("  debian          Stopped         2\\n");
+  process.exit(0);
+}
+if (all === "--list --running") { out("hdr\\nubuntu\\n"); process.exit(0); }
+if (all === "--version") { out("WSL version: 2.0.0\\nKernel version: 6.6.87.2\\n"); process.exit(0); }
+if (all.includes("-d ubuntu") && env.FAKE_STOPPED === "yes") { err("WSL_E_DISTRO_NOT_FOUND\\n"); process.exit(1); }
+if (all.includes("-d debian") && env.FAKE_STOP_DEBIAN === "yes") { err("WSL_E_DISTRO_NOT_FOUND\\n"); process.exit(1); }
+
+// A package install as root: the args are recorded, and FAKE_INSTALL_FAIL
+// turns the first attempts into the fresh-Debian refusal.
+if (all.includes("-u root")) {
+  writeFileSync(join(state, "install-args"), all + "\\n");
+  if (env.FAKE_INSTALL_FAIL === "yes") {
+    const runs = Number((existsSync(join(state, "install-runs")) ? readFileSync(join(state, "install-runs"), "utf8") : "0").trim()) || 0;
+    writeFileSync(join(state, "install-runs"), String(runs + 1));
+    err("Reading package lists... 0%\\n");
+    err("E: Unable to locate package bubblewrap\\n");
+    process.exit(100);
+  }
+  writeFileSync(join(state, "installed-bwrap"), "");
+  process.exit(0);
+}
+
+// The frame protocol one fake resident answers, shared by the smoke legs and
+// the handshake: ACK before RES, SHUTDOWN exits, PING pongs.
+const serveFrames = () => {
+  let buffer = "";
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (chunk) => {
+    buffer += chunk;
+    let index;
+    while ((index = buffer.indexOf("\\n")) !== -1) {
+      const frame = buffer.slice(0, index);
+      buffer = buffer.slice(index + 1);
+      if (frame === "SHUTDOWN") process.exit(0);
+      if (frame === "PING") { out("PONG\\n"); continue; }
+      if (/^(EXEC|FS|FSB)\\|/.test(frame)) {
+        const id = frame.split("|")[1] ?? "";
+        out("ACK|" + id + "\\n");
+        const payload = frame.startsWith("FSB|")
+          ? Buffer.from("OK 1|eA==\\nOK 2|eA==\\n").toString("base64")
+          : Buffer.from("x86_64").toString("base64");
+        out("RES|" + id + "|0|" + payload + "||0|0\\n");
+      }
+    }
+  });
+};
+
+// The fence smoke runs bwrap directly: the inside write answers, the /etc
+// write is refused.
+if (all.includes("--exec bwrap")) {
+  if (all.includes("dsh-doctor-smoke-refuse")) process.exit(1);
+  if (all.includes("inside")) out("ok");
+  process.exit(0);
+}
+
+// One smoke session against a fake NATIVE binary (the cache entry).
+if (all.includes("--exec /")) {
+  out("HELLO|wsl-agent|7|${CACHE_DIGEST}|5150|conc,batch\\n");
+  if (env.FAKE_NATIVE === "bad") process.exit(0);
+  serveFrames();
+  setInterval(() => {}, 60_000); // stay up for SHUTDOWN
+} else if (all.includes("--exec sh /")) {
+  try { appendFileSync(join(state, "handshake-spawns"), "x\\n"); } catch { } // a missing state dir must not kill the fake
+  const mode = env.FAKE_HANDSHAKE ?? "ok";
+  if (mode === "flake-once" && !existsSync(join(state, "handshake-flaked"))) {
+    writeFileSync(join(state, "handshake-flaked"), "");
+    err(FLAKE);
+    process.exit(1);
+  }
+  if (mode === "flake-always") { err(FLAKE); process.exit(1); }
+  if (mode === "garbage") { out("not a hello\\n"); process.exit(0); }
+  if (mode === "fail" && !existsSync(join(state, "cache-purged"))) process.exit(0);
+  if (mode === "hanging") {
+    setInterval(() => {}, 60_000); // stays up, prints NO HELLO: the deadline decides
+  } else {
+    out("HELLO|wsl-agent|7|" + (env.FAKE_AGENT_DIGEST === "bad" ? "deadbeef" : "${AGENT_DIGEST}") + "|4242|batch\\n");
+    if (env.FAKE_RESIDENT_DIES === "yes") process.exit(0);
+    const busyboxFsb = () => {
+      const inner = Buffer.from("find: unrecognized: -printf\\nBusyBox v1.37.0").toString("base64");
+      return Buffer.from("BAD 1|io|" + inner).toString("base64");
+    };
+    let buffer = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => {
+      buffer += chunk;
+      let index;
+      while ((index = buffer.indexOf("\\n")) !== -1) {
+        const frame = buffer.slice(0, index);
+        buffer = buffer.slice(index + 1);
+        if (frame === "SHUTDOWN") process.exit(0);
+        if (frame === "PING") { out("PONG\\n"); continue; }
+        if (/^(EXEC|FS|FSB)\\|/.test(frame)) {
+          const id = frame.split("|")[1] ?? "";
+          out("ACK|" + id + "\\n");
+          const payload = frame.startsWith("FSB|")
+            ? (env.FAKE_FSB === "busybox" ? busyboxFsb() : Buffer.from("OK 1|eA==\\nOK 2|eA==\\n").toString("base64"))
+            : Buffer.from("x86_64").toString("base64");
+          out("RES|" + id + "|0|" + payload + "||0|0\\n");
+        }
+      }
+    });
+    setInterval(() => {}, 60_000); // stay up for SHUTDOWN
+  }
+}
+
+// Every in-distro read that is not a resident session rides 'sh -c'.
+else if (all.includes("--exec sh -c")) {
+  // One line per spawn (batch scripts flattened), so a test can count and
+  // inspect invocations. A missing state dir must not kill the fake: the
+  // counter is diagnostics, the canned answer below is the contract.
+  try { appendFileSync(join(state, "sh-c-spawns"), all.split("\\n").join("|") + "\\n"); } catch { };
+
+  // The composed pure-read batch, answered from the same knobs.
+  if (all.includes("DSHBATCH=ok")) {
+    if (env.FAKE_FLAKE === "always") { err(FLAKE); process.exit(1); }
+    if (env.FAKE_FLAKE === "once" && !existsSync(join(state, "flake-once"))) {
+      writeFileSync(join(state, "flake-once"), "");
+      err(FLAKE);
+      process.exit(1);
+    }
+    // Hang with NO output: the probe deadline must be what ends the spawn.
+    if (env.FAKE_BATCH_HANG === "yes") {
+      setInterval(() => {}, 60_000);
+      return;
+    }
+    const b64 = (text) => Buffer.from(text, "utf8").toString("base64").replace(/\\n/g, "");
+    out("DSHBATCH=ok\\n");
+    if (env.FAKE_IDENTITY === "bad") out("SH=\\nHM=\\n");
+    else out("SH=/bin/bash\\nHM=" + (env.FAKE_DISTRO_HOME ?? home) + "\\n");
+    out("FAMILY=" + (env.FAKE_FAMILY ?? "apt-get") + "\\n");
+    out("DF=" + "/dev/sdc 262030 151898 110132 " + (env.FAKE_DISK ?? "42") + "% /\\n");
+    out("DATE=" + (env.FAKE_CLOCK ?? String(Math.floor(Date.now() / 1000))) + "\\n");
+    out("CONF_B64=" + b64(env.FAKE_WSLCONF ?? "") + "\\n");
+    if (existsSync(join(state, "installed-bwrap")) || env.FAKE_BWRAP !== "no") out("BWRAP=/usr/bin/bwrap\\n");
+    out("BWTEST=ok\\n");
+    out("SOCK_B64=" + b64("R /run/user/1000\\nU /run/user/1000/bus\\nU /run/user/1000/systemd/private\\nS /run/dbus/system_bus_socket\\n") + "\\n");
+    out((env.FAKE_SYSTEMD === "no" ? "PID1=none init\\n" : "PID1=systemd systemd\\n"));
+    out("SYSTEMD_RUN=/usr/bin/systemd-run\\n");
+    if (env.FAKE_BINFMT !== "no") out("BINFMT=yes\\n");
+    out("RESOLV=" + (env.FAKE_RESOLV ?? "365") + "\\n");
+    if (env.FAKE_DNS !== "no") out("DNS=1.2.3.4 deb.debian.org\\n");
+    const tools = (env.FAKE_RG === "no" ? "missing rg\\n" : "found rg /usr/bin/rg\\n")
+      + (env.FAKE_GIT_TOOL === "no" ? "missing git\\n" : "found git /usr/bin/git\\n")
+      + "found inotifywait /usr/bin/inotifywait\\n";
+    out("TOOLS_B64=" + b64(tools) + "\\n");
+    out("ARCH=x86_64\\n");
+    let cache;
+    if (env.FAKE_CACHE === "noexec" && !existsSync(join(state, "cache-purged"))) cache = "noexec " + home + "/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent";
+    else if (env.FAKE_CACHE === "noexec") cache = "none";
+    else cache = "exec " + home + "/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent";
+    out("CACHE_B64=" + b64(cache) + "\\n");
+    out("HOMEEXEC=" + (env.FAKE_HOME_PROBE ?? "ok") + "\\n");
+    process.exit(0);
+  }
+
+  // The systemd-class batch.
+  if (all.includes("DSHBATCHB=ok")) {
+    if (env.FAKE_BATCH_HANG === "yes") {
+      setInterval(() => {}, 60_000);
+      return;
+    }
+    out("DSHBATCHB=ok\\n");
+    out("USER=running\\n");
+    out("LINGER=Linger=yes\\n");
+    const scope = existsSync(join(state, "swept-scopes")) || env.FAKE_STALE !== "yes" ? "" : "dsh-wsl-ubuntu-x.scope stale";
+    out("SCOPES_B64=" + Buffer.from(scope, "utf8").toString("base64").replace(/\\n/g, "") + "\\n");
+    const readable = env.FAKE_SCRIPT_READABLE ?? "yes";
+    if (readable === "debian") out((all.includes("-d debian") ? "AGENT_READ=no\\n" : "AGENT_READ=yes\\n"));
+    else out((readable === "no" ? "AGENT_READ=no\\n" : "AGENT_READ=yes\\n"));
+    process.exit(0);
+  }
+
+  // The standalone reads that survive the batches: the fix loop's rechecks,
+  // the writable-roots check and the human-only surveys.
+  if (all.includes("wsl-writable-roots")) {
+    const shape = env.FAKE_GRANTS ?? "ok";
+    if (shape === "missing") { out("0|missing\\n"); process.exit(3); }
+    if (shape === "unreadable") { out("0|unreadable\\n"); process.exit(4); }
+    if (shape === "symlink") { out("0|symlink -> /real/path\\n"); process.exit(5); }
+    process.exit(0);
+  }
+  if (all.includes("command -v bwrap")) {
+    if (existsSync(join(state, "installed-bwrap"))) out("/usr/bin/bwrap");
+    else if (env.FAKE_BWRAP !== "no") out("/usr/bin/bwrap");
+    process.exit(0);
+  }
+  if (all.includes("bwrap --ro-bind")) {
+    if (all.includes("dsh-doctor-smoke-refuse")) process.exit(1);
+    if (all.includes("inside")) out("ok");
+    process.exit(0);
+  }
+  if (all.includes("systemctl --user stop")) { writeFileSync(join(state, "swept-scopes"), ""); process.exit(0); }
+  if (all.includes('echo "$unit')) {
+    if (existsSync(join(state, "swept-scopes")) && env.FAKE_RECHECK === "scopes") { err(FLAKE); process.exit(1); }
+    if (!existsSync(join(state, "swept-scopes")) && env.FAKE_STALE === "yes") out("dsh-wsl-ubuntu-x.scope stale");
+    process.exit(0);
+  }
+  if (all.includes("[ -f")) {
+    const readable = env.FAKE_SCRIPT_READABLE ?? "yes";
+    if (readable === "debian") out(all.includes("-d debian") ? "no" : "yes");
+    else out(readable === "no" ? "no" : "yes");
+    process.exit(0);
+  }
+  if (all.includes('rm -rf "$HOME/.cache/dsh-wsl/agent"')) { writeFileSync(join(state, "cache-purged"), ""); process.exit(0); }
+  if (all.includes(".cache/dsh-wsl/agent")) {
+    if (existsSync(join(state, "cache-purged")) && env.FAKE_RECHECK === "cache") { err(FLAKE); process.exit(1); }
+    if (env.FAKE_CACHE === "noexec") {
+      out(existsSync(join(state, "cache-purged")) ? "none" : "noexec " + home + "/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent");
+    } else out("exec " + home + "/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent");
+    process.exit(0);
+  }
+  if (all.includes("mktemp -d")) { out("/tmp/dsh-doctor-smoke-fixed"); process.exit(0); }
+  if (all.includes("cat /proc/net/tcp")) {
+    out("  sl  local_address rem_address   st tx_queue rx_queue\\n   0: 00000000:0BB8 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 0 1\\n");
+    process.exit(0);
+  }
+  if (all.includes("hostname -I")) { out("172.20.0.5 "); process.exit(0); }
+  if (all.startsWith("rm -rf") || all.includes("rm -rf")) process.exit(0);
+  process.exit(0);
+}
+// A resident session never reaches this exit: it stays up for SHUTDOWN.
+if (!(all.includes("--exec /") || all.includes("--exec sh /"))) process.exit(0);
+};
+main();
 `;
-const FAKE_CMD = `#!/bin/sh
-case "$*" in
-  *"echo %USERPROFILE%"*) printf 'C:\\\\Users\\\\andy\\n'; exit 0 ;;
-  *"type"*) printf '%s' "\${FAKE_WSLCONFIG:-}"; exit 0 ;;
-  *) printf 'Microsoft Windows [Version 10.0.%s]\\n' "\${FAKE_WINBUILD:-26300.9711}"; exit 0 ;;
-esac
+/**
+ * The fake `cmd.exe` as a Node script, handed to the doctor with `--cmd` —
+ * the same `.mjs` seam, so the build-number, registry-locale and .wslconfig
+ * reads are faked on every platform.
+ */
+const FAKE_CMD = `const argv = process.argv.slice(2).join(" ");
+const env = process.env;
+if (argv.includes("echo %USERPROFILE%")) { process.stdout.write("C:\\\\\\\\Users\\\\\\\\andy\\n"); process.exit(0); }
+if (argv.includes("type")) { process.stdout.write(env.FAKE_WSLCONFIG ?? ""); process.exit(0); }
+process.stdout.write("Microsoft Windows [Version 10.0." + (env.FAKE_WINBUILD ?? "26300.9711") + "]\\n");
+process.exit(0);
 `;
 const FAKE_GIT_EXE = `#!/bin/sh
 case "$*" in
@@ -234,11 +322,9 @@ case "$*" in
   *) exit 0 ;;
 esac
 `;
-writeFileSync(join(bin, "wsl.exe"), FAKE_WSL);
-writeFileSync(join(bin, "cmd.exe"), FAKE_CMD);
+writeFileSync(join(bin, "fake-wsl.mjs"), FAKE_WSL);
+writeFileSync(join(bin, "fake-cmd.mjs"), FAKE_CMD);
 writeFileSync(join(bin, "git.exe"), FAKE_GIT_EXE);
-chmodSync(join(bin, "wsl.exe"), 0o755);
-chmodSync(join(bin, "cmd.exe"), 0o755);
 chmodSync(join(bin, "git.exe"), 0o755);
 
 /**
@@ -247,13 +333,14 @@ chmodSync(join(bin, "git.exe"), 0o755);
  * @param {Record<string, string>} [env] - extra environment.
  * @returns {{ status: number | null, stdout: string, stderr: string }} the run.
  */
-const doctor = (args, env = {}) => spawnSync(process.execPath, ["scripts/doctor.mjs", ...args], {
+const doctor = (args, env = {}) => spawnSync(process.execPath, ["scripts/doctor.mjs", "--wsl", join(bin, "fake-wsl.mjs"), "--cmd", join(bin, "fake-cmd.mjs"), ...args], {
   cwd: ROOT,
   encoding: "utf8",
   env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}`, DSH_HOME: home, FAKE_STATE_DIR: stateDir, ...env },
 });
 
 let passed = 0;
+let skippedCount = 0;
 /**
  * Run one named check, awaiting an async body before it can pass.
  *
@@ -272,6 +359,11 @@ const check = async (name, fn) => {
     passed += 1;
     console.log(`PASS  ${name}`);
   } catch (error) {
+    if (error instanceof Skipped) {
+      skippedCount += 1;
+      console.log(`SKIP  ${name}: ${error.reason}`);
+      return;
+    }
     console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
     process.exitCode = 1;
   }
@@ -287,8 +379,12 @@ try {
 
   await check("a healthy machine reports no failures and exits 0", () => {
     const run = doctor(["--json"]);
-    assert.equal(run.status, 0, run.stderr);
     const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    // The failure rows' own evidence is what explains a blocked run; the
+    // bare exit status explains nothing on a platform-specific row.
+    const failing = report.checks.filter((entry) => entry.status === "fail").map((entry) => `${entry.id}: ${entry.detail}`);
+    assert.deepEqual(failing, [], "no fail rows");
+    assert.equal(run.status, 0, run.stderr);
     assert.equal(report.schemaVersion, 2);
     assert.equal(report.summary.fail, 0);
     assert.equal(report.checks.find((entry) => entry.id === "sandbox.bwrap")?.status, "ok");
@@ -511,6 +607,8 @@ try {
 
   await check("the verdict is ready under the effective config and stamps the distro scope", () => {
     const report = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
+    const failing = report.checks.filter((entry) => entry.status === "fail").map((entry) => `${entry.id}: ${entry.detail}`);
+    assert.deepEqual(failing, [], "no fail rows");
     assert.equal(report.verdict, "ready");
     assert.deepEqual(report.blockers, []);
     assert.deepEqual(report.distroVerdicts, [{ name: "ubuntu", verdict: "ready", blockers: [] }]);
@@ -1022,27 +1120,28 @@ try {
     // cannot host the e2e (observed on CI's ubuntu runners, whose exec
     // environment rejects the fake's shebang interop); skip it like every
     // environment-gated probe instead of failing on a foreign machine.
-    const staged = spawnSync(join(bin, "wsl.exe"), ["-l", "-q"], { encoding: "utf8", timeout: 10000 });
+    const staged = spawnSync(process.execPath, [join(bin, "fake-wsl.mjs"), "-l", "-q"], { encoding: "utf8", timeout: 10000 });
     if (staged.status !== 0 || !/ubuntu/.test(staged.stdout)) {
       console.log(`SKIP  (e2e) the staged fake did not answer -l -q (status ${staged.status}, stdout ${JSON.stringify(staged.stdout.slice(0, 40))})`);
       return;
     }
     {
       const merged = await doctorReport("ubuntu", {
-        wslPath: join(bin, "wsl.exe"),
+        wslPath: join(bin, "fake-wsl.mjs"),
         envPath: bin,
         liveStatus: { distro: "ubuntu", state: "dead", pid: 7000, lastError: "wedge observed in the live app", deaths: 4, pending: 0 },
       }).catch((error) => {
         // Full facts for the CI-only failure: what the fake answers when the
         // doctor suite calls it directly, and the doctor's own human output.
-        const direct = spawnSync(join(bin, "wsl.exe"), ["-l", "-q"], { encoding: "utf8", timeout: 10_000 });
+        const direct = spawnSync(process.execPath, [join(bin, "fake-wsl.mjs"), "-l", "-q"], { encoding: "utf8", timeout: 10_000 });
         const human = spawnSync(process.execPath, [join(ROOT, "scripts", "doctor.mjs"), "ubuntu"], { encoding: "utf8", timeout: 60_000, env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` } });
         assert.fail(`the doctor subprocess produced no report: ${/** @type {Error} */ (error).message}\n`
           + `direct fake -l -q: status=${direct.status} stdout=${JSON.stringify(direct.stdout)} stderr=${JSON.stringify(direct.stderr.slice(0, 120))}\n`
           + `doctor human tail: ${human.stdout.split("\n").filter((line) => /host\.|distro\./.test(line)).join(" | ") || human.stderr.slice(0, 200)}`);
       });
       const handshake = merged.checks.find((entry) => entry.id === "agent.handshake");
-      assert.ok(handshake, "the collected report has the handshake check");
+      const reachRow = merged.checks.find((entry) => entry.id === "distro.reachable");
+      assert.ok(handshake, `the collected report has the handshake check (ids: ${merged.checks.map((entry) => entry.id).join(", ")}; reachable: ${JSON.stringify(reachRow)})`);
       assert.equal(handshake.status, "fail", "the dead live resident fails the merged check");
       assert.match(String(handshake?.detail), /probed: the live resident/);
       assert.match(String(handshake?.detail), /fresh-probe facts: probed: a fresh resident, pid 4242/);
@@ -1059,7 +1158,7 @@ try {
       // -l -q answer comes back empty the doctor returns before the
       // handshake check ever runs (host.distros fails first), and that
       // runner quirk is not what this check owns.
-      const fresh = await doctorReport("ubuntu", { wslPath: join(bin, "wsl.exe"), envPath: bin }).catch((error) => {
+      const fresh = await doctorReport("ubuntu", { wslPath: join(bin, "fake-wsl.mjs"), envPath: bin }).catch((error) => {
         assert.fail(`the doctor subprocess produced no report: ${/** @type {Error} */ (error).message}`);
       });
       const freshHandshake = fresh.checks.find((entry) => entry.id === "agent.handshake");
@@ -1079,7 +1178,7 @@ try {
     const crasher = join(bin, "crash-doctor.mjs");
     writeFileSync(crasher, "process.exit(1);\n");
     await assert.rejects(
-      doctorReport("ubuntu", { doctorPath: crasher, wslPath: join(bin, "wsl.exe"), envPath: bin }),
+      doctorReport("ubuntu", { doctorPath: crasher, wslPath: join(bin, "fake-wsl.mjs"), envPath: bin }),
       /** @param {Error} error */ (error) => /doctor run failed/.test(error.message) && /exited with code/.test(error.message),
       "the rejection names the exit and the absent stderr",
     );
@@ -1124,6 +1223,7 @@ try {
   });
 
   await check("the Windows git trust check reports the whitelist and a missing-git info", () => {
+    if (process.platform === "win32") skip("git.exe is not faked on Windows; the real git answers instead");
     writeFileSync(join(stateDir, "git-whitelisted"), "");
     const report = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
     const ok = report.checks.find((entry) => entry.id === "git.win-safe");
@@ -1370,7 +1470,7 @@ try {
   await check("the handshake retries a transport flake once, and only a transport flake", async () => {
     const handshakeState = join(stateDir, "handshake-retry");
     mkdirSync(handshakeState, { recursive: true });
-    const wsl = join(bin, "wsl.exe");
+    const wsl = join(bin, "fake-wsl.mjs");
     const shipped = join(ROOT, "agent", "wsl-agent.sh");
     const spawnLog = join(handshakeState, "handshake-spawns");
     const spawns = () => (existsSync(spawnLog) ? readFileSync(spawnLog, "utf8").split("\n").filter(Boolean).length : 0);
@@ -1439,6 +1539,7 @@ try {
   });
 
   await check("one scope's pids stay its own in the stale-scope report", async () => {
+    if (process.platform === "win32") skip("the check reads /proc/self/cgroup and spawns bash");
     // The report runs for real against a fake systemctl. Scope A's control
     // group is this test's own, where a process named like the agent runs;
     // scope B's is PID 1's, where none does. Before the fix B's line carried
@@ -1561,6 +1662,7 @@ esac
   });
 
   await check("the git whitelist joins the fixable set behind the confirmation gate", () => {
+    if (process.platform === "win32") skip("git.exe is not faked on Windows; the fix would write the runner's real global config");
     rmSync(join(stateDir, "git-whitelisted"), { force: true });
     const unfixed = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
     assert.equal(unfixed.checks.find((entry) => entry.id === "git.win-safe")?.status, "warn");
@@ -1704,7 +1806,7 @@ await check("--probe-timeout refuses a value that is not a positive integer", ()
   rmSync(scratch, { recursive: true, force: true });
 }
 
-console.log(`${passed} doctor checks pass`);
+console.log(skippedCount > 0 ? `${passed} doctor checks pass, ${skippedCount} skipped` : `${passed} doctor checks pass`);
 
 // ── Peer-free inlining parity ────────────────────────────────────────────────
 // The doctor inlines the one helper that lives behind a peer-tainted lib

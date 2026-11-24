@@ -294,6 +294,20 @@ were part of the record.
   kill's generic timeout. The two `wsl.exe --list` spawns of the human-only
   surveys no longer run for `--json`. The composed batch was verified against
   a real distro: 19 facts in one spawn.
+- **The doctor and sandbox suites run on Windows too (#89 d).** Both skipped
+  themselves whole on `win32` because their fake `wsl.exe` was a `#!/bin/sh`
+  script, and Windows cannot execute one — so the platform this plugin runs
+  on had no unit coverage of the doctor or the sandbox probe at all.
+  Windows resolves the real `System32\wsl.exe` before `PATH`, so no PATH
+  fake can shadow it; the fakes are Node scripts now, and the code under
+  test grew the one seam that makes that work: the doctor takes
+  `--wsl <script.mjs>` / `--cmd <script.mjs>` (a path ending in `.mjs` runs
+  under the current runtime), and the sandbox core treats a `.mjs` `wslPath`
+  the same way. No production path names a `.mjs`; a nonsensical value fails
+  closed at spawn. The doctor suite's two checks that would write the
+  runner's real git config through an unfaked `git.exe` defer with `skip()`
+  on Windows; everything else — the probe batches, the fault injections, the
+  spawn counts — runs there now.
 
 ## [0.29.0] - 2026-11-23
 

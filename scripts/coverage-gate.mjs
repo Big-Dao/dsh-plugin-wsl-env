@@ -13,9 +13,12 @@
  *      `test/coverage-allowlist.json` with the reason it cannot be loaded
  *      by the gated suite;
  *   2. every measured module must clear the per-module floors below, unless
- *      it is allowlisted (an allowlisted module that now passes is fine);
- *   3. every allowlist entry must name a module that still exists, so the
- *      list cannot rot into a silent exemption for a renamed file.
+ *      it is allowlisted — a string entry is the full exemption, an object
+ *      entry (`{ reason, line?, branch?, function? }`) lowers only the named
+ *      metrics and leaves the rest policed at the default floors;
+ *   3. every allowlist entry must name a module that still exists, and every
+ *      `excludedScripts` entry a file that still exists, so the lists cannot
+ *      rot into silent exemptions for renamed files.
  *
  * The global thresholds stay on the command line (Node enforces them); this
  * script only adds what a global number cannot express.
@@ -27,10 +30,16 @@
  * through unchanged.
  */
 import { spawn } from "node:child_process";
-import { readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-/** Per-module floors, deliberately above the global ones in package.json. */
+/**
+ * Per-module floors. Lines sit above the global floor in package.json; branch
+ * and function sit BELOW it on purpose — they exist to catch a module whose
+ * own coverage collapsed, which a healthy global average can hide, not to
+ * out-tighten the global gate.
+ */
 const FLOORS = /** @type {const} */ ({ line: 85, branch: 70, function: 60 });
 
 /**
@@ -51,18 +60,46 @@ function parseReport(output) {
 }
 
 /**
+ * One module's floor violations against its allowlist entry. A string entry
+ * is the full exemption it always was (a module the gated suite cannot load
+ * at all); an object entry is a scoped exemption — it lowers only the metrics
+ * it names, and every metric it omits stays at the default floor, so a
+ * partially-covered module keeps being policed on the sides it does cover.
+ *
+ * @param {{ line: number, branch: number, function: number }} row - the measured module.
+ * @param {string | { reason: string, line?: number, branch?: number, function?: number }} entry - the allowlist entry.
+ * @returns {string[]} one message per floor violation, empty when the module holds.
+ */
+function floorViolations(row, entry) {
+  if (typeof entry === "string") return [];
+  /** @type {Record<string, number>} */
+  const floors = { line: entry.line ?? FLOORS.line, branch: entry.branch ?? FLOORS.branch, function: entry.function ?? FLOORS.function };
+  /** @type {string[]} */
+  const problems = [];
+  if (row.line < floors.line) problems.push(`line ${row.line.toFixed(2)}% < ${floors.line}% floor`);
+  if (row.branch < floors.branch) problems.push(`branch ${row.branch.toFixed(2)}% < ${floors.branch}% floor`);
+  if (row.function < floors.function) problems.push(`function ${row.function.toFixed(2)}% < ${floors.function}% floor`);
+  return problems;
+}
+
+/**
  * Collect the gate's violations.
  *
  * @param {Map<string, { line: number, branch: number, function: number }>} rows - the measured modules.
  * @param {Set<string>} libs - every shipped module's basename.
- * @param {Map<string, string>} allowlist - exempted modules and their reasons.
+ * @param {Map<string, string | { reason: string, line?: number, branch?: number, function?: number }>} allowlist - exempted modules and their entries.
+ * @param {Record<string, string>} excludedScripts - the scripts the coverage command's exclude list names, with the reason.
  * @returns {string[]} one message per violation, empty when the gate holds.
  */
-function violations(rows, libs, allowlist) {
+function violations(rows, libs, allowlist, excludedScripts) {
   /** @type {string[]} */
   const problems = [];
-  for (const name of allowlist.keys()) {
+  for (const [name, entry] of allowlist) {
     if (!libs.has(name)) problems.push(`${name}: allowlisted but no such module under lib/ — drop the stale entry`);
+    else if (typeof entry !== "string" && typeof entry.reason !== "string") problems.push(`${name}: a scoped entry needs a "reason"`);
+  }
+  for (const name of Object.keys(excludedScripts)) {
+    if (!existsSync(join(ROOT, name))) problems.push(`${name}: listed in coverage-allowlist.json's excludedScripts but no such file — drop the stale entry`);
   }
   for (const name of libs) {
     if (allowlist.has(name)) continue;
@@ -71,9 +108,7 @@ function violations(rows, libs, allowlist) {
       problems.push(`${name}: not measured — no gated test loads it; add a test, or allowlist it in test/coverage-allowlist.json with the reason`);
       continue;
     }
-    if (row.line < FLOORS.line) problems.push(`${name}: line ${row.line.toFixed(2)}% < ${FLOORS.line}% floor`);
-    if (row.branch < FLOORS.branch) problems.push(`${name}: branch ${row.branch.toFixed(2)}% < ${FLOORS.branch}% floor`);
-    if (row.function < FLOORS.function) problems.push(`${name}: function ${row.function.toFixed(2)}% < ${FLOORS.function}% floor`);
+    for (const problem of floorViolations(row, {})) problems.push(`${name}: ${problem}`);
   }
   return problems;
 }
@@ -86,12 +121,15 @@ if (command.length === 0) {
   process.exit(2);
 }
 
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const libDirectory = fileURLToPath(new URL("../lib/", import.meta.url));
 const allowlistPath = fileURLToPath(new URL("../test/coverage-allowlist.json", import.meta.url));
 const watchdog = fileURLToPath(new URL("./test-watchdog.mjs", import.meta.url));
 
-/** @type {Map<string, string>} */
-const allowlist = new Map(Object.entries(JSON.parse(readFileSync(allowlistPath, "utf8")).modules ?? {}));
+const allowlistFile = /** @type {{ modules?: Record<string, string | { reason?: string, line?: number, branch?: number, function?: number }>, excludedScripts?: Record<string, string> }} */ (JSON.parse(readFileSync(allowlistPath, "utf8")));
+/** @type {Map<string, string | { reason: string, line?: number, branch?: number, function?: number }>} */
+const allowlist = new Map(Object.entries(allowlistFile.modules ?? {}));
+const excludedScripts = allowlistFile.excludedScripts ?? {};
 const libs = new Set(readdirSync(libDirectory).filter((name) => name.endsWith(".js")));
 
 const child = spawn(process.execPath, [watchdog, "--", ...command], {
@@ -124,7 +162,7 @@ child.on("close", (code) => {
     process.exitCode = 1;
     return;
   }
-  const problems = violations(rows, libs, allowlist);
+  const problems = violations(rows, libs, allowlist, excludedScripts);
   console.log(
     `coverage-gate: ${rows.size} of ${libs.size} shipped module(s) measured, ${allowlist.size} allowlisted ` +
       `(floors ${FLOORS.line}/${FLOORS.branch}/${FLOORS.function})`,

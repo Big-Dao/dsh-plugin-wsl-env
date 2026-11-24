@@ -177,13 +177,13 @@ Windows+WSL runner，请使用 `self-hosted-wsl` 等无歧义标签，不要复�
 
 单元测试在 `node --test` 下运行。`package.json` 中的 `test:unit` 和 `test:coverage` 列表显式列出各自的文件；只涉及本仓库的测试应同时出现在两者中。保持两个列表同步且没有重复条目。
 
-两个脚本都在 `scripts/test-watchdog.mjs` 下运行各自的列表，该 watchdog 把整次运行限制在 180 秒内（可用 `DSH_TEST_WATCHDOG_MS` 覆盖）。`node --test` 没有逐文件截止时间，因此一个脚本式文件如果在尚未完成的顶层 await 背后留下活动句柄，就会让检查挂起，直到调用方杀掉它；到达截止时间时，包装器会中断运行，node 的 “Interrupted while running” 列表会指出从未完成的文件。脚本还会传入 `--test-timeout=120000`。在 Node 24 上它只限制文件用 `test()` 注册的测试，模块求值阶段的挂起由 watchdog 覆盖；Node 22 还把脚本式文件的顶层求值整个计入这个时限，所以它必须高于最慢的文件——doctor 套件每次运行要起几十个假进程，还要等完抖动重试的真实延迟，约需一分钟。
+两个脚本都在 `scripts/test-watchdog.mjs` 下运行各自的列表，该 watchdog 把整次运行限制在 300 秒内（可用 `DSH_TEST_WATCHDOG_MS` 覆盖）。`node --test` 没有逐文件截止时间，因此一个脚本式文件如果在尚未完成的顶层 await 背后留下活动句柄，就会让检查挂起，直到调用方杀掉它；到达截止时间时，包装器会中断运行，node 的 “Interrupted while running” 列表会指出从未完成的文件。脚本还会传入 `--test-timeout=240000`。在 Node 24 上它只限制文件用 `test()` 注册的测试，模块求值阶段的挂起由 watchdog 覆盖；Node 22 还把脚本式文件的顶层求值整个计入这个时限，所以它必须高于最慢的文件——doctor 套件每次运行要起几十个假进程（两个平台都跑），还要等完抖动重试的真实延迟。
 
 `test:coverage` 还会通过 `scripts/coverage-gate.mjs` 运行该列表。Node 的覆盖率基于加载——没有测试 import 的模块不会有一行记录，因此全局百分比会静默地只衡量一个子集——所以该检查要求每个 `lib/*.js` 都被测量，或在 `test/coverage-allowlist.json` 中列出并说明为何无法被受检查的测试套件加载；每个被测量的模块都要满足 85 行 / 70 分支 / 60 函数的下限。没有测试的新模块会让检查失败，已不存在模块的允许列表条目同样如此。新增测试是首选修复；允许列表让其余仅由探针覆盖的行保持可见，而不是让它们从分母中消失。
 
 import 固定版本 `@deepseek-ai/*` 包的测试也进入同样的列表，无需额外防护——CI 在 `pnpm test` 之前对锁定树运行 `pnpm install --frozen-lockfile`。例如，`test/provider.test.mjs` 覆盖装配后的服务行，`test/composition.test.mjs` 运行 loader 的真实 patch 算法。
 
-凡是存在无 peer 的接缝，优先使用它。`test/sandbox.test.mjs` 针对 `lib/sandbox-core.js` 运行，并用一个替身代替 peer 的 `SandboxUnavailableError` 契约，这样 `lib/sandbox.js` 中只剩一行 peer 绑定。那一行由 harness 探针覆盖——它们启动插件，从而通过 `lib/index.js` 到达 `WslSandbox`——而不是由 `probe:sandbox` 覆盖，后者只从 `lib/bwrap.js` 读取参数构建器。无法在所有环境运行的测试必须自行跳过——打印一行 `SKIP` 并以 0 退出——就像该文件在 `win32` 上的做法，在那里它的 fake `wsl.exe`（一个 POSIX 脚本）无法执行。
+凡是存在无 peer 的接缝，优先使用它。`test/sandbox.test.mjs` 针对 `lib/sandbox-core.js` 运行，并用一个替身代替 peer 的 `SandboxUnavailableError` 契约，这样 `lib/sandbox.js` 中只剩一行 peer 绑定。那一行由 harness 探针覆盖——它们启动插件，从而通过 `lib/index.js` 到达 `WslSandbox`——而不是由 `probe:sandbox` 覆盖，后者只从 `lib/bwrap.js` 读取参数构建器。无法在所有环境运行的测试必须自行跳过——打印一行 `SKIP` 并以 0 退出。当障碍只是假件的形态时，优先把假件改成可移植的：sandbox 与 doctor 两套测试经 `.mjs` 接缝用 Node 脚本假件驱动被测代码（doctor 是 `--wsl <脚本.mjs>` / `--cmd <脚本.mjs>`），因为 Windows 解析真实的 `System32` 二进制先于 `PATH`，`#!` 脚本无法遮蔽它们。
 
 脚本式套件里的单条检查经 `test/skip.mjs` 延后：检查体确认本机跑不了时调用 `skip("<原因>")`（它会抛出，其后的代码不再执行），由共享的 `runCheck` 打印带原因的 `SKIP` 行，汇总行（`summaryLine` / `skipNote`）写出 `(N skipped: <原因>)`。不要用提前 `return` 代替——runner 在函数返回后打印 PASS，这样的检查在日志里是绿的，实际从未运行；Windows CI 上宿主真实 cancel 路径的唯一单测曾长期如此。跳过要带具体原因：一次跳过若让某条行为在所有环境都没有单测，应先问这条检查能否改成在所有环境运行（例如把 inotify 目录监听换成文件目标）。
 

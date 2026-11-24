@@ -119,6 +119,20 @@ function classifyProbeOutput(output: string): "broken" | "missing" | "unknown" {
 }
 
 /**
+ * The spawn seam's one test concession: a `wslPath` ending in `.mjs` names a
+ * Node script, run under this runtime. Windows resolves the real
+ * `System32\wsl.exe` before `PATH`, so a cross-platform test fake cannot
+ * shadow it by name — it has to be a script a Node child can execute. No
+ * production path names a `.mjs`; a nonsensical value fails closed at spawn.
+ *
+ * @param wslPath - the configured `wsl.exe` path.
+ * @returns the argv prefix the spawn uses.
+ */
+function wslCommand(wslPath: string): string[] {
+  return wslPath.endsWith(".mjs") ? [process.execPath, wslPath] : [wslPath];
+}
+
+/**
  * The package manager the distro offers, for the remedy's direct command. Only
  * consulted on a FAILED probe, so a healthy distro never pays for it; a probe
  * that cannot answer leaves the remedy with the package-manager-agnostic line.
@@ -133,7 +147,7 @@ async function detectPackageFamily(wslPath: string, distro: string, signal?: Abo
     const script = "for m in apt-get dnf pacman zypper; do command -v $m && break; done";
     // `command -v` answers with the PATH-resolved path, so matching on the
     // trailing name is exact — a bare manager name never comes back.
-    const manager = (await runCapture([wslPath, "-d", distro, "--exec", "sh", "-c", script], signal)).trim().split("\n")[0]?.trim() ?? "";
+    const manager = (await runCapture([...wslCommand(wslPath), "-d", distro, "--exec", "sh", "-c", script], signal)).trim().split("\n")[0]?.trim() ?? "";
     if (manager.endsWith("/apt-get")) return "apt";
     if (manager.endsWith("/dnf")) return "dnf";
     if (manager.endsWith("/pacman")) return "pacman";
@@ -237,7 +251,7 @@ export async function bwrapUsable(options: { wslPath: string, distro: string, si
   return probeVerdicts.run(probeKey(wslPath, distro), async () => {
     const prefix = bwrapArgvPrefix({ mode: "read-only", workspaceRoot: "/" });
     try {
-      await runCapture([wslPath, "-d", distro, "--exec", ...prefix, "true"], signal);
+      await runCapture([...wslCommand(wslPath), "-d", distro, "--exec", ...prefix, "true"], signal);
       return true;
     } catch (cause) {
       throw new Error(await composeBwrapFailure(wslPath, distro, cause, signal));

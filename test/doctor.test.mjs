@@ -16,7 +16,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { peerSatisfied, peerPackageDir, parseWslConfig, parseWslSize, parseIni, parseWslVerbose, effectiveMaskWindowsDrive, distroPath, hostDiskVerdict, localeNameFromReg, localeFromTag, overrideLocale, setDoctorLocale, doctorT, probeHandshake, STALE_SCOPE_REPORT } from "../scripts/doctor.mjs";
+import { peerSatisfied, peerPackageDir, parseWslConfig, parseWslSize, parseIni, parseWslVerbose, effectiveMaskWindowsDrive, distroPath, hostDiskVerdict, localeNameFromReg, localeFromTag, overrideLocale, setDoctorLocale, doctorT, probeHandshake, STALE_SCOPE_REPORT, composeBatch, composeSystemdBatch, parseBatchFacts } from "../scripts/doctor.mjs";
 import { mergeLiveResidentStatus } from "../lib/doctor-live.js";
 import { doctorReport } from "../lib/index.js";
 import { DOCTOR_PEERS_ENV, resolvedPeerVersion, resolvedPeerVersions, versionAbove, withHostPeerVersions } from "../lib/peer-versions.js";
@@ -135,27 +135,61 @@ case "$all" in
 esac
 case "$all" in
   *"--exec sh -c"*)
+    # One line per spawn (batch scripts are flattened), so a test can count
+    # and inspect invocations.
+    printf '%s\n' "\$(printf '%s' "\$all" | tr '\n' '|')" >> "\${FAKE_STATE_DIR:-/nonexistent}/sh-c-spawns"
     case "$all" in
-      *'.dsh-doctor-XXXXXXXX'*) printf '%s' "\${FAKE_HOME_PROBE:-ok}" ;;
-      *'printf %s "$HOME"'*) printf '%s' "\${FAKE_DISTRO_HOME:-/home/andy}" ;;
-      *'printf %s ok'*)
+      *'DSHBATCH=ok'*)
+        # The composed pure-read batch: the canned block is built from the
+        # same knobs the single-probe branches used to answer with.
         if [ "$FAKE_FLAKE" = always ]; then printf 'connection attempt failed because the connected party did not properly respond Wsl/Service/WSAETIMEDOUT\n' >&2; exit 1; fi
         if [ "$FAKE_FLAKE" = once ] && [ ! -f "\${FAKE_STATE_DIR:-/nonexistent}/flake-once" ]; then : > "\${FAKE_STATE_DIR:-/nonexistent}/flake-once"; printf 'connection attempt failed because the connected party did not properly respond Wsl/Service/WSAETIMEDOUT\n' >&2; exit 1; fi
-        printf 'ok' ;;
-      *'SH='*) [ "\${FAKE_IDENTITY:-ok}" = bad ] && printf 'SH=\nHM=\n' || printf 'SH=/bin/bash\nHM=%s\n' "$HOME" ;;
-      *'uname -r'*) printf '6.6.87.2' ;;
-      *'for t in rg git inotifywait'*)
-        [ "\${FAKE_RG:-yes}" = no ] && printf 'missing rg\\n' || printf 'found rg /usr/bin/rg\\n'
-        [ "\${FAKE_GIT_TOOL:-yes}" = no ] && printf 'missing git\\n' || printf 'found git /usr/bin/git\\n'
-        printf 'found inotifywait /usr/bin/inotifywait\\n' ;;
-      *'for f in apt-get'*) printf '%s' "\${FAKE_FAMILY:-apt-get}" ;;
-      *'apt-get install'*) : > "\${FAKE_STATE_DIR:-/nonexistent}/installed-bwrap"; exit 0 ;;
-      *'XDG_RUNTIME_DIR'*) printf 'R /run/user/1000\nU /run/user/1000/bus\nU /run/user/1000/systemd/private\nS /run/dbus/system_bus_socket\n' ;;
+        [ "\${FAKE_BATCH_HANG:-no}" = yes ] && sleep 30
+        printf 'DSHBATCH=ok\n'
+        [ "\${FAKE_IDENTITY:-ok}" = bad ] && printf 'SH=\nHM=\n' || printf 'SH=/bin/bash\nHM=%s\n' "\${FAKE_DISTRO_HOME:-\$HOME}"
+        printf 'FAMILY=%s\n' "\${FAKE_FAMILY:-apt-get}"
+        printf 'DF=%s\n' "\$(printf '/dev/sdc 262030 151898 110132 %s%% /' "\${FAKE_DISK:-42}")"
+        printf 'DATE=%s\n' "\${FAKE_CLOCK:-\$(date +%s)}"
+        printf 'CONF_B64=%s\n' "\$(printf '%s' "\${FAKE_WSLCONF:-}" | base64 | tr -d '\n')"
+        if [ -f "\${FAKE_STATE_DIR:-/nonexistent}/installed-bwrap" ] || [ "\${FAKE_BWRAP:-yes}" != no ]; then printf 'BWRAP=/usr/bin/bwrap\n'; fi
+        printf 'BWTEST=ok\n'
+        printf 'SOCK_B64=%s\n' "\$(printf 'R /run/user/1000\nU /run/user/1000/bus\nU /run/user/1000/systemd/private\nS /run/dbus/system_bus_socket\n' | base64 | tr -d '\n')"
+        [ "\${FAKE_SYSTEMD:-yes}" = no ] && printf 'PID1=none init\n' || printf 'PID1=systemd systemd\n'
+        printf 'SYSTEMD_RUN=/usr/bin/systemd-run\n'
+        [ "\${FAKE_BINFMT:-yes}" = no ] || printf 'BINFMT=yes\n'
+        printf 'RESOLV=%s\n' "\${FAKE_RESOLV:-365}"
+        [ "\${FAKE_DNS:-yes}" = no ] || printf 'DNS=1.2.3.4 deb.debian.org\n'
+        printf 'TOOLS_B64=%s\n' "\$( { [ "\${FAKE_RG:-yes}" = no ] && printf 'missing rg\n' || printf 'found rg /usr/bin/rg\n'; [ "\${FAKE_GIT_TOOL:-yes}" = no ] && printf 'missing git\n' || printf 'found git /usr/bin/git\n'; printf 'found inotifywait /usr/bin/inotifywait\n'; } | base64 | tr -d '\n')"
+        printf 'ARCH=x86_64\n'
+        if [ "\${FAKE_CACHE:-good}" = noexec ] && [ ! -f "\${FAKE_STATE_DIR:-/nonexistent}/cache-purged" ]; then
+          cache="noexec \$HOME/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent"
+        elif [ "\${FAKE_CACHE:-good}" = noexec ]; then
+          cache="none"
+        else
+          cache="exec \$HOME/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent"
+        fi
+        printf 'CACHE_B64=%s\n' "\$(printf '%s' "\$cache" | base64 | tr -d '\n')"
+        printf 'HOMEEXEC=%s\n' "\${FAKE_HOME_PROBE:-ok}"
+        ;;
+      *'DSHBATCHB=ok'*)
+        [ "\${FAKE_BATCH_HANG:-no}" = yes ] && sleep 30
+        printf 'DSHBATCHB=ok\n'
+        printf 'USER=running\n'
+        printf 'LINGER=Linger=yes\n'
+        scope=""
+        { [ -f "\${FAKE_STATE_DIR:-/nonexistent}/swept-scopes" ] || [ "\${FAKE_STALE:-no}" != yes ]; } || scope='dsh-wsl-ubuntu-x.scope stale'
+        printf 'SCOPES_B64=%s\n' "\$(printf '%s' "\$scope" | base64 | tr -d '\n')"
+        case "\${FAKE_SCRIPT_READABLE:-yes}" in
+          debian) case "\$all" in *"-d debian"*) printf 'AGENT_READ=no\n' ;; *) printf 'AGENT_READ=yes\n' ;; esac ;;
+          no) printf 'AGENT_READ=no\n' ;;
+          *) printf 'AGENT_READ=yes\n' ;;
+        esac
+        ;;
       *'wsl-writable-roots'*)
         case "\${FAKE_GRANTS:-ok}" in
-          missing) printf '0|missing\\n'; exit 3 ;;
-          unreadable) printf '0|unreadable\\n'; exit 4 ;;
-          symlink) printf '0|symlink -> /real/path\\n'; exit 5 ;;
+          missing) printf '0|missing\n'; exit 3 ;;
+          unreadable) printf '0|unreadable\n'; exit 4 ;;
+          symlink) printf '0|symlink -> /real/path\n'; exit 5 ;;
         esac ;;
       *'command -v bwrap'*) [ -f "\${FAKE_STATE_DIR:-/nonexistent}/installed-bwrap" ] && printf '/usr/bin/bwrap' || { [ "\${FAKE_BWRAP:-yes}" = no ] || printf '/usr/bin/bwrap'; } ;;
       *'bwrap --ro-bind'*)
@@ -164,28 +198,11 @@ case "$all" in
           *'inside'*) printf 'ok' ;;
           *) exit 0 ;;
         esac ;;
-      *'/run/systemd/system'*) [ "\${FAKE_SYSTEMD:-yes}" = no ] && printf 'none init' || printf 'systemd systemd' ;;
-      *'command -v systemd-run'*) printf '/usr/bin/systemd-run' ;;
       *'systemctl --user stop'*) : > "\${FAKE_STATE_DIR:-/nonexistent}/swept-scopes"; exit 0 ;;
       *'echo "$unit'*)
         if [ -f "\${FAKE_STATE_DIR:-/nonexistent}/swept-scopes" ] && [ "\${FAKE_RECHECK:-}" = scopes ]; then printf 'connection attempt failed because the connected party did not properly respond Wsl/Service/WSAETIMEDOUT\n' >&2; exit 1; fi
         { [ -f "\${FAKE_STATE_DIR:-/nonexistent}/swept-scopes" ] || [ "\${FAKE_STALE:-no}" != yes ]; } || printf 'dsh-wsl-ubuntu-x.scope stale' ;;
-      *'systemctl --user stop'*) exit 0 ;;
-      *'systemctl --user is-system-running'*) printf 'running' ;;
-      *'loginctl show-user'*) printf 'Linger=yes' ;;
-      *'command -v rg'*) printf '/usr/bin/rg' ;;
-      *'command -v git'*) printf '/usr/bin/git' ;;
-      *'command -v inotifywait'*) printf '/usr/bin/inotifywait' ;;
       *'[ -f'*) case "\${FAKE_SCRIPT_READABLE:-yes}" in debian) case "$all" in *"-d debian"*) printf no ;; *) printf yes ;; esac ;; no) printf no ;; *) printf yes ;; esac ;;
-      *'cat /etc/wsl.conf'*) printf '%s' "\${FAKE_WSLCONF:-}" ;;
-      *'df -Pm /'*) printf 'Filesystem 1M-blocks Used Available Capacity Mounted\n/dev/sdc 262030 151898 110132 %s%% /\n' "\${FAKE_DISK:-42}" ;;
-      *'date +%s'*) printf '%s' "\${FAKE_CLOCK:-$(date +%s)}" ;;
-      *'wc -c < /etc/resolv.conf'*) printf '%s' "\${FAKE_RESOLV:-365}" ;;
-      *'getent hosts'*) [ "\${FAKE_DNS:-yes}" = no ] || printf '1.2.3.4 deb.debian.org\n' ;;
-      *'binfmt_misc/WSLInterop'*) [ "\${FAKE_BINFMT:-yes}" = no ] || printf 'yes' ;;
-      *'cat /proc/net/tcp'*) printf '  sl  local_address rem_address   st tx_queue rx_queue\n   0: 00000000:0BB8 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 0 1\n' ;;
-      *'hostname -I'*) printf '172.20.0.5 ' ;;
-      *'uname -m'*) printf 'x86_64' ;;
       *'rm -rf "$HOME/.cache/dsh-wsl/agent"'*) : > "\${FAKE_STATE_DIR:-/nonexistent}/cache-purged"; exit 0 ;;
       *'.cache/dsh-wsl/agent'*)
         if [ -f "\${FAKE_STATE_DIR:-/nonexistent}/cache-purged" ] && [ "\${FAKE_RECHECK:-}" = cache ]; then printf 'connection attempt failed because the connected party did not properly respond Wsl/Service/WSAETIMEDOUT\n' >&2; exit 1; fi
@@ -193,6 +210,8 @@ case "$all" in
           [ -f "\${FAKE_STATE_DIR:-/nonexistent}/cache-purged" ] && printf 'none' || printf 'noexec %s/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent' "$HOME"
         else printf 'exec %s/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent' "$HOME"; fi ;;
       *'mktemp -d'*) printf '/tmp/dsh-doctor-smoke-fixed' ;;
+      *'cat /proc/net/tcp'*) printf '  sl  local_address rem_address   st tx_queue rx_queue\n   0: 00000000:0BB8 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 0 1\n' ;;
+      *'hostname -I'*) printf '172.20.0.5 ' ;;
       *'rm -rf'*) exit 0 ;;
       *) : ;;
     esac
@@ -1600,6 +1619,87 @@ esac
   setDoctorLocale("en");
   console.log("doctor locale catalog, detection, and overrides pass");
 }
+
+await check("the composed batches carry exactly the groups they are asked for", () => {
+  const bare = composeBatch({ sandbox: false, session: false, conf: false, net: false, host: false, agent: false });
+  assert.match(bare, /DSHBATCH=ok/u);
+  assert.match(bare, /SH=/u);
+  assert.match(bare, /FAMILY=/u);
+  assert.match(bare, /DF=/u);
+  assert.match(bare, /DATE=/u);
+  assert.match(bare, /CONF_B64=/u);
+  assert.doesNotMatch(bare, /BWRAP=|BWTEST=|SOCK_B64=/u, "sandbox facts must not ride a run without the sandbox group");
+  assert.doesNotMatch(bare, /PID1=|SYSTEMD_RUN=/u, "session facts must not ride a run without the session group");
+  assert.doesNotMatch(bare, /BINFMT=|RESOLV=|DNS=|TOOLS_B64=|ARCH=|CACHE_B64=|HOMEEXEC=/u);
+  const full = composeBatch({ sandbox: true, session: true, conf: true, net: true, host: true, agent: true });
+  for (const key of ["BWRAP=", "BWTEST=", "SOCK_B64=", "PID1=", "SYSTEMD_RUN=", "BINFMT=", "RESOLV=", "DNS=", "TOOLS_B64=", "ARCH=", "CACHE_B64=", "HOMEEXEC="]) {
+    assert.match(full, new RegExp(key.replace(/[$]/gu, "\\$"), "u"), `${key} missing from the full batch`);
+  }
+  // getent rides its own timeout so a dead resolver cannot hold the batch.
+  assert.match(full, /timeout 5 getent hosts/u);
+  const systemdBatch = composeSystemdBatch({ sandbox: false, session: true, conf: false, net: false, host: false, agent: true }, "/mnt/c/agent/wsl-agent.sh");
+  assert.match(systemdBatch, /timeout 10 systemctl --user is-system-running/u);
+  assert.match(systemdBatch, /timeout 10 loginctl show-user/u);
+  assert.match(systemdBatch, /SCOPES_B64=/u);
+  assert.match(systemdBatch, /AGENT_READ=/u);
+  // No readability probe without a path; no systemd legs without the section.
+  assert.doesNotMatch(composeSystemdBatch({ sandbox: false, session: false, conf: false, net: false, host: false, agent: true }, ""), /AGENT_READ=/u);
+  assert.doesNotMatch(composeSystemdBatch({ sandbox: false, session: false, conf: false, net: false, host: false, agent: true }, "/x"), /USER=|LINGER=|SCOPES_B64=/u);
+});
+
+await check("parseBatchFacts decodes the base64 keys and ignores everything else", () => {
+  const payload = Buffer.from("R /run/user/1000\nU /run/user/1000/bus\n", "utf8").toString("base64");
+  const facts = parseBatchFacts(["DSHBATCH=ok", "SH=/bin/bash", "SOCK_B64=" + payload, "this line has no equals", "=empty-key", "", "CONF_B64=" + Buffer.from("[boot]\nsystemd=true\n", "utf8").toString("base64")].join("\n"));
+  assert.equal(facts.DSHBATCH, "ok");
+  assert.equal(facts.SH, "/bin/bash");
+  assert.equal(facts.SOCK_B64, "R /run/user/1000\nU /run/user/1000/bus\n");
+  assert.equal(facts.CONF_B64, "[boot]\nsystemd=true\n");
+  assert.equal(facts["this line has no equals"], undefined);
+  assert.equal(facts[""], undefined);
+});
+
+await check("the per-distro reads go out as one batch, not one spawn per fact", async () => {
+  const spawnsFile = join(stateDir, "sh-c-spawns");
+  rmSync(spawnsFile, { force: true }); // the counter accumulates across the suite's runs; this check counts its own
+  const quick = /** @type {Report} */ (JSON.parse(doctor(["--json", "--quick"]).stdout));
+  assert.equal(quick.checks.find((entry) => entry.id === "distro.reachable")?.status, "ok");
+  const spawns = readFileSync(spawnsFile, "utf8").trim().split("\n").filter((line) => line.length > 0);
+  const batches = spawns.filter((line) => line.includes("DSHBATCH=ok") || line.includes("DSHBATCHB=ok"));
+  assert.equal(batches.length, 2, "a quick run pays exactly two batch spawns");
+  // The pure-read batch carries the always-on facts that used to be one spawn
+  // each; the quick profile excludes `net`, so resolv.conf rides the full run.
+  assert.ok(batches.some((line) => line.includes("df -Pm /") && line.includes("/etc/wsl.conf")), "df and the conf read must share one spawn");
+  assert.ok(spawns.length <= 5, `a quick run keeps its in-distro spawns small, saw ${spawns.length}`);
+  rmSync(spawnsFile, { force: true });
+  const full = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
+  assert.equal(full.checks.find((entry) => entry.id === "distro.reachable")?.status, "ok");
+  const fullSpawns = readFileSync(spawnsFile, "utf8").trim().split("\n").filter((line) => line.length > 0);
+  assert.ok(fullSpawns.length <= 10, `a full run keeps its in-distro spawns small, saw ${fullSpawns.length}`);
+  const fullBatch = fullSpawns.find((line) => line.includes("DSHBATCH=ok")) ?? "";
+  assert.ok(fullBatch.includes("/etc/resolv.conf") && fullBatch.includes("uname -m") && fullBatch.includes("CACHE_B64"), "the full batch carries the net and agent facts too");
+});
+
+await check("--probe-timeout bounds a hung batch instead of the shared deadline", async () => {
+  const started = Date.now();
+  const hung = doctor(["--json", "--quick", "--probe-timeout", "1500"], { FAKE_BATCH_HANG: "yes" });
+  const elapsed = Date.now() - started;
+  const report = /** @type {Report} */ (JSON.parse(hung.stdout));
+  const reachable = report.checks.find((entry) => entry.id === "distro.reachable");
+  assert.equal(reachable?.status, "unknown", "a batch killed by the probe deadline is a transport flake, not a config verdict");
+  assert.match(String(reachable?.detail), /transport flake/u);
+  // One attempt (1.5 s) + settle (2 s) + retry (1.5 s) — well under the 60 s
+  // default; the run must have bounded itself, not waited it out.
+  assert.ok(elapsed < 20_000, `the hung probe settled in ${elapsed} ms`);
+});
+
+await check("--probe-timeout refuses a value that is not a positive integer", () => {
+  for (const value of ["abc", "0", "-5", "1.5", ""]) {
+    const bad = doctor(["--json", "--probe-timeout", value]);
+    assert.notEqual(bad.status, 0, `--probe-timeout ${JSON.stringify(value)} must be refused`);
+    assert.match(bad.stderr, /--probe-timeout/u);
+  }
+  assert.equal(doctor(["--json", "--quick", "--probe-timeout", "1500"]).status, 0);
+});
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }

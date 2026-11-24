@@ -76,13 +76,23 @@ version** card is separate from the doctor: it reads the
 installed/running plugin versions and offers the one-click upgrade through the
 host plugin manager ([CONFIGURATION](CONFIGURATION.md), `wsl-plugin-update`).
 
-- **The standalone CLI** — `node scripts/doctor.mjs [distro] [--all] [--json] [--quick] [--sections host,sandbox,session,conf,net,agent] [--fix] [--fix-owned] [--install] [--yes] [--read-only] [--bundle <path>] [--redact] [--locale <tag>]`
+- **The standalone CLI** — `node scripts/doctor.mjs [distro] [--all] [--json] [--quick] [--sections host,sandbox,session,conf,net,agent] [--probe-timeout <ms>] [--fix] [--fix-owned] [--install] [--yes] [--read-only] [--bundle <path>] [--redact] [--locale <tag>]`
   (the same line `--help` prints).
   The authoritative surface: it loads **no peer dependency and no host
   service**, so it still starts when the plugin's own runtime is the thing
   that is broken. Only pure, peer-free `lib/` modules are imported; the one
   helper that used to live behind a peer-tainted module (`lib/index.js`) is
-  inlined and drift-pinned against the lib export by `test/doctor.test.mjs`. Exit 0 = `ready`, 1 = `blocked`, 2 = refused
+  inlined and drift-pinned against the lib export by `test/doctor.test.mjs`.
+  The in-distro reads go out as composed batches: the pure reads in one
+  `wsl.exe`, the systemd-class commands in a small batch of their own, each
+  under its own `timeout` — a distro's probes drop from a dozen-plus spawns
+  to about 2 in the quick profile and 8 in a full run. The fix rechecks (the
+  scope sweep, the cache purge, the bwrap install) keep their standalone
+  probes, so a hung command costs its own slice. `--probe-timeout <ms>`
+  bounds one batch probe's deadline (the shared 60 s default stands without
+  it); a deadline hit is a transport flake, retried once after the 2 s settle,
+  so the worst path is `2T + 2s`.
+  Exit 0 = `ready`, 1 = `blocked`, 2 = refused
   (`--read-only` with `--fix`/`--install`, `--fix-owned` with `--install`, or
   `--fix` on a scoped run).
 - **The `/wsl-doctor` UI command** — typing
@@ -118,7 +128,10 @@ host plugin manager ([CONFIGURATION](CONFIGURATION.md), `wsl-plugin-update`).
   probes **every** installed distro — a sweep that costs minutes on a machine
   with several (a scoped quick run is seconds). The handler therefore bounds
   the subprocess (120 s when it has a distro, 60 s when the configuration has
-  to choose, both below the command dispatcher's own deadline) so a stalled or
+  to choose, both below the command dispatcher's own deadline) and passes
+  `--probe-timeout` so that `2T + 2s` stays below the budget — a stuck probe
+  settles into its own `unknown` verdict instead of vanishing under the outer
+  kill — so a stalled or
   unscoped run settles with a message naming the target it examined and how to
   narrow it.
 - **The `wsl_doctor` model tool** — in-process via `doctorReport()`, so the

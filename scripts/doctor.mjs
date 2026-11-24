@@ -322,6 +322,132 @@ const CACHE_REPORT = [
 ].join("\n");
 
 /**
+ * Which probe groups a composed batch carries. Every flag is the caller's
+ * section gate already folded with the config-aware conditions (`sandbox`
+ * means "sandbox wanted AND the effective configuration enables it"), so the
+ * composers stay pure string builders.
+ * @typedef {object} BatchInclude
+ * @property {boolean} sandbox - the bubblewrap path/usability and socket-facts probes.
+ * @property {boolean} session - the PID-1 and systemd-run probes in batch A;
+ *   the user-manager, linger and scope probes in batch B.
+ * @property {boolean} conf - the binfmt probe.
+ * @property {boolean} net - the resolv.conf and DNS probes.
+ * @property {boolean} host - the optional-tools probe.
+ * @property {boolean} agent - the architecture, cache and home probes in
+ *   batch A; the agent-script readability probe in batch B.
+ */
+
+/** How long one DNS lookup may take inside the batch: a query parked on a dead resolver otherwise holds every later fact hostage until the transport deadline. */
+const DNS_TIMEOUT_S = 5;
+/** How long one systemd-class command may take inside batch B. `systemctl --user` against a half-booted user manager can sit far longer than the answer is worth. */
+const SYSTEMD_TIMEOUT_S = 10;
+/** Wraps one command in the distro's `timeout` when it has one, so a hung command costs its own slice instead of the whole batch.
+ * @param {string} seconds - the timeout, in seconds.
+ * @param {string} command - the command line to wrap.
+ * @returns {string} the guarded command. */
+const withTimeout = (seconds, command) => `if command -v timeout >/dev/null 2>&1; then timeout ${seconds} ${command}; else ${command}; fi`;
+
+/**
+ * The pure-read batch: one `wsl.exe` spawn answers every fact that cannot
+ * hang, each emitter producing one `KEY=value` line. Multiline readings ride
+ * base64 (`*_B64`), and every emitter is guarded so one failing command costs
+ * its own key, not the batch.
+ * @param {BatchInclude} include - the probe groups to emit.
+ * @returns {string} the `sh -c` body.
+ */
+export function composeBatch(include) {
+  /** @type {string[]} */
+  const lines = [
+    "printf 'DSHBATCH=ok\\n'",
+    `s=$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f7); [ -n "$s" ] || s=$SHELL; printf 'SH=%s\\nHM=%s\\n' "$s" "$HOME"`,
+    `printf 'FAMILY=%s\\n' "$(for f in ${FAMILIES.join(" ")}; do command -v "$f" >/dev/null 2>&1 && { printf %s "$f"; exit 0; }; done; printf unknown)"`,
+    `printf 'DF=%s\\n' "$(df -Pm / 2>/dev/null | sed -n '2p')"`,
+    `printf 'DATE=%s\\n' "$(date +%s 2>/dev/null)"`,
+    `printf 'CONF_B64=%s\\n' "$(cat /etc/wsl.conf 2>/dev/null | base64 | tr -d '\\n')"`,
+  ];
+  if (include.sandbox) {
+    lines.push(
+      `printf 'BWRAP=%s\\n' "$(command -v bwrap 2>/dev/null)"`,
+      `printf 'BWTEST=%s\\n' "$(bwrap --ro-bind / / -- true >/dev/null 2>&1 && printf ok || printf no)"`,
+      `printf 'SOCK_B64=%s\\n' "$( { ${socketIsolationProbeScript()} ; } 2>/dev/null | base64 | tr -d '\\n' )"`,
+    );
+  }
+  if (include.session) {
+    lines.push(
+      `printf 'PID1=%s\\n' "$(if [ -d /run/systemd/system ]; then printf 'systemd %s' "$(cat /proc/1/comm 2>/dev/null)"; else printf 'none %s' "$(cat /proc/1/comm 2>/dev/null)"; fi)"`,
+      `printf 'SYSTEMD_RUN=%s\\n' "$(command -v systemd-run 2>/dev/null)"`,
+    );
+  }
+  if (include.conf) {
+    lines.push(`printf 'BINFMT=%s\\n' "$([ -e /proc/sys/fs/binfmt_misc/WSLInterop ] && printf yes || printf no)"`);
+  }
+  if (include.net) {
+    lines.push(
+      `printf 'RESOLV=%s\\n' "$(wc -c < /etc/resolv.conf 2>/dev/null || printf 0)"`,
+      `printf 'DNS=%s\\n' "$( ${withTimeout(String(DNS_TIMEOUT_S), "getent hosts deb.debian.org 2>/dev/null")} | head -n 1 )"`,
+    );
+  }
+  if (include.host) {
+    lines.push(`printf 'TOOLS_B64=%s\\n' "$(for t in rg git inotifywait; do if p=$(command -v "$t" 2>/dev/null); then printf 'found %s %s\\n' "$t" "$p"; else printf 'missing %s\\n' "$t"; fi; done | base64 | tr -d '\\n')"`);
+  }
+  if (include.agent) {
+    lines.push(
+      `printf 'ARCH=%s\\n' "$(uname -m 2>/dev/null)"`,
+      `printf 'CACHE_B64=%s\\n' "$( { ${CACHE_REPORT} ; } 2>/dev/null | base64 | tr -d '\\n' )"`,
+      `printf 'HOMEEXEC=%s\\n' "$(d=$(mktemp -d "$HOME/.dsh-doctor-XXXXXXXX" 2>/dev/null) || { printf nowrite; exit 0; }; printf '#!/bin/sh\\n' > "$d/x" && chmod 755 "$d/x" && "$d/x" >/dev/null 2>&1 && printf ok || printf noexec; rm -rf "$d")"`,
+    );
+  }
+  return lines.join("\n");
+}
+
+/**
+ * The systemd-class batch: the commands that talk to the user manager each
+ * ride their own `timeout`, in a spawn of their own so a wedged manager
+ * cannot hold the pure-read batch's facts hostage. It runs AFTER batch A
+ * because the agent-script readability probe needs the automount root the
+ * conf read produced.
+ * @param {BatchInclude} include - the probe groups to emit.
+ * @param {string} agentReadPath - the agent script as a Linux path inside the distro; empty emits nothing.
+ * @returns {string} the `sh -c` body.
+ */
+export function composeSystemdBatch(include, agentReadPath) {
+  /** @type {string[]} */
+  const lines = ["printf 'DSHBATCHB=ok\\n'"];
+  if (include.session) {
+    lines.push(
+      `printf 'USER=%s\\n' "$( ${withTimeout(String(SYSTEMD_TIMEOUT_S), "systemctl --user is-system-running 2>/dev/null")} || true )"`,
+      `printf 'LINGER=%s\\n' "$( ${withTimeout(String(SYSTEMD_TIMEOUT_S), `loginctl show-user "$(id -un)" -p Linger 2>/dev/null`)} || true )"`,
+      `printf 'SCOPES_B64=%s\\n' "$( { ${STALE_SCOPE_REPORT} ; } 2>/dev/null | base64 | tr -d '\\n' )"`,
+    );
+  }
+  if (include.agent && agentReadPath.length > 0) {
+    lines.push(`printf 'AGENT_READ=%s\\n' "$([ -f "${agentReadPath}" ] && printf yes || printf no)"`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Reads one composed batch's `KEY=value` lines. Values of `*_B64` keys are
+ * decoded from base64; unknown or malformed lines are ignored, and a missing
+ * key simply stays absent — every consumer treats absence the way it treated
+ * a failed standalone probe before the batches.
+ * @param {string} stdout - the batch's stdout.
+ * @returns {Record<string, string>} the facts, multiline values decoded.
+ */
+export function parseBatchFacts(stdout) {
+  /** @type {Record<string, string>} */
+  const facts = {};
+  for (const line of stdout.split(/\r?\n/)) {
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq);
+    const value = line.slice(eq + 1);
+    facts[key] = key.endsWith("_B64") ? Buffer.from(value, "base64").toString("utf8") : value;
+  }
+  return facts;
+}
+
+/**
  * One check result.
  * @typedef {object} Check
  * @property {string} id - stable dotted id.
@@ -759,8 +885,8 @@ export function effectiveConfig(dshHome, root) {
  * @param {string} script - the shell script.
  * @returns {Promise<{ ok: boolean, stdout: string, stderr: string, code?: string }>} the capture.
  */
-function inDistro(distro, script) {
-  return run([WSL, "-d", distro, "--exec", "sh", "-c", script]);
+function inDistro(distro, script, timeoutMs = TIMEOUT_MS) {
+  return run([WSL, "-d", distro, "--exec", "sh", "-c", script], timeoutMs);
 }
 
 /**
@@ -792,20 +918,21 @@ const FLAKE_SETTLE_MS = 2_000;
  * `unknown` instead of a configuration verdict built on a wedged read.
  * @param {string} distro - the distro name.
  * @param {string} script - the shell script.
+ * @param {number} [timeoutMs] - the capture deadline; the default is the shared 60 s one.
  * @returns {Promise<{ ok: boolean, stdout: string, stderr: string, code?: string, timedOut?: boolean, flaked: boolean }>} the capture plus the flake flag.
  */
-async function askDistro(distro, script) {
-  const first = await inDistro(distro, script);
+async function askDistro(distro, script, timeoutMs = TIMEOUT_MS) {
+  const first = await inDistro(distro, script, timeoutMs);
   if (first.ok || !isFlake(first)) return { ...first, flaked: isFlake(first) };
   await new Promise((resolve) => setTimeout(resolve, FLAKE_SETTLE_MS));
-  const second = await inDistro(distro, script);
+  const second = await inDistro(distro, script, timeoutMs);
   return { ...second, flaked: isFlake(second) };
 }
 
 /**
  * Parse the doctor's own arguments.
  * @param {string[]} argv - `process.argv.slice(2)`.
- * @returns {{ distro: string, wsl: string, json: boolean, fix: boolean, fixOwned: boolean, install: boolean, yes: boolean, readOnly: boolean, all: boolean, bundle: string, redact: boolean, sections: string, quick: boolean, help: boolean, locale: string }} the options.
+ * @returns {{ distro: string, wsl: string, json: boolean, fix: boolean, fixOwned: boolean, install: boolean, yes: boolean, readOnly: boolean, all: boolean, bundle: string, redact: boolean, sections: string, quick: boolean, help: boolean, locale: string, probeTimeout: number }} the options.
  */
 function parseArgs(argv) {
   const options = {
@@ -824,6 +951,15 @@ function parseArgs(argv) {
     quick: false,
     help: false,
     locale: "",
+    probeTimeout: 0,
+  };
+  /** Reads a positive-integer millisecond value, rejecting the rest.
+   * @param {string} value - the raw flag value.
+   * @returns {number} the milliseconds. */
+  const ms = (value) => {
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`doctor: --probe-timeout needs a positive integer of milliseconds, got "${value}"`);
+    return parsed;
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] ?? "";
@@ -843,6 +979,8 @@ function parseArgs(argv) {
     else if (arg.startsWith("--bundle=")) options.bundle = arg.slice("--bundle=".length);
     else if (arg === "--redact") options.redact = true;
     else if (arg === "--help" || arg === "-h") options.help = true;
+    else if (arg === "--probe-timeout") options.probeTimeout = ms(argv[++i] ?? "");
+    else if (arg.startsWith("--probe-timeout=")) options.probeTimeout = ms(arg.slice("--probe-timeout=".length));
     else if (arg === "--distro") options.distro = argv[++i] ?? "";
     else if (arg.startsWith("--distro=")) options.distro = arg.slice("--distro=".length);
     else if (arg === "--wsl") options.wsl = argv[++i] ?? "";
@@ -1342,22 +1480,56 @@ async function main(options) {
     const check = (/** @type {string} */ id, /** @type {Check["status"]} */ status, /** @type {string} */ title, /** @type {string | undefined} */ detail = undefined, /** @type {string | undefined} */ remedy = undefined) => {
       collected.push({ id, status, title, ...(detail === undefined ? {} : { detail }), ...(remedy === undefined ? {} : { remedy }), distro: target });
     };
-    /** One in-distro probe with the flake retry. */
-    const probe = (/** @type {string} */ script) => askDistro(target, script);
+    /** One in-distro probe with the flake retry, on this run's probe deadline. */
+    const probeTimeout = options.probeTimeout > 0 ? options.probeTimeout : TIMEOUT_MS;
+    const probe = (/** @type {string} */ script) => askDistro(target, script, probeTimeout);
     /** The `unknown` row a transport flake earns instead of a config verdict. */
     const flakeCheck = (/** @type {string} */ id, /** @type {string} */ title, /** @type {{ stderr: string, stdout: string }} */ answer) => check(id, "unknown", title,
       `transport flake — wsl.exe timed out or wedged (${(answer.stderr || answer.stdout || "no output").trim().split(/\r?\n/)[0]?.slice(0, 80) || "no output"}); this read is not trusted as a configuration verdict`,
       `rerun the doctor; if the flake repeats, "wsl.exe -t ${target}" (terminate just this distro) and rerun again`);
-    const alive = await probe("printf %s ok");
-    if (!alive.ok && alive.flaked) {
-      flakeCheck("distro.reachable", `Distro "${target}"`, alive);
+    // The per-distro reads go out as two composed batches — the pure reads in
+    // one `wsl.exe`, the systemd-class commands in another, each under its own
+    // `timeout` — instead of one spawn per fact. The batch is the reach probe:
+    // a distro that answers it answers everything it carries.
+    const sandboxDisabled = effective.sandbox === "false" && effective.sessionSandbox === "false";
+    const include = {
+      sandbox: want("sandbox") && !sandboxDisabled,
+      session: want("session"),
+      conf: want("conf"),
+      net: want("net"),
+      host: want("host"),
+      agent: want("agent"),
+    };
+    const batchAnswer = await probe(composeBatch(include));
+    if (!batchAnswer.ok && batchAnswer.flaked) {
+      flakeCheck("distro.reachable", `Distro "${target}"`, batchAnswer);
       return { checks: collected, reachable: false, bwrapPath: "", stale: 0, cacheEntries: 0, cacheBad: 0, cacheExecPath: "", family: "unknown", agentScriptDistro: undefined };
     }
-    if (!alive.ok || alive.stdout.trim() !== "ok") {
+    const facts = parseBatchFacts(batchAnswer.stdout);
+    if (!batchAnswer.ok || facts.DSHBATCH !== "ok") {
       check("distro.reachable", "fail", `Distro "${target}"`, "wsl.exe could not run a command in it (stopped, wedged, or missing)", `wsl.exe -d ${target} -- true; if that hangs, wsl.exe --shutdown, then retry`);
       return { checks: collected, reachable: false, bwrapPath: "", stale: 0, cacheEntries: 0, cacheBad: 0, cacheExecPath: "", family: "unknown", agentScriptDistro: undefined };
     }
     check("distro.reachable", "ok", `Distro "${target}"`, "answers commands");
+    // The conf read rides batch A; its derived values gate batch B (the
+    // agent-script readability probe needs the automount root).
+    const confText = facts.CONF_B64 ?? "";
+    const conf = parseIni(confText);
+    const noConf = confText.trim().length === 0;
+    const automountEnabled = ((noConf ? undefined : conf.automount?.enabled) ?? "").trim().toLowerCase();
+    const automountRoot = ((noConf ? undefined : conf.automount?.root) ?? "").trim();
+    /** Where the distro mounts Windows drives; the host->distro translation uses it. */
+    const mountRoot = automountRoot.length > 0 ? automountRoot : "/mnt";
+    /** The shell agent as the distro sees it; undefined when it cannot be reached from there. */
+    const agentScriptDistro = automountEnabled === "false" ? undefined : distroPath(agentScript, mountRoot);
+    /** Batch B: the systemd-class reads plus the conf-dependent readability probe. Absent keys mean the emitter was out of scope; a flaked batch earns `unknown` rows on every gated row that reads it. */
+    let factsB = /** @type {Record<string, string>} */ ({});
+    let batchB = /** @type {Awaited<ReturnType<typeof askDistro>> | undefined} */ (undefined);
+    if (include.session || (include.agent && agentScriptDistro !== undefined)) {
+      batchB = await probe(composeSystemdBatch({ ...include, agent: include.agent && agentScriptDistro !== undefined }, agentScriptDistro ?? ""));
+      factsB = parseBatchFacts(batchB.stdout);
+    }
+    const batchBFlaked = batchB !== undefined && !batchB.ok && batchB.flaked;
 
     // ---- Windows share reachability (host section) ---------------------------
     // The GUI file service, the workspace picker and open-in-app read the
@@ -1380,20 +1552,14 @@ async function main(options) {
     // and one probe: both are consumed by the executor's shell resolution and
     // the agent cache, and a broken entry fails both at once. The family probe
     // stays (the install remedy needs it) but no longer has a row of its own.
-    let family = "unknown";
-    const identityAnswer = await probe('s=$(getent passwd "$(id -u)" | cut -d: -f7); [ -n "$s" ] || s=$SHELL; printf "SH=%s\\nHM=%s\\n" "$s" "$HOME"');
-    if (!identityAnswer.ok && identityAnswer.flaked) flakeCheck("distro.identity", "Login shell and home", identityAnswer);
-    else {
-      const shell = /^SH=(.*)$/m.exec(identityAnswer.stdout)?.[1]?.trim() ?? "";
-      const home = /^HM=(.*)$/m.exec(identityAnswer.stdout)?.[1]?.trim() ?? "";
-      const shellOk = shell.startsWith("/");
-      const homeOk = home.startsWith("/");
-      if (shellOk && homeOk) check("distro.identity", "ok", "Login shell and home", `${shell}, ${home}`);
-      else check("distro.identity", "fail", "Login shell and home", `shell=${shell.length === 0 ? "(none)" : shell}, home=${home.length === 0 ? "(none)" : home}`, `check the user's /etc/passwd entry in "${target}": getent passwd "$(id -u)"`);
-    }
-
-    const familyAnswer = await probe(`for f in ${FAMILIES.join(" ")}; do command -v "$f" >/dev/null 2>&1 && { echo "$f"; exit 0; }; done; echo unknown`);
-    if (familyAnswer.ok) family = familyAnswer.stdout.trim();
+    let family = (facts.FAMILY ?? "unknown").trim();
+    if (family.length === 0) family = "unknown";
+    const shell = (facts.SH ?? "").trim();
+    const home = (facts.HM ?? "").trim();
+    const shellOk = shell.startsWith("/");
+    const homeOk = home.startsWith("/");
+    if (shellOk && homeOk) check("distro.identity", "ok", "Login shell and home", `${shell}, ${home}`);
+    else check("distro.identity", "fail", "Login shell and home", `shell=${shell.length === 0 ? "(none)" : shell}, home=${home.length === 0 ? "(none)" : home}`, `check the user's /etc/passwd entry in "${target}": getent passwd "$(id -u)"`);
 
     // ---- WSL mode ------------------------------------------------------------
     // WSL1 is a declared non-goal, but until now it failed unexplained: the
@@ -1413,23 +1579,19 @@ async function main(options) {
     // the ext4 VHDX stops growing (or the Windows drive holding it is full)
     // and every write failure surfaces as something unrelated. One df call;
     // the fail line at 97% is where the first cache write starts to break.
-    const dfAnswer = await probe("df -Pm /");
-    if (!dfAnswer.ok && dfAnswer.flaked) flakeCheck("distro.disk", "Disk", dfAnswer);
-    else {
-      const dfLine = dfAnswer.stdout.trim().split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0)[1] ?? "";
-      const dfFields = dfLine.split(/\s+/);
-      const dfCapacity = Number((dfFields[4] ?? "").replace(/%$/, ""));
-      const dfTotal = dfFields[1] ?? "?";
-      const dfAvail = dfFields[3] ?? "?";
-      if (!Number.isFinite(dfCapacity)) {
-        check("distro.disk", "info", "Disk", "unreadable — df did not answer in the expected shape");
-      } else if (dfCapacity >= 97) {
-        check("distro.disk", "fail", "Disk", `/${dfCapacity}% used (${dfAvail} MiB free of ${dfTotal} MiB) — writes into the distro will start failing`, `free space inside "${target}" or on the Windows drive holding the ext4 VHDX; sparse VHD (the .wslconfig sparseVhd key) lets "wsl.exe --shutdown" shrink it back`);
-      } else if (dfCapacity >= 90) {
-        check("distro.disk", "warn", "Disk", `/${dfCapacity}% used (${dfAvail} MiB free of ${dfTotal} MiB)`, "plan a cleanup before the 97% line, where writes start to fail");
-      } else {
-        check("distro.disk", "ok", "Disk", `/${dfCapacity}% used (${dfAvail} MiB free of ${dfTotal} MiB)`);
-      }
+    const dfLine = (facts.DF ?? "").trim();
+    const dfFields = dfLine.split(/\s+/);
+    const dfCapacity = Number((dfFields[4] ?? "").replace(/%$/, ""));
+    const dfTotal = dfFields[1] ?? "?";
+    const dfAvail = dfFields[3] ?? "?";
+    if (!Number.isFinite(dfCapacity)) {
+      check("distro.disk", "info", "Disk", "unreadable — df did not answer in the expected shape");
+    } else if (dfCapacity >= 97) {
+      check("distro.disk", "fail", "Disk", `/${dfCapacity}% used (${dfAvail} MiB free of ${dfTotal} MiB) — writes into the distro will start failing`, `free space inside "${target}" or on the Windows drive holding the ext4 VHDX; sparse VHD (the .wslconfig sparseVhd key) lets "wsl.exe --shutdown" shrink it back`);
+    } else if (dfCapacity >= 90) {
+      check("distro.disk", "warn", "Disk", `/${dfCapacity}% used (${dfAvail} MiB free of ${dfTotal} MiB)`, "plan a cleanup before the 97% line, where writes start to fail");
+    } else {
+      check("distro.disk", "ok", "Disk", `/${dfCapacity}% used (${dfAvail} MiB free of ${dfTotal} MiB)`);
     }
 
     // ---- sandbox prerequisites ----------------------------------------------
@@ -1439,7 +1601,6 @@ async function main(options) {
     // loud warning, not a silent `info`. The fence smoke is skipped with it.
     let bwrapUsable = false;
     let bwrapPath = "";
-    const sandboxDisabled = effective.sandbox === "false" && effective.sessionSandbox === "false";
     const install = installRemedy(target, family);
     if (!want("sandbox")) {
       // sandbox section out of scope: bwrapPath stays "" and the fence smoke
@@ -1450,21 +1611,15 @@ async function main(options) {
         'set sandbox: true on wsl-shell, wsl-fs and fs-routing (and sessionSandbox: true) to enforce the fence, then rerun the doctor');
       check("sandbox.bwrap-usable", "skipped", "bubblewrap usability", "skipped: the sandbox is disabled by configuration");
     } else {
-      const bwrapAnswer = await probe("command -v bwrap");
-      if (!bwrapAnswer.ok && bwrapAnswer.flaked) flakeCheck("sandbox.bwrap", "bubblewrap", bwrapAnswer);
-      else {
-      bwrapPath = bwrapAnswer.stdout.trim();
+      bwrapPath = (facts.BWRAP ?? "").trim();
       if (bwrapPath.length === 0) {
         check("sandbox.bwrap", "fail", "bubblewrap", "missing; every confined command fails closed without it", `${install}, or run "pnpm run bootstrap ${target} --install"`);
       } else {
         check("sandbox.bwrap", "ok", "bubblewrap", bwrapPath);
-        const userns = await probe("bwrap --ro-bind / / -- true");
-        if (!userns.ok && userns.flaked) flakeCheck("sandbox.bwrap-usable", "bubblewrap usability", userns);
-        else if (userns.ok) {
+        if ((facts.BWTEST ?? "") === "ok") {
           check("sandbox.bwrap-usable", "ok", "bubblewrap usability", "a read-only profile runs");
           bwrapUsable = true;
         } else check("sandbox.bwrap-usable", "fail", "bubblewrap usability", "installed but the read-only profile failed", "the kernel likely disables unprivileged user namespaces; reinstalling will not help — see docs/LIMITATIONS.md");
-      }
       }
     }
 
@@ -1518,8 +1673,7 @@ async function main(options) {
           /** @type {string} */
           let home = "";
           if (configured.some((root) => root === "~" || root.startsWith("~/"))) {
-            const homeAnswer = await probe('printf %s "$HOME"');
-            if (homeAnswer.ok) home = homeAnswer.stdout.trim();
+            home = (facts.HM ?? "").trim();
             if (home.length === 0 || !home.startsWith("/")) {
               failure = "the distro home did not answer, so ~ in writableRoots cannot be resolved";
               remedy = `run "wsl.exe -d ${target} --exec sh -c 'printf %s \\"$HOME\\"'" and retry`;
@@ -1527,7 +1681,7 @@ async function main(options) {
           }
           if (failure === undefined) {
             roots = configured.map((root) => normalize(root === "~" ? home : root.startsWith("~/") ? `${home}/${root.slice(2)}` : root));
-            const answer = await run(writableRootsCheckArgv(WSL, target, roots));
+            const answer = await run(writableRootsCheckArgv(WSL, target, roots), probeTimeout);
             if (!answer.ok) {
               const match = /(\d+)\|(missing|unreadable|symlink)(?: -> (.*))?/u.exec(`${answer.stdout}\n${answer.stderr}`);
               const index = match === null ? -1 : Number(match[1] ?? -1);
@@ -1577,19 +1731,17 @@ async function main(options) {
       check("sandbox.isolation", "skipped", "Socket isolation", "skipped: the sandbox is disabled; no socket masks are applied");
     } else {
       const stance = effective.socketIsolation;
-      const answer = await probe(socketIsolationProbeScript());
-      if (!answer.ok && answer.flaked) {
-        flakeCheck("sandbox.isolation", "Socket isolation", answer);
-      } else if (!answer.ok) {
+      const sockText = facts.SOCK_B64 ?? "";
+      if (sockText.length === 0) {
         check("sandbox.isolation", "unknown", "Socket isolation", "the socket-facts probe did not answer", "rerun the doctor; if it persists, check that wsl.exe can run a command in the distro");
       } else {
         const valid = stance === "off" || stance === "session-bus" || stance === "strict";
         if (!valid) {
           check("sandbox.isolation", "warn", "Socket isolation", `unknown stance ${JSON.stringify(stance)} in the effective configuration`, "use off, session-bus or strict on the confined rows");
         } else {
-          const facts = parseSocketIsolationFacts(answer.stdout);
-          const masks = socketMaskPaths(stance, facts);
-          const detected = [...facts.userSockets, ...facts.strictSockets];
+          const sockFacts = parseSocketIsolationFacts(sockText);
+          const masks = socketMaskPaths(stance, sockFacts);
+          const detected = [...sockFacts.userSockets, ...sockFacts.strictSockets];
           const surfaceText = detected.length === 0 ? "no matching socket detected" : detected.join(", ");
           if (stance === "off") {
             check("sandbox.isolation", "info", "Socket isolation", `off — confined commands can reach the user manager, system bus, container sockets and the interop transport; detected: ${surfaceText}`, "set socketIsolation: session-bus or strict on the confined rows (and fs-routing) to mask the sockets");
@@ -1620,37 +1772,30 @@ async function main(options) {
     /** Whether the effective config makes the native backend mandatory. */
     const nativeRequired = effective.agentBackend === "native";
     if (want("session")) {
-    const systemd = await probe('if [ -d /run/systemd/system ]; then printf "systemd %s" "$(cat /proc/1/comm)"; else printf "none %s" "$(cat /proc/1/comm)"; fi');
-    if (!systemd.ok && systemd.flaked) flakeCheck("session.systemd", "systemd as PID 1", systemd);
-    else if (!systemd.stdout.startsWith("systemd")) {
-      check("session.systemd", sessionStatus(), "systemd as PID 1", withScopeNote(systemd.stdout.trim().length > 0 ? systemd.stdout.trim() : "not systemd"), `set [boot] systemd=true in /etc/wsl.conf inside "${target}", run "wsl.exe --shutdown", then reopen the session. Without it, sessionSandbox cannot run`);
+    const pid1 = (facts.PID1 ?? "").trim();
+    if (!pid1.startsWith("systemd")) {
+      check("session.systemd", sessionStatus(), "systemd as PID 1", withScopeNote(pid1.length > 0 ? pid1 : "not systemd"), `set [boot] systemd=true in /etc/wsl.conf inside "${target}", run "wsl.exe --shutdown", then reopen the session. Without it, sessionSandbox cannot run`);
     } else check("session.systemd", "ok", "systemd as PID 1", "running");
 
-    const systemdRun = await probe("command -v systemd-run");
-    if (!systemdRun.ok && systemdRun.flaked) flakeCheck("session.systemd-run", "systemd-run", systemdRun);
-    else {
-      const systemdRunPath = systemdRun.stdout.trim();
-      if (systemdRunPath.length > 0) check("session.systemd-run", "ok", "systemd-run", systemdRunPath);
-      else check("session.systemd-run", sessionStatus(), "systemd-run", withScopeNote("missing; the distro's systemd package is incomplete"), `reinstall systemd inside "${target}" (apt-get install --reinstall systemd, or the family's equivalent)`);
-    }
+    const systemdRunPath = (facts.SYSTEMD_RUN ?? "").trim();
+    if (systemdRunPath.length > 0) check("session.systemd-run", "ok", "systemd-run", systemdRunPath);
+    else check("session.systemd-run", sessionStatus(), "systemd-run", withScopeNote("missing; the distro's systemd package is incomplete"), `reinstall systemd inside "${target}" (apt-get install --reinstall systemd, or the family's equivalent)`);
 
-    const userManager = await probe("systemctl --user is-system-running 2>/dev/null || true");
-    if (!userManager.ok && userManager.flaked) flakeCheck("session.user-manager", "systemd user manager", userManager);
+    if (batchBFlaked) flakeCheck("session.user-manager", "systemd user manager", batchB ?? { stderr: "", stdout: "" });
     else {
-      const userState = userManager.stdout.trim();
+      const userState = (factsB.USER ?? "").trim();
       if (userState === "running" || userState === "degraded") check("session.user-manager", "ok", "systemd user manager", userState);
       else check("session.user-manager", sessionStatus(), "systemd user manager", withScopeNote(userState.length > 0 ? userState : "unreachable"), `log in to "${target}" once, or enable lingering (next remedy), then retry`);
     }
 
-    const linger = await probe('loginctl show-user "$(id -un)" -p Linger 2>/dev/null');
-    if (!linger.ok && linger.flaked) flakeCheck("session.linger", "Linger", linger);
+    if (batchBFlaked) flakeCheck("session.linger", "Linger", batchB ?? { stderr: "", stdout: "" });
     else {
-      const lingerState = linger.stdout.trim();
+      const lingerState = (factsB.LINGER ?? "").trim();
       if (lingerState === "Linger=yes") check("session.linger", "ok", "Linger", lingerState);
       else check("session.linger", sessionStatus(), "Linger", withScopeNote(lingerState.length > 0 ? lingerState : "unset"), `wsl.exe -d ${target} -- loginctl enable-linger "$(id -un)" (this needs the user's own session; run it inside the distro)`);
     }
-    runtimeSystemd = systemd.stdout.startsWith("systemd");
-    systemdPid = systemd.stdout.trim();
+    runtimeSystemd = pid1.startsWith("systemd");
+    systemdPid = pid1;
     }
 
     // ---- /etc/wsl.conf cross-checks ------------------------------------------
@@ -1660,27 +1805,11 @@ async function main(options) {
     // value that is not in effect is a different problem from one that is.
     // A flaked read earns three `unknown` rows, never a verdict: the conf is
     // on disk, and the read — not the file — is what failed.
-    const confAnswer = await probe("cat /etc/wsl.conf 2>/dev/null || true");
-    const confFlaked = !confAnswer.ok && confAnswer.flaked;
-    const conf = parseIni(confAnswer.stdout);
-    const noConf = confAnswer.stdout.trim().length === 0;
-    const automountEnabled = ((noConf ? undefined : conf.automount?.enabled) ?? "").trim().toLowerCase();
-    const automountRoot = ((noConf ? undefined : conf.automount?.root) ?? "").trim();
-    /** Where the distro mounts Windows drives; the host->distro translation uses it. */
-    const mountRoot = automountRoot.length > 0 ? automountRoot : "/mnt";
-    /** The shell agent as the distro sees it; undefined when it cannot be reached from there. */
-    const agentScriptDistro = automountEnabled === "false" ? undefined : distroPath(agentScript, mountRoot);
     const confWanted = want("session") || want("conf");
     if (!confWanted) {
       // Scoped run: neither the boot cross-check nor the interop/automount
-      // rows are in scope — the conf read above stays (one cheap call that
-      // the section rows share), but no rows report.
-    } else if (confFlaked) {
-      if (want("session")) flakeCheck("distro.wsl-conf-boot", "/etc/wsl.conf [boot]", confAnswer);
-      if (want("conf")) {
-        flakeCheck("distro.wsl-conf-interop", "/etc/wsl.conf [interop]", confAnswer);
-        flakeCheck("distro.wsl-conf-automount", "/etc/wsl.conf [automount]", confAnswer);
-      }
+      // rows are in scope — the conf read rode batch A (the section rows
+      // share it), but no rows report.
     } else {
     const bootSystemd = ((noConf ? undefined : conf.boot?.systemd) ?? "").trim().toLowerCase();
     if (!want("session")) {
@@ -1704,10 +1833,8 @@ async function main(options) {
       // /proc that was not mounted), and every Windows-tool path — git.exe,
       // explorer.exe, the cmd.exe probes — fails with a confusing command-not-
       // found instead of naming interop. Probe it in BOTH directions.
-      const binfmtProbe = await probe("[ -e /proc/sys/fs/binfmt_misc/WSLInterop ] && printf yes || printf no");
-      if (!binfmtProbe.ok && binfmtProbe.flaked) flakeCheck("distro.wsl-conf-interop", "/etc/wsl.conf [interop]", binfmtProbe);
-      else {
-        const binfmt = binfmtProbe.ok ? binfmtProbe.stdout.trim() : "unreadable";
+      {
+        const binfmt = (facts.BINFMT ?? "").trim() || "unreadable";
         if (interopEnabled === "false") {
           check("distro.wsl-conf-interop", "warn", "/etc/wsl.conf [interop]", `interop is disabled in wsl.conf${binfmt === "yes" ? " but the WSLInterop handler is still loaded (stale boot)" : ""} — Windows git, open-in-app and the cmd.exe probes are unreachable from this distro`, `remove the [interop] enabled=false line in /etc/wsl.conf, then wsl.exe --terminate ${target}`);
         } else if (binfmt === "no") {
@@ -1738,10 +1865,8 @@ async function main(options) {
     // A sleeping host desyncs the WSL clock (the VM's clock stops with it);
     // the classic symptom is TLS and git failing with certificate or
     // timestamp errors minutes after resume. One comparison, one remedy.
-    const clockAnswer = await probe("date +%s");
-    if (!clockAnswer.ok && clockAnswer.flaked) flakeCheck("distro.clock", "Clock", clockAnswer);
-    else {
-      const distroEpoch = Number(clockAnswer.stdout.trim());
+    {
+      const distroEpoch = Number((facts.DATE ?? "").trim());
       if (!Number.isFinite(distroEpoch) || distroEpoch <= 0) {
         check("distro.clock", "info", "Clock", "unreadable — date did not answer an epoch");
       } else {
@@ -1760,14 +1885,12 @@ async function main(options) {
     // the VPN-tunnel class where the file looks fine but queries die. The
     // probe is warn-grade and honest about offline — a machine without a
     // network answers the same as a broken resolver.
-    const resolvAnswer = want("net") ? await probe("wc -c < /etc/resolv.conf 2>/dev/null || printf 0") : undefined;
-    if (resolvAnswer !== undefined && !resolvAnswer.ok && resolvAnswer.flaked) flakeCheck("distro.dns", "DNS", resolvAnswer);
-    else if (resolvAnswer !== undefined) {
-      const resolvBytes = Number(resolvAnswer.stdout.trim());
+    if (want("net")) {
+      const resolvBytes = Number((facts.RESOLV ?? "").trim());
       if (!Number.isFinite(resolvBytes) || resolvBytes === 0) {
         check("distro.dns", "warn", "DNS", "/etc/resolv.conf is missing or empty — name resolution fails (npm, git fetch, bootstrap installs)", `wsl.conf [network] generateResolvConf controls the file; "wsl.exe --shutdown" regenerates it unless disabled`);
       } else {
-        const resolved = (await probe("getent hosts deb.debian.org 2>/dev/null | head -1")).stdout.trim();
+        const resolved = (facts.DNS ?? "").trim();
         if (resolved.length > 0) {
           check("distro.dns", "ok", "DNS", `resolv.conf present (${resolvBytes} bytes); ${(resolved.split(/\s+/)[0] ?? "?")} resolved the probe name`);
         } else {
@@ -1787,19 +1910,17 @@ async function main(options) {
       /** The optional tools, in the order users notice them losing. */
       /** @type {Array<[string, string]>} */
       const optionalTools = [["rg", "the fs-search tool fails (exit 127); the model can still run grep in a shell, slower"], ["git", "change review falls back to file-tool edits"], ["inotifywait", "the watcher falls back to polling"]];
-      // One `wsl.exe` for the set: every name is answered in the same shell, so
-      // the quick profile pays one spawn, not three, for the full tool list.
-      const toolAnswer = await probe(`for t in ${optionalTools.map(([tool]) => tool).join(" ")}; do if p=$(command -v "$t" 2>/dev/null); then printf 'found %s %s\\n' "$t" "$p"; else printf 'missing %s\\n' "$t"; fi; done`);
+      // The combined probe rides batch A: every name is answered in the same
+      // shell, so the quick profile pays nothing extra for the full tool list.
       /** @type {Map<string, string>} */
       const toolPaths = new Map();
-      for (const line of toolAnswer.stdout.split(/\r?\n/)) {
+      for (const line of (facts.TOOLS_B64 ?? "").split(/\r?\n/)) {
         const match = /^(?:found|missing)\s+([a-z]+)(?:\s+(.*))?$/.exec(line.trim());
         if (match !== null && match[1] !== undefined) toolPaths.set(match[1], match[2] ?? "");
       }
       for (const [tool, cost] of optionalTools) {
         const found = toolPaths.get(tool);
-        if (!toolAnswer.ok && toolAnswer.flaked) flakeCheck(`tools.${tool}`, tool, toolAnswer);
-        else if (found === undefined) check(`tools.${tool}`, "info", tool, "the combined probe answered nothing for this tool, so this run cannot say whether it is installed");
+        if (found === undefined) check(`tools.${tool}`, "info", tool, "the combined probe answered nothing for this tool, so this run cannot say whether it is installed");
         else if (found.length > 0) check(`tools.${tool}`, "ok", tool, found);
         else check(`tools.${tool}`, "warn", tool, `missing; ${cost}`, install);
       }
@@ -1814,10 +1935,8 @@ async function main(options) {
     // check is config-aware because the consequence differs: a missing or
     // unrunnable binary degrades to the shell agent under `auto`, but fails
     // the first command (and every file operation) under `native`.
-    const archAnswer = await probe("uname -m");
-    if (!archAnswer.ok && archAnswer.flaked) flakeCheck("agent.native", "Native agent", archAnswer);
-    else {
-      const arch = archAnswer.stdout.trim();
+    {
+      const arch = (facts.ARCH ?? "").trim();
       const packaged = ["x86_64", "aarch64"].includes(arch) ? join(ROOT, "agent", "native", `linux-${arch}`, "dsh-wsl-agent") : "";
       if (arch === "") {
         check("agent.native", nativeRequired ? "fail" : "info", "Native agent", "the distro architecture is unreadable, so the packaged native agent cannot be named", nativeRequired ? "probe the distro by hand (uname -m), or use agentBackend: auto" : undefined);
@@ -1831,10 +1950,8 @@ async function main(options) {
       }
     }
 
-    const cacheAnswer = await probe(CACHE_REPORT);
-    if (!cacheAnswer.ok && cacheAnswer.flaked) flakeCheck("agent.cache", "Agent cache", cacheAnswer);
-    else {
-      const cache = cacheAnswer.stdout.trim();
+    {
+      const cache = (facts.CACHE_B64 ?? "").trim();
       if (cache === "none" || cache.length === 0) check("agent.cache", "info", "Agent cache", "empty (a first command populates it)");
       else {
         const entries = cache.split(/\r?\n/).filter((line) => line.trim().length > 0);
@@ -1853,10 +1970,8 @@ async function main(options) {
     // executed from there; a read-only home, or a home on a `noexec` mount
     // (DrvFs when HOME points at /mnt/c), breaks that before any command runs.
     // One temp dir answers both facts and is removed again.
-    const homeProbe = await probe('d=$(mktemp -d "$HOME/.dsh-doctor-XXXXXXXX" 2>/dev/null) || { echo nowrite; exit 0; }; printf "#!/bin/sh\\n" > "$d/x" && chmod 755 "$d/x" && "$d/x" >/dev/null 2>&1 && printf ok || printf noexec; rm -rf "$d"');
-    if (!homeProbe.ok && homeProbe.flaked) flakeCheck("agent.home-writable", "Home writability", homeProbe);
-    else {
-      const homeState = homeProbe.stdout.trim();
+    {
+      const homeState = (facts.HOMEEXEC ?? "").trim();
       const homeTone = (/** @type {"fail" | "warn" | "info"} */ tone) => nativeRequired ? "fail" : effective.agentBackend === "shell" ? "info" : tone;
       if (homeState === "ok") check("agent.home-writable", "ok", "Home writability", "a temp dir under $HOME was writable and executable (the native cache can live there)");
       else if (homeState === "noexec") check("agent.home-writable", homeTone("warn"), "Home writability", `$HOME is writable but files there cannot execute (a noexec mount) — the native agent cache cannot run${effective.agentBackend === "shell" ? "; agentBackend: shell does not need it" : "; auto falls back to the shell agent"}`, "move HOME onto an exec-capable Linux filesystem (DrvFs is often noexec), or use agentBackend: shell");
@@ -1865,7 +1980,6 @@ async function main(options) {
     }
 
     // ---- session scopes (section: session) ------------------------------------
-    const scopesAnswer = want("session") ? await probe(STALE_SCOPE_REPORT) : undefined;
     let stale = 0;
     /** @type {string[]} */
     let livePids = [];
@@ -1875,16 +1989,18 @@ async function main(options) {
     let handshakeState = "info";
     /** The shell-agent smoke, kept so the native legs can say whether the fallback works. */
     let shellSmoke = /** @type {{ execOk: boolean, fsOk: boolean } | undefined} */ (undefined);
-    if (scopesAnswer !== undefined && !scopesAnswer.ok && scopesAnswer.flaked) flakeCheck("runtime.scopes", "Session scopes", scopesAnswer);
-    else if (scopesAnswer !== undefined) {
-      const scopes = scopesAnswer.stdout.trim();
-      scopeLines = scopes === "none" || scopes.length === 0 ? [] : scopes.split(/\r?\n/);
-      stale = scopeLines.filter((line) => /\sstale(\s|$)/.test(line)).length;
-      livePids = scopeLines.flatMap((line) => {
-        const m = /\spids:([0-9 ]+)$/.exec(line);
-        if (m === null) return [];
-        return (m[1] ?? "").trim().split(/\s+/).filter((p) => p.length > 0);
-      });
+    if (want("session")) {
+      if (batchBFlaked) flakeCheck("runtime.scopes", "Session scopes", batchB ?? { stderr: "", stdout: "" });
+      else {
+        const scopes = (factsB.SCOPES_B64 ?? "").trim();
+        scopeLines = scopes === "none" || scopes.length === 0 ? [] : scopes.split(/\r?\n/);
+        stale = scopeLines.filter((line) => /\sstale(\s|$)/.test(line)).length;
+        livePids = scopeLines.flatMap((line) => {
+          const m = /\spids:([0-9 ]+)$/.exec(line);
+          if (m === null) return [];
+          return (m[1] ?? "").trim().split(/\s+/).filter((p) => p.length > 0);
+        });
+      }
     }
 
     // ---- resident handshake (section: agent) ----------------------------------
@@ -1900,8 +2016,8 @@ async function main(options) {
     } else {
       // The script is a Linux path in the checkout's OWN distro; another
       // distro cannot read it, and "exited before its HELLO" would be a
-      // lie about a broken install. Probe readability first, honestly.
-      const readable = (await inDistro(target, `[ -f "${agentScriptDistro}" ] && printf yes || printf no`)).stdout.trim() === "yes";
+      // lie about a broken install. The readability probe rode batch B.
+      const readable = (factsB.AGENT_READ ?? "").trim() === "yes";
       if (!readable) {
         check("agent.handshake", "info", "Agent handshake", `skipped: agent/wsl-agent.sh is not readable at ${agentScriptDistro} inside "${target}" — this doctor runs from the ${(process.env.WSL_DISTRO_NAME ?? "host")} filesystem; run it from Windows or inside "${target}"`);
       } else {
@@ -2077,9 +2193,10 @@ async function main(options) {
   // ({ ok, stdout, code }); `-q` prints plain names, and the running list's
   // header is dropped by the intersection with them. The default distro
   // carries a localized marker ("ubuntu (默认值)" / "ubuntu (default)") —
-  // strip a trailing parenthesized note before the intersection.
-  const distroNames = ((await run([WSL, "--list", "-q"])).stdout ?? "").split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
-  const running = ((await run([WSL, "--list", "--running"])).stdout ?? "").split(/\r?\n/).map((line) => line.trim().replace(/\s+\([^)]*\)$/, "")).filter((line) => distroNames.includes(line));
+  // strip a trailing parenthesized note before the intersection. Both spawns
+  // answer the human surveys alone — a `--json` run never reads them.
+  const distroNames = options.json ? [] : ((await run([WSL, "--list", "-q"])).stdout ?? "").split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
+  const running = options.json ? [] : ((await run([WSL, "--list", "--running"])).stdout ?? "").split(/\r?\n/).map((line) => line.trim().replace(/\s+\([^)]*\)$/, "")).filter((line) => distroNames.includes(line));
   if (!options.json) {
     console.log("");
     console.log(doctorT("sessions.title"));
@@ -2820,7 +2937,7 @@ function report(checks, options, runInfo = {}) {
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
-    console.log("node scripts/doctor.mjs [distro] [--all] [--json] [--quick] [--sections host,sandbox,session,conf,net,agent] [--fix] [--fix-owned] [--install] [--yes] [--read-only] [--bundle <path>] [--redact] [--locale <tag>]");
+    console.log("node scripts/doctor.mjs [distro] [--all] [--json] [--quick] [--sections host,sandbox,session,conf,net,agent] [--probe-timeout <ms>] [--fix] [--fix-owned] [--install] [--yes] [--read-only] [--bundle <path>] [--redact] [--locale <tag>]");
   } else {
     process.exitCode = await main(options);
   }

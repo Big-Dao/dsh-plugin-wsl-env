@@ -276,6 +276,24 @@ were part of the record.
   the composition boot test that `pnpm test` already includes. The publish
   step's change is covered by the workflow-text assertions only — it has not
   run on a release runner.
+- **The doctor's per-distro probes go out as composed batches, and one stuck
+  probe settles inside the runner's budget (#85).** Every fact the doctor read
+  in a distro was its own `wsl.exe` — 15 spawns in the quick profile, 29 in a
+  full run — and each spawn's startup delay is the one cost concurrency cannot
+  remove. The pure reads now ride one composed `sh` script whose emitters each
+  print a `KEY=value` line (multiline readings ride base64), and the
+  systemd-class commands — `systemctl --user`, `loginctl`, the stale-scope
+  report — ride a small second batch with a `timeout` on each, so a wedged
+  user manager costs its own slice instead of the run. A quick run pays two
+  in-distro spawns and a full run about eight; the fix rechecks (scope sweep,
+  cache purge, bwrap install) keep their standalone probes. The new
+  `--probe-timeout <ms>` bounds one batch probe's deadline (the shared 60 s
+  default stands without it), and both in-app runners pass it with `2T + 2s`
+  strictly below their budget (the 2 s is the flake-retry settle), so a stuck
+  probe lands as the row's own `unknown` instead of vanishing under the outer
+  kill's generic timeout. The two `wsl.exe --list` spawns of the human-only
+  surveys no longer run for `--json`. The composed batch was verified against
+  a real distro: 19 facts in one spawn.
 
 ## [0.29.0] - 2026-11-23
 

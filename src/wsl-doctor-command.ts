@@ -456,6 +456,12 @@ export async function apply(ctx: WslDoctorCommandContext): Promise<void> {
       // one hands the choice to the configuration, whose `auto` sweeps every
       // installed distro — bounded tightly so it cannot sit "executing".
       const budget = distro.length > 0 ? DOCTOR_CLI_TIMEOUT_MS : DOCTOR_CLI_SWEEP_TIMEOUT_MS;
+      // One stuck probe settles inside the budget instead of under the
+      // runner's kill, so the report names the read that hung: the probe
+      // deadline plus one flake retry and the settle delay is 2T + 2s (the
+      // settle is the doctor's 2 s), kept strictly below the budget.
+      const probeTimeout = Math.ceil((budget - 2_000) / 2) - 1;
+      argv.push("--probe-timeout", String(probeTimeout));
       try {
         const json = await runCli(argv, invocation.signal, budget);
         return { kind: "success", text: formatDoctorReport(json, distro, takeoverSnapshot(ctx)) };

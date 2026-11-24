@@ -17,6 +17,8 @@
  *   node test/provider.test.mjs
  */
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { configureAgentBackend } from "../lib/native-agent.js";
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -99,6 +101,32 @@ const spec = (request) => /** @type {Parameters<WslShellExecutor["withDefaultWor
  * @returns {WslAgent} the same object, as the seam's declared agent type.
  */
 const asAgent = (fake) => /** @type {WslAgent} */ (fake);
+
+/**
+ * A `wsl.exe` transport the REAL `WslAgent` drives with no distro: an emitter
+ * carrying the three pipes the resident protocol runs over. A check scripts
+ * when the process "exits" and what its stdout says.
+ */
+class FakeTransport extends EventEmitter {
+  stdin = new PassThrough();
+  stdout = new PassThrough();
+  stderr = new PassThrough();
+
+  kill() {
+    return true;
+  }
+}
+
+/** The transport factory `WslAgent`'s config accepts. */
+/** @typedef {NonNullable<ConstructorParameters<typeof WslAgent>[0]["spawnTransport"]>} TransportFactory */
+
+/**
+ * Presents a fake-transport factory as the seam's declared transport factory;
+ * the one cast states which contract the fake stands in for.
+ * @param {() => FakeTransport} factory - the scripted factory.
+ * @returns {TransportFactory} the factory, as the seam's declared type.
+ */
+const asTransportFactory = (factory) => /** @type {TransportFactory} */ (/** @type {unknown} */ (factory));
 
 /**
  * The scripted substrate: `resolve` answers every Linux coordinate, and each
@@ -1190,6 +1218,94 @@ check("an agent spawn rejection retries one-shot, where the missing workdir is n
   assert.equal(oneShots.length, 1, "the spawn failure retried the command on the one-shot path");
 });
 
+check("an agent whose exec rejects falls back one-shot as well", async () => {
+  const { executor } = makeExecutor();
+  const { AgentUnavailableError } = await import("../lib/agent-errors.js");
+  // The production shape: `WslAgent.exec` is async, so a dead or backing-off
+  // resident refuses through the returned promise, never as the synchronous
+  // throw the check above scripts.
+  executor.executionAgent = () => asAgent({ exec: async () => { throw new AgentUnavailableError("agent is down; reviving in 2s, attempt 1/3"); } });
+  let oneShots = 0;
+  spawnView(executor).executeArgv = async (_resolved, argvBuilder) => {
+    oneShots += 1;
+    await argvBuilder(new AbortController().signal);
+    return /** @type {ShellExecution} */ (/** @type {unknown} */ ({
+      status: "completed",
+      result: async () => ({ exitCode: 0, signal: null, timedOut: false, aborted: false, timeoutMs: 5, stdout: { text: "one-shot\n", lossy: false, truncated: false }, stderr: { text: "", lossy: false, truncated: false } }),
+    }));
+  };
+  const result = await (await executor.execute(spec({
+    command: "echo hi",
+    workdir: WORKSPACE,
+    timeoutMs: 5000,
+    sandboxPolicy: { mode: "workspace-write", workspaceRoot: WORKSPACE },
+  }))).result();
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stdout.text, "one-shot\n", "the result is the one-shot run's, not a refusal");
+  assert.equal(oneShots, 1, "the refused command ran once, one-shot");
+  assert.deepEqual(factsOf(result), { mode: "workspace-write", denied: false, enforcement: "full", windowsDrive: "visible", sessionScope: "per-command" }, "the retry is confined by its own per-command profile");
+  assert.equal(executor.processFacts.size, 0, "the agent handle's stamp is released before the retry");
+});
+
+check("a REAL resident whose handshake fails hands the command to the one-shot path", async () => {
+  const { executor } = makeExecutor();
+  /** A transport that dies before it ever says HELLO. */
+  const deadTransport = () => {
+    const child = new FakeTransport();
+    setImmediate(() => child.emit("exit", 1, null));
+    return child;
+  };
+  const agent = new WslAgent({ distro: DISTRO, scriptPath: "/mnt/c/pkg/agent/wsl-agent.sh", idleMs: 0, spawnTransport: asTransportFactory(deadTransport) });
+  executor.executionAgent = () => agent;
+  let oneShots = 0;
+  spawnView(executor).executeArgv = async (_resolved, argvBuilder) => {
+    oneShots += 1;
+    await argvBuilder(new AbortController().signal);
+    return /** @type {ShellExecution} */ (/** @type {unknown} */ ({
+      result: async () => ({ exitCode: 0, signal: null, timedOut: false, aborted: false, timeoutMs: 5, stdout: { text: "", lossy: false, truncated: false }, stderr: { text: "", lossy: false, truncated: false } }),
+    }));
+  };
+  const result = await (await executor.execute(spec({ command: "echo hi", workdir: WORKSPACE, timeoutMs: 5000 }))).result();
+  assert.equal(result.exitCode, 0);
+  assert.equal(oneShots, 1, "the handshake failure cost one round trip, then the command ran one-shot");
+  assert.match(agent.lastError, /exited during handshake/, "the refusal really was the handshake's");
+  await agent.close();
+});
+
+check("a command that was in flight when a REAL resident died is not run again", async () => {
+  const { executor } = makeExecutor();
+  const { AgentRequestStateUnknownError } = await import("../lib/agent-errors.js");
+  const { AGENT_NAME, PROTOCOL_VERSION } = await import("../lib/agent-protocol.js");
+  /**
+   * A transport that completes the handshake and dies the moment it takes a
+   * command — the resident crashed while `git push` was running.
+   */
+  const dyingTransport = () => {
+    const child = new FakeTransport();
+    child.stdin.on("data", (chunk) => {
+      // The frame's header line is the first line of the write.
+      if (/^EXEC\|/m.test(chunk.toString("utf8"))) setImmediate(() => child.emit("exit", 1, null));
+    });
+    child.stdout.write(`HELLO|${AGENT_NAME}|${PROTOCOL_VERSION}|${"6f".repeat(32)}\n`);
+    return child;
+  };
+  const agent = new WslAgent({ distro: DISTRO, scriptPath: "/mnt/c/pkg/agent/wsl-agent.sh", idleMs: 0, spawnTransport: asTransportFactory(dyingTransport) });
+  executor.executionAgent = () => agent;
+  let oneShots = 0;
+  spawnView(executor).executeArgv = async () => {
+    oneShots += 1;
+    throw new Error("a non-idempotent command must not be re-run one-shot");
+  };
+  const execution = await executor.execute(spec({ command: "git push", workdir: WORKSPACE, timeoutMs: 5000 }));
+  await assert.rejects(
+    () => execution.result(),
+    (error) => error instanceof AgentRequestStateUnknownError && /state is unknown/.test(/** @type {Error} */ (error).message),
+    "the command fails with the unknown-state refusal, not with a second run",
+  );
+  assert.equal(oneShots, 0, "nothing was spawned one-shot");
+  await agent.close();
+});
+
 check("spawnSpec pins the host cwd, WSL_UTF8, and the managed WSLENV translation", () => {
   const { executor } = makeExecutor();
   // The mounted config wraps volatile fields in getters; a direct construction
@@ -1213,27 +1329,33 @@ check("spawnSpec pins the host cwd, WSL_UTF8, and the managed WSLENV translation
 });
 
 check("a confined background process carries the sandbox facts of its policy", async () => {
-  const { executor } = makeExecutor();
-  await executor.execute(spec({
+  const { executor, agent } = makeExecutor();
+  // The command is denied by bwrap: a non-zero exit and the denial dialect on
+  // stderr, exactly what the one-shot handle would settle with.
+  agent.exec = async () => ({ exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from("touch: /etc/x: Operation not permitted\n"), truncated: { stdout: false, stderr: false } });
+  const handle = await executor.execute(spec({
     command: "server",
     workdir: WORKSPACE,
     timeoutMs: 5000,
     sandboxPolicy: { mode: "workspace-write", workspaceRoot: WORKSPACE },
-  })).then((e) => e.result());
-  // The handle's onStarted stamped one process; settle it with a denial-
-  // matching stderr and read the stamp the background projection carries.
+  }));
   assert.equal(executor.processFacts.size, 1, "the stamp lives until settlement");
-  const proc = [...executor.processFacts.keys()][0];
-  assert.ok(proc !== undefined, "onStarted stamped one process");
-  proc.exitCode = 1;
-  executor.onProcessDone(proc, "touch: Operation not permitted", false, undefined);
-  assert.equal(executor.processFacts.size, 0, "settled facts are deleted, not accumulated");
-  const facts = /** @type {WslSandboxFacts | undefined} */ (proc.sandbox);
+  await handle.done;
+  assert.equal(executor.processFacts.size, 0, "the agent handle settles its own stamp: facts are released, not accumulated");
+  const facts = /** @type {WslSandboxFacts | undefined} */ (handle.sandbox);
   assert.deepEqual(
     { mode: facts?.mode, denied: facts?.denied, enforcement: facts?.enforcement, windowsDrive: facts?.windowsDrive },
     { mode: "workspace-write", denied: true, enforcement: "full", windowsDrive: "visible" },
     "the background projection answers what a foreground run would have",
   );
+});
+
+check("two confined commands through the resident leave no facts behind", async () => {
+  const { executor } = makeExecutor();
+  for (const command of ["first", "second"]) {
+    await (await executor.execute(spec({ command, workdir: WORKSPACE, timeoutMs: 5000, sandboxPolicy: { mode: "workspace-write", workspaceRoot: WORKSPACE } }))).result();
+  }
+  assert.equal(executor.processFacts.size, 0, "a completed command's handle is not retained");
 });
 
 check("a confinement runner that fails to spawn reads as sandbox-unavailable, not a denial", async () => {

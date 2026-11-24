@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { mock } from "node:test";
 import { AGENT_NAME, PROTOCOL_VERSION, encodeB64, MIN_PROTOCOL_VERSION } from "../lib/agent-protocol.js";
-import { AgentUnavailableError, CwdError, SpawnError } from "../lib/agent-errors.js";
+import { AgentRequestStateUnknownError, AgentUnavailableError, CwdError, SpawnError } from "../lib/agent-errors.js";
 import { WslAgent, agentLeaseEnv, pinnedWindowsEnv } from "../lib/agent.js";
 import { effectiveMaskWindowsDrive } from "../lib/index.js";
 import { confinedAgent, resetConfinedAgents, runSpawnChecklist, spawnChecklistScript } from "../lib/agent-confined.js";
@@ -447,6 +447,45 @@ checkReg("a crash relays a read-only FS request but fails an in-flight EXEC as u
   await agent.close();
 });
 
+checkReg("a lost request's refusal class says whether it may have run", async () => {
+  const dying = new FakeAgentProcess();
+  dying.silent = true; // nothing is answered, so both requests stay on the dying child
+  const healthy = new FakeAgentProcess();
+  const { transport } = scriptedTransport([dying, healthy]);
+  const agent = new WslAgent({ ...CONFIG, serialRequests: true, spawnTransport: transport });
+  const sent = agent.exec({ cwd: "/", argv: ["git", "commit"], timeoutMs: 0 }).then(() => null, (error) => error);
+  const queued = agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }).then(() => null, (error) => error);
+  await flush();
+  // The shell holds the second frame on the host until the first is answered.
+  assert.equal(dying.frames.filter((line) => line.startsWith("EXEC|")).length, 1, "only the first frame reached the dying resident");
+  dying.emit("exit", 1, null);
+  const [sentError, queuedError] = await Promise.all([sent, queued]);
+  // The class is what a caller with effects reads: the sent command may have
+  // run and must not be retried, the queued one provably never did.
+  assert.ok(sentError instanceof AgentRequestStateUnknownError, "a sent request refuses as state-unknown");
+  assert.ok(sentError instanceof AgentUnavailableError, "and stays an unavailable refusal for read-only callers");
+  assert.match(/** @type {Error} */ (sentError).message, /state is unknown/);
+  assert.ok(!(queuedError instanceof AgentRequestStateUnknownError), "an unsent request is the plain out-of-service cue");
+  assert.ok(queuedError instanceof AgentUnavailableError);
+  assert.match(/** @type {Error} */ (queuedError).message, /never ran/);
+  await agent.close();
+});
+
+checkReg("a close with a request in flight refuses it as state-unknown and the queued ones as never run", async () => {
+  const child = new FakeAgentProcess({ hangOnExec: true });
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, serialRequests: true, spawnTransport: transport });
+  const running = agent.exec({ cwd: "/", argv: ["sleep", "100"], timeoutMs: 0 }).then(() => null, (error) => error);
+  const queued = agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }).then(() => null, (error) => error);
+  await flush();
+  await agent.close();
+  const [runningError, queuedError] = await Promise.all([running, queued]);
+  assert.ok(runningError instanceof AgentRequestStateUnknownError, "the resident was closed on a running command: its state is unknown");
+  assert.match(/** @type {Error} */ (runningError).message, /closed/);
+  assert.ok(!(queuedError instanceof AgentRequestStateUnknownError), "a request the shell never wrote never ran");
+  assert.match(/** @type {Error} */ (queuedError).message, /never ran/);
+});
+
 checkReg("a crash fails an in-flight FS write as unknown state, never replaying it", async () => {
   const dying = new FakeAgentProcess();
   dying.silent = true; // both FS requests stay in flight
@@ -581,7 +620,9 @@ checkReg("a second crash marks the agent dead and rejects in-flight and future c
   // replayed — while the rebuild goes on in the background.
   await assert.rejects(() => agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }), /state is unknown/);
   await agent.start();
-  await assert.rejects(() => agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }), AgentUnavailableError);
+  const secondDeath = await agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }).then(() => null, (error) => error);
+  assert.ok(secondDeath instanceof AgentRequestStateUnknownError, "the second death's in-flight request may have run too");
+  assert.match(/** @type {Error} */ (secondDeath).message, /exited again.*state is unknown/, "and its refusal says so, with the inspect-first remedy");
   assert.equal(agent.unavailable, true);
   assert.match(agent.unavailableReason, /reviving in/);
   await assert.rejects(() => agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }), /agent is down/);

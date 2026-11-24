@@ -17,6 +17,13 @@
  *    dead, calls reject with {@link AgentUnavailableError} — the executor's cue
  *    to fall back to the one-shot `wsl.exe` path it shipped with, so the worst
  *    case of the agent is "today's behaviour, plus one failed round trip".
+ *    The cue is exact: a request the resident provably never took rejects with
+ *    the plain class, while one that was with the resident when it was lost
+ *    rejects with {@link AgentRequestStateUnknownError} — still unavailable,
+ *    never safe to replay for a caller whose request has effects.
+ *    `lastError` is the failure not yet recovered from: an accepted handshake
+ *    clears it, so a resident that came back is diagnosed by what it is now,
+ *    not by the crash it survived.
  * 2. **The in-distro timeout is the real one.** The EXEC frame carries the
  *    timeout in whole seconds and the agent SIGTERMs the child itself, so a
  *    timed-out command dies where it lives instead of leaving an orphan
@@ -549,6 +556,18 @@ export declare class WslAgent {
      * @param message - the reason, already stored as `lastError`.
      */
     private rejectAllPending;
+    /**
+     * The refusal an abandoned entry rejects with. An entry whose frame reached
+     * the resident may have run, and its refusal says so — that is what keeps a
+     * caller with a non-idempotent request from replaying it. An entry that was
+     * never written provably never ran, which is the plain out-of-service cue
+     * such a caller may act on.
+     *
+     * @param pending - the abandoned entry.
+     * @param reason - what happened to the resident.
+     * @returns the refusal.
+     */
+    private refusalFor;
     /**
      * Register one request's pending entry and write its frame: the shared
      * request machinery (abort, submission, the ACK-armed watchdog). The

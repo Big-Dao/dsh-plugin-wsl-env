@@ -86,6 +86,11 @@ operations never use the 9p share.
 - **The one-shot fallback has only the host deadline** — a killed `wsl.exe` does not
   relay the kill into the distro, so the Linux process tree can outlive the call.
   Prefer `agent: true` and the session runtime for long commands.
+- **A command in flight when the resident is lost is not run again** — a command the
+  resident never took (dead, backing off, handshake failed) falls back to the one-shot
+  `wsl.exe`. When the resident dies while a command is running, the command may
+  already have taken effect: it fails as "state is unknown", with the advice to
+  inspect the distro first, and is not executed a second time on the one-shot path.
 - **Batch reads share one native agent per distro** (16 concurrent calls in
   2.4-4.1 ms; first call pays ~70 ms preparation).
 - **aarch64 runs under qemu in CI only** (no Windows-on-ARM machine in reach —

@@ -244,9 +244,11 @@ export declare class WslShellExecutor extends LocalBashExecutor {
         /**
          * Run commands through the resident agent when it is up (one long-lived
          * in-distro process; in-distro timeout semantics), falling back to the
-         * one-shot `wsl.exe` path whenever the agent is out. `false` never uses
-         * the agent. The confinement, the output budgets' shapes and the result
-         * decoration are identical on both paths.
+         * one-shot `wsl.exe` path whenever the agent is out and the command had
+         * not reached it. A command that was in flight when the resident died is
+         * not run again — its state is unknown — and fails saying so. `false`
+         * never uses the agent. The confinement, the output budgets' shapes and
+         * the result decoration are identical on both paths.
          */
         agent: z<boolean, boolean, "defined">;
         agentBackend: z<"auto" | "native" | "shell", "auto" | "native" | "shell", "defined">;
@@ -379,9 +381,11 @@ export declare class WslShellExecutor extends LocalBashExecutor {
         /**
          * Run commands through the resident agent when it is up (one long-lived
          * in-distro process; in-distro timeout semantics), falling back to the
-         * one-shot `wsl.exe` path whenever the agent is out. `false` never uses
-         * the agent. The confinement, the output budgets' shapes and the result
-         * decoration are identical on both paths.
+         * one-shot `wsl.exe` path whenever the agent is out and the command had
+         * not reached it. A command that was in flight when the resident died is
+         * not run again — its state is unknown — and fails saying so. `false`
+         * never uses the agent. The confinement, the output budgets' shapes and
+         * the result decoration are identical on both paths.
          */
         agent: z<boolean, boolean, "defined">;
         agentBackend: z<"auto" | "native" | "shell", "auto" | "native" | "shell", "defined">;
@@ -751,8 +755,10 @@ export declare class WslShellExecutor extends LocalBashExecutor {
     throwIfWorkdirInAnotherDistro(workdir: string, distro: string): void;
     /**
      * The agent-backed execution path: one long-lived in-distro process, the
-     * confinement argv unchanged, the handle shape unchanged. Any
-     * {@link AgentUnavailableError} propagates for the caller's fallback.
+     * confinement argv unchanged, the handle shape unchanged. An
+     * {@link AgentUnavailableError} for a command the resident never took
+     * settles the handle with the one-shot retry instead; one for a command
+     * that was in flight when the resident was lost propagates.
      *
      * @param resolved - the resolved spec from {@link WslShellExecutor.execute}.
      * @param distro - the resolved distro name.

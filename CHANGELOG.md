@@ -16,6 +16,24 @@ were part of the record.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A command runs when the resident agent is out.** The shell executor's
+  one-shot `wsl.exe` fallback only answered a synchronous throw from the agent
+  factory. The real `WslAgent.exec` is async, so a dead or backing-off resident,
+  or one whose handshake failed, failed the command with the bare refusal
+  instead of falling back, as the docs promise. Every refusal that arrives
+  asynchronously through `result()` now takes the fallback. A command that was
+  already in flight when the resident was lost is the deliberate exception:
+  it may have run, so it fails as "state is unknown" and is not executed a
+  second time (#72).
+- **A command run through the resident agent releases its handle when it
+  settles.** The agent-backed handle never called the executor's settlement
+  hook, so every confined command kept its handle — captured output included
+  — in the executor's fact table for the life of the process, and a background
+  process started through the resident reported no sandbox facts. The handle
+  now settles exactly where upstream's own one does.
+
 ## [0.29.0] - 2026-11-23
 
 WSL panel release: diagnosis and repair are separate actions, with clearer

@@ -39,6 +39,10 @@ env:
   HARNESS_VERSION: "0.2.2-rc.5"
   NODE_VERSION: "24.9.0"
   PNPM_VERSION: "11.28.5"
+  # Bump this whenever the Desktop build inputs below change (the .env.windows
+  # content, the package script or the toolchain). It is the cache recipe's
+  # identity, separate from this workflow's unrelated steps.
+  DESKTOP_BUILD_RECIPE: "1"
 
 concurrency:
   group: cloud-desktop-wsl-${{ github.ref }}
@@ -72,7 +76,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: harness/apps/desktop/.desktop-build/targets/win-x64
-          key: dsh-desktop-win-x64-${{ runner.os }}-${{ env.HARNESS_REF }}-${{ hashFiles('.github/workflows/cloud-wsl-gate.yml') }}
+          key: dsh-desktop-win-x64-${{ runner.os }}-${{ env.HARNESS_REF }}-r${{ env.DESKTOP_BUILD_RECIPE }}
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:

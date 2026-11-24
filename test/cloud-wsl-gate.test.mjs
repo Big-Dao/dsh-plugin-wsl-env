@@ -36,7 +36,8 @@ assert.match(provision, /Wait-Job \$job -Timeout \$timeoutSec/);
 // cached on the pinned upstream ref plus this workflow's recipe (#88).
 assert.match(workflow, /paths:\s*&gate-paths/);
 assert.match(workflow, /actions\/cache@[0-9a-f]{40}/);
-assert.match(workflow, /key:\s*dsh-desktop-win-x64-\$\{\{ runner\.os \}\}-\$\{\{ env\.HARNESS_REF \}\}/);
+assert.match(workflow, /key:\s*dsh-desktop-win-x64-\$\{\{ runner\.os \}\}-\$\{\{ env\.HARNESS_REF \}\}-r\$\{\{ env\.DESKTOP_BUILD_RECIPE \}\}/);
+assert.match(workflow, /DESKTOP_BUILD_RECIPE: "1"/, "the cache recipe is bumped deliberately");
 assert.match(workflow, /if:\s*steps\.desktop-cache\.outputs\.cache-hit != 'true'/);
 assert.match(workflow, /resources\\app\.asar/);
 assert.match(workflow, /resources\\runtime\\cli\\bin\\dsh\.cmd/);

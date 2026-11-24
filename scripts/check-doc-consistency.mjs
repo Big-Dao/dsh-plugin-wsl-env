@@ -60,7 +60,7 @@ const PAIRS = [
   ["SUPPORT.md", "SUPPORT.zh.md"],
   ["CODE_OF_CONDUCT.md", "CODE_OF_CONDUCT.zh.md"],
 ];
-const SCOPE_FILES = [...PAIRS.flat(), "CONTRIBUTING.md"];
+const SCOPE_FILES = PAIRS.flat();
 
 /**
  * The value sets CONFIGURATION.zh.md owns, one entry per checked key. Values
@@ -151,6 +151,12 @@ for (const name of SCOPE_FILES) {
       .filter(([name]) => name.startsWith("@deepseek-ai/dsh-"))
       .map(([, range]) => String(range).replace(/^>=\s*/u, "")),
   );
+  // The rule reads rc-shaped literals only. Once every floor is a stable
+  // version it would match nothing and pass in silence, so that day is
+  // reported as what it is: a rule that needs widening, not a clean run.
+  if ([...floors].every((floor) => !/-rc\.\d+$/u.test(floor))) {
+    report("R6", "the peer floors are stable versions: this rule reads rc-shaped literals only and now checks nothing — widen it");
+  }
   for (const name of ["SUPPORT.md", "SUPPORT.zh.md"]) {
     for (const match of stripFences(read(join(ROOT, name))).matchAll(/\b(0\.\d+\.\d+-rc\.\d+)\b/g)) {
       if (!floors.has(match[1])) {
@@ -303,7 +309,7 @@ if ([...enKeys].sort().join(",") !== [...zhKeys].sort().join(",")) {
 
 for (const line of drifts) console.log(`DRIFT  ${line}`);
 console.log(
-  `doc consistency: ${SCOPE_FILES.length + 1} files, ${PAIRS.length} pairs, ` +
+  `doc consistency: ${SCOPE_FILES.length} files, ${PAIRS.length} pairs, ` +
     `${drifts.length} drift(s)`,
 );
 process.exit(drifts.length === 0 ? 0 : 1);

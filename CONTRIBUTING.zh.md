@@ -48,7 +48,7 @@
 让这一点保持诚实的规则：
 
 - 绝不要编辑 `lib/` 下的生成文件——其模块文档会指明应编辑的源码，两者一旦偏移，`lint:build` 就会失败。生成产物保持 tsc 的规范格式（四空格缩进、紧凑格式）；审查每个模块时看 `src/`。
-- `lint:build`（`test/build-freshness.mjs`）强制文件集合闭合——每个 `lib/*.js` 都有对应的 `src/<name>.ts`，每个源码都有两个产物——然后为每个生成文件做快照，运行真实构建，逐字节比较并还原快照：这是一次检查，不是重建；偏移的补救办法是 `pnpm run build` 加一次提交。它位于 `test:syntax` 之后的检查链中。
+- `lint:build`（`test/build-freshness.mjs`）强制文件集合闭合——每个 `lib/*.js` 都有对应的 `src/<name>.ts`，每个源码都有两个产物——然后用同一个构建脚本（`scripts/build.mjs --outDir <临时目录>`）把同一份程序构建到临时目录，与提交的产物逐字节比较。检查从不写入 `lib/`：这是一次检查，不是重建；偏移的补救办法是 `pnpm run build` 加一次提交。它位于 `test:syntax` 之后的检查链中。
 - 生成文件完全不进入 `checkJs` 检查（`tsconfig.json` 覆盖 `test/**` 和环境类型声明）；它们的源码由构建程序以 `noEmitOnError` 做类型检查，因此损坏的构建永远不会覆盖 `lib/`。
 - 每个 JavaScript 导出都带有 `types` 条件（由 `lint:style` 强制），因此下游能解析这些声明；不存在第二套手写类型表面。
 - 协议消息联合体及相关类型现在是唯一的定义处：使用方直接 import 它们（`@typedef {import("./agent-protocol.js").AgentMessage} AgentMessage`），而不是重新声明；`lib/agent.js` 和脚本驱动的测试就是这样读取它们。

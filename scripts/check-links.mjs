@@ -1,10 +1,12 @@
 /**
  * Check that every relative Markdown link in the user-facing docs resolves.
  *
- * P0.4's link promise: a reader following a relative link from README,
- * CONTRIBUTING, AGENTS or `docs/**` should land on a file in this checkout.
- * Absolute URLs, `mailto:` links and pure in-page anchors are out of scope —
- * they are someone else's availability, not a repository invariant.
+ * P0.4's link promise: a reader following a relative link from any Markdown
+ * file at the package root — README, CONTRIBUTING (both languages), SECURITY,
+ * SUPPORT, CODE_OF_CONDUCT, AGENTS — or from `docs/**` should land on a file
+ * in this checkout. Absolute URLs, `mailto:` links and pure in-page anchors
+ * are out of scope — they are someone else's availability, not a repository
+ * invariant.
  *
  * `docs/archive/` is excluded on purpose: those files are historical snapshots
  * whose links were written repo-root-relative in their original context, and
@@ -19,7 +21,15 @@ import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const TEXT_FILES = ["README.md", "CONTRIBUTING.md", "AGENTS.md"];
+/**
+ * Root Markdown files the check leaves alone. `CHANGELOG.md`'s relative links
+ * belong to the releases they were written in, and `canary-summary.md` is
+ * what the peer-canary writes for a step summary, not a maintained document.
+ * @type {Set<string>}
+ */
+const ROOT_SKIPPED = new Set(["CHANGELOG.md", "canary-summary.md"]);
+/** Every other Markdown file at the package root, in directory order. */
+const ROOT_MARKDOWN = readdirSync(ROOT).filter((name) => name.endsWith(".md") && !ROOT_SKIPPED.has(name));
 
 /**
  * Every Markdown file under `directory`, excluding archives and dot dirs.
@@ -42,10 +52,7 @@ function walk(directory) {
   return found;
 }
 
-const files = [
-  ...TEXT_FILES.map((name) => join(ROOT, name)).filter((path) => existsSync(path)),
-  ...walk(join(ROOT, "docs")),
-];
+const files = [...ROOT_MARKDOWN.map((name) => join(ROOT, name)), ...walk(join(ROOT, "docs"))];
 
 /** @type {string[]} */
 const broken = [];
@@ -70,9 +77,15 @@ for (const line of broken) console.log(`BROKEN  ${line}`);
 // Bilingual pairing: every `.zh.md` file must have its counterpart next to
 // it. The docs map fixes the direction — the Chinese side is the authority
 // and the English side follows it — so a missing pair means a half-shipped
-// doc. Chinese-only maintainer documents are exempt on purpose; the docs map
-// names them as Chinese-only and outside the shipped `files` list.
-const CHINESE_ONLY = ["docs/REQUIREMENTS.zh.md"];
+// doc. A document that is Chinese-only by decision is named here with its
+// reason. The list is held to its word: an exemption whose counterpart has
+// appeared since has outlived itself, and is reported rather than honoured.
+const CHINESE_ONLY = new Map([
+  // The requirements register ships, and both architectures link it. An
+  // English copy would be a second matrix for `check-requirements.mjs` to
+  // keep in step, so the register stays Chinese-only on purpose.
+  ["docs/REQUIREMENTS.zh.md", "the requirements register is Chinese-only by decision"],
+]);
 // The repo rule keeps one README at the package root and its Chinese
 // translation under `docs/`, so that pair maps across directories.
 const ENGLISH_COUNTERPART = (name) =>
@@ -83,10 +96,15 @@ const ENGLISH_COUNTERPART = (name) =>
 // docs/README.zh.md) and report false breakage.
 const unpaired = files
   .map((file) => file.slice(ROOT.length + 1).split(sep).join("/"))
-  .filter((name) => name.endsWith(".zh.md") && !CHINESE_ONLY.includes(name))
+  .filter((name) => name.endsWith(".zh.md") && !CHINESE_ONLY.has(name))
   .filter((name) => !existsSync(join(ROOT, ENGLISH_COUNTERPART(name))))
   .map((name) => `${name}: no English counterpart`);
 for (const line of unpaired) console.log(`BROKEN  ${line}`);
+const staleExemptions = [...CHINESE_ONLY]
+  .filter(([name]) => existsSync(join(ROOT, ENGLISH_COUNTERPART(name))))
+  .map(([name, reason]) => `${name}: exempt from pairing (${reason}) but ${ENGLISH_COUNTERPART(name)} exists — drop the exemption`);
+for (const line of staleExemptions) console.log(`BROKEN  ${line}`);
 
-console.log(`${checked} relative links checked in ${files.length} files; ${broken.length + unpaired.length} broken`);
-process.exit(broken.length === 0 && unpaired.length === 0 ? 0 : 1);
+const failures = broken.length + unpaired.length + staleExemptions.length;
+console.log(`${checked} relative links checked in ${files.length} files (${ROOT_MARKDOWN.length} at the root); ${failures} broken`);
+process.exit(failures === 0 ? 0 : 1);

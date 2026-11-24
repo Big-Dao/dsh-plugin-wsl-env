@@ -244,6 +244,25 @@ were part of the record.
   and above unchanged (one write is the faster schedule there). Frames queue
   behind a pieced one in order, and a rebuilt resident gets a fresh queue.
   `test/probe/fs-queue.mjs` prints a `stdin write` row per payload size.
+- **A check no longer rewrites the tree it checks (#89).** `lint:build` ran
+  the real build over `lib/` and restored it from a snapshot, so a check
+  killed midway — Ctrl-C, the watchdog — left the artifacts rewritten and any
+  new one behind. It now runs the same build script with `--outDir` into a
+  scratch directory and byte-compares what was emitted; nothing under `lib/`
+  is written (verified by comparing every file's mtime across a run). The
+  same review closed a few smaller gaps in the gates:
+  - `lint:links` reads every Markdown file at the package root; seven were
+    never scanned (CONTRIBUTING, SECURITY, SUPPORT and CODE_OF_CONDUCT in
+    both languages). It also reports a pairing exemption whose counterpart
+    has appeared since, and its one exemption — the requirements register —
+    states the real reason (it is Chinese-only by decision and does ship).
+    The stale copy of that exemption is gone from the style gate.
+  - `scripts/doctor.mjs` is named in the type gate's `include` instead of
+    reaching it only through a test's import.
+  - The doc-consistency scope no longer lists CONTRIBUTING.md twice (its
+    summary said 32 files for 31), and its peer-version rule reports the day
+    the peer floors stop being release candidates, when it would otherwise
+    match nothing and pass in silence.
 
 ## [0.29.0] - 2026-11-23
 

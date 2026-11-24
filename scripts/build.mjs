@@ -23,22 +23,45 @@
  * there too, for a human to delete or give a source, never silently.
  *
  * See CONTRIBUTING, "The build".
+ *
+ *   node scripts/build.mjs [--outDir <directory>]
+ *
+ * With `--outDir`, the same compiler program emits somewhere else and nothing
+ * under `lib/` is written or pruned. That is how `lint:build` compares the
+ * committed artifacts against the build: it used to run the real build over
+ * `lib/` and restore from a snapshot, and a check killed midway (Ctrl-C, the
+ * watchdog) left the tree rewritten.
  */
 import { execFileSync } from "node:child_process";
 import { readdirSync, rmSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
 const TSC = join(ROOT, "node_modules", "typescript", "bin", "tsc");
 
+/** @type {string | undefined} */
+let outDir;
+const argv = process.argv.slice(2);
+if (argv[0] === "--outDir") {
+  outDir = argv[1];
+  if (outDir === undefined || outDir.length === 0) {
+    console.error("build: --outDir needs a directory");
+    process.exit(2);
+  }
+  outDir = resolve(ROOT, outDir);
+} else if (argv.length > 0) {
+  console.error(`build: unknown argument "${argv[0] ?? ""}"`);
+  process.exit(2);
+}
+
 /**
  * Run one build config, inheriting stdio so compiler errors are visible.
  * @param {string} config - the build config to run.
  */
 function build(config) {
-  execFileSync(process.execPath, [TSC, "-p", join(ROOT, config)], { cwd: ROOT, stdio: "inherit" });
+  execFileSync(process.execPath, [TSC, "-p", join(ROOT, config), ...(outDir === undefined ? [] : ["--outDir", outDir])], { cwd: ROOT, stdio: "inherit" });
 }
 
 /**
@@ -54,6 +77,9 @@ function ownedBasenames() {
 }
 
 build("tsconfig.build.json");
+
+// Nothing under lib/ was written, so there is nothing of its to prune.
+if (outDir !== undefined) process.exit(0);
 
 const owned = ownedBasenames();
 for (const name of readdirSync(join(ROOT, "lib"))) {

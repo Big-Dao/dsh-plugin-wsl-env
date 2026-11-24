@@ -6,22 +6,28 @@
  * checkout is loadable (the Windows runtime mirror is a copy, the harness has
  * no build step), and the tests exercise `lib/*.js` — the published artifact —
  * rather than the sources. That property only holds while the artifacts stay
- * in sync, so this check snapshots every generated file, runs the real build,
- * byte-compares, and RESTORES the snapshot — a check, not a rebuild; the
- * remedy for drift is `pnpm run build` plus a commit.
+ * in sync, so this check builds the same program into a scratch directory and
+ * byte-compares what it emitted with what is committed — a check, not a
+ * rebuild; the remedy for drift is `pnpm run build` plus a commit.
+ *
+ * It never writes under `lib/`. It used to run the real build over the tree
+ * and restore from a snapshot, and a check killed midway — Ctrl-C, the
+ * watchdog — left the artifacts rewritten and any new one behind.
  *
  * It also enforces that the corpus is CLOSED. `lib/` is entirely generated:
  * every JavaScript module there needs its `src/<name>.ts` (nothing regenerates
  * an orphan, so it would drift silently), and every source needs both of its
- * artifacts. Delegating to the real build keeps the check honest — a second
- * implementation that built elsewhere would be checking a different artifact
- * than the one the repository actually regenerates with.
+ * artifacts. Delegating to the real build script keeps the check honest — a
+ * second implementation would be checking a different artifact than the one
+ * the repository actually regenerates with — so the check runs that script
+ * with `--outDir`, its only allowance for building somewhere else.
  *
  *   node test/build-freshness.mjs
  */
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -66,36 +72,29 @@ function generatedPaths() {
     .map((name) => join(ROOT, "lib", name));
 }
 
-/** @type {Map<string, Buffer>} */
-const snapshot = new Map();
-for (const path of generatedPaths()) snapshot.set(path, readFileSync(path));
-
-try {
-  execFileSync(process.execPath, [BUILD], { cwd: ROOT, stdio: "pipe" });
-} catch (error) {
-  const detail = String(/** @type {{stdout?: unknown}} */ (error).stdout ?? (/** @type {Error} */ (error)).message).trim();
-  console.error(`FAIL  the build itself fails:\n${detail}`);
-  process.exit(1);
-}
-
+const committed = generatedPaths();
+const scratch = mkdtempSync(join(tmpdir(), "dsh-build-freshness-"));
+/** @type {string[]} */
 const drifted = [];
-for (const [path, before] of snapshot) {
-  let now;
+try {
   try {
-    now = readFileSync(path);
-  } catch {
-    now = undefined;
+    execFileSync(process.execPath, [BUILD, "--outDir", scratch], { cwd: ROOT, stdio: "pipe" });
+  } catch (error) {
+    const detail = String(/** @type {{stdout?: unknown}} */ (error).stdout ?? (/** @type {Error} */ (error)).message).trim();
+    console.error(`FAIL  the build itself fails:\n${detail}`);
+    process.exit(1);
   }
-  if (now === undefined || !now.equals(before)) drifted.push(`${relative(ROOT, path)} is stale`);
-}
-for (const path of generatedPaths()) {
-  if (!snapshot.has(path)) drifted.push(`${relative(ROOT, path)} is not committed`);
-}
-
-// Restore: a check leaves the working tree as it found it.
-for (const [path, content] of snapshot) writeFileSync(path, content);
-for (const path of generatedPaths()) {
-  if (!snapshot.has(path)) rmSync(path);
+  for (const path of committed) {
+    let built;
+    try {
+      built = readFileSync(join(scratch, basename(path)));
+    } catch {
+      built = undefined;
+    }
+    if (built === undefined || !built.equals(readFileSync(path))) drifted.push(`${relative(ROOT, path)} is stale`);
+  }
+} finally {
+  rmSync(scratch, { recursive: true, force: true });
 }
 
 if (drifted.length > 0) {
@@ -104,4 +103,4 @@ if (drifted.length > 0) {
   console.error("      run `pnpm run build` and commit the result");
   process.exit(1);
 }
-console.log(`PASS  ${snapshot.size} generated artifact(s) match the build`);
+console.log(`PASS  ${committed.length} generated artifact(s) match the build`);

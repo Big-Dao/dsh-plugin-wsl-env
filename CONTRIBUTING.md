@@ -118,10 +118,13 @@ Rules that keep this honest:
   every module.
 - `lint:build` (`test/build-freshness.mjs`) enforces that the corpus is closed
   — every `lib/*.js` has its `src/<name>.ts`, every source has both artifacts —
-  then snapshots every generated file, runs the real build, byte-compares and
-  RESTORES the snapshot: a check, not a rebuild; the remedy for drift is
-  `pnpm run build` plus a commit. It is part of the gate chain after
-  `test:syntax`.
+  then runs the same build script (`scripts/build.mjs --outDir <scratch>`) so
+  the same program emits into a scratch directory, and byte-compares what it
+  emitted with what is committed. The check never writes under `lib/`: a
+  check, not a rebuild — an earlier version rebuilt the tree and restored from
+  a snapshot, and one killed midway left the artifacts rewritten. The remedy
+  for drift is `pnpm run build` plus a commit. It is part of the gate chain
+  after `test:syntax`.
 - Generated files are not in the `checkJs` gate at all (`tsconfig.json` covers
   `test/**` and the ambient types); their sources are type-checked by the build
   program with `noEmitOnError`, so a broken build never overwrites `lib/`.

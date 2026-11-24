@@ -192,21 +192,115 @@ export async function defaultDistro(options: WslCallOptions = {}): Promise<strin
 }
 
 /**
+ * Successful probe answers shared by every caller in this process, keyed by
+ * `(wslPath, distro)`. A distro's home and login shell do not change while DSH
+ * runs, and six call sites used to spend a `wsl.exe` round trip each on the
+ * same two questions. Only success is remembered: a failed probe stays
+ * retryable, as the shell executor's own contract requires.
+ */
+const homeProbes = new Map<string, Promise<string>>();
+const shellProbes = new Map<string, Promise<string | undefined>>();
+
+/** Key for both probe caches; the `wslPath` is part of it so overrides do not alias. */
+function probeKey(wslPath: string, distro: string): string {
+  return `${wslPath}\u0000${distro}`;
+}
+
+/**
+ * Reject with the caller's own abort reason without settling the shared probe:
+ * one caller cancelling must not turn another caller's answer into a failure.
+ *
+ * @param pending - the shared probe.
+ * @param signal - the caller's lifetime.
+ * @returns the probe's answer, or a rejection when the caller aborts first.
+ */
+function raceProbeAbort<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (signal === undefined) return pending;
+  return new Promise<T>((resolvePromise, rejectPromise) => {
+    if (signal.aborted) {
+      rejectPromise(signal.reason ?? new Error("aborted"));
+      return;
+    }
+    const onAbort = (): void => {
+      rejectPromise(signal.reason ?? new Error("aborted"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    pending.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolvePromise(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        rejectPromise(error);
+      },
+    );
+  });
+}
+
+/**
+ * Run one probe through a process-level cache with single-flight: concurrent
+ * callers share the in-flight `wsl.exe` call, and a settled answer is kept only
+ * when `keep` says so.
+ *
+ * @param cache - the probe's cache.
+ * @param key - the distro/transport key.
+ * @param probe - starts the probe when no one else has.
+ * @param keep - whether a settled answer is worth remembering.
+ * @param signal - the caller's lifetime.
+ * @returns the probe's answer.
+ */
+function sharedProbe<T>(
+  cache: Map<string, Promise<T>>,
+  key: string,
+  probe: () => Promise<T>,
+  keep: (value: T) => boolean,
+  signal?: AbortSignal,
+): Promise<T> {
+  let pending = cache.get(key);
+  if (pending === undefined) {
+    pending = probe();
+    cache.set(key, pending);
+    pending.then(
+      (value) => {
+        if (!keep(value)) cache.delete(key);
+      },
+      () => {
+        cache.delete(key);
+      },
+    );
+  }
+  return raceProbeAbort(pending, signal);
+}
+
+/** Test hook: forget the shared home and shell probes. */
+export function resetWslProbeCacheForTests(): void {
+  homeProbes.clear();
+  shellProbes.clear();
+}
+
+/**
  * The Linux home directory of a distro's default user, as a Linux path. `$HOME`
  * is set by `wsl.exe` itself from the distro's default user, so this needs no
- * passwd parsing.
+ * passwd parsing. Resolved once per `(wslPath, distro)` per process.
  *
  * @param distro - distro name.
  * @param options - the `wsl.exe` path and optional cancellation.
  * @returns e.g. `/home/andy`.
  * @throws when the distro cannot be queried or reports no home.
  */
-export async function linuxHomePath(distro: string, options: WslCallOptions = {}): Promise<string> {
-  const stdout = await runCapture(
-    [options.wslPath ?? DEFAULT_WSL_PATH, "-d", distro, "--exec", "sh", "-c", 'printf %s "$HOME"'],
+export function linuxHomePath(distro: string, options: WslCallOptions = {}): Promise<string> {
+  const wslPath = options.wslPath ?? DEFAULT_WSL_PATH;
+  return sharedProbe(
+    homeProbes,
+    probeKey(wslPath, distro),
+    async () => parseHomePath(distro, await runCapture(
+      [wslPath, "-d", distro, "--exec", "sh", "-c", 'printf %s "$HOME"'],
+      options.signal,
+    )),
+    () => true,
     options.signal,
   );
-  return parseHomePath(distro, stdout);
 }
 
 /**
@@ -472,11 +566,19 @@ export async function defaultShell(distro: string, options: WslShellProbeOptions
   // No "bash" placeholder: a failed probe (a cold distro, a flaky first
   // `wsl.exe` call) used to be pinned as the literal shell for the
   // executor's lifetime. `undefined` tells the caller both answers failed;
-  // it may retry later or fall back itself.
-  return (
-    (await ask('getent passwd "$(id -u)" | cut -d: -f7')) ??
-    (await ask('printf %s "$SHELL"')) ??
-    undefined
+  // it may retry later or fall back itself. The shared cache keeps a
+  // confirmed answer and drops an unresolved one, so that retry can still
+  // happen.
+  return sharedProbe(
+    shellProbes,
+    probeKey(wslPath, distro),
+    async () => (
+      (await ask('getent passwd "$(id -u)" | cut -d: -f7')) ??
+      (await ask('printf %s "$SHELL"')) ??
+      undefined
+    ),
+    (value) => value !== undefined,
+    options.signal,
   );
 }
 

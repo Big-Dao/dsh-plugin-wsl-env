@@ -386,6 +386,137 @@ checkReg("a stdin payload rides the frame's flag and trailing payload line", asy
   await agent.close();
 });
 
+/**
+ * Record every piece the fake's stdin is written in.
+ * @param {FakeAgentProcess} child - the fake.
+ * @returns {Buffer[]} the pieces, in the order they were written.
+ */
+function recordWrites(child) {
+  /** @type {Buffer[]} */
+  const pieces = [];
+  const write = /** @type {(chunk: Buffer | string, encoding?: unknown, callback?: unknown) => boolean} */ (child.stdin.write.bind(child.stdin));
+  const recording = (/** @type {Buffer | string} */ chunk, /** @type {unknown} */ encoding, /** @type {unknown} */ callback) => {
+    pieces.push(Buffer.isBuffer(chunk) ? Buffer.from(chunk) : Buffer.from(String(chunk)));
+    return write(chunk, encoding, callback);
+  };
+  child.stdin.write = /** @type {PassThrough["write"]} */ (recording);
+  return pieces;
+}
+
+/** The piece size `src/agent.ts` writes in pieces of; a change there is a change here. */
+const PIECE = 60 * 1024;
+
+checkReg("a frame above one pipe buffer goes out in pieces a timer turn apart, and arrives whole", async () => {
+  const child = new FakeAgentProcess();
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  const pieces = recordWrites(child);
+  await agent.exec({ cwd: "/tmp", argv: ["cat"], stdin: Buffer.from("small\n") });
+  assert.equal(pieces.length, 1, "a small frame is one write, as it always was");
+  const since = child.frames.length;
+  pieces.length = 0;
+  // A 96 KiB payload is a ~128 KiB frame: inside the band where one write
+  // pays the relay's fixed ~100 ms. The clock is mocked so "a timer turn" is
+  // a fact about the schedule and not a measurement.
+  const payload = Buffer.alloc(96 * 1024, 0x61);
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const big = agent.exec({ cwd: "/tmp", argv: ["cat"], stdin: payload });
+    await flush();
+    assert.equal(pieces.length, 1, "the first piece goes out at once");
+    await flush();
+    await flush();
+    assert.equal(pieces.length, 1, "the second piece waits for a timer turn, not a same-tick continuation");
+    mock.timers.tick(1);
+    await flush();
+    assert.equal(pieces.length, 2, "one turn moves exactly one piece");
+    mock.timers.tick(1);
+    await flush();
+    assert.equal(pieces.length, 3);
+    mock.timers.tick(1);
+    await flush();
+    await big;
+  } finally {
+    mock.timers.reset();
+  }
+  assert.ok(pieces.every((piece) => piece.length <= PIECE), "no piece exceeds the piece size");
+  assert.equal(Buffer.concat(pieces).toString(), `${child.frames.slice(since).join("\n")}\n`, "the pieces concatenate to the frame, bytes intact and in order");
+  assert.ok((pieces[0]?.length ?? 0) === PIECE && (pieces[1]?.length ?? 0) === PIECE, "full pieces first, the remainder last");
+  await agent.close();
+});
+
+checkReg("a frame past the ceiling stays one write", async () => {
+  const child = new FakeAgentProcess();
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  const pieces = recordWrites(child);
+  // A 600 KiB payload is an ~800 KiB frame: one write is the faster schedule there.
+  await agent.exec({ cwd: "/tmp", argv: ["cat"], stdin: Buffer.alloc(600 * 1024, 0x61) });
+  assert.equal(pieces.length, 1, "no piece is paid for above the band");
+  assert.ok((pieces[0]?.length ?? 0) > 512 * 1024);
+  await agent.close();
+});
+
+checkReg("frames queued behind a pieced one keep their order", async () => {
+  const child = new FakeAgentProcess();
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  const pieces = recordWrites(child);
+  const big = agent.exec({ cwd: "/tmp", argv: ["cat"], stdin: Buffer.alloc(80 * 1024, 0x61) });
+  const stat = agent.fs({ op: "stat", args: ["/tmp/x"] });
+  const small = agent.exec({ cwd: "/tmp", argv: ["echo", "hi"] });
+  await Promise.all([big, stat, small]);
+  const [bigHead, echoHead] = [child.frames.findIndex((line) => line.startsWith("EXEC|") && line.endsWith("|1")), child.frames.findIndex((line) => line.startsWith("EXEC|") && !line.endsWith("|1"))];
+  const fsAt = child.frames.findIndex((line) => line.startsWith("FS|"));
+  assert.ok(bigHead >= 0 && echoHead > bigHead && fsAt > bigHead, `the pieced frame's lines come first (big ${bigHead}, fs ${fsAt}, echo ${echoHead})`);
+  assert.equal(child.frames[bigHead + 1], encodeB64("cat"), "…and are not interleaved with the frames queued behind it");
+  assert.equal(child.frames[bigHead + 2], encodeB64(Buffer.alloc(80 * 1024, 0x61)), "the payload line is whole");
+  assert.ok(pieces.length > 1, "the big frame was pieced while the others waited");
+  await agent.close();
+});
+
+checkReg("a resident that dies mid-piece leaves the next frames to its successor, whole", async () => {
+  const dying = new FakeAgentProcess();
+  dying.silent = true; // ACK/RES suppressed: the big request stays in flight
+  const healthy = new FakeAgentProcess();
+  const { transport } = scriptedTransport([dying, healthy]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  const dyingPieces = recordWrites(dying);
+  const healthyPieces = recordWrites(healthy);
+  /** Resolves once the first piece is on the dying resident's stdin. */
+  /** @type {() => void} */
+  let firstPiece = () => {};
+  const firstPieceWritten = new Promise((resolve) => {
+    firstPiece = () => resolve(undefined);
+  });
+  const recorded = /** @type {(chunk: Buffer | string, encoding?: unknown, callback?: unknown) => boolean} */ (dying.stdin.write.bind(dying.stdin));
+  const notifying = (/** @type {Buffer | string} */ chunk, /** @type {unknown} */ encoding, /** @type {unknown} */ callback) => {
+    firstPiece();
+    return recorded(chunk, encoding, callback);
+  };
+  dying.stdin.write = /** @type {PassThrough["write"]} */ (notifying);
+  // The command's side effects are unknowable once the agent died, so it must
+  // fail rather than ride the rebuild.
+  const big = agent.exec({ cwd: "/", argv: ["git", "commit"], stdin: Buffer.alloc(96 * 1024, 0x61), timeoutMs: 0 }).then(
+    () => {
+      throw new Error("an in-flight EXEC must never be replayed");
+    },
+    (error) => error,
+  );
+  await firstPieceWritten;
+  assert.equal(dyingPieces.length, 1, "the frame was one piece in when the resident died");
+  // From here the pipe is dead for good: the pieces still queued fail, as
+  // they would on a real transport.
+  dying.stdin.destroy();
+  dying.emit("exit", 1, null);
+  const error = await big;
+  assert.match(error.message, /state is unknown/);
+  await agent.fs({ op: "stat", args: ["/tmp/x"] });
+  assert.equal(healthyPieces.length, 1, "the next frame is one write on the successor");
+  assert.equal(healthy.frames[0]?.startsWith("FS|"), true, "whole: nothing of the dead resident's half-written frame precedes it");
+  await agent.close();
+});
+
 checkReg("an absent stdin keeps the payload line off the frame", async () => {
   const child = new FakeAgentProcess();
   const { transport } = scriptedTransport([child]);

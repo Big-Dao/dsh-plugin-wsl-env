@@ -302,6 +302,8 @@ export declare class WslAgent {
      * tell "quiet" from "abandoned".
      */
     lastActivityAt: number;
+    /** The frames waiting for the current resident's stdin; see {@link writeLines}. */
+    private writes;
     /** The last failure, for `unavailableReason` and log messages. */
     lastError: string;
     /** Cumulative request metrics; see {@link metrics}. */

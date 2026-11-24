@@ -52,6 +52,7 @@
 
 import { spawn } from "node:child_process";
 import type { ChildProcess, ChildProcessWithoutNullStreams } from "node:child_process";
+import type { Writable } from "node:stream";
 import { AgentRequestStateUnknownError, AgentUnavailableError, BASH_TIMEOUT_REASON, CwdError, SpawnError } from "./agent-errors.js";
 import { AGENT_NAME, MAX_FRAME_BYTES, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, encodeExecFrame, encodeFsbFrame, encodeFsFrame, encodeKill, parseAgentLine } from "./agent-protocol.js";
 import type { AckMessage, AgentErrorMessage, AgentMessage, FsErrorMessage, HelloMessage, ResultMessage } from "./agent-protocol.js";
@@ -247,6 +248,96 @@ const DEFAULT_REVIVAL_BACKOFF_MS = 2000;
 const CANCEL_SIGNAL_GRACE_MS = 60;
 
 /**
+ * How a frame reaches the resident's stdin (#86).
+ *
+ * One `write()` of a frame larger than a Windows pipe's buffer (64 KiB) costs
+ * a fixed ~100 ms before the resident has the rest of it. Measured on the
+ * production path — Windows host, `wsl.exe`, the native agent — a 68 KiB
+ * stdin payload answered in 14 ms with the same binary spawned directly in
+ * the distro and in 114 ms through `wsl.exe`, and the resident's `ACK` was
+ * what came late: the frame, not the request, was slow to arrive. The piece
+ * size is not the cause — the same bytes as several pieces written back to
+ * back pay it too — and neither reader nor agent is: a plain line reader and
+ * `cat` see 68 KiB in under 5 ms. What removes the cost is a timer turn
+ * between the pieces, which lets the relay drain the pipe before more of the
+ * frame arrives.
+ *
+ * A timer turn costs about 10 ms on a Windows host, so the schedule pays it
+ * only where the measurement says it wins. A payload of 64–384 KiB takes
+ * 30–98 ms pieced against 115–120 ms as one write; at 512 KiB one write is
+ * faster (123 ms against 144), and at 1 MiB far more so (36 against 264).
+ * So frames above one pipe buffer and up to half a mebibyte go out in pieces
+ * with a turn between them, and every other frame stays the single write it
+ * always was.
+ */
+const PIECED_WRITE_ABOVE_BYTES = 64 * 1024;
+const PIECED_WRITE_UNTIL_BYTES = 512 * 1024;
+const WRITE_PIECE_BYTES = 60 * 1024;
+
+/**
+ * Whether a frame goes out in pieces.
+ * @param frame - the frame, terminator included.
+ * @returns true for a frame in the band where piecing wins.
+ */
+function isPieced(frame: string): boolean {
+  const bytes = Buffer.byteLength(frame);
+  return bytes > PIECED_WRITE_ABOVE_BYTES && bytes <= PIECED_WRITE_UNTIL_BYTES;
+}
+
+/**
+ * Put one frame on a stream: in pieces with a timer turn between them when
+ * {@link isPieced} says so, otherwise as one write.
+ * @param stdin - the resident's stdin.
+ * @param frame - the frame, terminator included.
+ */
+async function writeFrame(stdin: Writable, frame: string): Promise<void> {
+  if (!isPieced(frame)) {
+    stdin.write(frame);
+    return;
+  }
+  const buffer = Buffer.from(frame);
+  for (let offset = 0; offset < buffer.length; offset += WRITE_PIECE_BYTES) {
+    // The timer turn: the relay drains what is in the pipe before more arrives.
+    if (offset > 0) await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    const piece = buffer.subarray(offset, Math.min(buffer.length, offset + WRITE_PIECE_BYTES));
+    // Each piece is awaited: one that fits the pipe answers at once, and a
+    // slow relay holds the next piece back instead of piling bytes up here.
+    await new Promise<void>((resolve, reject) => {
+      stdin.write(piece, (error) => (error == null ? resolve() : reject(error)));
+    });
+  }
+}
+
+/**
+ * The frames waiting for one resident's stdin.
+ */
+interface PendingWrites {
+  /** The stream they are for; a rebuilt resident gets a fresh record, and the old one drains into its own dead pipe. */
+  readonly stdin: Writable;
+  /** In the order they were queued. */
+  readonly frames: string[];
+  /** Whether a {@link drainWrites} loop is running for this record. */
+  draining: boolean;
+}
+
+/**
+ * Write the queued frames one at a time, so the pieces of one never interleave
+ * with the next. A dead pipe empties the queue: the stream's error listener
+ * has already absorbed the event, and nothing after a failed piece is worth
+ * sending.
+ * @param {PendingWrites} writes - the record to drain.
+ */
+async function drainWrites(writes: PendingWrites): Promise<void> {
+  try {
+    for (let frame = writes.frames.shift(); frame !== undefined; frame = writes.frames.shift()) await writeFrame(writes.stdin, frame);
+  } catch {
+    writes.frames.length = 0;
+  } finally {
+    writes.draining = false;
+  }
+}
+
+/**
  * How many requests one resident may hold in flight before refusing more. The
  * agent is serial, so a large queue only delays every entry; the cap keeps a
  * burst from growing the pending map (and the retained frame lines) without
@@ -427,6 +518,8 @@ export class WslAgent {
    * tell "quiet" from "abandoned".
    */
   declare lastActivityAt: number;
+  /** The frames waiting for the current resident's stdin; see {@link writeLines}. */
+  private writes: PendingWrites | undefined;
   /** The last failure, for `unavailableReason` and log messages. */
   declare lastError: string;
   /** Cumulative request metrics; see {@link metrics}. */
@@ -1650,7 +1743,24 @@ export class WslAgent {
   private writeLines(lines: string[]): boolean {
     const child = this.process;
     if (!child || !child.stdin || !child.stdin.writable) return false;
-    child.stdin.write(`${lines.join("\n")}\n`);
+    const stdin = child.stdin;
+    const frame = `${lines.join("\n")}\n`;
+    let writes = this.writes;
+    if (writes === undefined || writes.stdin !== stdin) {
+      // A new resident. Its predecessor's record keeps its own queue and ends
+      // against a dead pipe on its own.
+      writes = { stdin, frames: [], draining: false };
+      this.writes = writes;
+    }
+    if (!writes.draining && !isPieced(frame)) {
+      stdin.write(frame);
+    } else {
+      writes.frames.push(frame);
+      if (!writes.draining) {
+        writes.draining = true;
+        void drainWrites(writes);
+      }
+    }
     this.rearmIdleTimer();
     return true;
   }

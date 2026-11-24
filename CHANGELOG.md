@@ -228,6 +228,22 @@ were part of the record.
     The honest SKIP surfaced one more: the watcher's pipe-close check skipped
     itself on every host with `inotify-tools`, although its file target never
     starts inotify — it runs there now.
+- **A large stdin payload no longer pays a fixed ~100 ms (#86).** A frame
+  above one Windows pipe buffer (64 KiB) written to the resident's stdin as
+  one `write()` cost about 100 ms before the resident had the rest of it.
+  Measured on the production path — Node on the Windows host, `wsl.exe`, the
+  native agent — a 68 KiB payload answered in 14 ms with the same binary
+  started directly inside the distro and in 114 ms through `wsl.exe`, and it
+  was the resident's `ACK` that came late: the frame, not the request, was
+  slow to arrive. Neither the piece size nor the reader is the cause; a timer
+  turn between pieces removes it. Since a timer turn costs about 10 ms on a
+  Windows host, frames between 64 KiB and half a mebibyte now go out in
+  60 KiB pieces with a turn between them and every other frame stays the
+  single write it was: time to result for a 64 / 96 / 128 / 256 KiB payload
+  went from 114 / 115 / 117 / 117 ms to 24 / 32 / 35 / 67 ms, with 512 KiB
+  and above unchanged (one write is the faster schedule there). Frames queue
+  behind a pieced one in order, and a rebuilt resident gets a fresh queue.
+  `test/probe/fs-queue.mjs` prints a `stdin write` row per payload size.
 
 ## [0.29.0] - 2026-11-23
 

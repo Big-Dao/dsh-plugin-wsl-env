@@ -36,6 +36,7 @@ Absolute numbers are machine-dependent; the ratio and the budgets are the point.
 | Whole-file read of 1 MiB (native agent) | — | median **15.0 ms** (26.6 ms with the read window inside the batched frame) | #76, 2026-11-24 |
 | Parsing one 16 MiB response frame (arriving in 64 KiB chunks) | — | **83 ms** of the host event loop (2678 ms when every chunk re-joined one growing string) | same, host side only |
 | Listing a directory of 200 symlinks | — | median **6.1 ms** (136.3 ms with two round trips per link) | same |
+| A 64–256 KiB stdin payload through `wsl.exe` (native agent) | — | median **18–67 ms** (114–117 ms as one write) | #86, 2026-11-24, Windows host Node |
 
 The first three rows dated 2026-11-24 were measured on WSL 2 Ubuntu x86_64
 with the native agent started directly inside the distro (no `wsl.exe` hop), as
@@ -44,6 +45,19 @@ same machine. They stand for three structural costs — a read payload
 base64-encoded twice inside a batched frame, a whole frame re-joined and
 re-scanned on every chunk, and two round trips per symlink — so what went away
 is the term that grew with the square of the size, not merely a constant.
+
+The stdin row was measured on the same machine from Node v24.17 on the Windows
+host, through `wsl.exe`, as time to result. A frame above one pipe buffer
+(64 KiB) written as one `write()` cost a fixed ~100 ms before the resident had
+the rest of it — its own `ACK` was what arrived late — while the same binary
+started directly inside the distro answered a 68 KiB payload in 14 ms. The
+piece size is not the cause (the same bytes written back to back as several
+pieces pay it too), nor is the reader (`cat` and a line-at-a-time reader see
+68 KiB in under 5 ms); what removes the cost is a timer turn between the
+pieces. Frames between 64 KiB and 512 KiB now go out in pieces; larger ones
+stay one write (a 512 KiB payload: 123 ms as one write, 144 ms pieced). A
+timer turn costs about 10 ms on a Windows host, so it is paid only inside the
+band where the measurement says it wins.
 
 The GUI-preview number covers the routed backend operations a preview pays.
 The shipped `workspace-files` service adds its own calls on top; that service
@@ -62,7 +76,10 @@ node test/probe/fs-queue.mjs      # the agent queue, sequential vs concurrent, w
 
 Both need WSL interop, a working distro and Node; neither boots the harness.
 The queue measurement also needs systemd and a usable native binary; it prints
-wall times and queue metrics but does not enforce latency budgets. The GUI-preview
+wall times and queue metrics but does not enforce latency budgets. It prints
+one `stdin write` row per payload size; the step that row is about shows only
+when the probe runs from Node on the Windows host — inside the distro the
+pieces are written just the same, but one write never paid it there. The GUI-preview
 probe reports p50/p95/max and fails when its budgets are exceeded.
 
 ## What is not measured

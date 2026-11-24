@@ -414,4 +414,8 @@ if (POSIX) {
   const withExisting = doctorFact("C:\\App\\dsh.exe", "C:\\p", true) ;
   assert.ok(String(withExisting).startsWith('WSLENV="'), "WSLENV is set inline so the flag crosses interop");
   assert.equal(doctorFact("/usr/bin/node", "/plugin", false), undefined, "the fact exists only on Windows hosts");
+  // A path may legally contain an apostrophe; the quoted argument must close
+  // and reopen around it instead of ending the string early.
+  const quoted = String(doctorFact("C:\\Users\\o'brien\\dsh.exe", "C:\\Users\\o'brien\\p", true));
+  assert.match(quoted, /'\/mnt\/c\/Users\/o'\\''brien\/dsh\.exe'/, "the apostrophe is escaped, not left to break the shell");
 }

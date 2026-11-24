@@ -721,4 +721,32 @@ await check("the doctor merge preserves the caller's report", () => {
   assert.deepEqual(bare.summary, { ok: 1 });
 });
 
+await check("a late disposer does not clobber a newer wrapper", async () => {
+  const harness = fakeCtx();
+  const pristine = harness.agents.createSession;
+  await apply(/** @type {never} */ (harness.ctx), { windowsWorkspaces: [] });
+  const firstDispose = harness.disposers[0];
+  const firstWrapped = harness.agents.createSession;
+  assert.notEqual(firstWrapped, pristine, "the first apply wraps the facade");
+  await apply(/** @type {never} */ (harness.ctx), { windowsWorkspaces: [] });
+  assert.notEqual(harness.agents.createSession, firstWrapped, "the second apply wraps the first");
+  assert.ok(firstDispose !== undefined, "the first install handed back its disposer");
+  firstDispose();
+  assert.notEqual(harness.agents.createSession, pristine, "the older disposer leaves the newer wrapper in place");
+  // The remaining wrapper still adopts the preset — the facade is not inert.
+  const live = harness.agents.createSession;
+  assert.ok(live !== undefined, "the facade still exposes a method");
+  const forwarded = await live({ cwd: DISTRO_UNC });
+  assert.equal(forwarded.agentPreset, "wsl", "the live wrapper still applies the WSL preset");
+  // LIFO disposal (the real teardown order) unwinds the stack to pristine.
+  const lifo = fakeCtx();
+  const pristine2 = lifo.agents.createSession;
+  await apply(/** @type {never} */ (lifo.ctx), { windowsWorkspaces: [] });
+  await apply(/** @type {never} */ (lifo.ctx), { windowsWorkspaces: [] });
+  lifo.disposers[lifo.disposers.length - 1]?.();
+  assert.notEqual(lifo.agents.createSession, pristine2, "the older wrapper still stands after the newer one retires");
+  lifo.disposers[0]?.();
+  assert.equal(lifo.agents.createSession, pristine2, "LIFO disposal restores the pristine method");
+});
+
 console.log(`\n${passed} auto-preset checks pass`);

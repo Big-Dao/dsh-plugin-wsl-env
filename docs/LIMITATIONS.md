@@ -61,6 +61,14 @@ operations never use the 9p share.
 - `editText` reads the whole file into memory before writing it back.
 - A distro that dies with a request in flight spends the resident's one rebuild;
   still down, the resident stays out until the app restarts.
+- **The native agent is demoted only on evidence, and tried again** — there is
+  one shared agent instance per distro, and it recovers through its own rebuild
+  and revival budget rather than being replaced. The reads move to the shell
+  agent only when the native entry fails a start and the shell entry then
+  starts on the same distro, and native is tried again after five minutes. A
+  distro that is down fails both entries alike, which is not held against the
+  native one; a failed preparation (copy, digest, execute check) is not
+  remembered as a verdict either — the next start prepares again.
 
 ## The GUI workspace-files service
 

@@ -81,6 +81,19 @@ were part of the record.
   changed files silently missing — and the git handle kept the head of an
   over-budget stream where the one-shot handle keeps the tail. Both handles
   now carry the flags, and a cut keeps the tail (#75).
+- **A dead resident is no longer replaced, and the native agent is demoted
+  only on evidence (#77).** `sharedAgent()` swapped in a fresh agent as soon
+  as the shared one was `dead` — including the two-second backoff window —
+  which reset the revival budget and, on any death, retired the native entry
+  for the rest of the process. The filesystem provider kept the old instance,
+  so commands ran on one agent and file operations on another. There is now
+  one instance per distro for the life of the process, and every holder
+  addresses it. The native entry is demoted only when it fails a start that
+  the shell entry then makes on the same distro, for five minutes, and is
+  tried again; a distro that is down fails both entries alike and is not
+  held against the native one. A failed native preparation (copy, digest,
+  execute check) is no longer cached for the process — the next start
+  prepares again — and its reason is kept for the doctor to report.
 - **The packaged native binaries were rebuilt** from the hardened source with
   the pinned toolchain (1.99.1). They were linked with the toolchain's
   self-contained musl objects rather than by the CI job's `musl-gcc`/zig

@@ -204,7 +204,7 @@ function emptyAgentMetrics(): AgentMetrics {
 }
 
 /** The entry an async preparation may select before the first spawn. */
-interface WslAgentPrepared {
+export interface WslAgentPrepared {
   /** The agent entrypoint (the shell script or the native cache path). */
   scriptPath: string;
   /** The HELLO digest to verify. */
@@ -433,6 +433,8 @@ export class WslAgent {
   declare requestMetrics: AgentMetrics;
   /** The optional async preparation hook. */
   declare prepare: (() => Promise<WslAgentPrepared | undefined>) | undefined;
+  /** The optional start-outcome hook; see the constructor's `onStart`. */
+  declare onStart: ((outcome: { ok: boolean, native: boolean }) => void) | undefined;
 
   /**
    * @param config - the agent configuration.
@@ -502,6 +504,14 @@ export class WslAgent {
     prepare?: () => Promise<WslAgentPrepared | undefined>,
     /** The first revival delay in ms; doubles per death. Tests shorten it. */
     revivalBackoffMs?: number,
+    /**
+     * Told how each start ended and which entry it used. `native` is true
+     * when the entry came from the async preparation (the native binary) and
+     * false for the instance's default entry (the shell script). A start that
+     * ends in a handshake failure or timeout is `ok: false`; a resident that
+     * dies after its handshake is not a start, and is not reported here.
+     */
+    onStart?: (outcome: { ok: boolean, native: boolean }) => void,
   }) {
     this.distro = config.distro;
     this.scriptPath = config.scriptPath;
@@ -536,6 +546,7 @@ export class WslAgent {
     this.caps = new Set();
     this.requestMetrics = emptyAgentMetrics();
     this.prepare = config.prepare;
+    this.onStart = config.onStart;
   }
 
   /**
@@ -619,13 +630,14 @@ export class WslAgent {
     if (this.startPromise) return this.startPromise;
     const prepared = this.prepare?.();
     if (prepared === undefined) {
-      const started = this.beginStart();
+      const started = this.beginStart(false);
       this.startPromise = started;
       return started;
     }
     const started = prepared.then((entry) => {
-      if (entry !== undefined) this.applyPrepared(entry);
-      return this.beginStart();
+      if (entry === undefined) return this.beginStart(false);
+      this.applyPrepared(entry);
+      return this.beginStart(true);
     });
     this.startPromise = started;
     return started;
@@ -647,9 +659,11 @@ export class WslAgent {
   /**
    * Spawn the process and run the handshake.
    *
+   * @param native - whether this start runs the prepared entry rather than
+   *   the instance's default one.
    * @returns resolved once the state is `ready`.
    */
-  private beginStart(): Promise<void> {
+  private beginStart(native: boolean): Promise<void> {
     this.state = "starting";
     this.agentPid = undefined;
     return new Promise((resolve, reject) => {
@@ -678,9 +692,11 @@ export class WslAgent {
         if (error) {
           this.state = this.rebuildUsed ? "dead" : "idle";
           if (this.rebuildUsed) this.lastError = this.lastError || String(error);
+          this.onStart?.({ ok: false, native });
           reject(error instanceof AgentUnavailableError ? error : new AgentUnavailableError(String(error)));
         } else {
           this.state = "ready";
+          this.onStart?.({ ok: true, native });
           resolve();
         }
       };
@@ -831,6 +847,9 @@ export class WslAgent {
     this.agentPid = message.pid;
     this.protocolVersion = message.version;
     this.caps = new Set(message.caps ?? []);
+    // The resident is up, so whatever failed last is over. Kept, the old
+    // failure warned in every later diagnosis until the app restarted.
+    this.lastError = "";
     settleStart();
   }
 

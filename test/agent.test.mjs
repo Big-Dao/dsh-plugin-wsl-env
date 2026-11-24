@@ -1052,6 +1052,76 @@ checkReg("the revival budget ends in a named permanent state with the restart re
   );
 });
 
+checkReg("onStart reports each start's outcome and the entry it used", async () => {
+  const native = new FakeAgentProcess();
+  const shell = new FakeAgentProcess();
+  const failing = new FakeAgentProcess({ noHello: true });
+  const { transport } = scriptedTransport([native, shell, failing]);
+  /** @type {Array<{ ok: boolean, native: boolean }>} */
+  const outcomes = [];
+  // Prepared on the first start only, as a preparation that later declines.
+  let prepared = 0;
+  const agent = new WslAgent({
+    ...CONFIG,
+    spawnTransport: transport,
+    onStart: (outcome) => { outcomes.push(outcome); },
+    prepare: async () => {
+      prepared += 1;
+      return prepared === 1 ? { scriptPath: "/cache/dsh-wsl-agent", expectedDigest: TEST_DIGEST } : undefined;
+    },
+  });
+  await agent.start();
+  await agent.close();
+  await agent.start();
+  await agent.close();
+  await agent.start().catch(() => undefined);
+  assert.deepEqual(outcomes, [
+    { ok: true, native: true },
+    { ok: true, native: false },
+    { ok: false, native: false },
+  ], "the entry of each start, and whether its handshake was accepted");
+});
+
+checkReg("a resident that came back carries no lastError", async () => {
+  const dying = new FakeAgentProcess({ dieOnRequest: true });
+  const healthy = new FakeAgentProcess();
+  const { transport } = scriptedTransport([dying, healthy]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  await assert.rejects(() => agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }), /state is unknown/);
+  assert.notEqual(agent.lastError, "", "the death is on record while it is unresolved");
+  await agent.start();
+  assert.equal(agent.status().state, "ready");
+  assert.equal(agent.lastError, "", "an accepted handshake closes the failure: a diagnosis reads what the resident is now");
+  await agent.close();
+});
+
+checkReg("lastActivityAt follows the resident's exchanges, with no idle timer of its own", async () => {
+  const child = new FakeAgentProcess();
+  const { transport } = scriptedTransport([child]);
+  // idleMs 0 is a session runtime's shape: nothing closes on its own, but an
+  // owner still has to tell a quiet resident from an abandoned one.
+  mock.timers.enable({ apis: ["Date"] });
+  let agent;
+  try {
+    agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+    const born = agent.lastActivityAt;
+    assert.equal(typeof born, "number", "the construction time is recorded before any exchange");
+    // The clock moves between construction and the first frame.
+    mock.timers.tick(5000);
+    const settled = agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 });
+    await flush();
+    child.stdout.write("RES|r0|0||\n");
+    await settled;
+    assert.ok(agent.lastActivityAt >= born + 5000, "the exchange moved the stamp");
+    const after = agent.lastActivityAt;
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(agent.lastActivityAt, after, "and nothing else does");
+  } finally {
+    mock.timers.reset();
+  }
+  await agent.close();
+});
+
 checkReg("status reports the live pid, state, pending count and last error", async () => {
   const child = new FakeAgentProcess({ helloPid: 55 });
   child.silent = true; // the request stays in flight, so `pending` is observable

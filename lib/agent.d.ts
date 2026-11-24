@@ -163,7 +163,7 @@ interface AgentMetrics {
     inFlightMax: number;
 }
 /** The entry an async preparation may select before the first spawn. */
-interface WslAgentPrepared {
+export interface WslAgentPrepared {
     /** The agent entrypoint (the shell script or the native cache path). */
     scriptPath: string;
     /** The HELLO digest to verify. */
@@ -308,6 +308,11 @@ export declare class WslAgent {
     requestMetrics: AgentMetrics;
     /** The optional async preparation hook. */
     prepare: (() => Promise<WslAgentPrepared | undefined>) | undefined;
+    /** The optional start-outcome hook; see the constructor's `onStart`. */
+    onStart: ((outcome: {
+        ok: boolean;
+        native: boolean;
+    }) => void) | undefined;
     /**
      * @param config - the agent configuration.
      */
@@ -387,6 +392,17 @@ export declare class WslAgent {
         prepare?: () => Promise<WslAgentPrepared | undefined>;
         /** The first revival delay in ms; doubles per death. Tests shorten it. */
         revivalBackoffMs?: number;
+        /**
+         * Told how each start ended and which entry it used. `native` is true
+         * when the entry came from the async preparation (the native binary) and
+         * false for the instance's default entry (the shell script). A start that
+         * ends in a handshake failure or timeout is `ok: false`; a resident that
+         * dies after its handshake is not a start, and is not reported here.
+         */
+        onStart?: (outcome: {
+            ok: boolean;
+            native: boolean;
+        }) => void;
     });
     /**
      * Whether the agent is permanently out — the executor's fallback cue.
@@ -428,6 +444,8 @@ export declare class WslAgent {
     /**
      * Spawn the process and run the handshake.
      *
+     * @param native - whether this start runs the prepared entry rather than
+     *   the instance's default one.
      * @returns resolved once the state is `ready`.
      */
     private beginStart;

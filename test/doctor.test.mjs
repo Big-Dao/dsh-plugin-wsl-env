@@ -378,8 +378,12 @@ try {
 
   await check("a healthy machine reports no failures and exits 0", () => {
     const run = doctor(["--json"]);
-    assert.equal(run.status, 0, run.stderr);
     const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    // The failure rows' own evidence is what explains a blocked run; the
+    // bare exit status explains nothing on a platform-specific row.
+    const failing = report.checks.filter((entry) => entry.status === "fail").map((entry) => `${entry.id}: ${entry.detail}`);
+    assert.deepEqual(failing, [], "no fail rows");
+    assert.equal(run.status, 0, run.stderr);
     assert.equal(report.schemaVersion, 2);
     assert.equal(report.summary.fail, 0);
     assert.equal(report.checks.find((entry) => entry.id === "sandbox.bwrap")?.status, "ok");
@@ -602,6 +606,8 @@ try {
 
   await check("the verdict is ready under the effective config and stamps the distro scope", () => {
     const report = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
+    const failing = report.checks.filter((entry) => entry.status === "fail").map((entry) => `${entry.id}: ${entry.detail}`);
+    assert.deepEqual(failing, [], "no fail rows");
     assert.equal(report.verdict, "ready");
     assert.deepEqual(report.blockers, []);
     assert.deepEqual(report.distroVerdicts, [{ name: "ubuntu", verdict: "ready", blockers: [] }]);
@@ -1532,6 +1538,7 @@ try {
   });
 
   await check("one scope's pids stay its own in the stale-scope report", async () => {
+    if (process.platform === "win32") skip("the check reads /proc/self/cgroup and spawns bash");
     // The report runs for real against a fake systemctl. Scope A's control
     // group is this test's own, where a process named like the agent runs;
     // scope B's is PID 1's, where none does. Before the fix B's line carried

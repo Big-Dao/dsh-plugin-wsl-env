@@ -33,6 +33,17 @@ Absolute numbers are machine-dependent; the ratio and the budgets are the point.
 | GUI-preview backend: `stat` | — | p95 **2.7 ms** | `pnpm run probe:gui-preview` (20 iterations, 2026-10-19) |
 | GUI-preview backend: listing | — | p95 **5.1 ms** | same |
 | GUI-preview backend: 1 MiB page | — | p95 **63.5 ms/MiB** | same |
+| Whole-file read of 1 MiB (native agent) | — | median **15.0 ms** (26.6 ms with the read window inside the batched frame) | #76, 2026-11-24 |
+| Parsing one 16 MiB response frame (arriving in 64 KiB chunks) | — | **83 ms** of the host event loop (2678 ms when every chunk re-joined one growing string) | same, host side only |
+| Listing a directory of 200 symlinks | — | median **6.1 ms** (136.3 ms with two round trips per link) | same |
+
+The first three rows dated 2026-11-24 were measured on WSL 2 Ubuntu x86_64
+with the native agent started directly inside the distro (no `wsl.exe` hop), as
+the median of 15 runs; the numbers in parentheses are the previous code on the
+same machine. They stand for three structural costs — a read payload
+base64-encoded twice inside a batched frame, a whole frame re-joined and
+re-scanned on every chunk, and two round trips per symlink — so what went away
+is the term that grew with the square of the size, not merely a constant.
 
 The GUI-preview number covers the routed backend operations a preview pays.
 The shipped `workspace-files` service adds its own calls on top; that service

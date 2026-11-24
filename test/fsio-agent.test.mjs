@@ -94,11 +94,39 @@ class ScriptAgent {
     /** @type {Array<(line: string) => void>} */
     this.waiters = [];
     this.n = 0;
+    /**
+     * The answer waiters, by request id. An answer is routed to the call
+     * that asked for it, so two requests can be in flight at once — the
+     * substrate's read road sends the stat and the first window before it
+     * awaits either. The real `WslAgent` routes the same way; a shared queue
+     * here handed the stat's answer to the read's caller, and the stat never
+     * settled.
+     * @type {Map<string, (line: string) => void>}
+     */
+    this.answers = new Map();
     this.lines.on("line", (line) => {
+      // Only an ANSWER releases its waiter: an ACK names the same id and is
+      // not one.
+      const id = line.split("|")[1] ?? "";
+      const answer = this.answers.get(id);
+      if (answer !== undefined && !line.startsWith("ACK|")) {
+        this.answers.delete(id);
+        answer(line);
+        return;
+      }
       const waiter = this.waiters.shift();
       if (waiter) waiter(line);
       else this.queue.push(line);
     });
+  }
+
+  /**
+   * Wait for one request's own answer.
+   * @param {string} id - the request whose answer to wait for.
+   * @returns {Promise<string>} its RES or FSERR line.
+   */
+  answerFor(id) {
+    return new Promise((resolve) => this.answers.set(id, resolve));
   }
 
   async hello() {
@@ -120,17 +148,16 @@ class ScriptAgent {
   async fs({ op, args, timeoutMs = 30000 }) {
     const id = `t${this.n++}`;
     for (const line of encodeFsFrame({ id, op, args, timeoutMs })) this.child.stdin.write(`${line}\n`);
-    for (;;) {
-      const message = /** @type {AgentMessage} */ (parseAgentLine(await this.nextLine()));
-      if (message.type === "result" && message.id === id) {
-        return { exitCode: message.exitCode, stdout: message.stdout, stderr: message.stderr };
-      }
-      if (message.type === "fsError" && message.id === id) {
-        // Protocol 7's structured refusal, projected onto the shape the
-        // adapter's legacy branch parses (the reason rides alongside).
-        return { exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from(message.message), reason: message.reason };
-      }
+    const message = /** @type {AgentMessage} */ (parseAgentLine(await this.answerFor(id)));
+    if (message.type === "result") {
+      return { exitCode: message.exitCode, stdout: message.stdout, stderr: message.stderr };
     }
+    if (message.type === "fsError") {
+      // Protocol 7's structured refusal, projected onto the shape the
+      // adapter's legacy branch parses (the reason rides alongside).
+      return { exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from(message.message), reason: message.reason };
+    }
+    throw new Error(`unexpected answer for ${id}`);
   }
 
   /**
@@ -141,15 +168,16 @@ class ScriptAgent {
   async fsb({ ops, timeoutMs = 30000 }) {
     const id = `b${this.n++}`;
     for (const line of encodeFsbFrame({ id, ops, timeoutMs })) this.child.stdin.write(`${line}\n`);
-    for (;;) {
-      const message = /** @type {AgentMessage} */ (parseAgentLine(await this.nextLine()));
-      if (message.type === "result" && message.id === id) {
-        return { exitCode: message.exitCode, stdout: message.stdout, stderr: message.stderr };
-      }
-      if (message.type === "fsError" && message.id === id) {
-        return { exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from(message.message), reason: message.reason };
-      }
+    const message = /** @type {AgentMessage} */ (parseAgentLine(await this.answerFor(id)));
+    if (message.type === "result") {
+      return { exitCode: message.exitCode, stdout: message.stdout, stderr: message.stderr };
     }
+    if (message.type === "fsError") {
+      // Protocol 7's structured refusal, projected onto the shape the
+      // adapter's legacy branch parses (the reason rides alongside).
+      return { exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from(message.message), reason: message.reason };
+    }
+    throw new Error(`unexpected answer for ${id}`);
   }
 
   async close() {
@@ -484,18 +512,23 @@ checks.push(["stat maps a notfound refusal to null and a non-regular lstat to it
   });
 }]);
 
-checks.push(["the batch's OK-stat/BAD-read and malformed-stat arms map onto their codes", async () => {
+checks.push(["against the real script, a read sends its stat and its first window before awaiting either", async () => {
   if (!POSIX) return; // the script-backed substrate is POSIX-side
   await substrate(async (fs, root, agent) => {
-    const target = await fs.resolveTarget(join(root, "armed.txt"));
-    // An OK stat followed by a BAD read: the read record's reason maps onto
-    // its code and message.
-    agent.fsb = async () => ({
-      exitCode: 0,
-      stdout: Buffer.from(`OK 1|${Buffer.from("f\t600\t5\t1\t2\t3.000000000\t4.000000000").toString("base64")}\nBAD 2|io|${Buffer.from("read went sideways").toString("base64")}\n`),
-      stderr: Buffer.alloc(0),
-    });
-    await assert.rejects(fs.readWholeText(target), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_IO_ERROR" && /read went sideways/.test(error.message));
+    writeFileSync(join(root, "pipelined.txt"), "one\n");
+    const target = await fs.resolveTarget(join(root, "pipelined.txt"));
+    const send = agent.fs.bind(agent);
+    /** @type {string[]} */
+    const sent = [];
+    agent.fs = (request) => {
+      sent.push(request.op);
+      return send(request);
+    };
+    // Both frames are written in `readWholeText`'s own synchronous run: the
+    // first tick already finds both, before any answer could have arrived.
+    const reading = fs.readWholeText(target);
+    assert.deepEqual(sent, ["stat", "read"], "the stat and the first window went out together");
+    assert.equal(await reading, "one\n");
   });
 }]);
 
@@ -562,24 +595,21 @@ checks.push(["parseStatRecord refuses a malformed TAB record with the IO code", 
   );
 }]);
 
-checks.push(["readWholeText's batched path maps the batch records onto the coded errors", async () => {
+checks.push(["the pipelined read road maps the stat's and the read's failures onto their codes", async () => {
   if (!POSIX) return; // the script-backed substrate is POSIX-side
   await substrate(async (fs, root, agent) => {
-    const target = await fs.resolveTarget(join(root, "batched.txt"));
-    // A BAD stat record in the batch maps onto the not-found refusal.
-    agent.fsb = async () => ({
-      exitCode: 0,
-      stdout: Buffer.from(`BAD 1|notfound|${Buffer.from("cannot stat \"/tmp/batched.txt\": No such file").toString("base64")}\n`),
-      stderr: Buffer.alloc(0),
-    });
+    const target = await fs.resolveTarget(join(root, "armed.txt"));
+    // A stat that answers notfound is the not-found refusal, whatever the
+    // read frame says or whether it answers at all.
+    agent.fs = async ({ op }) => (op === "stat"
+      ? { exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), reason: "notfound" }
+      : { exitCode: 0, stdout: Buffer.from("never shown"), stderr: Buffer.alloc(0) });
     await assert.rejects(fs.readWholeText(target), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_NOT_FOUND" && /not found/.test(error.message));
-    // An OK stat followed by a BAD read maps the read record's reason.
-    agent.fsb = async () => ({
-      exitCode: 0,
-      stdout: Buffer.from(`OK 1|${Buffer.from("f\t644\t5\t1\t2\t3.000000000\t4.000000000").toString("base64")}\nBAD 2|io|${Buffer.from("read failed").toString("base64")}\n`),
-      stderr: Buffer.alloc(0),
-    });
-    await assert.rejects(fs.readWholeText(target), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_IO_ERROR" && /read failed/.test(error.message));
+    // An OK stat followed by a failed read maps the read frame's reason.
+    agent.fs = async ({ op }) => (op === "stat"
+      ? { exitCode: 0, stdout: Buffer.from("f\t600\t5\t1\t2\t3.000000000\t4.000000000"), stderr: Buffer.alloc(0) }
+      : { exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from("read went sideways"), reason: "io" });
+    await assert.rejects(fs.readWholeText(target), /** @param {Error & {code?: string}} error */ (error) => error.code === "FS_IO_ERROR" && /read went sideways/.test(error.message));
   });
 }]);
 
@@ -839,7 +869,7 @@ const b64 = (s) => Buffer.from(s, "utf8").toString("base64");
 /**
  * A protocol-7 fake resident: `caps` decides the batch road, `fs`/`fsb` are
  * scripted per check. Nothing spawns.
- * @param {{ caps?: Set<string>, fs?: ({ op }: { op: string }) => Promise<{exitCode: number, stdout: Buffer, stderr: Buffer, reason?: string}>, fsb?: () => Promise<{exitCode: number, stdout: Buffer, stderr: Buffer}> }} [options]
+ * @param {{ caps?: Set<string>, fs?: (request: { op: string, args?: string[] }) => Promise<{exitCode: number, stdout: Buffer, stderr: Buffer, reason?: string}>, fsb?: (request: { ops: Array<{ op: string, args: string[] }> }) => Promise<{exitCode: number, stdout: Buffer, stderr: Buffer}> }} [options]
  * @returns {import("../lib/agent.js").WslAgent} the fake, as the substrate's declared agent.
  */
 function fakeResident({ caps = new Set(["batch"]), fs, fsb } = {}) {
@@ -893,11 +923,23 @@ checks.push(["listChildren's batched stat/list dialect maps every record shape",
   assert.deepEqual(rows, [], "an empty listing is no rows, not an error");
 }]);
 
-checks.push(["readWholeText's batched road refuses when the stat record never answers", async () => {
-  // An empty record stream: no stat record at all is the I/O failure arm (a
-  // record in the stat slot that fails to parse is the malformed-record arm).
-  const fs = new DistroFs({ agent: fakeResident({ fsb: async () => ({ exitCode: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }) }), distro: DISTRO });
-  await assert.rejects(fs.readWholeText(fakeTarget("/f.txt")), (error) => /** @type {{ code?: string }} */ (error).code === "FS_IO_ERROR" && /distro I\/O failure/.test(/** @type {Error} */ (error).message));
+checks.push(["the pipelined read road refuses when the stat frame fails", async () => {
+  // A stat frame that failed with nothing structured to read is the I/O
+  // failure arm; an empty record in its place is the malformed-record arm.
+  const failed = fakeResident({
+    fs: async ({ op }) => (op === "stat"
+      ? { exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }
+      : { exitCode: 0, stdout: Buffer.from("never shown"), stderr: Buffer.alloc(0) }),
+  });
+  await assert.rejects(
+    new DistroFs({ agent: failed, distro: DISTRO }).readWholeText(fakeTarget("/f.txt")),
+    (error) => /** @type {{ code?: string }} */ (error).code === "FS_IO_ERROR" && /distro I\/O failure/.test(/** @type {Error} */ (error).message),
+  );
+  const malformed = fakeResident({ fs: async () => ({ exitCode: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }) });
+  await assert.rejects(
+    new DistroFs({ agent: malformed, distro: DISTRO }).readWholeText(fakeTarget("/f.txt")),
+    (error) => /** @type {{ code?: string }} */ (error).code === "FS_IO_ERROR" && /malformed stat record/.test(/** @type {Error} */ (error).message),
+  );
 }]);
 
 checks.push(["the non-batched read road stats by frame and streams chunked reads", async () => {
@@ -933,28 +975,170 @@ checks.push(["the non-batched read road stats by frame and streams chunked reads
   await assert.rejects(liar.readWholeBytes(fakeTarget("/liar.bin"), undefined, 10), (error) => /** @type {{ code?: string }} */ (error).code === "FS_TOO_LARGE", "the loop's overflow arm catches the growth the stat gate missed");
 }]);
 
-checks.push(["the batched read road continues past a full first chunk and maps the stat reason", async () => {
+checks.push(["the pipelined read road continues past a full first chunk and never carries bytes in a batch", async () => {
   let reads = 0;
   const chunk = FS_READ_CHUNK_BYTES;
   const stat = Buffer.from(`f\t644\t${chunk + 4}\t1\t2\t3.000000000\t4.000000000`, "utf8");
   const fs = new DistroFs({
     agent: fakeResident({
       caps: new Set(["batch"]),
-      fsb: async () => ({ exitCode: 0, stdout: Buffer.from(`OK 1|${stat.toString("base64")}\nOK 2|${Buffer.alloc(chunk, 65).toString("base64")}\n`), stderr: Buffer.alloc(0) }),
-      fs: async ({ op }) => {
+      // A read inside a batch is base64-encoded twice (once in its record,
+      // once around the record stream): the read road must not use one.
+      fsb: async () => { throw new Error("the read road put a read in a batched frame"); },
+      fs: async ({ op, args }) => {
         if (op === "stat") return { exitCode: 0, stdout: stat, stderr: Buffer.alloc(0) };
         reads += 1;
-        return { exitCode: 0, stdout: Buffer.from("tail"), stderr: Buffer.alloc(0) };
+        assert.equal(args?.[2], String(chunk), "every window of the unbounded read is one chunk wide");
+        return { exitCode: 0, stdout: reads === 1 ? Buffer.alloc(chunk, 65) : Buffer.from("tail"), stderr: Buffer.alloc(0) };
       },
     }),
     distro: DISTRO,
   });
   const text = await fs.readWholeText(fakeTarget("/big.bin"));
-  assert.equal(reads, 1, "the batched road fetched the remainder by frame");
-  assert.equal(text.length, chunk + 4, "the batch and the frame concatenate whole");
-  // A non-notfound stat refusal maps its reason on the batched road too.
-  const refused = fakeResident({ fsb: async () => ({ exitCode: 0, stdout: Buffer.from(`BAD 1|perm|${b64("permission denied")}\n`), stderr: Buffer.alloc(0) }) });
-  await assert.rejects(new DistroFs({ agent: refused, distro: DISTRO }).readWholeText(fakeTarget("/f.txt")), (error) => /** @type {{ code?: string }} */ (error).code === "FS_IO_ERROR" && /permission denied/.test(/** @type {Error} */ (error).message));
+  assert.equal(reads, 2, "the first window and the remainder, each by its own frame");
+  assert.equal(text.length, chunk + 4, "the windows concatenate whole");
+  assert.ok(text.endsWith("tail"), "the short final window closes the read");
+  // A non-notfound stat refusal maps its reason on this road too.
+  const refused = fakeResident({
+    fs: async ({ op }) => (op === "stat"
+      ? { exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from("permission denied"), reason: "perm" }
+      : { exitCode: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }),
+  });
+  await assert.rejects(
+    new DistroFs({ agent: refused, distro: DISTRO }).readWholeText(fakeTarget("/f.txt")),
+    (error) => /** @type {{ code?: string }} */ (error).code === "FS_IO_ERROR" && /permission denied/.test(/** @type {Error} */ (error).message),
+  );
+}]);
+
+checks.push(["a read's stat and first window are both sent before the first answer is awaited", async () => {
+  /** @type {string[]} */
+  const sent = [];
+  /** @type {() => void} */
+  let answerStat = () => {};
+  const statGate = new Promise((resolve) => { answerStat = /** @type {() => void} */ (resolve); });
+  const fs = new DistroFs({
+    agent: fakeResident({
+      fs: async ({ op }) => {
+        sent.push(op);
+        if (op === "stat") {
+          await statGate;
+          return { exitCode: 0, stdout: statRecord("f"), stderr: Buffer.alloc(0) };
+        }
+        return { exitCode: 0, stdout: Buffer.from("tail"), stderr: Buffer.alloc(0) };
+      },
+    }),
+    distro: DISTRO,
+  });
+  const reading = fs.readWholeText(fakeTarget("/f.txt"));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(sent, ["stat", "read"], "two frames went out while the stat was still unanswered: one host round trip, not two");
+  answerStat();
+  assert.equal(await reading, "tail");
+}]);
+
+checks.push(["a listing's symlink children are followed in one batched frame, and a dangling one keeps its shape", async () => {
+  const dir = "/proj";
+  const row = (/** @type {string} */ type, /** @type {string} */ name) => `${type}\t24\t1\t2\t3.000000000\t4.000000000\t${dir}/${name}`;
+  const listing = [row("l", "to-file"), row("f", "plain.txt"), row("l", "dangling"), row("l", "to-dir")].join("\0") + "\0";
+  /** @type {Array<Array<{ op: string, args: string[] }>>} */
+  const batches = [];
+  const fake = fakeResident({
+    fsb: async ({ ops }) => {
+      batches.push(ops);
+      if (ops.some((op) => op.op === "list")) {
+        return { exitCode: 0, stdout: Buffer.from(`OK 1|${statRecord("d").toString("base64")}\nOK 2|${Buffer.from(listing, "latin1").toString("base64")}\n`), stderr: Buffer.alloc(0) };
+      }
+      // The follow-up frame answers every stat and realpath it was asked.
+      const records = ops.map((op, index) => {
+        if (op.args[0] === `${dir}/dangling`) return `BAD ${index + 1}|notfound|${b64("No such file or directory")}`;
+        if (op.op === "stat") return `OK ${index + 1}|${(op.args[0] === `${dir}/to-dir` ? statRecord("d") : Buffer.from("f\t644\t7\t9\t8\t3.000000000\t4.000000000", "utf8")).toString("base64")}`;
+        return `OK ${index + 1}|${b64(`${dir}/plain.txt`)}`;
+      });
+      return { exitCode: 0, stdout: Buffer.from(`${records.join("\n")}\n`), stderr: Buffer.alloc(0) };
+    },
+  });
+  const rows = await new DistroFs({ agent: fake, distro: DISTRO }).listChildren(fakeTarget(dir));
+  assert.deepEqual(rows.map((entry) => entry.name), ["dangling", "plain.txt", "to-dir", "to-file"]);
+  assert.equal(batches.length, 2, "the listing, then ONE frame for every link's follow-up: 400 sequential round trips for 200 links used to be the cost");
+  assert.deepEqual(batches[1]?.map((op) => op.op), ["stat", "realpath", "stat", "realpath", "stat", "realpath"], "each link's stat and realpath, in listing order");
+  const byName = Object.fromEntries(rows.map((entry) => [entry.name, entry]));
+  assert.equal(byName["to-file"]?.type, "file");
+  assert.equal(byName["to-file"]?.size, 7, "a file target's size is the row's");
+  assert.match(String(byName["to-file"]?.version), /^9:8:7:/, "and its version");
+  assert.equal(byName["to-file"]?.target.targetKey, fakeTarget(`${dir}/plain.txt`).targetKey, "the identity follows the link");
+  assert.equal(byName["to-dir"]?.type, "directory");
+  assert.equal(byName["to-dir"]?.size, undefined, "a directory target carries no size");
+  assert.equal(byName.dangling?.type, "other", "a dangling symlink lists as other, like the peer");
+  assert.equal(byName.dangling?.version, undefined);
+  assert.equal(byName["plain.txt"]?.type, "file", "a plain child needs no follow-up at all");
+}]);
+
+checks.push(["a link-heavy directory has its follow-ups split so one frame stays bounded", async () => {
+  const dir = "/bin";
+  const names = Array.from({ length: 257 }, (_, index) => `l${index}`);
+  const listing = names.map((name) => `l\t0\t1\t2\t3.000000000\t4.000000000\t${dir}/${name}`).join("\0") + "\0";
+  /** @type {number[]} */
+  const sizes = [];
+  const fake = fakeResident({
+    fsb: async ({ ops }) => {
+      if (ops.some((op) => op.op === "list")) {
+        return { exitCode: 0, stdout: Buffer.from(`OK 1|${statRecord("d").toString("base64")}\nOK 2|${Buffer.from(listing, "latin1").toString("base64")}\n`), stderr: Buffer.alloc(0) };
+      }
+      sizes.push(ops.length);
+      // Every link dangles: the frame is still answered op by op.
+      return { exitCode: 0, stdout: Buffer.from(`${ops.map((op, index) => `BAD ${index + 1}|notfound|${b64("gone")}`).join("\n")}\n`), stderr: Buffer.alloc(0) };
+    },
+  });
+  const rows = await new DistroFs({ agent: fake, distro: DISTRO }).listChildren(fakeTarget(dir));
+  assert.equal(rows.length, 257);
+  assert.deepEqual(sizes, [512, 2], "256 links' stat and realpath per frame, then what is left");
+  assert.ok(rows.every((entry) => entry.type === "other" && entry.version === undefined));
+}]);
+
+checks.push(["without the batch capability a listing keeps the serial road of one stat and one realpath per link", async () => {
+  const dir = "/proj";
+  const listing = `l\t0\t1\t2\t3.000000000\t4.000000000\t${dir}/link\n\0`;
+  /** @type {string[]} */
+  const ops = [];
+  const fake = fakeResident({
+    caps: new Set(),
+    fs: async ({ op, args }) => {
+      ops.push(op);
+      // The directory's own stat answers a directory; the link's answers its target.
+      if (op === "stat") return { exitCode: 0, stdout: statRecord(args?.[0] === dir ? "d" : "f"), stderr: Buffer.alloc(0) };
+      if (op === "realpath") return { exitCode: 0, stdout: Buffer.from(`${dir}/target`), stderr: Buffer.alloc(0) };
+      assert.equal(args?.[0], dir, "the listing itself is the only other request");
+      return { exitCode: 0, stdout: Buffer.from(listing, "latin1"), stderr: Buffer.alloc(0) };
+    },
+  });
+  const rows = await new DistroFs({ agent: fake, distro: DISTRO }).listChildren(fakeTarget(dir));
+  assert.deepEqual(ops, ["stat", "list", "stat", "realpath"], "one frame per follow-up, the road a v6 peer has always taken");
+  assert.equal(rows[0]?.type, "file");
+  assert.equal(rows[0]?.target.targetKey, fakeTarget(`${dir}/target`).targetKey);
+}]);
+
+checks.push(["a byte-capped whole read keeps its windows one chunk wide", async () => {
+  const chunk = FS_READ_CHUNK_BYTES;
+  const cap = chunk + 10;
+  /** @type {string[]} */
+  const windows = [];
+  let reads = 0;
+  const fs = new DistroFs({
+    agent: fakeResident({
+      fs: async ({ op, args }) => {
+        if (op === "stat") return { exitCode: 0, stdout: Buffer.from(`f\t644\t${cap}\t1\t2\t3.000000000\t4.000000000`, "utf8"), stderr: Buffer.alloc(0) };
+        windows.push(String(args?.[2]));
+        reads += 1;
+        return { exitCode: 0, stdout: reads === 1 ? Buffer.alloc(chunk, 65) : Buffer.from("0123456789"), stderr: Buffer.alloc(0) };
+      },
+    }),
+    distro: DISTRO,
+  });
+  const bytes = await fs.readWholeBytes(fakeTarget("/capped.bin"), undefined, cap);
+  assert.equal(bytes.length, cap, "the content is read whole up to the cap");
+  // The cap allows one byte more than the limit — the overflow probe — but
+  // no request asks for all of it at once: the first window is one chunk.
+  assert.deepEqual(windows, [String(chunk), "11"], "one chunk, then what the cap leaves plus the probe");
 }]);
 
 checks.push(["readTextForDiff degrades to null when the probe itself fails", async () => {

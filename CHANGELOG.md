@@ -127,6 +127,25 @@ were part of the record.
   the version check instead of after it: inside a cold or stale check —
   seconds of registry round trip — two clicks each ran their own removal and
   install.
+- **Large file operations no longer stall the host, and symlink-heavy
+  directories list in one round trip (#76).** Three independent costs, each
+  measured on a real distro with the native agent (median; the previous code
+  on the same machine in parentheses):
+  - The line splitter joined every arriving chunk into one growing string and
+    rescanned it, which is quadratic: a 16 MiB read frame in 64 KiB chunks
+    held the host's event loop for 2678 ms. It now keeps a list of chunks,
+    searches each once and joins a line once: 83 ms.
+  - The stat and the first read window of a whole-file read shared one batched
+    frame, which put the window's bytes through base64 twice. The two frames
+    now go out back to back instead, so the read is a plain frame and the
+    pair still costs one round trip: 26.6 ms → 15.0 ms for 1 MiB.
+  - A directory's symlinks were followed one at a time, two round trips each.
+    They are now collected and sent in one batched frame per 256 links, stat
+    and realpath together: a directory of 200 symlinks went from 136.3 ms to
+    6.1 ms. A resident without the batch capability keeps the serial road.
+  - A byte-capped read asked for the whole allowance in one request, which
+    cancelled the windowing — an edit's diff basis, bounded at 10 MiB, was
+    one multi-megabyte frame. Every window is now at most one chunk wide.
 - **The packaged native binaries were rebuilt** from the hardened source with
   the pinned toolchain (1.99.1). They were linked with the toolchain's
   self-contained musl objects rather than by the CI job's `musl-gcc`/zig

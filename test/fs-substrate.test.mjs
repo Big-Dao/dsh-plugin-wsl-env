@@ -77,11 +77,39 @@ class ScriptAgent {
     /** @type {Array<(line: string) => void>} */
     this.waiters = [];
     this.n = 0;
+    /**
+     * The answer waiters, by request id. An answer is routed to the call
+     * that asked for it, so two requests can be in flight at once — the
+     * substrate's read road sends the stat and the first window before it
+     * awaits either. The real `WslAgent` routes the same way; a shared queue
+     * here handed the stat's answer to the read's caller, and the stat never
+     * settled.
+     * @type {Map<string, (line: string) => void>}
+     */
+    this.answers = new Map();
     this.lines.on("line", (line) => {
+      // Only an ANSWER releases its waiter: an ACK names the same id and is
+      // not one.
+      const id = line.split("|")[1] ?? "";
+      const answer = this.answers.get(id);
+      if (answer !== undefined && !line.startsWith("ACK|")) {
+        this.answers.delete(id);
+        answer(line);
+        return;
+      }
       const waiter = this.waiters.shift();
       if (waiter) waiter(line);
       else this.queue.push(line);
     });
+  }
+
+  /**
+   * Wait for one request's own answer.
+   * @param {string} id - the request whose answer to wait for.
+   * @returns {Promise<string>} its RES or FSERR line.
+   */
+  answerFor(id) {
+    return new Promise((resolve) => this.answers.set(id, resolve));
   }
 
   async hello() {
@@ -103,15 +131,16 @@ class ScriptAgent {
   async fs({ op, args, timeoutMs = 30000 }) {
     const id = `t${this.n++}`;
     for (const line of encodeFsFrame({ id, op, args, timeoutMs })) this.child.stdin.write(`${line}\n`);
-    for (;;) {
-      const message = /** @type {AgentMessage} */ (parseAgentLine(await this.nextLine()));
-      if (message.type === "result" && message.id === id) {
-        return { exitCode: message.exitCode, stdout: message.stdout, stderr: message.stderr };
-      }
-      if (message.type === "fsError" && message.id === id) {
-        return { exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from(message.message), reason: message.reason };
-      }
+    const message = /** @type {AgentMessage} */ (parseAgentLine(await this.answerFor(id)));
+    if (message.type === "result") {
+      return { exitCode: message.exitCode, stdout: message.stdout, stderr: message.stderr };
     }
+    if (message.type === "fsError") {
+      // Protocol 7's structured refusal, projected onto the shape the
+      // adapter's legacy branch parses (the reason rides alongside).
+      return { exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from(message.message), reason: message.reason };
+    }
+    throw new Error(`unexpected answer for ${id}`);
   }
 
   /**
@@ -122,15 +151,16 @@ class ScriptAgent {
   async fsb({ ops, timeoutMs = 30000 }) {
     const id = `t${this.n++}`;
     for (const line of encodeFsbFrame({ id, ops, timeoutMs })) this.child.stdin.write(`${line}\n`);
-    for (;;) {
-      const message = /** @type {AgentMessage} */ (parseAgentLine(await this.nextLine()));
-      if (message.type === "result" && message.id === id) {
-        return { exitCode: message.exitCode, stdout: message.stdout, stderr: message.stderr };
-      }
-      if (message.type === "fsError" && message.id === id) {
-        return { exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from(message.message), reason: message.reason };
-      }
+    const message = /** @type {AgentMessage} */ (parseAgentLine(await this.answerFor(id)));
+    if (message.type === "result") {
+      return { exitCode: message.exitCode, stdout: message.stdout, stderr: message.stderr };
     }
+    if (message.type === "fsError") {
+      // Protocol 7's structured refusal, projected onto the shape the
+      // adapter's legacy branch parses (the reason rides alongside).
+      return { exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from(message.message), reason: message.reason };
+    }
+    throw new Error(`unexpected answer for ${id}`);
   }
 
   async close() {

@@ -756,10 +756,18 @@ export class WslAgent {
   }
 
   /**
-   * The stdout line splitter: a bounded buffer instead of readline, which
-   * accumulates an over-long line whole before anyone can object — exactly the
-   * unbounded-capture hole. Protocol lines are ASCII by construction (ids,
-   * numbers, base64), so chunk-boundary decoding is not a concern.
+   * The stdout line splitter: a list of the chunks of the line still
+   * arriving, instead of readline, which accumulates an over-long line whole
+   * before anyone can object — exactly the unbounded-capture hole. Protocol
+   * lines are ASCII by construction (ids, numbers, base64), so chunk-boundary
+   * decoding is not a concern.
+   *
+   * The chunks are searched, never a joined string. One growing string made
+   * this quadratic — every chunk copied the whole frame so far and scanned
+   * it again for the newline — and since this runs on the host's event loop,
+   * a 16 MiB read frame arriving in 64 KiB chunks held that loop for about
+   * 2.6 seconds. Now a chunk is searched once, and a line is joined once,
+   * when its newline has arrived.
    *
    * @param child - the transport to read.
    * @param current - whether this child is still the current generation.
@@ -767,29 +775,38 @@ export class WslAgent {
    * @param handshakeTimer - the handshake watchdog.
    */
   private readAgentOutput(child: ChildProcessWithoutNullStreams, current: () => boolean, settleStart: (error?: unknown) => void, handshakeTimer: NodeJS.Timeout): void {
-    let buffered = "";
-    child.stdout.on("data", (chunk) => {
+    /** The chunks of the line still arriving, in arrival order. */
+    let chunks: Buffer[] = [];
+    /** How many bytes {@link chunks} hold. */
+    let held = 0;
+    child.stdout.on("data", (chunk: Buffer) => {
       if (!current()) return;
-      buffered += chunk.toString("utf8");
+      let rest = chunk;
       for (;;) {
-        const newline = buffered.indexOf("\n");
+        const newline = rest.indexOf(0x0a);
         if (newline === -1) {
-          if (buffered.length > this.frameCapBytes) {
-            this.lastError = `agent frame of ${buffered.length} bytes exceeded the ${this.frameCapBytes}-byte protocol cap`;
-            buffered = "";
+          if (held + rest.length > this.frameCapBytes) {
+            this.lastError = `agent frame of ${held + rest.length} bytes exceeded the ${this.frameCapBytes}-byte protocol cap`;
+            chunks = [];
+            held = 0;
             child.kill();
+          } else if (rest.length > 0) {
+            chunks.push(rest);
+            held += rest.length;
           }
           return;
         }
-        const line = buffered.slice(0, newline);
-        buffered = buffered.slice(newline + 1);
+        const head = rest.subarray(0, newline);
+        const line = chunks.length === 0 ? head : Buffer.concat([...chunks, head], held + head.length);
+        chunks = [];
+        held = 0;
+        rest = rest.subarray(newline + 1);
         if (line.length > this.frameCapBytes) {
           this.lastError = `agent frame of ${line.length} bytes exceeded the ${this.frameCapBytes}-byte protocol cap`;
-          buffered = "";
           child.kill();
           return;
         }
-        this.handleLine(line, settleStart, handshakeTimer);
+        this.handleLine(line.toString("utf8"), settleStart, handshakeTimer);
       }
     });
   }

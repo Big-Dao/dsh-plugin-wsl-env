@@ -461,10 +461,18 @@ export declare class WslAgent {
      */
     private wireAgentProcess;
     /**
-     * The stdout line splitter: a bounded buffer instead of readline, which
-     * accumulates an over-long line whole before anyone can object — exactly the
-     * unbounded-capture hole. Protocol lines are ASCII by construction (ids,
-     * numbers, base64), so chunk-boundary decoding is not a concern.
+     * The stdout line splitter: a list of the chunks of the line still
+     * arriving, instead of readline, which accumulates an over-long line whole
+     * before anyone can object — exactly the unbounded-capture hole. Protocol
+     * lines are ASCII by construction (ids, numbers, base64), so chunk-boundary
+     * decoding is not a concern.
+     *
+     * The chunks are searched, never a joined string. One growing string made
+     * this quadratic — every chunk copied the whole frame so far and scanned
+     * it again for the newline — and since this runs on the host's event loop,
+     * a 16 MiB read frame arriving in 64 KiB chunks held that loop for about
+     * 2.6 seconds. Now a chunk is searched once, and a line is joined once,
+     * when its newline has arrived.
      *
      * @param child - the transport to read.
      * @param current - whether this child is still the current generation.

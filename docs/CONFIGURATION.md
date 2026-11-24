@@ -469,7 +469,10 @@ other language renders English. A profile without the settings service, or
 one whose user never picked a language, falls back to the process's ICU
 default locale — the OS UI language in the desktop app — so a zh-CN Windows
 with a provisional-Chinese UI still renders Chinese; an explicit Settings
-choice always wins over that fallback. Commands, config keys and file paths
+choice always wins over that fallback. One surface is the exception: the web
+client's status panel and the add-workspace access prompt carry Chinese-only
+static text for now (not routed through the message catalogs); the route data
+they render follows the rules above. Commands, config keys and file paths
 inside a message are never translated. Two message groups stay English by
 design: the `FS_*` refusal texts in `fs-decisions` and the fsio replica (the
 tool layer matches on those strings byte-for-byte). The standalone

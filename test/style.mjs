@@ -24,7 +24,7 @@
  *   node test/style.mjs
  */
 import { execFileSync } from "node:child_process";
-import { lstatSync, readFileSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -208,6 +208,14 @@ const listDrift = unitList.length === coverageList.length && unitList.every((nam
       ...coverageList.filter((name) => !unitList.includes(name)).map((name) => `in test:coverage, missing from test:unit: ${name}`),
     ];
 check("test:unit and test:coverage name the same files", listDrift, listDrift.join("; "));
+// The lists must also cover every test file on disk: a new test/*.test.mjs
+// that neither script names would never run, and nothing else notices.
+const onDisk = readdirSync(join(ROOT, "test")).filter((name) => name.endsWith(".test.mjs")).map((name) => `test/${name}`).sort();
+const diskDrift = [
+  ...onDisk.filter((name) => !unitList.includes(name)).map((name) => `on disk, missing from test:unit/test:coverage: ${name}`),
+  ...unitList.filter((name) => !onDisk.includes(name)).map((name) => `listed but not on disk: ${name}`),
+];
+check("every test file on disk is listed in test:unit and test:coverage", diskDrift, diskDrift.join("; "));
 
 // The manifest's fail-open direction: a new docs/*.md that nothing ships.
 // The manifest is a curated list — user-facing docs ship, maintainer and

@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AGENT_NAME, PROTOCOL_VERSION, encodeB64, encodeExecFrame, encodeFsFrame, parseAgentLine } from "../lib/agent-protocol.js";
 import { WslAgent } from "../lib/agent.js";
+import { closeResident } from "./resident-close.mjs";
 
 const SCRIPT = fileURLToPath(new URL("../agent/wsl-agent.sh", import.meta.url));
 const POSIX = process.platform !== "win32";
@@ -145,22 +146,7 @@ class Harness {
   }
 
   async close() {
-    this.child.stdin.write("SHUTDOWN\n");
-    // A resident that ignores SHUTDOWN must not wedge teardown: wait for the
-    // exit under a deadline, then kill. Without the bound a cleanup failure is
-    // a file-level hang that no assertion can report.
-    await Promise.race([
-      new Promise((resolve) => this.child.once("exit", resolve)),
-      new Promise((resolve) => setTimeout(resolve, 2000).unref()),
-    ]);
-    if (this.child.exitCode === null && this.child.signalCode === null) {
-      this.child.kill("SIGKILL");
-      await Promise.race([
-        new Promise((resolve) => this.child.once("exit", resolve)),
-        new Promise((resolve) => setTimeout(resolve, 2000).unref()),
-      ]);
-    }
-    rmSync(this.dir, { recursive: true, force: true });
+    await closeResident(this.child, this.dir);
   }
 }
 
@@ -539,12 +525,17 @@ checks.push(["a timed-out EXEC takes the command's descendants with it", async (
     }
     const elapsed = Date.now() - startedAt;
     assert.ok(elapsed < 10_000, `the timeout answered after ${elapsed}ms`);
-    // The grace is 3s (TERM, then KILL); give the second signal its moment,
-    // then demand a clean tree.
-    await new Promise((resolve) => setTimeout(resolve, 4500));
+    // The grace is 3s (TERM, then KILL). Poll for the clean tree instead of
+    // sleeping a fixed 4.5 s: the teardown is real process time, but it is
+    // usually over well before that, and a fixed sleep turns a fast machine
+    // into a slow suite.
     const { execFileSync } = await import("node:child_process");
-    const survivors = execFileSync("sh", ["-c", `pgrep -f "wsl-agent-gki[l]l-${process.pid}-" | wc -l`]).toString().trim();
-    assert.equal(survivors, "0", "no descendant of the timed-out request survives");
+    const survivors = () => execFileSync("sh", ["-c", `pgrep -f "wsl-agent-gki[l]l-${process.pid}-" | wc -l`]).toString().trim();
+    const deadline = Date.now() + 5000;
+    while (survivors() !== "0" && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.equal(survivors(), "0", "no descendant of the timed-out request survives");
   } finally {
     await agent.close();
     rmSync(`/tmp/${marker}`, { force: true });

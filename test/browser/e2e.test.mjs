@@ -315,6 +315,46 @@ test("the browser menu posts only a WSL workspace to the open-in-app route", asy
 });
 
 
+test("the access prompt takes focus, traps Tab and restores focus on Escape", async () => {
+  const page = await open();
+  try {
+    await render(page, {
+      slots: ["overlay"],
+      workspaceSnapshot: { phase: "ready", items: [{ workspaceId: "w1", path: "C:\\Users\\you" }] },
+    });
+    // A page control to return to; the prompt must not strand focus inside it.
+    await page.evaluate(() => {
+      const anchor = /** @type {any} */ (globalThis).document.createElement("button");
+      anchor.id = "restore-target";
+      anchor.textContent = "restore-target";
+      /** @type {any} */ (globalThis).document.body.append(anchor);
+      anchor.focus();
+    });
+    await page.evaluate(() => /** @type {any} */ (globalThis).__E2E__.addWorkspace({
+      workspaceId: "w2",
+      path: "\\\\wsl.localhost\\Ubuntu\\home\\you\\proj",
+    }));
+
+    const dialog = page.getByRole("dialog", { name: "选择 WSL 工作区的打开方式" });
+    await dialog.waitFor({ state: "visible" });
+    /** @returns {Promise<string>} the focused element's text. */
+    const focusedText = () => page.evaluate(() => String(/** @type {any} */ (globalThis).document.activeElement?.textContent ?? ""));
+    assert.equal(await focusedText(), "Remote WSL（推荐）", "the recommended choice takes focus on open");
+
+    await page.keyboard.press("Tab");
+    assert.equal(await focusedText(), "Windows 访问（经 9p 共享）", "Tab moves within the dialog");
+    await page.keyboard.press("Shift+Tab");
+    assert.equal(await focusedText(), "Remote WSL（推荐）", "Shift+Tab cycles back");
+
+    await page.keyboard.press("Escape");
+    await dialog.waitFor({ state: "detached" });
+    const restored = await page.evaluate(() => String(/** @type {any} */ (globalThis).document.activeElement?.id ?? ""));
+    assert.equal(restored, "restore-target", "closing returns focus to where it was");
+  } finally {
+    await page.close();
+  }
+});
+
 test("the browser wraps the warning inside a narrow composer without horizontal overflow", async () => {
   const page = await open(420);
   try {

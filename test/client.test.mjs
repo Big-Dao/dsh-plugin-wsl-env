@@ -91,6 +91,9 @@ const loadClient = () => {
     useEffect: (/** @type {() => any} */ run, /** @type {readonly any[]} */ deps) => {
       activeHooks?.useEffect(run, deps);
     },
+    // The access prompt uses a ref only for DOM focus; the plain-function
+    // render in these checks supplies the same inert shape React would.
+    useRef: (/** @type {any} */ initial) => ({ current: initial }),
   };
   const client = definition.factory((name) => {
     if (name === "react") return React;

@@ -52,6 +52,34 @@ were part of the record.
   process behind kept it. The teardown leg of `test/probe/native-session.mjs`
   was passing vacuously on the same two grounds and now leaves a background
   process in the scope and reads the `.scope` unit back.
+- **The native agent handles a stdin payload of any size.** It wrote the
+  payload from the request's own thread before the output readers started. A
+  child that echoes — `cat` with 1.25 MiB or more on stdin — filled its
+  stdout pipe, stopped reading, and the feed blocked with the request's
+  timeout queued behind it, until the host watchdog killed the transport
+  eighteen seconds in. The feed runs on its own thread, after both readers
+  (#74).
+- **Native agent filesystem fixes (#78).** Each is pinned by a check in
+  `agent/native/spike/test.mjs` that fails against the previous binary:
+  - Only mutations take `fs_lock`, and the `ACK` reports the dequeue before
+    any lock: a `stat` no longer waits behind a slow write or move.
+  - A listing skips an entry that vanished between the directory read and its
+    own stat instead of failing as `notfound`; the shell agent's `find` is
+    tolerated the same way.
+  - The in-distro timeout takes the cancel path's TERM-then-KILL grace
+    instead of `KILL` after 100 ms, so a command that cleans up on `TERM`
+    can.
+  - A `move` on one filesystem is a `rename` (with `renameat2(RENAME_NOREPLACE)`
+    for the no-replace guard) instead of a whole-file copy under the lock;
+    across filesystems it is still copied.
+  - A write sweeps the target's staging directories whose creating process is
+    gone. Both agents now stage under `.<base>.<pid>.<token>.tmpdir`, so
+    either sweep recognises the other's leftovers.
+- **The packaged native binaries were rebuilt** from the hardened source with
+  the pinned toolchain (1.99.1). They were linked with the toolchain's
+  self-contained musl objects rather than by the CI job's `musl-gcc`/zig
+  linkers; both pass the full 35-check suite (aarch64 under qemu-user), the
+  native wiring check and the session-runtime probe.
 
 ## [0.29.0] - 2026-11-23
 

@@ -19,8 +19,12 @@ replace, expected-version re-check, staging + fsync + atomic publication),
 `list`, `realpath` (including the nearest-existing-ancestor walk and the
 `..`-in-missing-suffix refusal), and v7's `delete`/`move`; the `FSB` batch
 frame; failed FS ops answer with the structured `FSERR|id|reason|base64`
-line. FS ops are serialized among mutations by `fs_lock`; `EXEC`s run
-concurrently with them.
+line. Mutations (`write`, `delete`, `move`, and a batch holding one) are
+serialized by `fs_lock`; reads take no lock, the `ACK` reports the dequeue
+before any lock, and `EXEC`s run concurrently with all of them. A `move` on
+one filesystem is a `rename`; staging directories follow the shell agent's
+`.<base>.<pid>.<token>.tmpdir` and a write sweeps the ones whose creator is
+gone.
 
 **Not implemented:** the host copy/verify/backend wiring and musl/cross-arch
 builds. This spike does not touch the shipped FS path.
@@ -39,6 +43,51 @@ node agent/native/spike/test.mjs
 ```
 
 The test is not part of `pnpm test`: it needs the built binary.
+
+Without `musl-tools` and `cargo-zigbuild` the toolchain's own musl objects
+link the same static binaries (`link-self-contained=yes`; the aarch64 target
+needs a linker that accepts its objects):
+
+```sh
+CARGO_HOME="$PWD/.cargo-home" \
+CARGO_TARGET_DIR="$PWD/agent/native/spike/target" \
+RUSTFLAGS="-C link-self-contained=yes" \
+cargo build --release --target x86_64-unknown-linux-musl --manifest-path agent/native/spike/Cargo.toml
+
+RUSTFLAGS="-C link-self-contained=yes -C linker=aarch64-linux-gnu-gcc" \
+cargo build --release --target aarch64-unknown-linux-musl --manifest-path agent/native/spike/Cargo.toml
+
+DSH_NATIVE_TEST_RUNNER=qemu-aarch64 node agent/native/spike/test.mjs agent/native/spike/target/aarch64-unknown-linux-musl/release/dsh-wsl-agent-spike
+```
+
+The CI `native-package` job remains the release path's producer; a locally
+linked binary is functionally verified by the same suites, not
+byte-identical to it.
+
+## Hardening (2026-11-24, #74 and #78)
+
+The suite is now 35 checks. Added, each red against the previous binary:
+
+- a stdin payload past the pipe buffers feeds an echoing child (`cat` with
+  2 MiB; 1.25 MiB deadlocked before) and a payload the child never reads
+  does not hold the request — the feed runs on its own thread, after the
+  output readers;
+- a read-only op does not wait behind a blocked mutation — `fs_lock` is for
+  mutations only, and the `ACK` precedes it;
+- a listing under churn keeps answering — an entry whose `lstat` answers
+  `ENOENT` is skipped;
+- a timed-out command gets the cancel path's TERM grace to clean up (the
+  deadline used to `KILL` after 100 ms);
+- a move on one filesystem is a rename — the same inode, nothing staged —
+  the no-replace guard is `renameat2(RENAME_NOREPLACE)`, and across
+  filesystems the copy is the move;
+- a write sweeps the staging directories of dead creators only — the name
+  is the shell agent's `.<base>.<pid>.<token>.tmpdir`, so either agent's
+  sweep recognises the other's leftovers; a live creator's, another
+  target's, and a look-alike directory are kept.
+
+The "cancelled queued write" check now queues its write behind a batch that
+holds a mutation, since a read no longer holds the lock it used to wait on.
 
 ## Host wiring (default for the session runtime)
 

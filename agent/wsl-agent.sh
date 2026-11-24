@@ -449,7 +449,7 @@ fs_list() {
   # stat and identity with one follow-up per link — the peer lists follow-stats
   # but has to know which entries are links all the same. Names are safe inside
   # records (records split on NUL, names taken after the 6th TAB).
-  local d err
+  local d err rc
   d=$(b64dec "$1")
   # The LIST TARGET follows symlinks, like every read path: `find` does not
   # traverse its starting point, so a symlink-to-directory used to list EMPTY
@@ -460,10 +460,21 @@ fs_list() {
     err=$(cat "$ERR_FILE")
     fs_fail "$(fs_classify "$err")" "$err"
   }
-  find "$d" -mindepth 1 -maxdepth 1 -printf '%y\t%s\t%D\t%i\t%T@\t%C@\t%p\0' 2>"$ERR_FILE" || {
+  find "$d" -mindepth 1 -maxdepth 1 -printf '%y\t%s\t%D\t%i\t%T@\t%C@\t%p\0' 2>"$ERR_FILE"
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
     err=$(cat "$ERR_FILE")
-    fs_fail "$(fs_classify "$err")" "$err"
-  }
+    # An entry that appeared and vanished again between the directory read
+    # and its own stat is not a failed listing: `find` names it on stderr and
+    # exits 1, while the directory itself never went away and every other
+    # entry is already in the records written. That one diagnostic, and only
+    # it, is tolerated — and only while the directory is still there.
+    if [ -n "$err" ] && [ -d "$d" ] && ! printf '%s\n' "$err" | grep -v ': No such file or directory$' | grep -q .; then
+      :
+    else
+      fs_fail "$(fs_classify "$err")" "$err"
+    fi
+  fi
 }
 
 fs_realpath() {

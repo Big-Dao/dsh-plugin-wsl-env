@@ -152,7 +152,9 @@ One process per agent, an event loop over stdin plus child pipes and timers:
   acknowledges them (`ACK|id`) and spawns each request's process group (or
   performs the FS syscalls directly for `stat`/`read`/`write`).
 - `KILL|id` and the per-request deadline signal the group: `TERM`, then
-  `KILL` after a fixed grace; the event loop keeps serving other requests.
+  `KILL` after a grace; the event loop keeps serving other requests. Both
+  take the cancel path's three seconds (the deadline used to allow 100 ms —
+  see the hardening pass below).
 - stdout/stderr pipes are drained into per-request bounded buffers; the RES
   line carries the exit code, both buffers and the cut flags.
 - stdin EOF, `SHUTDOWN` or a fatal IO error runs the same cleanup as today:
@@ -162,7 +164,10 @@ One process per agent, an event loop over stdin plus child pipes and timers:
 - FS operations use syscalls (stat/lstat/readlink/read/write, atomic rename);
   no `sh`, `base64`, `stat`, `find` subprocesses. The write path keeps the
   no-replace and expected-version semantics the host fence relies on, and the
-  same staging-directory cleanup for killed writes.
+  same staging-directory cleanup for killed writes. Mutations serialize with
+  each other under `fs_lock`; reads wait for nothing. A `move` on one
+  filesystem is a `rename` — the inode keeps its identity — and is copied
+  only across filesystems.
 
 ## Host integration
 
@@ -298,6 +303,49 @@ to roughly 5 ms and 16 reads from 12.2 ms to roughly 8 ms. The high-value next
 step is the **native shared read agent (v5)** — same packaged binary and
 protocol, the shell as fallback, roughly 30x on batch reads — not v6. The
 single-op latency (~22 ms) is the transport, not the FS backend.
+
+## Hardening pass (2026-11-24, #74 and #78)
+
+A code review with measurements on a real distro found six defects in this
+process model. Each is fixed in `agent/native/spike/src/main.rs` and pinned by
+a check in `agent/native/spike/test.mjs` that fails against the previous
+binary and passes against the rebuilt one, on x86_64 and (under qemu-user) on
+aarch64:
+
+- **The stdin feed could deadlock the request thread.** It was written from
+  the request's own thread before the output readers started, on the claim
+  that "the pipe holds a frame-sized feed". A child that echoes — `cat` with
+  1.25 MiB or more on stdin — filled its stdout pipe, stopped reading, and
+  the feed blocked with the wait loop and its timeout queued behind it; the
+  host watchdog killed the transport eighteen seconds in. The feed now runs
+  on its own thread, after both readers are running.
+- **Every FS frame took `fs_lock`, and the `ACK` followed the lock.** A
+  stat queued behind a 32 MiB write waited its full 408 ms. Only mutations
+  (`write`, `delete`, `move`, and a batch holding one) take the lock now, and
+  the `ACK` reports the dequeue.
+- **One vanished entry failed a whole listing.** A directory under churn
+  (a build output directory) failed about a tenth to a third of its listings
+  with `notfound` while it existed; an entry whose `lstat` answers `ENOENT`
+  is skipped. The shell agent's `find` is tolerated the same way, for the one
+  diagnostic that names a vanished entry.
+- **The timeout allowed 100 ms before `KILL`.** A command that cleans up on
+  `TERM` was killed first (exit 137). The deadline now takes the cancel
+  path's TERM-then-KILL grace.
+- **`move` always copied the file whole.** 106 ms for 256 MiB, under the
+  lock. A same-filesystem move is now `rename(2)`, with
+  `renameat2(RENAME_NOREPLACE)` for the no-replace guard; `EXDEV` (and a
+  filesystem without the flag) falls back to the copy.
+- **Orphan staging directories were never swept.** The shell agent swept its
+  own leftovers, under a name the native agent did not use. Both agents now
+  stage under `.<base>.<pid>.<token>.tmpdir`, and a write sweeps that target's
+  staging directories whose creator's pid is gone — a live pid, and the
+  agent's own, are left alone.
+
+The packaged binaries (`agent/native/linux-<arch>/dsh-wsl-agent`) were rebuilt
+from this source with the pinned toolchain (1.99.1). They were linked with the
+toolchain's self-contained musl objects rather than by the CI job's
+`musl-gcc`/zig linkers, which this machine does not have; both pass the full
+suite, the aarch64 one under qemu-user, and the session-runtime probe.
 
 ## Why it was built
 

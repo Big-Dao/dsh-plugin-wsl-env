@@ -72,7 +72,7 @@ check("the scratch install turns pnpm's release-age window off, and the chain ru
   assert.deepEqual(steps[0], ["pnpm.cmd", ["install", "--no-frozen-lockfile", "--config.minimum-release-age=0"]], "a next line published inside the 24 h window must install");
   assert.deepEqual(steps[1], ["pnpm.cmd", ["test"]]);
   assert.equal(steps.length, 2, "no step re-runs a test the chain already includes");
-  assert.deepEqual(scratchSteps()[0]?.[0], "pnpm", "the default executable is pnpm's POSIX name");
+  assert.deepEqual(scratchSteps()[0]?.[0], process.platform === "win32" ? "pnpm.cmd" : "pnpm", "the default executable is pnpm's name on this platform");
 });
 
 console.log(`${passed}/6 peer-canary checks pass`);

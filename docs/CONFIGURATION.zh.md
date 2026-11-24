@@ -398,10 +398,12 @@ scripts/bootstrap.sh <distro> --install
 ```
 
 不带 `--install` 时，辅助脚本只做只读检查。在基于 apt 的
-发行版上，直接安装命令是：
+发行版上，直接安装命令是（先刷新软件包索引——新装的 Debian/Ubuntu 还没有
+索引；`sh -c "…"` 的引号让 `&&` 留在发行版内，cmd、PowerShell 5.1 与
+PowerShell 7 粘贴执行都一样）：
 
 ```bash
-wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap
+wsl.exe -d <distro> -u root -- sh -c "apt-get update -qq && apt-get install -y --no-install-recommends bubblewrap"
 ```
 
 会话打开时，`wsl-preflight` 行会运行这些检查；`startup: true`（默认）时，

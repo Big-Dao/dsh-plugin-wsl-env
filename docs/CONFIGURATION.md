@@ -426,10 +426,13 @@ scripts/bootstrap.sh <distro> --install
 ```
 
 Without `--install`, the helper performs a read-only check. On apt-based
-distros, the direct install command is:
+distros, the direct install command is (the package index is refreshed first —
+a freshly installed Debian or Ubuntu has none; the `sh -c "…"` quotes keep the
+`&&` inside the distro when the line is pasted into cmd, PowerShell 5.1 or
+PowerShell 7 alike):
 
 ```bash
-wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap
+wsl.exe -d <distro> -u root -- sh -c "apt-get update -qq && apt-get install -y --no-install-recommends bubblewrap"
 ```
 
 The `wsl-preflight` row runs these checks when a session opens, and — with

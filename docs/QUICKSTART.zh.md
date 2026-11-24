@@ -25,7 +25,7 @@ dsh headless "run the tests"  # 单任务、输出答案后退出
 |---|---|---|
 | Windows 10/11，启用 WSL 2 | `wsl.exe -l -v` 显示 `VERSION 2` | `wsl.exe --install` |
 | 一个发行版 | 上面列表中有一行 | `wsl.exe --install -d Ubuntu` |
-| `bubblewrap` | `wsl.exe -d <distro> -- which bwrap` | `wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap` |
+| `bubblewrap` | `wsl.exe -d <distro> -- which bwrap` | `wsl.exe -d <distro> -u root -- sh -c "apt-get update -qq && apt-get install -y --no-install-recommends bubblewrap"` |
 | systemd + Linger（会话 runtime 需要） | `node <plugin>/scripts/doctor.mjs`（已安装）或 `pnpm run doctor`（检出目录） | 在 `/etc/wsl.conf` 设置 `[boot] systemd=true`，`wsl --shutdown`，然后 `loginctl enable-linger "$USER"`；或设置 `sessionSandbox: auto`/`false` |
 | Node `^22.19.0` 或 `>=24.0.0` | 仅源码/开发工作需要 | 使用已发布的插件时，发行版内不需要 Node |
 

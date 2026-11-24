@@ -43,6 +43,15 @@ that the file is broken. Rerun the doctor for a clean answer.
 `--fix` ends in a re-verified report: every fix is followed by a fresh probe
 of what it claims to have fixed, the affected checks carry the after state,
 and the verdict is recomputed — `ready`, or the remaining blockers. The
+recheck takes the same flake retry as every other read, and a recheck that
+still does not answer makes the `fix.*` row `unknown` (an empty read is no
+longer counted as "0 stale scopes" or "0 invalid cache entries");
+`runtime.scopes` is `unknown` too, while `agent.cache` keeps its
+before-the-fix verdict until a read answers. A failed fix quotes the tail of
+the command's output in its `fix.*` row (the doctor prints none of it
+elsewhere). The handshake probe waits 15 s for a HELLO and retries a
+transport flake once (a timeout or wsl.exe's own error); a deterministic
+failure is answered at once. The
 plugin-owned state is repaired automatically: the stale-scope sweep and a
 purge of the agent cache when an entry is not executable (the handshake is
 re-probed after the purge). `--fix-owned` narrows a repair to exactly those two
@@ -54,7 +63,8 @@ the remedy text says so.
 `--bundle <path>` writes a local JSON file (report + versions + effective
 configuration) for a setup report; `--redact` replaces home and DSH paths
 with `<redacted-*>` placeholders. The bundle contains no file contents, no
-environment variables, and no telemetry.
+environment variables, and no telemetry. The note that it was written and the
+confirmation prompts go to stderr; with `--json`, stdout is the report alone.
 
 ## The surfaces
 

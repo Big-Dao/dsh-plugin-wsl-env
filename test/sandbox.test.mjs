@@ -159,7 +159,7 @@ await check("a missing bwrap names the detected family's install command", async
   assert.doesNotMatch(remedy, /apt-get/, "an apt line on a dnf distro is the bug this fixes");
 });
 
-await check("an apt distro keeps the historical direct command byte-for-byte", async () => {
+await check("an apt distro gets the index refresh, quoted for a Windows shell", async () => {
   const wslPath = await shapedFake(
     "wsl-missing-apt.exe",
     "wsl.exe failed: <3>WSL (1) ERROR: CreateProcessCommon: execv bwrap failed: No such file or directory",
@@ -168,8 +168,8 @@ await check("an apt distro keeps the historical direct command byte-for-byte", a
   await bwrapUsable({ wslPath, distro: "ubuntu" });
   assert.match(
     bwrapFailure(wslPath, "ubuntu") ?? "",
-    /wsl\.exe -d ubuntu -u root -- apt-get install -y bubblewrap$/,
-    "the apt remedy is unchanged",
+    /wsl\.exe -d ubuntu -u root -- sh -c "apt-get update -qq && apt-get install -y --no-install-recommends bubblewrap"$/,
+    "a fresh Debian or Ubuntu has no package index, and the quotes keep the operator out of the host shell",
   );
 });
 
@@ -202,7 +202,7 @@ await check("the run-time hint rides only details that name bwrap", () => {
 await check("the other package families get their own direct commands", async () => {
   const pacmanWsl = await shapedFake("wsl-missing-pacman.exe", "wsl.exe failed: execv bwrap failed: No such file or directory", "pacman");
   await bwrapUsable({ wslPath: pacmanWsl, distro: "arch" });
-  assert.match(bwrapFailure(pacmanWsl, "arch") ?? "", /pacman -S --noconfirm bubblewrap/, "pacman's spelling");
+  assert.match(bwrapFailure(pacmanWsl, "arch") ?? "", /pacman -S --noconfirm --needed bubblewrap/, "pacman's spelling, without the partial-upgrade index refresh");
   const zypperWsl = await shapedFake("wsl-missing-zypper.exe", "wsl.exe failed: execv bwrap failed: No such file or directory", "zypper");
   await bwrapUsable({ wslPath: zypperWsl, distro: "sles" });
   assert.match(bwrapFailure(zypperWsl, "sles") ?? "", /zypper --non-interactive install bubblewrap/, "zypper's spelling");

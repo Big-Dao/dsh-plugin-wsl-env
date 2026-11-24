@@ -170,6 +170,38 @@ were part of the record.
   the bundled skills stay unreadable from a distro, because the app's
   `node_modules` sit inside `app.asar`; that root is skipped as absent and is
   documented in LIMITATIONS.
+- **The doctor's failure paths stop reporting success they cannot see (#83).**
+  Four defects in `scripts/doctor.mjs`, each reached when a fix or a probe
+  fails:
+  - The recheck after the stale-scope sweep and after the agent-cache purge
+    took one un-retried read and never looked at whether it succeeded, so a
+    read that timed out or flaked counted as "0 stale" / "0 invalid" and the
+    fix was recorded as done. Both now go through the flake-aware probe, and
+    a recheck that still does not answer makes the `fix.*` row `unknown`;
+    `runtime.scopes` is `unknown` too, while `agent.cache` keeps its
+    before-the-fix verdict rather than being cleared on no evidence.
+  - A failed fix said "see the output above", and the doctor never printed
+    output. The tail of it now rides the `fix.*` row (install, sweep, purge,
+    git whitelist), and wsl.exe's error class (`Wsl/Service/WSAETIMEDOUT`)
+    is quoted instead of the first 80 characters of a localized sentence.
+  - `--fix --install` had no `apt-get update` (a fresh Debian or Ubuntu
+    answers `E: Unable to locate package`), gave a whole install the 60 s
+    deadline every host command shares (a `dpkg` killed mid-configure is
+    left half-configured), and used pacman's `-Sy`, the index-only refresh
+    Arch advises against. apt now refreshes the index first, the install
+    gets ten minutes, and pacman takes `-S --noconfirm --needed`. The printed
+    remedy goes through `sh -c "…"`, which keeps the `&&` inside the distro
+    in cmd, PowerShell 5.1 and PowerShell 7 alike. `scripts/bootstrap.sh` and
+    the sandbox provider's fail-closed message print and run the same
+    command, and the docs that quote it follow.
+  - The handshake — a blocking check whose `fail` skips both smoke legs —
+    ran on one 5 s attempt with no retry, while the warn-level smoke legs
+    had 30 s and a second try. It now waits 15 s for the HELLO and retries a
+    transport flake once; a deterministic failure is answered at once.
+  - Two smaller ones from the same review: one scope's `pids` no longer leak
+    into every following line of the stale-scope report, and the `--bundle`
+    note and the confirmation prompt go to stderr, so `--json` output is the
+    report alone.
 
 ## [0.29.0] - 2026-11-23
 

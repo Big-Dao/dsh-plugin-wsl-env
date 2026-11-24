@@ -76,7 +76,7 @@ Alpine (musl).
 |---|---|
 | Debian | First launch can wedge before OOBE completes (`wsl.exe` exec and `--terminate` both hang). `wsl --terminate <distro>` once it is Stopped, then start as root to bypass OOBE. systemd is PID 1 out of the box. |
 | Alpine | Import the **minirootfs** tarball (`wsl --import`), not the standard/cloud images. Create a normal user and set `[user] default=…` in `/etc/wsl.conf` — the imported default is root, and a root agent writes 0600 files the probe user cannot read. Install `coreutils util-linux` (busybox `mktemp`/`ps` lack the used options) and `shadow` for `useradd`. |
-| Fedora / openSUSE / Arch | systemd PID 1 out of the box. openSUSE: `zypper --non-interactive` (the plain `-y` still prompts); Arch: `pacman -Sy --needed`. |
+| Fedora / openSUSE / Arch | systemd PID 1 out of the box. openSUSE: `zypper --non-interactive` (the plain `-y` still prompts); Arch: `pacman -S --needed`; refresh first with `pacman -Syu` when the index is missing or stale (Arch advises against an index-only `-Sy`). |
 
 On a minimal Alpine image the **shell** agent's FSB enumeration needs GNU
 `findutils` (BusyBox `find` lacks `-printf`); the packaged native agent does

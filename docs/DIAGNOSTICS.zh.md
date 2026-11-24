@@ -37,6 +37,12 @@
 
 `--fix` 以复验报告收尾：每个修复后都跟着一次对它声称修好的东西的全新探查，
 受影响的检查项携带 after 状态，verdict 重算——`ready`，或剩余阻断者。
+复验走与其他读数相同的抖动重试；复验仍未应答时，`fix.*` 行记 `unknown`
+（空读数不再算作「0 个残留 scope / 0 个无效缓存」），`runtime.scopes` 同样记
+`unknown`，`agent.cache` 则保留修复前的裁决，直到读数给出答案。失败的修复在
+`fix.*` 行里引用命令输出的末尾（doctor 不另行打印这些输出）。握手探测等
+15 秒 HELLO，传输抖动（超时或 wsl.exe 自身报错）重试一次，确定性失败立即
+应答。
 插件自有状态可自动修复：残留 scope 清扫，以及缓存条目不可执行时清理
 agent 缓存（清理后重新握手）。`--fix-owned` 把修复收窄到这两类，且不能与 `--install` 同用。会改写用户或 distro
 所有文件的修复（`.wslconfig`、`/etc/wsl.conf`、WSL1 转换、安装 distro）
@@ -44,7 +50,8 @@ agent 缓存（清理后重新握手）。`--fix-owned` 把修复收窄到这两
 
 `--bundle <path>` 写出本地 JSON 文件（报告 + 版本 + 生效配置）供 setup
 report 附带；`--redact` 把 home 与 DSH 路径替换为 `<redacted-*>` 占位符。
-bundle 不含文件内容、环境变量，也没有遥测。
+bundle 不含文件内容、环境变量，也没有遥测。写入提示与确认提问走 stderr，
+`--json` 的 stdout 只有报告本身。
 
 ## 三个入口
 

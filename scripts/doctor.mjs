@@ -244,16 +244,30 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 let WSL = "wsl.exe";
 const CMD = "cmd.exe";
 const TIMEOUT_MS = 60_000;
+/**
+ * How long one package install may take. `apt-get` downloads and configures
+ * packages, and the 60 s deadline every other host command shares cut that
+ * short on a slow network — a `dpkg` killed mid-configure is left
+ * half-configured.
+ */
+const INSTALL_TIMEOUT_MS = 600_000;
 
 /** The package families the install remedies know, in probe order. */
 const FAMILIES = ["apt-get", "dnf", "pacman", "zypper", "apk"];
 /** The package names the plugin uses, per family. */
 const PACKAGES = "bubblewrap git ripgrep inotify-tools";
-/** One install command per family; `zypper` spells its non-interactive flag differently. */
+/**
+ * One install command per family; `zypper` spells its non-interactive flag
+ * differently. apt refreshes its package index first — a freshly installed
+ * Debian or Ubuntu has none, and `install` alone answers `E: Unable to locate
+ * package` — and pacman takes `-S`, not `-Sy`: refreshing the index without
+ * upgrading the system is the partial-upgrade form Arch advises against.
+ * The commands run through `sh -c`, so apt's `&&` is the distro's to read.
+ */
 const INSTALL = /** @type {Record<string, string>} */ ({
-  "apt-get": `apt-get install -y ${PACKAGES}`,
+  "apt-get": `apt-get update -qq && apt-get install -y --no-install-recommends ${PACKAGES}`,
   dnf: `dnf install -y ${PACKAGES}`,
-  pacman: `pacman -Sy --noconfirm ${PACKAGES}`,
+  pacman: `pacman -S --noconfirm --needed ${PACKAGES}`,
   zypper: `zypper --non-interactive install ${PACKAGES}`,
   apk: `apk add --no-cache ${PACKAGES}`,
 });
@@ -265,16 +279,22 @@ const FINDUTILS = /** @type {Record<string, string>} */ ({
   zypper: "zypper --non-interactive install findutils",
   apk: "apk add --no-cache findutils",
 });
-/** The read-only stale-scope report; `--fix` runs the shipped sweep instead. */
-const STALE_SCOPE_REPORT = [
+/**
+ * The read-only stale-scope report; `--fix` runs the shipped sweep instead.
+ * Exported for the test that runs it against a fake `systemctl`.
+ */
+export const STALE_SCOPE_REPORT = [
   "systemctl --user is-system-running >/dev/null 2>&1 || { echo none; exit 0; }",
   "systemctl --user list-units 'dsh-wsl-*.scope' --all --plain --no-legend --no-pager 2>/dev/null | while read -r unit _; do",
   '  [ -n "$unit" ] || continue',
   '  cg=$(systemctl --user show -p ControlGroup --value "$unit" 2>/dev/null)',
   "  alive=0",
+  '  pids=""',
   '  if [ -n "$cg" ] && [ -r "/sys/fs/cgroup$cg/cgroup.procs" ]; then',
   '    while read -r pid; do',
-  '      [ -n "$pid" ] || continue',
+  // WSL's own cgroup for non-systemd sessions lists a `0` no process owns;
+  // reading its cmdline is noise on stderr, not a finding.
+  '      case "$pid" in ""|0|*[!0-9]*) continue ;; esac',
   "      if tr '\\0' ' ' < \"/proc/$pid/cmdline\" 2>/dev/null | grep -q -e 'wsl-agent.sh' -e 'dsh-wsl-agent'; then alive=1; pids=\"$pids $pid\"; fi",
   '    done < "/sys/fs/cgroup$cg/cgroup.procs"',
   "  fi",
@@ -359,9 +379,10 @@ const QUICK_SECTIONS = ["host", "session", "sandbox"];
 /**
  * Run one host command; never throws.
  * @param {string[]} argv - executable and arguments.
+ * @param {number} [timeoutMs] - the deadline; a package install passes its own.
  * @returns {Promise<{ ok: boolean, stdout: string, stderr: string, code?: string, timedOut?: boolean }>} the capture.
  */
-function run(argv) {
+function run(argv, timeoutMs = TIMEOUT_MS) {
   return new Promise((settle) => {
     const [file, ...args] = argv;
     if (file === undefined) throw new Error("doctor: empty argv");
@@ -375,8 +396,53 @@ function run(argv) {
       const timedOut = error !== null && /** @type {NodeJS.ErrnoException & { signal?: string }} */ (error).signal === "SIGTERM";
       settle({ ok: error === null, stdout: stdout ?? "", stderr: stderr ?? "", code, timedOut });
     };
-    execFile(file, args, { encoding: "utf8", timeout: TIMEOUT_MS, windowsHide: true, env: { ...process.env, WSL_UTF8: "1" } }, done);
+    execFile(file, args, { encoding: "utf8", timeout: timeoutMs, windowsHide: true, env: { ...process.env, WSL_UTF8: "1" } }, done);
   });
+}
+
+/** How much of a failed command's output a fix row quotes. */
+const OUTPUT_TAIL = 300;
+
+/**
+ * The end of a failed command's output, for a fix row that says why it failed.
+ *
+ * `run()` captures output and prints none of it, so a row that said "see the
+ * output above" pointed at output nobody could see; the tail rides the row.
+ *
+ * @param {{ stdout: string, stderr: string }} answer - the capture.
+ * @returns {string} ` (last output: "…")`, or an empty string when there was no output.
+ */
+export function outputTail(answer) {
+  const text = `${answer.stdout}\n${answer.stderr}`.replace(/\s+/g, " ").trim();
+  if (text.length === 0) return "";
+  return ` (last output: "${text.length > OUTPUT_TAIL ? `…${text.slice(-OUTPUT_TAIL)}` : text}")`;
+}
+
+/**
+ * wsl.exe's own error class in a capture (`Wsl/Service/WSAETIMEDOUT` and the
+ * like). The sentence around it is localized and long, the class is neither.
+ * @param {string} text - the capture's output.
+ * @returns {string | undefined} the class, when there is one.
+ */
+export function wslErrorClass(text) {
+  return /\bWsl\/[A-Za-z]+\/[A-Za-z0-9_]+/i.exec(text)?.[0];
+}
+
+/**
+ * Why a recheck's answer cannot be trusted: the deadline fired, wsl.exe
+ * reported a wedged service (a transport flake), or the read itself failed —
+ * each with the error class or the output's first line.
+ *
+ * @param {{ stderr: string, stdout: string, code?: string, timedOut?: boolean }} answer - the capture.
+ * @returns {string} the reason.
+ */
+function unreadReason(answer) {
+  const output = `${answer.stderr}\n${answer.stdout}`.replace(/\s+/g, " ").trim();
+  const wsl = wslErrorClass(output);
+  if (answer.timedOut === true) return `wsl.exe timed out${wsl === undefined ? "" : ` (${wsl})`}`;
+  if (isFlake(answer)) return `wsl.exe reported a wedged service${wsl === undefined ? "" : ` (${wsl})`}`;
+  const first = output.slice(0, 80);
+  return `the read failed${answer.code === undefined ? "" : ` with ${answer.code}`}${first.length > 0 ? `: ${first}` : ""}`;
 }
 
 /**
@@ -706,7 +772,10 @@ function inDistro(distro, script) {
  * arrive exactly when a cold distro is mid-boot, and trusting them produced
  * the wrong class of report: static config (`wsl.conf`, resolv.conf) read as
  * broken when the read itself was the casualty.
- * @param {{ ok: boolean, stdout: string, stderr: string, timedOut?: boolean }} answer - the capture.
+ * Only the deadline flag and the output are read, so a bare `{ stdout, stderr }`
+ * qualifies too.
+ *
+ * @param {{ stdout: string, stderr: string, timedOut?: boolean }} answer - the capture.
  * @returns {boolean} true when the capture must not feed a config verdict.
  */
 export function isFlake(answer) {
@@ -972,13 +1041,16 @@ function hostPeerVersions() {
 }
 
 /**
- * The install remedy for one distro and family.
+ * The install remedy for one distro and family: the very command `--fix
+ * --install` runs, spelled for a Windows shell. `sh -c "…"` keeps the apt
+ * command's `&&` inside the distro in cmd, PowerShell 5.1 and PowerShell 7
+ * alike — pasted bare, each of those shells would run the second half itself.
  * @param {string} distro - the distro name.
  * @param {string} family - the detected family, or `unknown`.
  * @returns {string} the copy-paste command.
  */
-function installRemedy(distro, family) {
-  return `wsl.exe -d ${distro} -u root -- ${INSTALL[family] ?? INSTALL["apt-get"]}`;
+export function installRemedy(distro, family) {
+  return `wsl.exe -d ${distro} -u root -- sh -c "${INSTALL[family] ?? INSTALL["apt-get"]}"`;
 }
 
 /**
@@ -1833,14 +1905,14 @@ async function main(options) {
       if (!readable) {
         check("agent.handshake", "info", "Agent handshake", `skipped: agent/wsl-agent.sh is not readable at ${agentScriptDistro} inside "${target}" — this doctor runs from the ${(process.env.WSL_DISTRO_NAME ?? "host")} filesystem; run it from Windows or inside "${target}"`);
       } else {
-        const handshake = await probeResident(target, agentScriptDistro, wslExe, agentScript);
+        const handshake = await probeHandshake(target, agentScriptDistro, wslExe, agentScript);
         handshakeState = handshake.ok && handshake.digestMatches ? "ok" : "fail";
         if (handshake.ok) {
           const live = livePids.length > 0
             ? `; a live resident (pid${livePids.length > 1 ? "s" : ""} ${livePids.join(", ")}) is already running in this distro — this check starts a fresh one, which cannot read its last error; the app-side doctorReport() merge surfaces it`
             : "";
           check("agent.handshake", handshake.digestMatches ? "ok" : "fail", "Agent handshake",
-            `probed: a fresh resident, pid ${handshake.pid}, protocol ${PROTOCOL_VERSION}, digest ${handshake.digestMatches ? "matches" : "MISMATCH — the distro reads a different script than this package"}${live}`,
+            `probed: a fresh resident, pid ${handshake.pid}, protocol ${PROTOCOL_VERSION}, digest ${handshake.digestMatches ? "matches" : "MISMATCH — the distro reads a different script than this package"}${live}${handshake.detail === undefined ? "" : `; ${handshake.detail}`}`,
             handshake.digestMatches ? undefined : "resync the runtime copy (pnpm run sync:windows), then restart the app");
         } else {
           check("agent.handshake", "fail", "Agent handshake", handshake.detail, "restart the DSH app; if it persists, delete ~/.cache/dsh-wsl/agent inside the distro and rerun the doctor");
@@ -2184,14 +2256,27 @@ async function main(options) {
       };
       if (state.stale > 0) {
         const swept = await inDistro(target, sessionScopeSweepScript());
-        const afterReport = (await inDistro(target, STALE_SCOPE_REPORT)).stdout.trim();
-        const afterLines = afterReport === "none" || afterReport.length === 0 ? [] : afterReport.split(/\r?\n/);
-        const afterStale = afterLines.filter((line) => /\sstale(\s|$)/.test(line)).length;
-        const fixed = swept.ok && afterStale === 0;
-        fixCheck("fix.scopes", fixed ? "ok" : "warn", "Swept stale scopes", `${state.stale} stale before → ${afterStale} after`, fixed ? undefined : `systemctl --user list-units 'dsh-wsl-*.scope' inside "${target}"`);
-        reviseCheck("runtime.scopes", target, afterLines.length === 0
-          ? { status: "info", detail: "none (the fix above swept them)", remedy: undefined }
-          : { status: afterStale === 0 ? "ok" : "warn", detail: `${afterLines.length} live, ${afterStale} stale after the fix`, remedy: afterStale === 0 ? undefined : "--fix stops them; they are safe to stop when no agent process is inside" });
+        // The recheck takes the flake-aware probe like every first-pass read.
+        // A read that did not answer used to count as "0 stale" and record the
+        // sweep as done; it proves nothing either way, so it earns `unknown`.
+        const after = await askDistro(target, STALE_SCOPE_REPORT);
+        if (!after.ok || after.flaked) {
+          fixCheck("fix.scopes", swept.ok ? "unknown" : "warn", "Swept stale scopes",
+            `the sweep ${swept.ok ? "ran" : `did not complete${outputTail(swept)}`}, but its recheck did not answer (${unreadReason(after)}); ${state.stale} stale before → unknown after`,
+            `rerun the doctor; if stale scopes remain, systemctl --user list-units 'dsh-wsl-*.scope' inside "${target}"`);
+          reviseCheck("runtime.scopes", target, { status: "unknown", detail: `${state.stale} stale before the fix; the recheck after it did not answer`, remedy: "rerun the doctor" });
+        } else {
+          const afterReport = after.stdout.trim();
+          const afterLines = afterReport === "none" || afterReport.length === 0 ? [] : afterReport.split(/\r?\n/);
+          const afterStale = afterLines.filter((line) => /\sstale(\s|$)/.test(line)).length;
+          const fixed = swept.ok && afterStale === 0;
+          fixCheck("fix.scopes", fixed ? "ok" : "warn", "Swept stale scopes",
+            `${state.stale} stale before → ${afterStale} after${fixed ? "" : outputTail(swept)}`,
+            fixed ? undefined : `systemctl --user list-units 'dsh-wsl-*.scope' inside "${target}"`);
+          reviseCheck("runtime.scopes", target, afterLines.length === 0
+            ? { status: "info", detail: "none (the fix above swept them)", remedy: undefined }
+            : { status: afterStale === 0 ? "ok" : "warn", detail: `${afterLines.length} live, ${afterStale} stale after the fix`, remedy: afterStale === 0 ? undefined : "--fix stops them; they are safe to stop when no agent process is inside" });
+        }
       }
       if (state.cacheBad > 0) {
         // The cache is plugin-owned and content-addressed: every entry is
@@ -2200,24 +2285,37 @@ async function main(options) {
         // a failed handshake is re-probed because a corrupt cache is one of its
         // causes.
         const purged = await inDistro(target, 'rm -rf "$HOME/.cache/dsh-wsl/agent"');
-        const afterRaw = (await inDistro(target, CACHE_REPORT)).stdout.trim();
-        const afterLines = afterRaw === "none" || afterRaw.length === 0 ? [] : afterRaw.split(/\r?\n/).filter((line) => line.trim().length > 0);
-        const afterBad = afterLines.filter((line) => line.startsWith("noexec ") || line.startsWith("broken ")).length;
-        const fixed = purged.ok && afterBad === 0;
-        const cacheTone = fixed ? "ok" : effective.agentBackend === "native" ? "fail" : "warn";
-        fixCheck("fix.cache", fixed ? "ok" : "warn", "Purged the agent cache",
-          `${state.cacheEntries} cached, ${state.cacheBad} invalid before → ${afterLines.length} cached, ${afterBad} invalid after`,
-          fixed ? undefined : `rm -rf ~/.cache/dsh-wsl/agent inside "${target}"; the next command repopulates it`);
-        reviseCheck("agent.cache", target, afterLines.length === 0
-          ? { status: cacheTone === "ok" ? "info" : cacheTone, detail: "empty after the fix (the next command repopulates it)", remedy: undefined }
-          : { status: cacheTone, detail: `${afterLines.length} cached binary(ies)${afterBad > 0 ? `, ${afterBad} not executable or not runnable after the fix` : ""}`, remedy: fixed ? undefined : `rm -rf ~/.cache/dsh-wsl/agent inside "${target}"; the next command repopulates it` });
+        // Same guard as the scope recheck: an inventory that did not answer is
+        // not "0 invalid". The before-state row keeps its verdict here — an
+        // invalid cache blocks the native backend, and stays a blocker until a
+        // read says otherwise — and only the fix row says the purge is
+        // unverified.
+        const after = await askDistro(target, CACHE_REPORT);
+        if (!after.ok || after.flaked) {
+          fixCheck("fix.cache", purged.ok ? "unknown" : "warn", "Purged the agent cache",
+            `the purge ${purged.ok ? "ran" : `did not complete${outputTail(purged)}`}, but its recheck did not answer (${unreadReason(after)}); ${state.cacheEntries} cached, ${state.cacheBad} invalid before → unknown after`,
+            `rerun the doctor; rm -rf ~/.cache/dsh-wsl/agent inside "${target}" is safe to repeat, and the next command repopulates it`);
+          reviseCheck("agent.cache", target, { remedy: "the purge above ran, but its recheck did not answer — rerun the doctor; until a read says otherwise this row keeps its before-the-fix verdict" });
+        } else {
+          const afterRaw = after.stdout.trim();
+          const afterLines = afterRaw === "none" || afterRaw.length === 0 ? [] : afterRaw.split(/\r?\n/).filter((line) => line.trim().length > 0);
+          const afterBad = afterLines.filter((line) => line.startsWith("noexec ") || line.startsWith("broken ")).length;
+          const fixed = purged.ok && afterBad === 0;
+          const cacheTone = fixed ? "ok" : effective.agentBackend === "native" ? "fail" : "warn";
+          fixCheck("fix.cache", fixed ? "ok" : "warn", "Purged the agent cache",
+            `${state.cacheEntries} cached, ${state.cacheBad} invalid before → ${afterLines.length} cached, ${afterBad} invalid after${fixed ? "" : outputTail(purged)}`,
+            fixed ? undefined : `rm -rf ~/.cache/dsh-wsl/agent inside "${target}"; the next command repopulates it`);
+          reviseCheck("agent.cache", target, afterLines.length === 0
+            ? { status: cacheTone === "ok" ? "info" : cacheTone, detail: "empty after the fix (the next command repopulates it)", remedy: undefined }
+            : { status: cacheTone, detail: `${afterLines.length} cached binary(ies)${afterBad > 0 ? `, ${afterBad} not executable or not runnable after the fix` : ""}`, remedy: fixed ? undefined : `rm -rf ~/.cache/dsh-wsl/agent inside "${target}"; the next command repopulates it` });
+        }
         const handshakeEntry = checks.find((entry) => entry.id === "agent.handshake" && entry.distro === target);
         const scriptPath = state.agentScriptDistro;
         const scriptProbe = scriptPath !== undefined && existsSync(join(ROOT, "agent", "wsl-agent.sh"))
           ? (await inDistro(target, `[ -f "${scriptPath}" ] && printf yes || printf no`)).stdout.trim()
           : "no";
         if (handshakeEntry !== undefined && handshakeEntry.status === "fail" && scriptProbe === "yes" && scriptPath !== undefined) {
-          const again = await probeResident(target, scriptPath, wslExe, join(ROOT, "agent", "wsl-agent.sh"));
+          const again = await probeHandshake(target, scriptPath, wslExe, join(ROOT, "agent", "wsl-agent.sh"));
           reviseCheck("agent.handshake", target, again.ok && again.digestMatches
             ? { status: "ok", detail: `re-probed after the cache purge: pid ${again.pid}, protocol ${PROTOCOL_VERSION}, digest matches`, remedy: undefined }
             : { detail: `re-probed after the cache purge: ${again.ok ? "digest MISMATCH — the distro reads a different script than this package" : again.detail}` });
@@ -2230,14 +2328,18 @@ async function main(options) {
         } else if (!(await confirm(doctorT("confirm.install", { packages: PACKAGES, distro: target }), options.yes))) {
           fixCheck("fix.install", "info", "Package installation", "declined", install);
         } else {
-          const command = INSTALL[state.family] ?? INSTALL["apt-get"] ?? `apt-get install -y ${PACKAGES}`;
-          const installed = await run([WSL, "-d", target, "-u", "root", "--", "sh", "-c", command]);
-          const bwrapAfter = (await inDistro(target, "command -v bwrap")).stdout.trim();
-          const usableAfter = bwrapAfter.length > 0 ? (await inDistro(target, "bwrap --ro-bind / / -- true")).ok : false;
+          const command = INSTALL[state.family] ?? INSTALL["apt-get"] ?? `apt-get update -qq && apt-get install -y --no-install-recommends ${PACKAGES}`;
+          // Its own deadline: an install downloads and configures, and one cut
+          // short leaves the package manager's state half-applied.
+          const installed = await run([WSL, "-d", target, "-u", "root", "--", "sh", "-c", command], INSTALL_TIMEOUT_MS);
+          const bwrapAfter = (await askDistro(target, "command -v bwrap")).stdout.trim();
+          const usableAfter = bwrapAfter.length > 0 ? (await askDistro(target, "bwrap --ro-bind / / -- true")).ok : false;
           const done = installed.ok && bwrapAfter.length > 0;
           fixCheck("fix.install", done ? "ok" : "warn", "Package installation", installed.ok
             ? `completed; bubblewrap ${bwrapAfter.length > 0 ? `now at ${bwrapAfter}${usableAfter ? ", a read-only profile runs" : ", but the read-only profile still fails"}` : "STILL MISSING after the install"}`
-            : "failed; see the output above", done ? undefined : install);
+            : installed.timedOut
+              ? `timed out after ${Math.round(INSTALL_TIMEOUT_MS / 60_000)} minutes${outputTail(installed)} — the package manager may have been interrupted; run the same command inside the distro again to let it finish`
+              : `failed${outputTail(installed)}`, done ? undefined : install);
           reviseCheck("sandbox.bwrap", target, bwrapAfter.length > 0
             ? { status: "ok", detail: bwrapAfter, remedy: undefined }
             : { status: "fail", detail: "still missing after the install", remedy: install });
@@ -2261,7 +2363,7 @@ async function main(options) {
           reviseCheck("git.win-safe", undefined, whitelisted
             ? { status: "ok", detail: `the \\wsl.localhost share is whitelisted (${entries.length} entr${entries.length === 1 ? "y" : "ies"}) — it was untrusted before this run's fix`, remedy: undefined }
             : {});
-          checks.push({ id: "fix.git-trust", status: added.ok && whitelisted ? "ok" : "warn", title: "Git trust whitelist", detail: added.ok && whitelisted ? 'added "//wsl.localhost/*" to the Windows git safe.directory whitelist' : "the add did not take effect; see the output above", remedy: added.ok && whitelisted ? undefined : 'on Windows: git config --global --add safe.directory "//wsl.localhost/*", then restart the app' });
+          checks.push({ id: "fix.git-trust", status: added.ok && whitelisted ? "ok" : "warn", title: "Git trust whitelist", detail: added.ok && whitelisted ? 'added "//wsl.localhost/*" to the Windows git safe.directory whitelist' : `the add did not take effect${outputTail(added)}`, remedy: added.ok && whitelisted ? undefined : 'on Windows: git config --global --add safe.directory "//wsl.localhost/*", then restart the app' });
         } else {
           checks.push({ id: "fix.git-trust", status: "info", title: "Git trust whitelist", detail: "declined", remedy: 're-run with --fix (and --yes for a non-interactive run), or on Windows: git config --global --add safe.directory "//wsl.localhost/*"' });
         }
@@ -2274,21 +2376,46 @@ async function main(options) {
   return report(checks, { json: options.json }, runInfo);
 }
 
+/** How long a fresh resident gets to print its HELLO. */
+const HELLO_MS = 15_000;
+
+/**
+ * A resident probe's verdict: the pid and the digest comparison on success,
+ * the reason otherwise — with `flaked` when the reason smells like a transport
+ * problem rather than a broken agent.
+ *
+ * @typedef {object} ResidentVerdict
+ * @property {boolean} ok - whether a well-formed HELLO arrived.
+ * @property {number} [pid] - the resident's pid, on success.
+ * @property {boolean} [digestMatches] - whether the HELLO's digest is the shipped script's, on success.
+ * @property {string} [detail] - why not, on failure.
+ * @property {boolean} [flaked] - whether the failure is transport-shaped, on failure.
+ */
+
 /**
  * Probe a fresh resident: start the shipped shell agent in the distro, read its
  * HELLO, verify the script digest, and stop it. This proves the agent path can
  * start and that the file the distro reads is the one this package shipped.
  *
+ * A failure is `flaked` when the HELLO deadline fired, wsl.exe itself failed
+ * to spawn or reported its wedged-service error on stderr — the shapes a cold
+ * distro mid-boot produces under the doctor's concurrent probing. A wrong
+ * first line, another protocol number or an agent that exits on its own are
+ * answers, not flakes, and say so.
+ *
  * @param {string} distro - the distro to probe.
  * @param {string} scriptPath - the agent script as a Linux path inside the distro.
  * @param {string} [wslExe] - the wsl.exe to spawn.
  * @param {string} [hostPath] - the same script as this host names it, for the digest (defaults to scriptPath).
- * @returns {Promise<{ ok: true, pid: number, digestMatches: boolean } | { ok: false, detail: string }>} the verdict, with the pid on success.
+ * @param {number} [helloMs] - how long the HELLO may take; tests shrink it.
+ * @returns {Promise<ResidentVerdict>} the verdict.
  */
-function probeResident(distro, scriptPath, wslExe = WSL, hostPath = scriptPath) {
+function probeResident(distro, scriptPath, wslExe = WSL, hostPath = scriptPath, helloMs = HELLO_MS) {
   return new Promise((settle) => {
     let settled = false;
-    /** @param {{ ok: true, pid: number, digestMatches: boolean } | { ok: false, detail: string }} value - the verdict. */
+    /** Everything wsl.exe wrote to stderr: its own errors land here, not in the agent's stdout. */
+    let errors = "";
+    /** @param {ResidentVerdict} value - the verdict. */
     const finish = (value) => {
       if (settled) return;
       settled = true;
@@ -2301,8 +2428,9 @@ function probeResident(distro, scriptPath, wslExe = WSL, hostPath = scriptPath) 
       windowsHide: true,
       env: { ...process.env, WSL_UTF8: "1" },
     });
-    const timer = setTimeout(() => finish({ ok: false, detail: "no HELLO within 5 s" }), 5000);
+    const timer = setTimeout(() => finish({ ok: false, detail: `no HELLO within ${Math.round(helloMs / 1000)} s`, flaked: true }), helloMs);
     let buffered = "";
+    child.stderr.on("data", (chunk) => { errors += String(chunk); });
     child.stdout.on("data", (chunk) => {
       buffered += String(chunk);
       const newline = buffered.indexOf("\n");
@@ -2310,17 +2438,17 @@ function probeResident(distro, scriptPath, wslExe = WSL, hostPath = scriptPath) 
       const line = buffered.slice(0, newline).trim();
       const [kind, name, version, digest, pid] = line.split("|");
       if (kind !== "HELLO" || name !== AGENT_NAME) {
-        finish({ ok: false, detail: `unexpected first line: ${line.slice(0, 80)}` });
+        finish({ ok: false, detail: `unexpected first line: ${line.slice(0, 80)}`, flaked: false });
         return;
       }
       if (Number(version) !== PROTOCOL_VERSION) {
-        finish({ ok: false, detail: `protocol ${version}, expected ${PROTOCOL_VERSION}` });
+        finish({ ok: false, detail: `protocol ${version}, expected ${PROTOCOL_VERSION}`, flaked: false });
         return;
       }
       const expected = createHash("sha256").update(readFileSync(hostPath)).digest("hex");
       finish({ ok: true, pid: Number(pid), digestMatches: digest === expected });
     });
-    child.on("error", (error) => finish({ ok: false, detail: error.message }));
+    child.on("error", (error) => finish({ ok: false, detail: error.message, flaked: true }));
     child.on("close", () => {
       if (settled) return;
       // 'exit' can fire before the stdio pipes are drained — the HELLO sits
@@ -2336,10 +2464,41 @@ function probeResident(distro, scriptPath, wslExe = WSL, hostPath = scriptPath) 
           return;
         }
       }
-      finish({ ok: false, detail: `agent exited before its HELLO (${buffered.trim().slice(0, 80)})` });
+      // An exit with nothing on stdout is the agent's doing or wsl.exe's;
+      // its own stderr error is what tells a wedged service from a broken
+      // script, and wsl.exe's error class says more in 80 characters than the
+      // localized sentence around it.
+      const reason = (wslErrorClass(errors) ?? errors.trim() ?? buffered.trim()).slice(0, 80);
+      finish({ ok: false, detail: `agent exited before its HELLO (${reason})`, flaked: isFlake({ stderr: errors, stdout: "" }) });
     });
     child.stdin.end();
   });
+}
+
+/**
+ * The handshake probe with the retry every other in-distro read gets: an
+ * attempt that came back `flaked` is tried once more after the settle delay.
+ *
+ * The handshake is blocking-level — its `fail` turns the verdict `blocked` and
+ * skips both smoke legs — yet it alone ran on one 5-second attempt with no
+ * retry, while the warn-level smoke legs had 30 seconds and a second try. A
+ * deterministic failure is answered at once: only a transport-shaped one pays
+ * for another round trip.
+ *
+ * @param {string} distro - the distro to probe.
+ * @param {string} scriptPath - the agent script as a Linux path inside the distro.
+ * @param {string} [wslExe] - the wsl.exe to spawn.
+ * @param {string} [hostPath] - the same script as this host names it, for the digest (defaults to scriptPath).
+ * @param {{ helloMs?: number, settleMs?: number }} [timing] - the HELLO deadline and the settle delay; tests shrink both.
+ * @returns {Promise<ResidentVerdict>} the final attempt's verdict, its detail noting the second try when that one flaked too.
+ */
+export async function probeHandshake(distro, scriptPath, wslExe = WSL, hostPath = scriptPath, timing = {}) {
+  const helloMs = timing.helloMs ?? HELLO_MS;
+  const first = await probeResident(distro, scriptPath, wslExe, hostPath, helloMs);
+  if (first.ok || !first.flaked) return first;
+  await new Promise((resolve) => setTimeout(resolve, timing.settleMs ?? FLAKE_SETTLE_MS));
+  const second = await probeResident(distro, scriptPath, wslExe, hostPath, helloMs);
+  return second.ok ? { ...second, detail: `the first attempt flaked (${first.detail}); the retry answered` } : second.flaked ? { ...second, detail: `${second.detail} (tried twice)` } : second;
 }
 
 /**
@@ -2536,7 +2695,9 @@ async function runSandboxSmoke(distro) {
 async function confirm(question, yes) {
   if (yes) return true;
   if (!process.stdin.isTTY) return false;
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  // The question goes to stderr: with `--json`, stdout is the report and
+  // nothing else, and a prompt is not part of it.
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
   try {
     const answer = await rl.question(`${question} [y/N] `);
     return /^y(es)?$/i.test(answer.trim());
@@ -2650,7 +2811,8 @@ function report(checks, options, runInfo = {}) {
       payload = payload.split(homeReal).join("<redacted-home>").split(dshReal).join("<redacted-dsh-home>");
     }
     writeFileSync(runInfo.bundle.path, payload);
-    console.log(doctorT("bundle.written", { path: runInfo.bundle.path, bytes: payload.length, redacted: runInfo.bundle.redact ? doctorT("bundle.redacted") : "" }));
+    // A note about a file, not report content: `--json` keeps stdout to the report.
+    console.error(doctorT("bundle.written", { path: runInfo.bundle.path, bytes: payload.length, redacted: runInfo.bundle.redact ? doctorT("bundle.redacted") : "" }));
   }
   return verdict === "blocked" ? 1 : 0;
 }

@@ -31,7 +31,7 @@
 
 桌面应用没有 `dsh` 可执行程序；插件经 **Plugins** 页安装。三步：
 
-1. `wsl.exe -d <发行版> -u root -- apt-get install -y bubblewrap`
+1. `wsl.exe -d <发行版> -u root -- sh -c "apt-get update -qq && apt-get install -y --no-install-recommends bubblewrap"`
 2. Plugins 页：**Add plugin** → `dsh-plugin-wsl-env`，启用。
 3. 重启应用，打开发行版内的文件夹；输入 `/wsl-doctor`（宿主侧执行）得到 `ready`/`blocked` 裁决。
 

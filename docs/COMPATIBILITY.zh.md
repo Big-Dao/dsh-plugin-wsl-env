@@ -70,7 +70,7 @@ Debian 的 harness 级运行暴露出一个真实发现：**当工作区根目�
 |---|---|
 | Debian | 首次启动可能在 OOBE 完成前卡死（`wsl.exe` exec 和 `--terminate` 都会挂起）。等状态变为 Stopped 后执行一次 `wsl --terminate <distro>`，再以 root 启动以跳过 OOBE。systemd 开箱即 PID 1。 |
 | Alpine | 导入 **minirootfs** tarball（`wsl --import`），不要用 standard/cloud 镜像。创建普通用户并在 `/etc/wsl.conf` 中设置 `[user] default=…`——导入后的默认用户是 root，而 root agent 写出的 0600 文件探针用户无法读取。安装 `coreutils util-linux`（busybox 的 `mktemp`/`ps` 缺少所用选项）以及用于 `useradd` 的 `shadow`。 |
-| Fedora / openSUSE / Arch | systemd 开箱即 PID 1。openSUSE：用 `zypper --non-interactive`（裸 `-y` 仍会提示）；Arch：`pacman -Sy --needed`。 |
+| Fedora / openSUSE / Arch | systemd 开箱即 PID 1。openSUSE：用 `zypper --non-interactive`（裸 `-y` 仍会提示）；Arch：`pacman -S --needed`；索引缺失或过期时先 `pacman -Syu`（Arch 不建议只刷新索引的 `-Sy`）。 |
 
 在最小 Alpine 镜像上，**shell** agent 的 FSB 枚举需要 GNU `findutils`
 （BusyBox 的 `find` 缺少 `-printf`）；随包的原生 agent 不需要，`auto` 会

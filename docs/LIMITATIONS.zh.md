@@ -50,8 +50,8 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
   provider 错误；工作目录缺失同样显式失败（rg 的错误码 2，`1` 只表示"无
   匹配"）。命令与常驻 agent 都继承 `wsl.exe` 的默认 PATH，因此
   `~/.local/bin` 下的用户级安装不可见——请装成系统级，或放在那个 PATH 上。
-  安装：`wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap
-  git ripgrep inotify-tools`（或检测到的包管理族对应的写法）。`--install` 只在
+  安装：`wsl.exe -d <distro> -u root -- sh -c "apt-get update -qq && apt-get install -y --no-install-recommends bubblewrap git ripgrep inotify-tools"`
+  （或检测到的包管理族对应的写法）。`--install` 只在
   缺少 `bubblewrap` 时才执行安装。
 - **`watch()` 是粗粒度失效，不是逐文件通知**：inotify 事件合并到 0.5 s，
   否则使用 `find -newer` 轮询循环。轮询路径会遗漏原地的 `cp -p`，以及恢复

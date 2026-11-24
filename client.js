@@ -51,10 +51,241 @@
  * (`wsl-env-client-host`, mounting the no-op root export) is what puts this
  * package on the web bundle list.
  */
-window.__ModuleLoader__.load({
+
+// The browser surface the client program touches, declared here rather than
+// via a DOM lib: the shared type gate runs with Node's globals, and a global
+// `window`/`document` there would let Node-side typos pass. One `globalThis`
+// sample, cast once, mirrors the harness loader's own delivery: both a browser
+// and the VM the client tests load this file in expose `window` and `document`
+// as properties of that same object.
+/** @typedef {object} ClientStorage
+ * @property {(key: string) => string | null} getItem
+ * @property {(key: string, value: string) => void} setItem
+ */
+/** @typedef {{ key?: string }} ClientKeyEvent */
+/** @typedef {{ target?: unknown, currentTarget?: unknown }} ClientMouseEvent */
+/** @typedef {{ load: (module: { id: string, factory: (require: (name: string) => unknown) => unknown }) => void }} ClientModuleLoader */
+/**
+ * @typedef {object} ClientWindow
+ * @property {ClientModuleLoader} __ModuleLoader__
+ * @property {ClientStorage} sessionStorage
+ */
+/**
+ * @typedef {object} ClientDocument
+ * @property {(type: string, listener: (event: ClientKeyEvent) => void) => void} addEventListener
+ * @property {(type: string, listener: (event: ClientKeyEvent) => void) => void} removeEventListener
+ */
+/**
+ * @typedef {object} ClientPlatform
+ * @property {ClientWindow} window
+ * @property {ClientDocument} document
+ */
+/**
+ * The slice of React's API the panel uses. The harness hands the real React
+ * through the loader's `require`; no typings ship for it, so this is the
+ * contract the client is written against.
+ * @typedef {object} ReactApi
+ * @property {(type: unknown, props?: Record<string, unknown> | null, ...children: unknown[]) => unknown} createElement
+ * @property {<T>(initial: T | (() => T)) => [T, (next: T | ((prev: T) => T)) => void]} useState
+ * @property {(effect: () => void | (() => void), deps?: readonly unknown[]) => void} useEffect
+ */
+const platform = /** @type {ClientPlatform} */ (/** @type {unknown} */ (globalThis));
+
+// ── The plugin's wire and state shapes ─────────────────────────────────────
+// The routes' answers mirror the built modules, so the types come from them;
+// the panel's own state shapes are spelled out where the client adds to them.
+
+/** @typedef {import("./lib/status.js").DistroStatusView} DistroStatusView */
+/** @typedef {import("./lib/status.js").StatusCheck} StatusCheck */
+/** @typedef {import("./lib/status.js").StatusRepair} StatusRepair */
+/** @typedef {import("./lib/status.js").StatusWarning} StatusWarning */
+/** @typedef {import("./lib/plugin-update.js").PluginVersionView} PluginVersionView */
+/** @typedef {import("./lib/plugin-update.js").PluginUpdateReply} PluginUpdateReply */
+/** @typedef {import("./lib/plugin-update.js").ChangeApplication} ChangeApplication */
+/** @typedef {import("./lib/update-check.js").ListedVersion} ListedVersion */
+
+/**
+ * The status route's answers. The `GET` list answer carries the stored rows
+ * under `cached`, while a single-check answer carries a boolean there, so the
+ * field is the union of both shapes.
+ * @typedef {object} ClientStatusReply
+ * @property {string[]} [distros]
+ * @property {string[]} [running]
+ * @property {DistroStatusView[] | boolean} [cached]
+ * @property {number} [cleared]
+ * @property {string} [distro]
+ * @property {DistroStatusView["verdict"]} [verdict]
+ * @property {boolean} [full]
+ * @property {boolean} [repaired]
+ * @property {StatusRepair[]} [repairs]
+ * @property {string[]} [repairable]
+ * @property {number} [checkedAt]
+ * @property {DistroStatusView["failures"]} [failures]
+ * @property {StatusWarning[]} [warnings]
+ * @property {DistroStatusView["counts"]} [counts]
+ * @property {DistroStatusView["sections"]} [sections]
+ * @property {StatusCheck[]} [checks]
+ * @property {number} [notRun]
+ * @property {string[]} [blockers]
+ * @property {DistroStatusView["source"]} [source]
+ * @property {string} [error]
+ */
+/**
+ * One distro row as the panel keeps it: the last answer plus the panel's own
+ * phase. Every verdict field is optional because a row exists before any
+ * answer arrives (`{ phase: "checking" }`).
+ * @typedef {object} ClientCheckRow
+ * @property {string} [phase]
+ * @property {string} [distro]
+ * @property {DistroStatusView["verdict"]} [verdict]
+ * @property {boolean} [full]
+ * @property {boolean} [repaired]
+ * @property {StatusRepair[]} [repairs]
+ * @property {string[]} [repairable]
+ * @property {number} [checkedAt]
+ * @property {DistroStatusView["failures"]} [failures]
+ * @property {StatusWarning[]} [warnings]
+ * @property {Partial<DistroStatusView["counts"]>} [counts]
+ * @property {DistroStatusView["sections"]} [sections]
+ * @property {StatusCheck[]} [checks]
+ * @property {number} [notRun]
+ * @property {string[]} [blockers]
+ * @property {DistroStatusView["source"]} [source]
+ * @property {DistroStatusView[] | boolean} [cached]
+ * @property {string} [error]
+ */
+/** The panel's row table, keyed by distro name. @typedef {Record<string, ClientCheckRow | undefined>} ClientCheckTable */
+/** One finding row: a failing check or a warning. @typedef {{ id: string, detail?: string, remedy?: string }} ClientFinding */
+/** One transient panel notice. @typedef {{ kind: "ok" | "info" | "warn" | "error", text: string }} ClientNotice */
+/** The access record the reminder reads. @typedef {{ target: string, paths: string[] }} ClientAccess */
+/** The access read's answer: the record, or why it is unavailable. @typedef {{ ok: true, paths: string[], preset: string } | { ok: false, message?: string }} ClientAccessRead */
+
+/**
+ * The plugin route's answers: the version view on `GET`, the host's upgrade
+ * outcome on `POST`.
+ * @typedef {object} ClientPluginReply
+ * @property {string} [installed]
+ * @property {string} [running]
+ * @property {PluginVersionView["status"]} [status]
+ * @property {number} [checkedAt]
+ * @property {boolean} [cached]
+ * @property {boolean} [updateSupported]
+ * @property {boolean} [canUpdate]
+ * @property {string | null} [registry]
+ * @property {ListedVersion} [latest]
+ * @property {string} [problem]
+ * @property {string} [reason]
+ * @property {boolean} [updated]
+ * @property {ChangeApplication} [application]
+ * @property {string} [from]
+ * @property {string} [to]
+ * @property {PluginUpdateReply["step"]} [step]
+ * @property {string} [restartReason]
+ * @property {boolean} [restored]
+ * @property {{ code?: string, diagnostic?: string }} [error]
+ * @property {readonly string[]} [pendingBuilds]
+ * @property {{ code?: string, diagnostic?: string }} [restoreError]
+ */
+/**
+ * The version card's state: the last answer plus the panel's own phase. The
+ * panel's `error` is the display string a failed request stores, which is why
+ * the route's structured `error` is also allowed here.
+ * @typedef {object} ClientPluginState
+ * @property {string} [phase]
+ * @property {string} [installed]
+ * @property {string} [running]
+ * @property {PluginVersionView["status"]} [status]
+ * @property {number} [checkedAt]
+ * @property {boolean} [cached]
+ * @property {boolean} [updateSupported]
+ * @property {boolean} [canUpdate]
+ * @property {string | null} [registry]
+ * @property {ListedVersion | null} [latest]
+ * @property {string} [problem]
+ * @property {string} [reason]
+ * @property {string | { code?: string, diagnostic?: string }} [error]
+ * @property {ClientPluginReply} [upgrade]
+ */
+
+// ── The client services the panel consumes ────────────────────────────────
+// The harness's browser services have no declarations visible here, so each
+// slice is spelled structurally for exactly what the client reads.
+
+/** @typedef {{ get: (name: string) => unknown }} ClientServiceHost */
+/** @typedef {{ message?: string }} ClientServiceError */
+/**
+ * @typedef {object} ClientSettingsNamespace
+ * @property {string} ns
+ * @property {number} revision
+ * @property {Record<string, unknown>} [value]
+ */
+/**
+ * @typedef {object} ClientSettingsReply
+ * @property {boolean} [ok]
+ * @property {{ writable?: boolean, namespaces?: ClientSettingsNamespace[] }} [value]
+ * @property {ClientServiceError} [error]
+ */
+/**
+ * @typedef {object} ClientSettingsService
+ * @property {() => Promise<ClientSettingsReply>} describe
+ * @property {(ns: string, patch: Record<string, unknown>, revision: number) => Promise<{ ok?: boolean, error?: ClientServiceError }>} update
+ */
+/** A preset row from the agent-preset roster. @typedef {{ id?: string, isDefault?: boolean }} ClientPresetEntry */
+/**
+ * @typedef {object} ClientPresetService
+ * @property {(sessionId: string, presetId: string) => Promise<{ ok?: boolean, error?: ClientServiceError }>} select
+ * @property {() => Promise<{ ok?: boolean, error?: ClientServiceError, value?: { presets?: ClientPresetEntry[] } }>} list
+ */
+/** One session summary as the list hook exposes it. @typedef {{ cwd?: string, parentId?: string, origin?: string, blank?: boolean }} ClientSessionSummary */
+/** @typedef {{ byId: Record<string, ClientSessionSummary> }} ClientSessionSnapshot */
+/** @typedef {{ list: { getSnapshot: () => ClientSessionSnapshot } }} ClientSessionsService */
+/** One workspace catalog entry. @typedef {{ workspaceId: string, path: string, sessionIds: string[] }} ClientWorkspaceEntry */
+/** @typedef {{ phase?: string, items: ClientWorkspaceEntry[] }} ClientWorkspaceSnapshot */
+/**
+ * @typedef {object} ClientWorkspacesService
+ * @property {{ getSnapshot: () => ClientWorkspaceSnapshot, subscribe: (listener: () => void) => (() => void) }} list
+ */
+/** The slot's session-list and projection hooks. @typedef {<T>(selector: (state: ClientSessionSnapshot) => T) => T} UseSessions */
+/** @typedef {(name: string) => unknown} UseProjection */
+/** The props every component this client registers receives. @typedef {{ ctx: ClientContext }} ClientPanelProps */
+/** The composer/header reminder components' props. @typedef {{ ctx: ClientContext, sessionId: string, useSessions: UseSessions, useProjection: UseProjection }} ClientReminderProps */
+/** Props of one slot's renderer. @typedef {{ size?: number, active?: boolean, sessionId?: string, useSessions?: UseSessions, useProjection?: UseProjection }} ClientSlotProps */
+/** @typedef {{ label: string, tone: "ready" | "blocked" | "error" | "idle", title?: string }} ClientPillProps */
+/** @typedef {{ label: string, onClick?: () => void, primary?: boolean, disabled?: boolean, small?: boolean }} ClientBtnProps */
+/** @typedef {{ title?: unknown, actions?: unknown, children?: unknown }} ClientCardProps */
+/**
+ * @typedef {object} ClientSlots
+ * @property {(name: string, install: () => Generator<unknown, void, unknown>) => void} inject
+ * @property {(spec: Record<string, unknown>, render: (props: ClientSlotProps) => unknown) => unknown} register
+ */
+/** One session-header menu item the client offers. @typedef {{ id: string, label: string, failureLabel: string, run: () => Promise<void> }} ClientMenuItem */
+/**
+ * @typedef {object} ClientMenuDefinition
+ * @property {string} id
+ * @property {string} target
+ * @property {number} order
+ * @property {() => unknown[]} observe
+ * @property {(context: { sessionId: string }) => ClientMenuItem[]} resolve
+ */
+/** @typedef {{ register: (definition: ClientMenuDefinition) => unknown }} ClientContextMenuRegistry */
+/** The scope a service injection hands its callback. @typedef {{ get: (name: string) => unknown, effect: (callback: () => unknown, label?: string) => unknown, contextMenus: ClientContextMenuRegistry, sessions: ClientSessionsService }} ClientScope */
+/** @typedef {ClientServiceHost & { slots: ClientSlots, inject: (dependencies: readonly string[], callback: (scope: ClientScope) => void) => unknown }} ClientContext */
+/** One pending access-mode prompt. @typedef {{ workspaceId: string, path: string }} ClientPromptRequest */
+/**
+ * The prompt slot shared by the watcher and the overlay occupant.
+ * @typedef {object} ClientAccessPrompt
+ * @property {ClientPromptRequest | null} value
+ * @property {Set<() => void>} listeners
+ * @property {() => ClientPromptRequest | null} get
+ * @property {(next: ClientPromptRequest | null) => void} set
+ * @property {(listener: () => void) => () => void} subscribe
+ */
+/** The browser services this client reads, keyed by their registered names. @typedef {{ "remote.settings": ClientSettingsService, "remote.agentPresets": ClientPresetService, sessions: ClientSessionsService, workspaces: ClientWorkspacesService }} ClientServiceMap */
+
+platform.window.__ModuleLoader__.load({
   id: "dsh-plugin-wsl-env",
   factory(require) {
-    const React = require("react");
+    const React = /** @type {ReactApi} */ (require("react"));
     const h = React.createElement;
     const useState = React.useState;
     const useEffect = React.useEffect;
@@ -73,52 +304,79 @@ window.__ModuleLoader__.load({
     const WINDOWS_FIELD = "windowsWorkspaces";
     const UNC_RE = /^\\\\wsl(?:\.localhost|\$)\\([^\\]+)(?:\\([\s\S]*))?$/i;
 
+    /**
+     * Resolve one browser service by its registered name.
+     * @template {keyof ClientServiceMap} Name
+     * @param {ClientServiceHost} ctx - client root context.
+     * @param {Name} name - the service's registered name.
+     * @returns {ClientServiceMap[Name] | undefined} the service, or undefined when the host provides none.
+     */
     const service = (ctx, name) => {
       try {
-        return ctx.get(name);
+        return /** @type {ClientServiceMap[Name] | undefined} */ (ctx.get(name));
       } catch (error) {
         return undefined;
       }
     };
 
-    const messageOf = (error) => (error && typeof error.message === "string" ? error.message : String(error));
+    /**
+     * One error's message, whatever value was thrown.
+     * @param {unknown} error - the thrown value.
+     * @returns {string} its message, or the value stringified.
+     */
+    const messageOf = (error) => (error && typeof (/** @type {ClientServiceError} */ (error)).message === "string"
+      ? /** @type {{ message: string }} */ (error).message
+      : String(error));
 
+    /** @type {(value: unknown) => value is string} */
     const isWslUnc = (value) => typeof value === "string" && UNC_RE.test(value);
 
+    /**
+     * @param {string} value - a workspace path.
+     * @returns {string} the comparable form: separators unified, trailing ones dropped, lowercased.
+     */
     const normalize = (value) => value.trim().replace(/[\\/]+$/, "").replace(/\//g, "\\").toLowerCase();
 
+    /**
+     * @param {unknown} a - one path.
+     * @param {unknown} b - the other path.
+     * @returns {boolean} whether both are strings naming the same path.
+     */
     const samePath = (a, b) => typeof a === "string" && typeof b === "string" && normalize(a) === normalize(b);
 
     /**
      * Fetch one exact route and decode its JSON answer.
-     * @param path - the route's absolute path.
-     * @param query - the query string, including `?`, or empty.
-     * @param method - `GET` to read, `POST` to act, `DELETE` to clear.
-     * @returns the decoded body.
-     * @throws with the route's own error message.
+     * @template Reply
+     * @param {string} path - the route's absolute path.
+     * @param {string} query - the query string, including `?`, or empty.
+     * @param {string} [method] - `GET` to read, `POST` to act, `DELETE` to clear.
+     * @returns {Promise<Reply>} the decoded body.
+     * @throws with the route's own error message. The status routes answer a
+     *   string `error`; the plugin route answers a structured one, which this
+     *   transport has never rendered as anything but its string form.
      */
     const jsonRequest = async (path, query, method = "GET") => {
       const answer = await fetch(path + (query ?? ""), { method });
-      const body = await answer.json().catch(() => ({}));
-      if (!answer.ok) throw new Error(body.error ?? `接口返回 ${answer.status}`);
+      const body = /** @type {Reply} */ (await answer.json().catch(() => ({})));
+      if (!answer.ok) throw new Error(/** @type {{ error?: string }} */ (body).error ?? `接口返回 ${answer.status}`);
       return body;
     };
 
     /**
      * The doctor route: list/quick/full read-only checks on GET, the explicit
      * plugin-owned repair on POST, and clearing stored results on DELETE.
-     * @param query - the query string, including `?`, or empty.
-     * @param method - `GET` for a check, `POST` for repair,
+     * @param {string} query - the query string, including `?`, or empty.
+     * @param {string} [method] - `GET` for a check, `POST` for repair,
      *   `DELETE` to clear one distro's result (named by `distro`) or all.
-     * @returns the decoded body.
+     * @returns {Promise<ClientStatusReply>} the decoded body.
      */
     const statusRequest = (query, method = "GET") => jsonRequest(STATUS_PATH, query, method);
 
     /**
      * The plugin version route: read on GET, confirmed one-click upgrade on POST.
-     * @param query - the query string, including `?`, or empty.
-     * @param method - `GET` for a check, `POST` for the upgrade.
-     * @returns the decoded body.
+     * @param {string} query - the query string, including `?`, or empty.
+     * @param {string} [method] - `GET` for a check, `POST` for the upgrade.
+     * @returns {Promise<ClientPluginReply>} the decoded body.
      */
     const pluginRequest = (query, method = "GET") => jsonRequest(PLUGIN_UPDATE_PATH, query, method);
 
@@ -130,8 +388,8 @@ window.__ModuleLoader__.load({
 
     /**
      * Find the auto-preset settings view and its Windows-access paths.
-     * @param describe - the `settings.describe` answer.
-     * @returns the namespace view and the paths it currently carries.
+     * @param {ClientSettingsReply} describe - the `settings.describe` answer.
+     * @returns {{ entry: ClientSettingsNamespace, paths: string[], preset: string } | undefined} the namespace view and the paths it currently carries.
      */
     const accessViewOf = (describe) => {
       if (!describe || describe.ok !== true) return undefined;
@@ -142,17 +400,17 @@ window.__ModuleLoader__.load({
       const entry = value.namespaces.find((row) => row
         && (row.ns === AUTO_PRESET_ENTRY || row.ns.endsWith("/" + AUTO_PRESET_ENTRY)));
       if (entry === undefined) return undefined;
-      const configured = entry.value && Array.isArray(entry.value[WINDOWS_FIELD]) ? entry.value[WINDOWS_FIELD] : [];
+      const configured = /** @type {unknown[]} */ (entry.value && Array.isArray(entry.value[WINDOWS_FIELD]) ? entry.value[WINDOWS_FIELD] : []);
       // The row's `preset` field is the preset auto-preset adopts for distro
       // workspaces; the reminder compares the session's projection against it.
       const preset = entry.value && typeof entry.value.preset === "string" ? entry.value.preset : "";
-      return { entry, paths: configured.filter((path) => typeof path === "string"), preset };
+      return { entry, paths: /** @type {string[]} */ (configured.filter((path) => typeof path === "string")), preset };
     };
 
     /**
      * Read the current Windows-access paths and the target preset.
-     * @param ctx - client root context.
-     * @returns `{ ok: true, paths, preset }`, or the reason the record is unavailable.
+     * @param {ClientServiceHost} ctx - client root context.
+     * @returns {Promise<ClientAccessRead>} `{ ok: true, paths, preset }`, or the reason the record is unavailable.
      */
     const readAccess = async (ctx) => {
       const settings = service(ctx, "remote.settings");
@@ -165,9 +423,9 @@ window.__ModuleLoader__.load({
 
     /**
      * Persist a complete Windows-access list.
-     * @param ctx - client root context.
-     * @param paths - the new list.
-     * @returns `undefined` on success, or the failure message.
+     * @param {ClientServiceHost} ctx - client root context.
+     * @param {string[]} paths - the new list.
+     * @returns {Promise<string | undefined>} `undefined` on success, or the failure message.
      */
     const writeAccess = async (ctx, paths) => {
       const settings = service(ctx, "remote.settings");
@@ -196,9 +454,9 @@ window.__ModuleLoader__.load({
     /**
      * Whether a workspace is one of the recorded Windows-access directories or
      * below one (whole-segment, case-insensitive, like the host's comparison).
-     * @param cwd - the session workspace.
-     * @param paths - the configured directories.
-     * @returns true when the workspace opted out of the distro environment.
+     * @param {string} cwd - the session workspace.
+     * @param {readonly string[]} paths - the configured directories.
+     * @returns {boolean} true when the workspace opted out of the distro environment.
      */
     const isWindowsAccessPath = (cwd, paths) => {
       const target = normalize(cwd);
@@ -211,8 +469,8 @@ window.__ModuleLoader__.load({
 
     /**
      * The distro a UNC workspace names.
-     * @param cwd - the session workspace.
-     * @returns the distro name, or undefined for a non-UNC path.
+     * @param {unknown} cwd - the session workspace.
+     * @returns {string | undefined} the distro name, or undefined for a non-UNC path.
      */
     const distroOf = (cwd) => {
       const match = typeof cwd === "string" ? UNC_RE.exec(cwd) : null;
@@ -223,9 +481,8 @@ window.__ModuleLoader__.load({
      * The reminder state for one session, or null when its environment is right.
      * A missing projection and a matching preset both mean "nothing to say": the
      * banner never guesses an environment.
-     * @param input - the session workspace, its projected preset, the configured
-     *   target preset, the Windows-access list, and subagent membership.
-     * @returns `{ target, windowsAccess }` for a distro workspace on a non-WSL preset.
+     * @param {{ cwd?: string, preset?: unknown, target: string, paths?: string[], subagent?: boolean }} input - the session workspace, its projected preset, the configured target preset, the Windows-access list, and subagent membership.
+     * @returns {{ target: string, windowsAccess: boolean } | null} `{ target, windowsAccess }` for a distro workspace on a non-WSL preset.
      */
     const hostModeOf = ({ cwd, preset, target, paths, subagent }) => {
       if (subagent === true || !isWslUnc(cwd)) return null;
@@ -233,10 +490,14 @@ window.__ModuleLoader__.load({
       return { target, windowsAccess: isWindowsAccessPath(cwd, paths ?? []) };
     };
 
-    /** The sessionStorage key that collapses the warning for one session. */
+    /**
+     * The sessionStorage key that collapses the warning for one session.
+     * @param {string} sessionId - the session the warning belongs to.
+     * @returns {string} the storage key.
+     */
     const dismissedKey = (sessionId) => "wsl-env.access-mode.dismissed:" + String(sessionId);
 
-    /** Reminder components that must re-read the collapse fact when it changes. */
+    /** Reminder components that must re-read the collapse fact when it changes. @type {Set<() => void>} */
     const dismissedListeners = new Set();
 
     /**
@@ -252,12 +513,12 @@ window.__ModuleLoader__.load({
 
     /**
      * Whether the operator collapsed the reminder for this session.
-     * @param sessionId - the session to ask about.
-     * @returns true when the warning was dismissed in this browser session.
+     * @param {string} sessionId - the session to ask about.
+     * @returns {boolean} true when the warning was dismissed in this browser session.
      */
     const readDismissed = (sessionId) => {
       try {
-        return window.sessionStorage.getItem(dismissedKey(sessionId)) === "1";
+        return platform.window.sessionStorage.getItem(dismissedKey(sessionId)) === "1";
       } catch {
         return false;
       }
@@ -265,11 +526,11 @@ window.__ModuleLoader__.load({
 
     /**
      * Collapse the reminder for this session only; a new session asks again.
-     * @param sessionId - the session to collapse.
+     * @param {string} sessionId - the session to collapse.
      */
     const rememberDismissed = (sessionId) => {
       try {
-        window.sessionStorage.setItem(dismissedKey(sessionId), "1");
+        platform.window.sessionStorage.setItem(dismissedKey(sessionId), "1");
       } catch {
         /* a browser without storage keeps the reminder visible */
       }
@@ -278,17 +539,17 @@ window.__ModuleLoader__.load({
 
     /**
      * Follow one session's host-mode state.
-     * @param ctx - client root context.
-     * @param sessionId - the active session.
-     * @param useSessions - the slot's session-list hook.
-     * @param useProjection - the slot's projection hook.
-     * @returns the session summary and the reminder state (null while loading or correct).
+     * @param {ClientServiceHost} ctx - client root context.
+     * @param {string} sessionId - the active session.
+     * @param {UseSessions} useSessions - the slot's session-list hook.
+     * @param {UseProjection} useProjection - the slot's projection hook.
+     * @returns {{ summary: ClientSessionSummary | undefined, state: { target: string, windowsAccess: boolean } | null }} the session summary and the reminder state (null while loading or correct).
      */
     const useHostMode = (ctx, sessionId, useSessions, useProjection) => {
       const summary = useSessions((state) => state.byId[sessionId]);
       const preset = useProjection("agentPreset");
       const cwd = summary?.cwd;
-      const [access, setAccess] = useState(null);
+      const [access, setAccess] = useState(/** @type {ClientAccess | null} */ (null));
 
       useEffect(() => {
         let live = true;
@@ -299,6 +560,7 @@ window.__ModuleLoader__.load({
           return () => { live = false; };
         }
         void (async () => {
+          /** @type {ClientAccessRead} */
           let answer;
           try {
             answer = await readAccess(ctx);
@@ -333,15 +595,15 @@ window.__ModuleLoader__.load({
      * host environment. The primary action is the one that works for this
      * session: a blank session can be switched in place; a session that already
      * started a turn keeps its history, so the durable fix is the access record.
-     * @param props - slot standard props plus the client root context.
-     * @returns the warning bar, or null when the environment is right or collapsed.
+     * @param {ClientReminderProps} props - slot standard props plus the client root context.
+     * @returns {unknown} the warning bar, or null when the environment is right or collapsed.
      */
     function AccessModeBanner({ ctx, sessionId, useSessions, useProjection }) {
       const { summary, state } = useHostMode(ctx, sessionId, useSessions, useProjection);
       const [dismissed, setDismissed] = useState(() => readDismissed(sessionId));
       const [removed, setRemoved] = useState(false);
       const [busy, setBusy] = useState(false);
-      const [notice, setNotice] = useState(null);
+      const [notice, setNotice] = useState(/** @type {ClientNotice | null} */ (null));
 
       useEffect(() => {
         const sync = () => { setDismissed(readDismissed(sessionId)); };
@@ -439,8 +701,8 @@ window.__ModuleLoader__.load({
 
     /**
      * The quiet session-header marker that survives collapsing the banner.
-     * @param props - slot standard props plus the client root context.
-     * @returns the badge, or null when the environment is right or the banner shows.
+     * @param {ClientReminderProps} props - slot standard props plus the client root context.
+     * @returns {unknown} the badge, or null when the environment is right or the banner shows.
      */
     function AccessModeBadge({ ctx, sessionId, useSessions, useProjection }) {
       const { summary, state } = useHostMode(ctx, sessionId, useSessions, useProjection);
@@ -463,9 +725,9 @@ window.__ModuleLoader__.load({
 
     /**
      * Switch one workspace's still-blank sessions to the host default preset.
-     * @param ctx - client root context.
-     * @param workspaceId - the workspace whose sessions to revisit.
-     * @returns the first failure message, or undefined when every eligible session moved.
+     * @param {ClientServiceHost} ctx - client root context.
+     * @param {string} workspaceId - the workspace whose sessions to revisit.
+     * @returns {Promise<string | undefined>} the first failure message, or undefined when every eligible session moved.
      */
     const switchWorkspaceSessions = async (ctx, workspaceId) => {
       const presets = service(ctx, "remote.agentPresets");
@@ -479,6 +741,7 @@ window.__ModuleLoader__.load({
       if (fallback === undefined || typeof fallback.id !== "string") return "找不到宿主默认 preset";
       const workspace = workspaces.list.getSnapshot().items.find((item) => item.workspaceId === workspaceId);
       if (workspace === undefined) return undefined;
+      /** @type {string | undefined} */
       let failure;
       for (const sessionId of workspace.sessionIds) {
         const summary = sessions.list.getSnapshot().byId[sessionId];
@@ -629,7 +892,7 @@ window.__ModuleLoader__.load({
       checkRemedy: { opacity: 0.6 },
     };
 
-    /** Verdict colors: ready / blocked / error / idle. */
+    /** Verdict colors: ready / blocked / error / idle. @type {Record<"ready" | "blocked" | "error" | "idle", { fg: string, bg: string }>} */
     const verdictColors = {
       ready: { fg: "#5ecf86", bg: "rgba(94, 207, 134, 0.14)" },
       blocked: { fg: "#ff8f6b", bg: "rgba(255, 143, 107, 0.14)" },
@@ -639,8 +902,8 @@ window.__ModuleLoader__.load({
 
     /**
      * One status pill.
-     * @param props - label, tone, and optional tooltip.
-     * @returns the pill element.
+     * @param {ClientPillProps} props - label, tone, and optional tooltip.
+     * @returns {unknown} the pill element.
      */
     function Pill({ label, tone, title }) {
       const color = verdictColors[tone] ?? verdictColors.idle;
@@ -664,8 +927,8 @@ window.__ModuleLoader__.load({
 
     /**
      * One neutral button; the caller supplies emphasis.
-     * @param props - label, click handler, and optional emphasis/disabled.
-     * @returns the button element.
+     * @param {ClientBtnProps} props - label, click handler, and optional emphasis/disabled.
+     * @returns {unknown} the button element.
      */
     function Btn({ label, onClick, primary, disabled, small }) {
       return h(
@@ -692,8 +955,8 @@ window.__ModuleLoader__.load({
 
     /**
      * The sidebar glyph: a terminal window.
-     * @param props - requested size and selection state.
-     * @returns the icon element.
+     * @param {{ size?: number, active?: boolean }} props - requested size and selection state.
+     * @returns {unknown} the icon element.
      */
     function WslIcon({ size, active }) {
       const edge = typeof size === "number" ? size : 16;
@@ -719,8 +982,8 @@ window.__ModuleLoader__.load({
 
     /**
      * A titled card.
-     * @param props - title, optional head actions, and children.
-     * @returns the card element.
+     * @param {ClientCardProps} props - title, optional head actions, and children.
+     * @returns {unknown} the card element.
      */
     function Card({ title, actions, children }) {
       return h(
@@ -733,8 +996,8 @@ window.__ModuleLoader__.load({
 
     /**
      * The pill for one distro's check state.
-     * @param props - the cached check state, if any.
-     * @returns the pill element.
+     * @param {{ state?: ClientCheckRow }} props - the cached check state, if any.
+     * @returns {unknown} the pill element.
      */
     function CheckPill({ state }) {
       if (state === undefined || state.phase === undefined) return h(Pill, { label: "未检查", tone: "idle" });
@@ -760,9 +1023,8 @@ window.__ModuleLoader__.load({
 
     /**
      * A numbered list of doctor findings.
-     * @param props - heading, findings, whether they block, and the ids the
-     * explicit repair can repair.
-     * @returns the list, or null when there is nothing to show.
+     * @param {{ heading: string, items?: ClientFinding[], severity?: string, repairable?: string[] }} props - heading, findings, whether they block, and the ids the explicit repair can repair.
+     * @returns {unknown} the list, or null when there is nothing to show.
      */
     function IssueList({ heading, items, severity, repairable }) {
       if (!Array.isArray(items) || items.length === 0) return null;
@@ -790,8 +1052,8 @@ window.__ModuleLoader__.load({
 
     /**
      * The repair action's rows: what the doctor did, with its status mark.
-     * @param props - the `fix.*` rows the repair answered with.
-     * @returns the list, or null when the run has no repair rows.
+     * @param {{ items?: StatusRepair[] }} props - the `fix.*` rows the repair answered with.
+     * @returns {unknown} the list, or null when the run has no repair rows.
      */
     function RepairList({ items }) {
       if (!Array.isArray(items) || items.length === 0) return null;
@@ -825,8 +1087,8 @@ window.__ModuleLoader__.load({
      * shows the same rows the failures came from, so nothing is hidden. The
      * catalog rows a quick run never executed are counted in one line instead
      * of listed as fake "not run" checks.
-     * @param props - the cached check state.
-     * @returns the toggle and, open, the grouped list.
+     * @param {{ state: ClientCheckRow }} props - the cached check state.
+     * @returns {unknown} the toggle and, open, the grouped list.
      */
     function CheckDetails({ state }) {
       const [open, setOpen] = useState(false);
@@ -838,7 +1100,15 @@ window.__ModuleLoader__.load({
         .filter((group) => group.rows.length > 0);
       const other = checks.filter((row) => !order.includes(row.section));
       if (other.length > 0) groups.push({ section: "other", rows: other });
+      /**
+       * @param {string} status - the doctor's check status.
+       * @returns {string} the status mark.
+       */
       const mark = (status) => status === "ok" ? "✓" : status === "fail" ? "✗" : status === "warn" ? "!" : status === "unknown" ? "?" : status === "skipped" ? "-" : "i";
+      /**
+       * @param {string} status - the doctor's check status.
+       * @returns {Record<string, unknown>} the mark's color for that status.
+       */
       const tone = (status) => status === "ok" ? styles.countOk : status === "fail" ? styles.countFail : status === "warn" || status === "unknown" ? styles.countWarn : styles.summaryMuted;
       return h(
         "div",
@@ -876,8 +1146,8 @@ window.__ModuleLoader__.load({
 
     /**
      * Format a check timestamp with a relative hint.
-     * @param at - epoch milliseconds.
-     * @returns the display label.
+     * @param {number} at - epoch milliseconds.
+     * @returns {string} the display label.
      */
     const checkedLabel = (at) => {
       const date = new Date(at);
@@ -896,8 +1166,8 @@ window.__ModuleLoader__.load({
 
     /**
      * The result's structure: when the check ran and how its rows landed.
-     * @param props - the cached check state.
-     * @returns the summary block.
+     * @param {{ state: ClientCheckRow }} props - the cached check state.
+     * @returns {unknown} the summary block.
      */
     function ResultSummary({ state }) {
       const counts = state.counts ?? {};
@@ -957,22 +1227,23 @@ window.__ModuleLoader__.load({
     /**
      * The row phases in which a request is still in flight: a list read must
      * leave such a row alone (see `loadDistros`).
+     * @type {Set<string | undefined>}
      */
     const IN_FLIGHT = new Set(["checking", "fullChecking", "repairing", "refreshing"]);
 
     /**
      * The WSL environment page: the installed distros, their quick verdicts, and
      * the directories recorded for Windows access.
-     * @param props - the client root context.
-     * @returns the page element.
+     * @param {ClientPanelProps} props - the client root context.
+     * @returns {unknown} the page element.
      */
     function WslPanel({ ctx }) {
       const [phase, setPhase] = useState("loading");
-      const [distros, setDistros] = useState([]);
-      const [checks, setChecks] = useState({});
-      const [notice, setNotice] = useState(null);
-      const [accessPaths, setAccessPaths] = useState(null);
-      const [plugin, setPlugin] = useState({ phase: "loading" });
+      const [distros, setDistros] = useState(/** @type {string[]} */ ([]));
+      const [checks, setChecks] = useState(/** @type {ClientCheckTable} */ ({}));
+      const [notice, setNotice] = useState(/** @type {ClientNotice | null} */ (null));
+      const [accessPaths, setAccessPaths] = useState(/** @type {string[] | null} */ (null));
+      const [plugin, setPlugin] = useState(/** @type {ClientPluginState} */ ({ phase: "loading" }));
 
       /** Re-read the Windows-access record (best effort; the panel still works without it). */
       const loadAccessPaths = async () => {
@@ -989,7 +1260,7 @@ window.__ModuleLoader__.load({
        * host's cache TTL ask the host's plugin-manager for a fresh answer; a
        * click forces one. The installed version stays visible while a later
        * check fails, so the card never turns into a bare error.
-       * @param refresh - whether to bypass the host's version cache.
+       * @param {boolean} [refresh] - whether to bypass the host's version cache.
        */
       const loadPlugin = async (refresh = false) => {
         setPlugin((previous) => ({
@@ -1068,7 +1339,7 @@ window.__ModuleLoader__.load({
        * keeps its previous summary until the answer arrives; a doctor failure
        * comes back as a normal error verdict (and is stored), while a
        * transport failure leaves the row with the reason it has no result.
-       * @param distro - the distro to re-check.
+       * @param {string} distro - the distro to re-check.
        */
       const refreshBackground = async (distro) => {
         setChecks((previous) => {
@@ -1086,7 +1357,7 @@ window.__ModuleLoader__.load({
 
       /**
        * Load the distro list and the stored results.
-       * @param allowBackground - whether running distros' stored results may be
+       * @param {boolean} [allowBackground] - whether running distros' stored results may be
        *   re-checked in the background (the initial load only, not a manual
        *   refresh: a refresh is a list read, not a probe).
        */
@@ -1103,6 +1374,7 @@ window.__ModuleLoader__.load({
           // second doctor could start beside the first) and let the first
           // check's late answer land over whatever had replaced it.
           setChecks((previous) => {
+            /** @type {ClientCheckTable} */
             const next = {};
             for (const [distro, state] of Object.entries(previous)) {
               if (state !== undefined && IN_FLIGHT.has(state.phase)) next[distro] = state;
@@ -1146,6 +1418,10 @@ window.__ModuleLoader__.load({
         void loadPlugin();
       }, []);
 
+      /**
+       * Run the quick check against one distro.
+       * @param {string} distro - the distro to check.
+       */
       const check = async (distro) => {
         setNotice(null);
         setChecks((previous) => ({ ...previous, [distro]: { phase: "checking" } }));
@@ -1159,7 +1435,7 @@ window.__ModuleLoader__.load({
 
       /**
        * Run a full, read-only doctor report.
-       * @param distro - the distro to run against.
+       * @param {string} distro - the distro to run against.
        */
       const fullCheck = async (distro) => {
         setNotice(null);
@@ -1186,7 +1462,7 @@ window.__ModuleLoader__.load({
       /**
        * Run the explicit plugin-owned repair after a full report identifies
        * repairable findings.
-       * @param distro - the distro to repair.
+       * @param {string} distro - the distro to repair.
        */
       const repair = async (distro) => {
         setNotice(null);
@@ -1222,7 +1498,7 @@ window.__ModuleLoader__.load({
        * when `wsl.exe` or the doctor is unavailable. The rows are removed only
        * after the route confirms, so a failed request leaves the last result
        * visible with the reason.
-       * @param distro - the distro whose result is cleared, or null for all.
+       * @param {string | null} distro - the distro whose result is cleared, or null for all.
        */
       const clearResults = async (distro) => {
         setNotice(null);
@@ -1262,6 +1538,7 @@ window.__ModuleLoader__.load({
         && !Number.isNaN(new Date(latest.publishedAt).getTime())
         ? new Date(latest.publishedAt).toLocaleDateString()
         : undefined;
+      /** @type {string} */
       let pluginStatusLine;
       if (plugin.phase === "loading") {
         pluginStatusLine = "正在读取版本信息…";
@@ -1538,7 +1815,7 @@ window.__ModuleLoader__.load({
 
     // ── The access-mode prompt ─────────────────────────────────────────────
 
-    /** One pending prompt, shared by the watcher and the overlay occupant. */
+    /** One pending prompt, shared by the watcher and the overlay occupant. @type {ClientAccessPrompt} */
     const accessPrompt = {
       value: null,
       listeners: new Set(),
@@ -1555,13 +1832,13 @@ window.__ModuleLoader__.load({
 
     /**
      * The modal that asks how a newly added distro workspace is opened.
-     * @param props - the client root context.
-     * @returns the modal, or null while nothing is pending.
+     * @param {ClientPanelProps} props - the client root context.
+     * @returns {unknown} the modal, or null while nothing is pending.
      */
     function AccessPrompt({ ctx }) {
       const [request, setRequest] = useState(accessPrompt.get());
       const [busy, setBusy] = useState(false);
-      const [error, setError] = useState(null);
+      const [error, setError] = useState(/** @type {string | null} */ (null));
 
       useEffect(() => accessPrompt.subscribe(() => {
         setRequest(accessPrompt.get());
@@ -1573,9 +1850,10 @@ window.__ModuleLoader__.load({
       // which is exactly what "keep the default" means for this record.
       useEffect(() => {
         if (request === null) return undefined;
+        /** @param {ClientKeyEvent} event - the key event on the document. */
         const onKey = (event) => { if (event.key === "Escape") accessPrompt.set(null); };
-        document.addEventListener("keydown", onKey);
-        return () => document.removeEventListener("keydown", onKey);
+        platform.document.addEventListener("keydown", onKey);
+        return () => platform.document.removeEventListener("keydown", onKey);
       }, [request]);
 
       if (request === null) return null;
@@ -1607,6 +1885,7 @@ window.__ModuleLoader__.load({
       return h(
         "div",
         {
+          /** @param {ClientMouseEvent} event - the click on the backdrop. */
           onClick: (event) => { if (event.target === event.currentTarget) close(); },
           style: {
             position: "fixed",
@@ -1677,12 +1956,13 @@ window.__ModuleLoader__.load({
      * Watch for newly added WSL workspaces and raise the access-mode prompt.
      * Existing workspaces are the baseline: startup restoration must not ask
      * again for a workspace the operator already opened.
-     * @param ctx - client root context.
-     * @returns a disposer owned by the plugin fiber.
+     * @param {ClientServiceHost} ctx - client root context.
+     * @returns {(() => void) | undefined} a disposer owned by the plugin fiber.
      */
     const watchWorkspaces = (ctx) => {
       const workspaces = service(ctx, "workspaces");
       if (workspaces === undefined) return undefined;
+      /** @type {Set<string> | undefined} */
       let known;
       const consider = () => {
         const snapshot = workspaces.list.getSnapshot();
@@ -1706,6 +1986,7 @@ window.__ModuleLoader__.load({
 
     return {
       inject: ["slots"],
+      /** @param {ClientContext} ctx - the client root context. */
       apply(ctx) {
         // Sidebar panel: icon in the navigation column, page in the main seat.
         ctx.slots.inject("sidebar.panellist", function* () {
@@ -1773,7 +2054,7 @@ window.__ModuleLoader__.load({
                     headers: { "content-type": "application/json" },
                     body: JSON.stringify({ path: cwd }),
                   });
-                  const body = await answer.json().catch(() => ({}));
+                  const body = /** @type {{ error?: string }} */ (await answer.json().catch(() => ({})));
                   if (!answer.ok) throw new Error(body.error ?? ("打开失败（HTTP " + answer.status + "）"));
                 },
               }];

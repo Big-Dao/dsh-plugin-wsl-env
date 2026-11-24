@@ -18,5 +18,5 @@
   // and byte-compared against the committed artifact by `lint:build` — so this
   // gate covers what is NOT generated: the tests and probes, plus the ambient
   // service types the build shares.
-  "include": ["test/**/*.mjs", "types/*.d.ts", "scripts/doctor.mjs"]
+  "include": ["test/**/*.mjs", "types/*.d.ts", "scripts/doctor.mjs", "client.js"]
 }

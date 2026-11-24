@@ -329,6 +329,20 @@ were part of the record.
   really does: it closes ordinary Harness processes itself, announcing the
   PIDs, and `--wait-only` keeps the manual-close workflow — it never merely
   "waits until it exits".
+- **The web client is under the type gate (#89 e, f).** `client.js` — the
+  plugin's 1 800-line browser entry, loaded through the harness's web-client
+  loader — was only syntax-checked. `tsc --noEmit` now covers it, and the
+  file is typed to zero errors with JSDoc: its wire and state shapes reuse
+  the built modules' exported types (`DistroStatusView`,
+  `PluginVersionView`, …), and the browser surface it touches is declared
+  locally — one `ClientPlatform` sample of `globalThis` — rather than by
+  adding a DOM lib, which would have let Node-side code use `document` too.
+  No runtime behavior changed; the browser e2e suite and the client's 25
+  unit checks pin that. The gate changes around it: the style gate now
+  requires every `test/*.test.mjs` on disk to be listed in both unit
+  scripts, the three byte-identical fake-resident `close()` copies share
+  `test/resident-close.mjs`, and the process-tree check polls for the clean
+  tree instead of sleeping a fixed 4.5 s.
 
 ## [0.29.0] - 2026-11-23
 

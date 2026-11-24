@@ -9,8 +9,9 @@
  * `next`, the rc line the plugin tracks), prints the exact version delta —
  * the signal to re-run the `docs/PEER-PARITY.md` comparison and raise the
  * floor — and — with `--apply` — installs that line into a scratch copy and
- * runs `pnpm test` plus the composition boot test. The workflow that calls it
- * is `.github/workflows/peer-canary.yml` (weekly + manual).
+ * runs `pnpm test` (the composition boot test is part of that chain). The
+ * workflow that calls it is `.github/workflows/peer-canary.yml` (weekly +
+ * manual).
  *
  *   node scripts/peer-canary.mjs --check [--tag next] [--json]
  *   node scripts/peer-canary.mjs --apply [--tag next]
@@ -50,6 +51,25 @@ const SUMMARY = join(ROOT, "canary-summary.md");
  * @property {string} pinned - the range in package.json.
  * @property {string} latest - the tag's resolved version.
  */
+
+/**
+ * The commands the scratch tree runs, in order.
+ *
+ * The install turns pnpm's release-age window off. The pinned line's packages
+ * are exact versions chosen on purpose, and `next` is by definition the line
+ * that was published most recently: inside the window after a release, the
+ * weekly run was refused by the supply-chain policy and reported a failed
+ * install that was not one. The tarball-URL binding and trust checks stay on.
+ *
+ * @param {string} [pnpm] - the pnpm executable, with the platform's suffix.
+ * @returns {Array<[string, string[]]>} executable and arguments per step.
+ */
+export function scratchSteps(pnpm = PNPM) {
+  return [
+    [pnpm, ["install", "--no-frozen-lockfile", "--config.minimum-release-age=0"]],
+    [pnpm, ["test"]],
+  ];
+}
 
 /**
  * Compare each pinned peer against the tag's versions.
@@ -208,10 +228,8 @@ function main(options) {
         return false;
       }
     };
-    const installed = run(PNPM, ["install", "--no-frozen-lockfile"]);
-    const tested = installed && run(PNPM, ["test"]);
-    const composed = installed && run("node", ["test/composition.test.mjs"]);
-    const ok = installed && tested && composed;
+    // One failed step ends the run: nothing after it would be trustworthy.
+    const ok = scratchSteps(PNPM).every(([command, args]) => run(command, args));
     writeSummary(options.tag, delta, results);
     return ok ? 0 : 1;
   } finally {

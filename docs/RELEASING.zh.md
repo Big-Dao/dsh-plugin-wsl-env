@@ -30,6 +30,9 @@ Post-release gate: 每个 stable/next tag 在 registry 传播后
   由 `test/probe/official-smoke-probe.mjs` 在官方 CLI 无头启动上覆盖（挂载插件的
   WSL shell executor，属 provider 级证据；session 运行时路径仍以源码门禁为准），
   失败即 FAIL。
+- 发布使用的 dist-tag 由 `scripts/check-release-tag.mjs --dist-tag` 决定：任何带
+  预发布段的版本发到 `next`，其余发到 `latest`；tag 检查同时拒绝不是
+  `MAJOR.MINOR.PATCH[-pre]` 形式的版本。
 
 其余步骤（确定版本、切分变更日志、完整检查、真机探针与发布后核验）见英文版
 [RELEASING.md](RELEASING.md)。

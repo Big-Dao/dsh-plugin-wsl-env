@@ -6,7 +6,7 @@
  *   node test/peer-canary.test.mjs
  */
 import assert from "node:assert/strict";
-import { peerDelta, rewriteManifest } from "../scripts/peer-canary.mjs";
+import { peerDelta, rewriteManifest, scratchSteps } from "../scripts/peer-canary.mjs";
 
 let passed = 0;
 /**
@@ -67,4 +67,12 @@ check("rewriteManifest moves peer and dev pins and keeps each declared range sha
   assert.equal(manifest.peerDependencies?.a, "1.0.0", "the input manifest is not mutated");
 });
 
-console.log(`${passed}/5 peer-canary checks pass`);
+check("the scratch install turns pnpm's release-age window off, and the chain runs once", () => {
+  const steps = scratchSteps("pnpm.cmd");
+  assert.deepEqual(steps[0], ["pnpm.cmd", ["install", "--no-frozen-lockfile", "--config.minimum-release-age=0"]], "a next line published inside the 24 h window must install");
+  assert.deepEqual(steps[1], ["pnpm.cmd", ["test"]]);
+  assert.equal(steps.length, 2, "no step re-runs a test the chain already includes");
+  assert.deepEqual(scratchSteps()[0]?.[0], "pnpm", "the default executable is pnpm's POSIX name");
+});
+
+console.log(`${passed}/6 peer-canary checks pass`);

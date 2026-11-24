@@ -263,6 +263,19 @@ were part of the record.
     summary said 32 files for 31), and its peer-version rule reports the day
     the peer floors stop being release candidates, when it would otherwise
     match nothing and pass in silence.
+- **Release and patrol scripts (#87 c, d).** The npm dist-tag now comes from
+  the script that already owns the tag/version rule:
+  `node scripts/check-release-tag.mjs --dist-tag` answers `next` for ANY
+  prerelease segment, where the workflow's list of four identifiers let a
+  version such as `0.30.0-preview.1` through to `latest`. The tag check also
+  refuses a version that is not `MAJOR.MINOR.PATCH` with an optional
+  `-prerelease`. The peer-canary's scratch install turns pnpm's release-age
+  window off (`--config.minimum-release-age=0`, as the release workflow's
+  install does), so a `next` line published inside the 24-hour window is no
+  longer refused and reported as a failed install; and it no longer re-runs
+  the composition boot test that `pnpm test` already includes. The publish
+  step's change is covered by the workflow-text assertions only — it has not
+  run on a release runner.
 
 ## [0.29.0] - 2026-11-23
 

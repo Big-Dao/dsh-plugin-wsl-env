@@ -15,9 +15,10 @@
  */
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { distTagFor, isPrerelease, isReleaseVersion } from "../scripts/check-release-tag.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPTS = join(ROOT, "scripts");
@@ -87,6 +88,44 @@ check("check-release-tag accepts the matching tag and rejects every other", () =
   const none = run("check-release-tag.mjs", []);
   assert.equal(none.status, 2, "no tag is a usage error");
   assert.match(none.stderr, /usage: node scripts\/check-release-tag\.mjs/);
+});
+
+check("check-release-tag answers the dist-tag for any prerelease, and refuses a version that is not a release", () => {
+  // "Prerelease" is the semver definition, not a list of identifiers: the
+  // workflow used to grep for four names, and everything else moved `latest`.
+  /** @type {Array<[string, "next" | "latest"]>} */
+  const distTags = [["0.30.0-preview.1", "next"], ["1.2.3-rc.4", "next"], ["1.2.3-insider", "next"], ["1.2.3-0.3.7", "next"], ["1.2.3", "latest"], ["0.29.0", "latest"]];
+  for (const [version, tag] of distTags) {
+    assert.equal(isReleaseVersion(version), true, `${version} is a release version`);
+    assert.equal(isPrerelease(version), tag === "next", version);
+    assert.equal(distTagFor(version), tag, `${version} publishes as ${tag}`);
+  }
+  for (const bad of ["1.2", "v1.2.3", "01.2.3", "1.2.3-", "1.2.3-01", "1.2.3+build", "1.2.3-rc.1+build", "latest", ""]) {
+    assert.equal(isReleaseVersion(bad), false, `${JSON.stringify(bad)} is not a release version`);
+    assert.throws(() => distTagFor(bad), /is not a release version/, JSON.stringify(bad));
+  }
+  const current = run("check-release-tag.mjs", ["--dist-tag"]);
+  assert.equal(current.status, 0, current.stderr);
+  assert.equal(current.stdout.trim(), isPrerelease(PKG.version) ? "next" : "latest", "the workflow's dist-tag comes from the script");
+
+  // A tag can match its version exactly while the version is unusable; the
+  // gate refuses that too, from a copy of the script over another manifest.
+  const other = join(SCRATCH, "release-version");
+  mkdirSync(join(other, "scripts"), { recursive: true });
+  cpSync(join(SCRIPTS, "check-release-tag.mjs"), join(other, "scripts", "check-release-tag.mjs"));
+  writeFileSync(join(other, "package.json"), JSON.stringify({ name: "ze-other", version: "1.0" }));
+  const malformed = spawnSync(process.execPath, [join(other, "scripts", "check-release-tag.mjs"), "v1.0"], { encoding: "utf8" });
+  assert.equal(malformed.status, 1, "a matching tag over a malformed version is refused");
+  assert.match(malformed.stderr, /package\.json version 1\.0 is not a release version/);
+  const tag = spawnSync(process.execPath, [join(other, "scripts", "check-release-tag.mjs"), "--dist-tag"], { encoding: "utf8" });
+  assert.equal(tag.status, 1);
+  assert.equal(tag.stdout, "", "no dist-tag is printed for a version that is not a release");
+
+  // The publish step asks the script; no identifier list remains to drift.
+  const release = readFileSync(join(ROOT, ".github", "workflows", "release.yml"), "utf8");
+  assert.match(release, /dist_tag="\$\(node scripts\/check-release-tag\.mjs --dist-tag\)"/);
+  assert.match(release, /npm publish "\.\/\$CANDIDATE_FILE" --provenance --access public --tag "\$dist_tag"/);
+  assert.doesNotMatch(release, /rc\|alpha\|beta\|next/);
 });
 
 // ── changelog-section ────────────────────────────────────────────────────────

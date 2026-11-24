@@ -114,6 +114,12 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
 - **aarch64 只在 CI 中于 qemu 下运行**（身边没有 Windows-on-ARM 机器——
   [COMPATIBILITY.md](COMPATIBILITY.md#scope-decisions)）。`auto` 仍会选择
   包内二进制；`native` 在准备失败时拒绝；`shell` 强制使用 shell agent。
+- **托管的 cloud WSL 门禁以发行版的 root 用户跑完整探针套件** ——
+  `.github/workflows/cloud-wsl-gate.yml` 以 `-u root` 执行
+  `run-all-when-closed.sh`，并只为 root 开启 linger。真实部署使用普通 distro
+  用户：非特权 user namespace、用户级 systemd 与 linger 是另一条路径，root
+  下通过不等于普通用户下通过。普通用户路径仍以真机探针为准，该门禁不声称
+  覆盖它（见 #88）。
 - **会话 runtime 需要 systemd 和带 linger 的 user manager** —— 否则在
   第一条命令时被拒绝并给出补救方法；把 `sessionSandbox` 设为 `auto`
   （无 systemd 时即按命令形态）或 `false` 保留旧的按命令形态。应用硬崩溃

@@ -263,9 +263,11 @@ there because the plugin targets Windows; the coverage thresholds need Node 22.8
 newer, which is why that job runs on one version.
 
 `.github/workflows/cloud-wsl-gate.yml` adds an independent hosted DeepSeek
-Harness Desktop and WSL gate. On pushes and pull requests targeting `main` and
-on manual `workflow_dispatch`, it builds the unsigned Windows Desktop package from the
-upstream tag on `windows-latest`, installs Ubuntu 24.04 and `bubblewrap`, uses
+Harness Desktop and WSL gate. On pushes and pull requests targeting `main` that
+touch the plugin sources, composition, probes or that workflow (and on manual
+`workflow_dispatch`), it builds the unsigned Windows Desktop package from the
+upstream tag on `windows-latest` — cached by pinned tag and workflow recipe —
+provisions Ubuntu 24.04 through `.github/actions/provision-wsl`, uses
 the desktop app's bundled CLI to create a `wsl` profile, installs the local
 checkout into that profile, verifies the composed dump contains
 `dsh-plugin-wsl-env`, launches the desktop app's configured Web service and waits

@@ -24,7 +24,7 @@ assert.match(workflow, /runs-on:\s*windows-latest/);
 // The primary distro is provisioned through the shared composite action (the
 // hosted-runner watchdog lives there); the workflow must not inline a second
 // copy of that sequence (#88).
-assert.match(workflow, /uses:\s*\.\/\.github\/actions\/provision-wsl/);
+assert.match(workflow, /uses:\s*\.\/plugin\/\.github\/actions\/provision-wsl/);
 assert.match(workflow, /distro:\s*Ubuntu-24\.04/);
 assert.match(workflow, /extra-packages:\s*unzip/);
 const provision = readFileSync(resolve(ROOT, ".github/actions/provision-wsl/action.yml"), "utf8");

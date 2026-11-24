@@ -130,7 +130,7 @@ jobs:
           "DESKTOP_DSH=$dshCommand" >> $env:GITHUB_ENV
 
       - name: Provision Ubuntu 24.04 and bwrap
-        uses: ./.github/actions/provision-wsl
+        uses: ./plugin/.github/actions/provision-wsl
         with:
           distro: Ubuntu-24.04
           extra-packages: unzip

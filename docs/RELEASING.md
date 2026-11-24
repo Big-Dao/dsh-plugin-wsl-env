@@ -72,11 +72,19 @@ the `wsl.exe` tail on the Windows CI legs or moving the coverage job
 `windows-latest`.
 
 Run the full real-machine suite when behaviour changed, and keep its output for
-the pull request or the release notes. The harness application must be closed;
-the runner waits until it exits:
+the pull request or the release notes. The default launcher closes ordinary
+Harness processes itself — a process-tree kill, announced with the PIDs — so a
+closed window or a tray-resident build does not have to be found by hand;
+`--wait-only` keeps the manual-close workflow and kills nothing. Either way the
+run polls until the app is gone, refuses to run while a stale probe instance
+is still up, and bounds each probe with its own deadline
+(`DSH_WSL_ENV_PROBE_TIMEOUT`, default 900 s) — a wedged probe reports as
+`FAIL <probe> (timeout after …)` instead of holding the suite unseen:
 
 ```bash
 bash test/probe/run-all-when-closed.sh --include-fs
+# with the app closed by hand:
+bash test/probe/run-all-when-closed.sh --include-fs --wait-only
 ```
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for individual probes, prerequisites,

@@ -19,48 +19,27 @@
 
 set -euo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="$(cd "$HERE/../.." && pwd)"
-
-# fnm's shims are not on a non-interactive PATH; source the env the way the
-# user's shell would.
-if [ -d "$HOME/.local/share/fnm" ] && ! command -v node >/dev/null 2>&1; then
-  # fnm's default alias holds the pinned toolchain; `fnm env` would want a
-  # symlink under /run, which a confined shell cannot create.
-  export PATH="$HOME/.local/share/fnm/aliases/default/bin:$PATH"
-fi
+# Shared preamble: PROBE_DIR/REPO_DIR, the distro (refused loudly when no host
+# names one), and the fnm PATH fallback.
+# shellcheck source=probe-env.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/probe-env.sh"
 command -v node >/dev/null 2>&1 || { echo "agent probe: node not found (fnm env not loaded?)" >&2; exit 1; }
 
-export DSH_WSL_ENV_AGENT_SCRIPT="$REPO/agent/wsl-agent.sh"
-export DSH_WSL_ENV_AGENT_REPO="$REPO"
+export DSH_WSL_ENV_AGENT_SCRIPT="$REPO_DIR/agent/wsl-agent.sh"
+export DSH_WSL_ENV_AGENT_REPO="$REPO_DIR"
 
-node --input-type=module - "$REPO" <<'EOF'
+node --input-type=module - "$REPO_DIR" <<'EOF'
 import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const repo = process.env.DSH_WSL_ENV_AGENT_REPO;
 const { WslAgent } = await import(`${repo}/lib/agent.js`);
-const distro = process.env.WSL_DISTRO_NAME || "ubuntu";
+const { makeCheck, Skip } = await import(`${process.env.DSH_WSL_ENV_PROBE_DIR}/check.mjs`);
+const { check, summary } = makeCheck();
+// probe-env.sh resolved the distro or refused to run; no silent default here.
+const distro = process.env.DSH_WSL_ENV_DISTRO;
 const agent = new WslAgent({ distro, scriptPath: `${repo}/agent/wsl-agent.sh`, idleMs: 0 });
-
-let passed = 0;
-let skipped = 0;
-async function check(name, fn) {
-  try {
-    await fn();
-    passed += 1;
-    console.log(`PASS  ${name}`);
-  } catch (error) {
-    if (error instanceof Skip) {
-      skipped += 1;
-      console.log(`SKIP  ${name}\n      ${error.message}`);
-      return;
-    }
-    console.log(`FAIL  ${name}\n      ${error.message}`);
-    process.exitCode = 1;
-  }
-}
 
 await check("ping completes the handshake against a real distro", () => agent.ping());
 
@@ -130,8 +109,7 @@ const oneShot = (cdDir, script) => new Promise((resolve, reject) => {
 // sibling signature is `UtilAcceptVsock ... accept4 failed 110`). An
 // environment failure that prevents the comparison from happening is not a
 // parity violation — it SKIPs with the evidence, loudly. A comparison that
-// actually ran and disagreed still fails.
-class Skip extends Error {}
+// actually ran and disagreed still fails. The Skip class is check.mjs's.
 
 /** Whether an outcome is wsl.exe failing to reach its own service. */
 const wslServiceTimeout = (outcome) =>
@@ -178,6 +156,6 @@ await check("fallback parity: NUL and CRLF round-trip on both paths", async () =
 });
 
 await agent.close();
-console.log(`\n${passed} agent probe checks pass${skipped > 0 ? `, ${skipped} skipped (nested wsl.exe could not reach the WSL service)` : ""}`);
+summary("agent probe");
 process.exit(process.exitCode ?? 0);
 EOF

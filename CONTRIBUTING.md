@@ -341,8 +341,12 @@ per-file deadline, so a script-style file that leaves a handle alive behind an
 unsettled top-level await would otherwise hang the gate until the caller kills
 it; at the deadline the wrapper interrupts the run and node's "Interrupted while
 running" list names the file that never finished. The scripts also pass
-`--test-timeout=60000`, which bounds only tests a file registers with `test()` —
-the watchdog is what covers a hang at module evaluation.
+`--test-timeout=120000`. On Node 24 it bounds only tests a file registers
+with `test()`, and the watchdog is what covers a hang at module evaluation;
+Node 22 also counts a script-style file's top-level evaluation against it,
+so it has to exceed the slowest file — the doctor suite, which starts
+dozens of fake processes per run and waits out the real delays of flake
+retries, takes about a minute.
 
 `test:coverage` runs that list through `scripts/coverage-gate.mjs` as well.
 Node's coverage is load-based — a module no test imports has no row, so the

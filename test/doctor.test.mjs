@@ -65,7 +65,8 @@ const err = (text) => process.stderr.write(text);
 // The distro's HOME is a POSIX path even when the host's is not: the fake
 // answers what a Linux distro answers, so a Windows runner's C:\Users\...
 // never leaks into identity or cache paths.
-const home = /^[A-Za-z]:/.test(env.HOME ?? "") ? "/home/tester" : (env.HOME ?? "");
+const rawHome = env.HOME ?? env.USERPROFILE ?? "";
+const home = /^[A-Za-z]:/.test(rawHome) ? "/home/tester" : rawHome;
 const FLAKE = "connection attempt failed because the connected party did not properly respond Wsl/Service/WSAETIMEDOUT\\n";
 
 if (all === "-l -q" || all === "--list -q") {
@@ -204,7 +205,7 @@ else if (all.includes("--exec sh -c")) {
     const b64 = (text) => Buffer.from(text, "utf8").toString("base64").replace(/\\n/g, "");
     out("DSHBATCH=ok\\n");
     if (env.FAKE_IDENTITY === "bad") out("SH=\\nHM=\\n");
-    else out("SH=/bin/bash\\nHM=" + (env.FAKE_DISTRO_HOME ?? env.HOME ?? "") + "\\n");
+    else out("SH=/bin/bash\\nHM=" + (env.FAKE_DISTRO_HOME ?? home) + "\\n");
     out("FAMILY=" + (env.FAKE_FAMILY ?? "apt-get") + "\\n");
     out("DF=" + "/dev/sdc 262030 151898 110132 " + (env.FAKE_DISK ?? "42") + "% /\\n");
     out("DATE=" + (env.FAKE_CLOCK ?? String(Math.floor(Date.now() / 1000))) + "\\n");

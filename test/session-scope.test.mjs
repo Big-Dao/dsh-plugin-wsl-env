@@ -8,6 +8,7 @@
  */
 import assert from "node:assert/strict";
 import {
+  SCOPE_STARTUP_GRACE_SECONDS,
   sessionScopePrefix,
   sessionScopeProblem,
   sessionScopeProbeArgv,
@@ -124,6 +125,11 @@ check("the stale-scope sweep only stops scopes without a live agent", () => {
   assert.match(script, /dsh-wsl-agent/, "the native agent is a liveness marker too");
   assert.match(script, /systemctl --user stop "\$unit"/);
   assert.match(script, /exit 0/, "a missing user manager is a no-op, not a failure");
+  // A scope that systemd has created but not yet exec'd the agent into has an
+  // empty cgroup.procs; it must not be judged stale before the startup grace.
+  assert.match(script, /\[ -r "\/sys\/fs\/cgroup\$cg\/cgroup\.procs" \] \|\| continue/, "an unreadable cgroup proves nothing");
+  assert.match(script, /ActiveEnterTimestampMonotonic/, "the sweep reads the unit's age");
+  assert.ok(script.includes(String(SCOPE_STARTUP_GRACE_SECONDS * 1_000_000)), "the sweep waits out the startup grace");
 });
 
 for (const [name, fn] of checks) await runCheck(name, fn);

@@ -26,6 +26,14 @@ import { t } from "./messages.js";
 const MAX_COMPONENT = 64;
 
 /**
+ * How long a `dsh-wsl-*.scope` may stay agent-less before the sweep may stop
+ * it. `systemd-run --scope` creates the unit before it execs the agent, so a
+ * scope that is merely starting has an empty cgroup for a moment; the sweep
+ * must not mistake that for a crash leftover.
+ */
+export const SCOPE_STARTUP_GRACE_SECONDS = 120;
+
+/**
  * Characters systemd accepts in a unit name; everything else is folded to `_`.
  * The allowed set is `[A-Za-z0-9:_.\-]`; `:` is legal in unit names but not
  * useful here, so it is folded too, keeping the name easy to copy into a
@@ -149,6 +157,13 @@ export function sessionScopeProbeScript(): string {
  * can prove stale; if there is no user manager it exits 0 (the session
  * preflight reports that condition separately).
  *
+ * Two checks keep a scope that is still starting from being swept: an
+ * unreadable `cgroup.procs` says nothing (the cgroup may not exist yet), and
+ * a unit younger than {@link SCOPE_STARTUP_GRACE_SECONDS} is left alone —
+ * `systemd-run --scope` creates the unit before exec'ing the agent, so its
+ * `cgroup.procs` is briefly empty. Only a scope older than that with no agent
+ * in its cgroup is provably stale.
+ *
  * @returns the shell script.
  */
 export function sessionScopeSweepScript(): string {
@@ -159,13 +174,18 @@ export function sessionScopeSweepScript(): string {
     '  [ -n "$unit" ] || continue',
     '  cg=$(systemctl --user show -p ControlGroup --value "$unit" 2>/dev/null)',
     '  [ -n "$cg" ] || continue',
+    '  [ -r "/sys/fs/cgroup$cg/cgroup.procs" ] || continue',
+    '  started=$(systemctl --user show -p ActiveEnterTimestampMonotonic --value "$unit" 2>/dev/null)',
+    '  case "$started" in ""|*[!0-9]*) continue;; esac',
+    '  [ "$started" -gt 0 ] || continue',
+    "  now=$(awk '{ printf \"%.0f\", $1 * 1000000 }' /proc/uptime 2>/dev/null) || continue",
+    '  [ -n "$now" ] || continue',
+    '  [ $((now - started)) -ge ' + String(SCOPE_STARTUP_GRACE_SECONDS * 1_000_000) + ' ] || continue',
     '  alive=0',
-    '  if [ -r "/sys/fs/cgroup$cg/cgroup.procs" ]; then',
-    '    while read -r pid; do',
-    '      [ -n "$pid" ] || continue',
-    "      if tr '\\0' ' ' < \"/proc/$pid/cmdline\" 2>/dev/null | grep -q -e 'wsl-agent.sh' -e 'dsh-wsl-agent'; then alive=1; break; fi",
-    '    done < "/sys/fs/cgroup$cg/cgroup.procs"',
-    '  fi',
+    '  while read -r pid; do',
+    '    [ -n "$pid" ] || continue',
+    "    if tr '\\0' ' ' < \"/proc/$pid/cmdline\" 2>/dev/null | grep -q -e 'wsl-agent.sh' -e 'dsh-wsl-agent'; then alive=1; break; fi",
+    '  done < "/sys/fs/cgroup$cg/cgroup.procs"',
     '  [ "$alive" -eq 1 ] || systemctl --user stop "$unit" >/dev/null 2>&1 || true',
     'done',
     'exit 0',

@@ -299,7 +299,7 @@ export class WslFileSystem extends LocalFileSystem {
    */
   async publicationAgent(): Promise<WslAgent> {
     if (this.agentInstance === undefined) {
-      this.agentInstance = sharedAgent(await this.distro());
+      this.agentInstance = sharedAgent(await this.distro(), this.wslConfig.wslPath);
     }
     return this.agentInstance;
   }
@@ -316,7 +316,7 @@ export class WslFileSystem extends LocalFileSystem {
     if (this.resolvedDistro.length > 0 && distro === this.resolvedDistro) return this.publicationAgent();
     const cached = this.agentInstances.get(distro);
     if (cached !== undefined) return cached;
-    const agent = sharedAgent(distro);
+    const agent = sharedAgent(distro, this.wslConfig.wslPath);
     this.agentInstances.set(distro, agent);
     return agent;
   }

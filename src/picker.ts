@@ -493,7 +493,7 @@ export class WslDirectoryPicker extends DirectoryPicker {
     const linuxDir = parsed.linuxPath.length > 0 ? parsed.linuxPath : "/";
     let stdout: string | Buffer;
     try {
-      const result = await sharedAgent(parsed.distro).exec({
+      const result = await sharedAgent(parsed.distro, this.config.wslPath).exec({
         cwd: linuxDir,
         argv: dirListingArgv(linuxDir),
         timeoutMs: 15_000,
@@ -628,7 +628,7 @@ export class WslDirectoryPicker extends DirectoryPicker {
     const parsed = uncToPosix(parent) as import("./paths.js").DistroPath;
     const linuxParent = parsed.linuxPath.length > 0 ? parsed.linuxPath : "/";
     try {
-      const result = await sharedAgent(parsed.distro).exec({
+      const result = await sharedAgent(parsed.distro, this.config.wslPath).exec({
         cwd: linuxParent,
         argv: distroMkdirArgv(linuxParent, name),
         timeoutMs: 10_000,

@@ -192,8 +192,6 @@ const CONFIG = { distro: "ubuntu", scriptPath: "/mnt/c/pkg/agent/wsl-agent.sh", 
 
 /** Two event-loop turns: enough for start() and the relay's microtask chain. */
 const flush = () => new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
-/** Wait past the cancel signal's grace so the delayed USR1 can land. */
-const settleCancel = () => new Promise((resolve) => setTimeout(resolve, 150));
 
 checkReg("a shell keeps later requests on the host and removes a cancelled one", async () => {
   const child = new FakeAgentProcess();
@@ -1100,10 +1098,18 @@ checkReg("an idle agent retires through its own timer", async () => {
   const child = new FakeAgentProcess();
   const { transport } = scriptedTransport([child]);
   const agent = new WslAgent({ distro: "ubuntu", scriptPath: "/x", idleMs: 25, spawnTransport: transport });
-  await agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 });
-  await new Promise((r) => setTimeout(r, 90));
-  assert.equal(child.exitCode, 0, "the idle timer shut the agent down cleanly");
-  assert.equal(agent.state, "idle", "retirement is idle, not dead — a later call respawns");
+  // The clock is mocked before the first dispatch so the idle timer the
+  // request arms is on the mocked schedule.
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    await agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 });
+    mock.timers.tick(25); // the idle deadline itself
+    await flush();
+    assert.equal(child.exitCode, 0, "the idle timer shut the agent down cleanly");
+    assert.equal(agent.state, "idle", "retirement is idle, not dead — a later call respawns");
+  } finally {
+    mock.timers.reset();
+  }
 });
 
 checkReg("an over-cap buffer with no newline yet is dropped mid-flight", async () => {
@@ -1146,22 +1152,31 @@ checkReg("a dead agent revives after its backoff and does not replay the failed 
   const healthy = new FakeAgentProcess({ helloPid: 77 });
   const { transport } = scriptedTransport([dying, broken, healthy]);
   const agent = new WslAgent({ ...CONFIG, spawnTransport: transport, revivalBackoffMs: 1 });
-  const failed = agent.exec({ cwd: "/", argv: ["sleep", "1"], timeoutMs: 0 }).then(() => "resolved", (e) => e);
-  await flush();
-  dying.emit("exit", 1, null); // the death spends the rebuild
-  const error = await failed;
-  assert.match(error.message, /state is unknown/, "the in-flight command is never replayed");
-  await flush(); // the rebuild spawned `broken`; its handshake is pending
-  broken.emit("error", new Error("spawn failed")); // the rebuild fails → dead
-  await flush();
-  assert.equal(agent.state, "dead");
-  assert.equal(agent.status().deaths, 1);
-  await new Promise((resolve) => setTimeout(resolve, 10)); // past the 1 ms backoff
-  const result = await agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 });
-  assert.equal(result.exitCode, 0, "the revived transport answers");
-  assert.equal(agent.state, "ready");
-  assert.equal(agent.status().pid, 77);
-  assert.equal(healthy.frames.filter((line) => line.startsWith("EXEC|")).length, 1, "only the new request runs after the revival");
+  // The clock is mocked from the start — Date too, because the revival
+  // backoff is a `deadUntil` wall-clock stamp, not a timer.
+  mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  let failed;
+  try {
+    failed = agent.exec({ cwd: "/", argv: ["sleep", "1"], timeoutMs: 0 }).then(() => "resolved", (e) => e);
+    await flush();
+    dying.emit("exit", 1, null); // the death spends the rebuild
+    const error = await failed;
+    assert.match(error.message, /state is unknown/, "the in-flight command is never replayed");
+    await flush(); // the rebuild spawned `broken`; its handshake is pending
+    broken.emit("error", new Error("spawn failed")); // the rebuild fails → dead
+    await flush();
+    assert.equal(agent.state, "dead");
+    assert.equal(agent.status().deaths, 1);
+    mock.timers.tick(1); // fire the revival backoff
+    await flush();
+    const result = await agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 });
+    assert.equal(result.exitCode, 0, "the revived transport answers");
+    assert.equal(agent.state, "ready");
+    assert.equal(agent.status().pid, 77);
+    assert.equal(healthy.frames.filter((line) => line.startsWith("EXEC|")).length, 1, "only the new request runs after the revival");
+  } finally {
+    mock.timers.reset();
+  }
   await agent.close();
 });
 
@@ -1423,12 +1438,18 @@ checkReg("an abort signals the running agent out of band", async () => {
   );
   await flush(); // HELLO, ACK, the argv words; the command keeps running
   child.stdout.write("ACK|unknown\n"); // a late ACK for nobody is ignored
-  controller.abort(new Error("stop"));
-  const error = await run;
-  assert.ok(error instanceof Error);
-  assert.match(error.message, /stop/);
-  await settleCancel();
-  assert.deepEqual(signals, [{ wslPath: "wsl.exe", distro: "ubuntu", pid: 4242, signal: "SIGUSR1" }]);
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    controller.abort(new Error("stop"));
+    const error = await run;
+    assert.ok(error instanceof Error);
+    assert.match(error.message, /stop/);
+    mock.timers.tick(61); // past the resident's 60 ms cancel-signal grace
+    await flush();
+    assert.deepEqual(signals, [{ wslPath: "wsl.exe", distro: "ubuntu", pid: 4242, signal: "SIGUSR1" }]);
+  } finally {
+    mock.timers.reset();
+  }
   await agent.close();
 });
 
@@ -1449,16 +1470,22 @@ checkReg("a queued abort waits for the request to start before signalling", asyn
   await flush();
   const [id] = [...agent.pending.keys()];
   assert.ok(id !== undefined, "the request is tracked");
-  controller.abort(new Error("stop"));
-  await run;
-  assert.equal(signals.length, 0, "a request that has not started must not kill the running one");
-  child.stdout.write(`ACK|${id}\n`);
-  await flush();
-  await settleCancel();
-  assert.deepEqual(signals, [{ wslPath: "wsl.exe", distro: "ubuntu", pid: 7, signal: "SIGUSR1" }], "the signal follows the ACK");
-  child.stdout.write(`RES|${id}|0|${encodeB64("")}|${encodeB64("")}\n`);
-  await flush();
-  assert.equal(agent.pending.size, 0, "the late answer only cleans the cancelled entry");
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    controller.abort(new Error("stop"));
+    await run;
+    assert.equal(signals.length, 0, "a request that has not started must not kill the running one");
+    child.stdout.write(`ACK|${id}\n`);
+    await flush();
+    mock.timers.tick(61); // past the resident's 60 ms cancel-signal grace
+    await flush();
+    assert.deepEqual(signals, [{ wslPath: "wsl.exe", distro: "ubuntu", pid: 7, signal: "SIGUSR1" }], "the signal follows the ACK");
+    child.stdout.write(`RES|${id}|0|${encodeB64("")}|${encodeB64("")}\n`);
+    await flush();
+    assert.equal(agent.pending.size, 0, "the late answer only cleans the cancelled entry");
+  } finally {
+    mock.timers.reset();
+  }
   await agent.close();
 });
 
@@ -1479,13 +1506,21 @@ checkReg("a stale cancel signal is dropped once a newer request is running", asy
   // Abort the first, then let the agent answer it and ACK a newer request
   // before the grace expires — exactly the interleaving that used to kill the
   // new command with SIGUSR1.
-  first.abort(new Error("stop"));
-  assert.equal(await run, "aborted");
-  child.stdout.write(`RES|${firstId}|0|${encodeB64("")}|${encodeB64("")}\n`);
-  const second = agent.exec({ cwd: "/", argv: ["sleep", "30"], timeoutMs: 0 }).catch(() => undefined);
-  await flush();
-  await settleCancel();
-  assert.deepEqual(signals, [], "the old cancel must not reach the request that took its place");
+  /** The replacement request; `agent.close()` is what settles it. */
+  let second;
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    first.abort(new Error("stop"));
+    assert.equal(await run, "aborted");
+    child.stdout.write(`RES|${firstId}|0|${encodeB64("")}|${encodeB64("")}\n`);
+    second = agent.exec({ cwd: "/", argv: ["sleep", "30"], timeoutMs: 0 }).catch(() => undefined);
+    await flush();
+    mock.timers.tick(61); // let the grace expire under the mocked clock
+    await flush();
+    assert.deepEqual(signals, [], "the old cancel must not reach the request that took its place");
+  } finally {
+    mock.timers.reset();
+  }
   await agent.close();
   await second;
 });
@@ -1504,12 +1539,18 @@ checkReg("a PID-namespaced resident is never signalled by its HELLO pid", async 
     (error) => error,
   );
   await flush();
-  controller.abort(new Error("stop"));
-  await run;
-  // The out-of-band USR1 is deliberately delayed; asserting before it could
-  // fire would pass no matter whom the agent signals.
-  await settleCancel();
-  assert.equal(signals.length, 0, "the confined resident's namespace PID is not addressable");
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    controller.abort(new Error("stop"));
+    await run;
+    // The out-of-band USR1 is deliberately delayed; asserting before it could
+    // fire would pass no matter whom the agent signals.
+    mock.timers.tick(61); // past the resident's 60 ms cancel-signal grace
+    await flush();
+    assert.equal(signals.length, 0, "the confined resident's namespace PID is not addressable");
+  } finally {
+    mock.timers.reset();
+  }
   await agent.close();
 });
 
@@ -1533,10 +1574,16 @@ checkReg("a prefixed but PID-shared session runtime is signalable", async () => 
     (error) => error,
   );
   await flush();
-  controller.abort(new Error("stop"));
-  await run;
-  await settleCancel();
-  assert.deepEqual(signals, [{ wslPath: "wsl.exe", distro: "ubuntu", pid: 11, signal: "SIGUSR1" }]);
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    controller.abort(new Error("stop"));
+    await run;
+    mock.timers.tick(61); // past the resident's 60 ms cancel-signal grace
+    await flush();
+    assert.deepEqual(signals, [{ wslPath: "wsl.exe", distro: "ubuntu", pid: 11, signal: "SIGUSR1" }]);
+  } finally {
+    mock.timers.reset();
+  }
   await agent.close();
 });
 

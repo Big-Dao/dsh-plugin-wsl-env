@@ -655,11 +655,16 @@ check("the read and write delegations ride the substrate and map refusals", asyn
   for (const [name, stub, args] of delegations) {
     const method = fsMethods[name]?.bind(fs);
     assert.ok(typeof method === "function", `${name} exists on the fs`);
+    const expected = await stub();
     substrateMethods[name] = async () => {
       calls.push(name);
-      return stub();
+      return expected;
     };
-    await method(...args);
+    const result = await method(...args);
+    // The wrapper is a pass-through: the substrate's own answer (by identity,
+    // so a transformed or reconstructed result fails too) is what the route
+    // returns.
+    assert.equal(result, expected, `${name} returns the substrate's answer`);
   }
   assert.deepEqual(calls, ["stat", "lstat", "readText", "streamText", "readBytes", "readByteRange", "listDir", "writeText", "editText"]);
   // A refusal from the substrate surfaces in the peer dialect, on EVERY route:

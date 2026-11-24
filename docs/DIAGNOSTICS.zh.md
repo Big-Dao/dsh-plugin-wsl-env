@@ -61,7 +61,7 @@ doctor 通过三个入口给出同一份报告；侧边栏的 **WSL 环境** 面
 同一面板的「插件版本」卡片独立于 doctor：它读取已安装/运行中的插件版本，并提供
 经宿主插件管理器执行的一键升级（见 [CONFIGURATION.zh.md](CONFIGURATION.zh.md) 的 `wsl-plugin-update`）。
 
-- **独立 CLI**——`node scripts/doctor.mjs [distro] [--all] [--json] [--quick] [--sections host,sandbox,session,conf,net,agent] [--probe-timeout <毫秒>] [--fix] [--fix-owned] [--install] [--yes] [--read-only] [--bundle <路径>] [--redact] [--locale <标签>]`
+- **独立 CLI**——`node scripts/doctor.mjs [distro] [--all] [--json] [--quick] [--sections host,sandbox,session,conf,net,agent] [--probe-timeout <毫秒>] [--wsl <路径>] [--cmd <路径>] [--fix] [--fix-owned] [--install] [--yes] [--read-only] [--bundle <路径>] [--redact] [--locale <标签>]`
   （与 `--help` 输出同一行）。
   这是权威入口：它**不加载任何 peer 依赖、任何宿主服务**，即使插件的运行时
   本身就是故障源，它也能启动。只 import 纯净、无 peer 的 `lib/` 模块；原先

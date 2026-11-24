@@ -183,7 +183,7 @@ Windows+WSL runner，请使用 `self-hosted-wsl` 等无歧义标签，不要复�
 
 import 固定版本 `@deepseek-ai/*` 包的测试也进入同样的列表，无需额外防护——CI 在 `pnpm test` 之前对锁定树运行 `pnpm install --frozen-lockfile`。例如，`test/provider.test.mjs` 覆盖装配后的服务行，`test/composition.test.mjs` 运行 loader 的真实 patch 算法。
 
-凡是存在无 peer 的接缝，优先使用它。`test/sandbox.test.mjs` 针对 `lib/sandbox-core.js` 运行，并用一个替身代替 peer 的 `SandboxUnavailableError` 契约，这样 `lib/sandbox.js` 中只剩一行 peer 绑定。那一行由 harness 探针覆盖——它们启动插件，从而通过 `lib/index.js` 到达 `WslSandbox`——而不是由 `probe:sandbox` 覆盖，后者只从 `lib/bwrap.js` 读取参数构建器。无法在所有环境运行的测试必须自行跳过——打印一行 `SKIP` 并以 0 退出——就像该文件在 `win32` 上的做法，在那里它的 fake `wsl.exe`（一个 POSIX 脚本）无法执行。
+凡是存在无 peer 的接缝，优先使用它。`test/sandbox.test.mjs` 针对 `lib/sandbox-core.js` 运行，并用一个替身代替 peer 的 `SandboxUnavailableError` 契约，这样 `lib/sandbox.js` 中只剩一行 peer 绑定。那一行由 harness 探针覆盖——它们启动插件，从而通过 `lib/index.js` 到达 `WslSandbox`——而不是由 `probe:sandbox` 覆盖，后者只从 `lib/bwrap.js` 读取参数构建器。无法在所有环境运行的测试必须自行跳过——打印一行 `SKIP` 并以 0 退出。当障碍只是假件的形态时，优先把假件改成可移植的：sandbox 与 doctor 两套测试经 `.mjs` 接缝用 Node 脚本假件驱动被测代码（doctor 是 `--wsl <脚本.mjs>` / `--cmd <脚本.mjs>`），因为 Windows 解析真实的 `System32` 二进制先于 `PATH`，`#!` 脚本无法遮蔽它们。
 
 脚本式套件里的单条检查经 `test/skip.mjs` 延后：检查体确认本机跑不了时调用 `skip("<原因>")`（它会抛出，其后的代码不再执行），由共享的 `runCheck` 打印带原因的 `SKIP` 行，汇总行（`summaryLine` / `skipNote`）写出 `(N skipped: <原因>)`。不要用提前 `return` 代替——runner 在函数返回后打印 PASS，这样的检查在日志里是绿的，实际从未运行；Windows CI 上宿主真实 cancel 路径的唯一单测曾长期如此。跳过要带具体原因：一次跳过若让某条行为在所有环境都没有单测，应先问这条检查能否改成在所有环境运行（例如把 inotify 目录监听换成文件目标）。
 

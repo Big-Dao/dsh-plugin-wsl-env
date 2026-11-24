@@ -10,8 +10,8 @@
  * consumers match — `code: "SANDBOX_UNAVAILABLE"` — so what CI exercises here
  * is the code that ships, not a copy of it. The shipped binding to the peer's
  * own class is one line in `lib/sandbox.js`, left to `npm run probe:sandbox`
- * against a real distro. The Windows legs skip: the fake `wsl.exe` is a POSIX
- * shell script, and Windows cannot execute one.
+ * against a real distro. The fakes are Node scripts riding the core's `.mjs`
+ * seam, so the suite runs on Windows too.
  *
  *   node test/sandbox.test.mjs
  */
@@ -21,11 +21,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bwrapFailure, bwrapUsable, createSandboxCore, withBwrapHint } from "../lib/sandbox-core.js";
 import { configureMessagesLocale, resetMessagesLocaleForTests } from "../lib/messages.js";
-
-if (process.platform === "win32") {
-  console.log("SKIP  sandbox checks: the fake wsl.exe is a POSIX script");
-  process.exit(0);
-}
 
 /** Mirrors the peer error's documented contract; see the core module's doc. */
 class SandboxUnavailableError extends Error {
@@ -46,12 +41,16 @@ const dir = await mkdtemp(join(tmpdir(), "dsh-wsl-sandbox-"));
 const marker = join(dir, "usable");
 /**
  * A fake `wsl.exe` that reports a working `bwrap` only once the marker exists.
+ * A Node script rather than a shell one: Windows resolves the real
+ * `System32\wsl.exe` before PATH, so the core's `.mjs` seam is what lets this
+ * suite run there too.
  * @param {string} name - the fake's file name under the scratch dir.
+ * @param {string} [markerPath] - the marker the fake answers on; defaults to the shared one.
  * @returns {Promise<string>} the fake's path.
  */
-const fakeWsl = async (name) => {
+const fakeWsl = async (name, markerPath = marker) => {
   const path = join(dir, name);
-  await writeFile(path, `#!/bin/sh\n[ -f "${marker}" ] && exit 0 || exit 1\n`, { mode: 0o755 });
+  await writeFile(path, `import { existsSync } from "node:fs";\nprocess.exitCode = existsSync(${JSON.stringify(markerPath)}) ? 0 : 1;\n`);
   return path;
 };
 /** @type {{mode: "workspace-write", workspaceRoot: string}} */
@@ -74,7 +73,7 @@ const check = async (name, fn) => {
   }
 };
 
-const flipping = new WslSandbox({ wslPath: await fakeWsl("wsl-flipping.exe") });
+const flipping = new WslSandbox({ wslPath: await fakeWsl("wsl-flipping.mjs") });
 
 await check("a failed probe fails closed", async () => {
   assert.equal(await flipping.usable("ubuntu"), false);
@@ -140,15 +139,20 @@ const shapedFake = async (name, probeOutput, familyManager) => {
   const path = join(dir, name);
   await writeFile(
     path,
-    `#!/bin/sh\ncase "$*" in\n  *command*) [ -n "${familyManager}" ] && echo "/usr/bin/${familyManager}"; exit 0 ;;\n  *) echo '${probeOutput}'; exit 1 ;;\nesac\n`,
-    { mode: 0o755 },
+    [
+      "const argv = process.argv.slice(2).join(\" \");",
+      `if (argv.includes(\"command\")${familyManager ? "" : " && false"}) { console.log(${JSON.stringify(familyManager ? `/usr/bin/${familyManager}` : "")}); process.exit(0); }`,
+      `console.log(${JSON.stringify(probeOutput)});`,
+      "process.exit(1);",
+      "",
+    ].join("\n"),
   );
   return path;
 };
 
 await check("a missing bwrap names the detected family's install command", async () => {
   const wslPath = await shapedFake(
-    "wsl-missing-dnf.exe",
+    "wsl-missing-dnf.mjs",
     "wsl.exe failed: <3>WSL (1) ERROR: CreateProcessCommon: execv bwrap failed: No such file or directory",
     "dnf",
   );
@@ -161,7 +165,7 @@ await check("a missing bwrap names the detected family's install command", async
 
 await check("an apt distro gets the index refresh, quoted for a Windows shell", async () => {
   const wslPath = await shapedFake(
-    "wsl-missing-apt.exe",
+    "wsl-missing-apt.mjs",
     "wsl.exe failed: <3>WSL (1) ERROR: CreateProcessCommon: execv bwrap failed: No such file or directory",
     "apt-get",
   );
@@ -174,7 +178,7 @@ await check("an apt distro gets the index refresh, quoted for a Windows shell", 
 });
 
 await check("a present-but-broken bwrap is not told to reinstall", async () => {
-  const wslPath = await shapedFake("wsl-broken.exe", "wsl.exe failed: bwrap: setting up uid map: Operation not permitted", "");
+  const wslPath = await shapedFake("wsl-broken.mjs", "wsl.exe failed: bwrap: setting up uid map: Operation not permitted", "");
   assert.equal(await bwrapUsable({ wslPath, distro: "arch" }), false);
   const remedy = bwrapFailure(wslPath, "arch") ?? "";
   assert.match(remedy, /bwrap is installed inside distro "arch" but failed the usability probe/, "the broken cause is named");
@@ -184,7 +188,7 @@ await check("a present-but-broken bwrap is not told to reinstall", async () => {
 });
 
 await check("an unclassified failure quotes the output beside the install remedy", async () => {
-  const wslPath = await shapedFake("wsl-silent.exe", "", "");
+  const wslPath = await shapedFake("wsl-silent.mjs", "", "");
   assert.equal(await bwrapUsable({ wslPath, distro: "suse" }), false);
   const remedy = bwrapFailure(wslPath, "suse") ?? "";
   assert.match(remedy, /scripts\/bootstrap\.sh suse --install/, "unclassified falls back to the install remedy");
@@ -200,10 +204,10 @@ await check("the run-time hint rides only details that name bwrap", () => {
 });
 
 await check("the other package families get their own direct commands", async () => {
-  const pacmanWsl = await shapedFake("wsl-missing-pacman.exe", "wsl.exe failed: execv bwrap failed: No such file or directory", "pacman");
+  const pacmanWsl = await shapedFake("wsl-missing-pacman.mjs", "wsl.exe failed: execv bwrap failed: No such file or directory", "pacman");
   await bwrapUsable({ wslPath: pacmanWsl, distro: "arch" });
   assert.match(bwrapFailure(pacmanWsl, "arch") ?? "", /pacman -S --noconfirm --needed bubblewrap/, "pacman's spelling, without the partial-upgrade index refresh");
-  const zypperWsl = await shapedFake("wsl-missing-zypper.exe", "wsl.exe failed: execv bwrap failed: No such file or directory", "zypper");
+  const zypperWsl = await shapedFake("wsl-missing-zypper.mjs", "wsl.exe failed: execv bwrap failed: No such file or directory", "zypper");
   await bwrapUsable({ wslPath: zypperWsl, distro: "sles" });
   assert.match(bwrapFailure(zypperWsl, "sles") ?? "", /zypper --non-interactive install bubblewrap/, "zypper's spelling");
 });
@@ -214,7 +218,7 @@ await check("the family remedy keeps the direct command verbatim in the configur
   // configured language.
   configureMessagesLocale("zh");
   try {
-    const wslPath = await shapedFake("wsl-missing-dnf-zh.exe", "wsl.exe failed: execv bwrap failed: No such file or directory", "dnf");
+    const wslPath = await shapedFake("wsl-missing-dnf-zh.mjs", "wsl.exe failed: execv bwrap failed: No such file or directory", "dnf");
     await bwrapUsable({ wslPath, distro: "fedora" });
     const remedy = bwrapFailure(wslPath, "fedora") ?? "";
     assert.match(remedy, /不可用/, "the wrapper sentence is the zh one");
@@ -225,12 +229,12 @@ await check("the family remedy keeps the direct command verbatim in the configur
 });
 
 await check("a remembered failure clears on the key's next success", async () => {
-  const wslPath = await shapedFake("wsl-clearing.exe", "wsl.exe failed: execv bwrap failed: No such file or directory", "apt-get");
+  const wslPath = await shapedFake("wsl-clearing.mjs", "wsl.exe failed: execv bwrap failed: No such file or directory", "apt-get");
   const distro = "clears";
   assert.equal(await bwrapUsable({ wslPath, distro }), false);
   assert.notEqual(bwrapFailure(wslPath, distro), undefined, "the failure is readable right after the failed probe");
   const marker2 = join(dir, "clears-ok");
-  await writeFile(join(dir, "wsl-clearing.exe"), `#!/bin/sh\n[ -f "${marker2}" ] && exit 0 || exit 1\n`, { mode: 0o755 });
+  await fakeWsl("wsl-clearing.mjs", marker2);
   await writeFile(marker2, "");
   assert.equal(await bwrapUsable({ wslPath, distro }), true, "the fix is believed without a restart");
   assert.equal(bwrapFailure(wslPath, distro), undefined, "a stale remedy must not outlive its failure");

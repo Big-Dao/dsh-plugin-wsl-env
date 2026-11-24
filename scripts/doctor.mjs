@@ -242,7 +242,7 @@ export function overrideLocale(flag) {
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 let WSL = "wsl.exe";
-const CMD = "cmd.exe";
+let CMD = "cmd.exe";
 const TIMEOUT_MS = 60_000;
 /**
  * How long one package install may take. `apt-get` downloads and configures
@@ -522,8 +522,26 @@ function run(argv, timeoutMs = TIMEOUT_MS) {
       const timedOut = error !== null && /** @type {NodeJS.ErrnoException & { signal?: string }} */ (error).signal === "SIGTERM";
       settle({ ok: error === null, stdout: stdout ?? "", stderr: stderr ?? "", code, timedOut });
     };
-    execFile(file, args, { encoding: "utf8", timeout: timeoutMs, windowsHide: true, env: { ...process.env, WSL_UTF8: "1" } }, done);
+    // The test seam (`--wsl <script.mjs>` / `--cmd <script.mjs>`): Windows
+    // resolves the real `System32\wsl.exe`/`cmd.exe` before PATH, so the
+    // cross-platform fakes are Node scripts run under this runtime. No
+    // production path names a `.mjs`; a nonsensical value fails closed.
+    const scripted = file.endsWith(".mjs");
+    execFile(scripted ? process.execPath : file, scripted ? [file, ...args] : args, { encoding: "utf8", timeout: timeoutMs, windowsHide: true, env: { ...process.env, WSL_UTF8: "1" } }, done);
   });
+}
+
+/**
+ * The spawn argv for one `wsl.exe` invocation, honouring the `.mjs` test seam
+ * `run()` honours — the two direct `spawn()` sites (the resident handshake and
+ * the smoke legs) go through here so every wsl.exe path shares one convention.
+ *
+ * @param {string} wslExe - the configured `wsl.exe` path.
+ * @param {string[]} rest - the argv after the program.
+ * @returns {{ file: string, args: string[] }} the spawn's program and argv.
+ */
+function wslSpawn(wslExe, rest) {
+  return wslExe.endsWith(".mjs") ? { file: process.execPath, args: [wslExe, ...rest] } : { file: wslExe, args: rest };
 }
 
 /** How much of a failed command's output a fix row quotes. */
@@ -932,12 +950,13 @@ async function askDistro(distro, script, timeoutMs = TIMEOUT_MS) {
 /**
  * Parse the doctor's own arguments.
  * @param {string[]} argv - `process.argv.slice(2)`.
- * @returns {{ distro: string, wsl: string, json: boolean, fix: boolean, fixOwned: boolean, install: boolean, yes: boolean, readOnly: boolean, all: boolean, bundle: string, redact: boolean, sections: string, quick: boolean, help: boolean, locale: string, probeTimeout: number }} the options.
+ * @returns {{ distro: string, wsl: string, cmd: string, json: boolean, fix: boolean, fixOwned: boolean, install: boolean, yes: boolean, readOnly: boolean, all: boolean, bundle: string, redact: boolean, sections: string, quick: boolean, help: boolean, locale: string, probeTimeout: number }} the options.
  */
 function parseArgs(argv) {
   const options = {
     distro: "",
     wsl: "",
+    cmd: "",
     json: false,
     fix: false,
     fixOwned: false,
@@ -985,6 +1004,8 @@ function parseArgs(argv) {
     else if (arg.startsWith("--distro=")) options.distro = arg.slice("--distro=".length);
     else if (arg === "--wsl") options.wsl = argv[++i] ?? "";
     else if (arg.startsWith("--wsl=")) options.wsl = arg.slice("--wsl=".length);
+    else if (arg === "--cmd") options.cmd = argv[++i] ?? "";
+    else if (arg.startsWith("--cmd=")) options.cmd = arg.slice("--cmd=".length);
     else if (arg.startsWith("-")) throw new Error(`doctor: unknown option "${arg}"`);
     else options.distro = arg;
   }
@@ -1266,9 +1287,11 @@ async function main(options) {
   if (options.readOnly && (options.fix || options.install)) return rejectReadOnly();
   // One rebinding covers every probe below (`-l -q`, `inDistro`, the
   // resident handshake, the sessions survey): an explicit `--wsl` replaces
-  // the module-level default for this whole run.
+  // the module-level default for this whole run, and `--cmd` does the same
+  // for the Windows-side reads (build, registry, .wslconfig).
   const wslExe = options.wsl.length > 0 ? options.wsl : WSL;
   WSL = wslExe;
+  if (options.cmd.length > 0) CMD = options.cmd;
   /** @type {Check[]} */
   const checks = [];
   // A5: per-phase wall clock. The doctor must be fast enough to run twice;
@@ -2540,7 +2563,8 @@ function probeResident(distro, scriptPath, wslExe = WSL, hostPath = scriptPath, 
       child.kill();
       settle(value);
     };
-    const child = spawn(wslExe, ["-d", distro, "--exec", "sh", scriptPath], {
+    const { file: spawnFile, args: spawnArgs } = wslSpawn(wslExe, ["-d", distro, "--exec", "sh", scriptPath]);
+    const child = spawn(spawnFile, spawnArgs, {
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
       env: { ...process.env, WSL_UTF8: "1" },
@@ -2634,7 +2658,8 @@ export async function probeHandshake(distro, scriptPath, wslExe = WSL, hostPath 
  */
 function runSmokeLegs(distro, residentArgv, wslExe = WSL, expectedDigest = "") {
   return new Promise((settle) => {
-    const child = spawn(wslExe, ["-d", distro, "--exec", ...residentArgv], {
+    const { file: spawnFile, args: spawnArgs } = wslSpawn(wslExe, ["-d", distro, "--exec", ...residentArgv]);
+    const child = spawn(spawnFile, spawnArgs, {
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
       env: { ...process.env, WSL_UTF8: "1" },
@@ -2937,7 +2962,7 @@ function report(checks, options, runInfo = {}) {
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
-    console.log("node scripts/doctor.mjs [distro] [--all] [--json] [--quick] [--sections host,sandbox,session,conf,net,agent] [--probe-timeout <ms>] [--fix] [--fix-owned] [--install] [--yes] [--read-only] [--bundle <path>] [--redact] [--locale <tag>]");
+    console.log("node scripts/doctor.mjs [distro] [--all] [--json] [--quick] [--sections host,sandbox,session,conf,net,agent] [--probe-timeout <ms>] [--wsl <path>] [--cmd <path>] [--fix] [--fix-owned] [--install] [--yes] [--read-only] [--bundle <path>] [--redact] [--locale <tag>]");
   } else {
     process.exitCode = await main(options);
   }

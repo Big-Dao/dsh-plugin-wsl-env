@@ -370,8 +370,12 @@ contract, which leaves only the one-line peer binding in `lib/sandbox.js`. That
 line is covered by the harness probes, which boot the plugin and so reach
 `WslSandbox` through `lib/index.js` — not by `probe:sandbox`, which reads only
 the argument builder out of `lib/bwrap.js`. A test that cannot run everywhere
-must skip itself — print a `SKIP` line and exit 0 — the way that file does on
-`win32`, where its fake `wsl.exe` (a POSIX script) cannot execute.
+must skip itself — print a `SKIP` line and exit 0. When the blocker is only
+the fake's shape, prefer making the fake portable instead: the sandbox and
+doctor suites drive the code under test through Node-script fakes riding the
+`.mjs` seam (`--wsl <script.mjs>` / `--cmd <script.mjs>` for the doctor),
+because Windows resolves the real `System32` binaries before `PATH` and a
+`#!` script cannot shadow them.
 
 One check inside a script-style suite defers through `test/skip.mjs`: when its
 body finds this host cannot run it, it calls `skip("<reason>")` — which throws,

@@ -76,7 +76,7 @@ version** card is separate from the doctor: it reads the
 installed/running plugin versions and offers the one-click upgrade through the
 host plugin manager ([CONFIGURATION](CONFIGURATION.md), `wsl-plugin-update`).
 
-- **The standalone CLI** — `node scripts/doctor.mjs [distro] [--all] [--json] [--quick] [--sections host,sandbox,session,conf,net,agent] [--probe-timeout <ms>] [--fix] [--fix-owned] [--install] [--yes] [--read-only] [--bundle <path>] [--redact] [--locale <tag>]`
+- **The standalone CLI** — `node scripts/doctor.mjs [distro] [--all] [--json] [--quick] [--sections host,sandbox,session,conf,net,agent] [--probe-timeout <ms>] [--wsl <path>] [--cmd <path>] [--fix] [--fix-owned] [--install] [--yes] [--read-only] [--bundle <path>] [--redact] [--locale <tag>]`
   (the same line `--help` prints).
   The authoritative surface: it loads **no peer dependency and no host
   service**, so it still starts when the plugin's own runtime is the thing

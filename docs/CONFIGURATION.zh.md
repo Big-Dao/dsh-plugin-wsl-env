@@ -466,7 +466,10 @@ profile 补丁与废弃键陷阱——每个失败附可复制的修复。运行
 限定在插件自有的这两类），`--all` 检查每个已装发行版，`--bundle <路径>` 写出可附加的诊断文件
 （`--redact` 脱敏路径），`--locale <标签>`（或 `DSH_WSL_DOCTOR_LOCALE`）
 无需重新探测即可选择骨架语言。`--yes` 跳过确认提示（不跳过确认门本身），
-`--read-only` 拒绝与 `--fix` 或 `--install` 同用。
+`--read-only` 拒绝与 `--fix` 或 `--install` 同用。`--wsl <路径>` 替换整次
+运行探测所用的 `wsl.exe`，`--cmd <路径>` 替换 Windows 侧读取用的 `cmd.exe`；
+以 `.mjs` 结尾的路径会作为 Node 脚本在当前运行时下执行——这是测试驱动假件
+的接缝，因为 Windows 解析真实的 `System32` 二进制先于 `PATH`。
 判定契约与错误码地图见 [DIAGNOSTICS.zh.md](DIAGNOSTICS.zh.md)。
 某行的覆盖是否生效，直接查看 profile 的 `cordis.patch.yml` 与 Plugins 页面：
 桌面应用没有 `dsh` 命令，合成后的 profile 没有命令行视图。

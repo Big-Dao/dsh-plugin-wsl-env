@@ -517,7 +517,11 @@ checks every installed distro, `--bundle
 and `--locale <tag>` (or `DSH_WSL_DOCTOR_LOCALE`) selects the skeleton
 language without re-probing. `--yes` skips the confirmation prompt (not the
 confirmation gate itself), and `--read-only` refuses to run together with
-`--fix` or `--install`.
+`--fix` or `--install`. `--wsl <path>` replaces the `wsl.exe` the whole run
+probes with, and `--cmd <path>` the `cmd.exe` the Windows-side reads use; a
+path ending in `.mjs` runs as a Node script under the current runtime — the
+seam the tests drive their fakes through, since Windows resolves the real
+`System32` binaries before `PATH`.
 See [DIAGNOSTICS.md](DIAGNOSTICS.md) for the verdict contract and the
 error-code map. Whether a row override applied, read from the profile's
 `cordis.patch.yml` and the Plugins page: the desktop app has no `dsh` command,

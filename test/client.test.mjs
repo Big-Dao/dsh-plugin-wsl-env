@@ -576,6 +576,37 @@ test("a newly added distro workspace raises the access prompt, an existing one d
   assert.ok(texts(dialog).some((text) => text === WSL), "the prompt names the workspace");
 });
 
+test("a distro workspace that is open at startup is never asked about, in a WSL-only catalog too", () => {
+  // The other half of the baseline: startup restoration of a distro workspace,
+  // with no Windows folder beside it — the catalog a WSL-first user has.
+  const { module: client } = loadClient();
+  const added = "\\\\wsl.localhost\\Ubuntu\\srv\\app";
+  const snapshot = { phase: "ready", items: [{ workspaceId: "w1", path: WSL }] };
+  const harness = makeCtx({ snapshot });
+  client.apply(harness.ctx);
+  const overlay = harness.registrations.find((entry) => entry.spec.name === "shell.overlay");
+  assert.ok(overlay !== undefined);
+  const render = overlay.render;
+  /** @returns {any} the prompt element, or null when nothing is pending. */
+  const renderPrompt = () => {
+    const element = render({});
+    return element.type(element.props);
+  };
+  assert.equal(renderPrompt(), null, "a restored distro workspace is the baseline on its own");
+  // The same catalog reported again — a Windows folder joined, and the order
+  // changed — brings no new distro workspace.
+  snapshot.items.push({ workspaceId: "w0", path: WINDOWS });
+  snapshot.items.reverse();
+  harness.fireWorkspace();
+  assert.equal(renderPrompt(), null, "a reordered catalog with one more Windows folder asks nothing");
+  snapshot.items.push({ workspaceId: "w2", path: added });
+  harness.fireWorkspace();
+  const dialog = renderPrompt();
+  assert.ok(dialog !== null && dialog !== undefined, "the distro workspace added later is asked about");
+  assert.ok(texts(dialog).some((text) => text === added), "and it is that workspace the prompt names");
+  assert.equal(texts(dialog).some((text) => text === WSL), false, "not the one that was already open");
+});
+
 test("a newly added Windows workspace never raises the prompt", () => {
   const { module: client } = loadClient();
   const snapshot = { phase: "ready", items: [{ workspaceId: "w1", path: WINDOWS }] };

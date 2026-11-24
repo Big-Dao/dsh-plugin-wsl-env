@@ -15,7 +15,13 @@
  * The caps map onto the agent's single per-request capture ceiling as the
  * larger of the two stream budgets; the reader then slices each stream to its
  * own budget and reports `lossy` from that slice, so the caller's contract
- * (per-stream cut flags) holds even though the wire carries one cap.
+ * (per-stream cut flags) holds even though the wire carries one cap. A stream
+ * is lossy when the agent cut it at the wire cap OR when it runs past its own
+ * budget, and a cut keeps the TAIL — what the one-shot handle's own reader
+ * keeps (an in-memory tail window), so the last line of a failure survives
+ * on both transports. What the agent discarded is gone: the wire carries one
+ * cap, so a stream with the smaller budget can be cut beyond recovery before
+ * this reader sees it.
  *
  * Environment rides the agent's per-request `env` (an `env --` argv prefix —
  * no `SETENV` global pollution), holding only the translated `GIT_*` names:

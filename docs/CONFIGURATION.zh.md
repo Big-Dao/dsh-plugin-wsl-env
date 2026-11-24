@@ -398,10 +398,12 @@ scripts/bootstrap.sh <distro> --install
 ```
 
 不带 `--install` 时，辅助脚本只做只读检查。在基于 apt 的
-发行版上，直接安装命令是：
+发行版上，直接安装命令是（先刷新软件包索引——新装的 Debian/Ubuntu 还没有
+索引；`sh -c "…"` 的引号让 `&&` 留在发行版内，cmd、PowerShell 5.1 与
+PowerShell 7 粘贴执行都一样）：
 
 ```bash
-wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap
+wsl.exe -d <distro> -u root -- sh -c "apt-get update -qq && apt-get install -y --no-install-recommends bubblewrap"
 ```
 
 会话打开时，`wsl-preflight` 行会运行这些检查；`startup: true`（默认）时，
@@ -474,7 +476,8 @@ profile 补丁与废弃键陷阱——每个失败附可复制的修复。运行
 清理损坏的 agent 缓存并逐一复检。行内显示上次检查时间、来源（手动或后台）与结果结构（各状态计数与分区分布）。
 每个发行版的最后一次结果存放在 `$DSH_HOME/cache/dsh-plugin-wsl-env/status.json`
 （宿主未指定 home 时为 `~/.dsh/...`），页面刷新或应用重启后仍可见。加载时会对
-正在运行的发行版在后台复核；后台失败会覆盖已存结果。不标记“已过期”——每个
+正在运行的发行版在后台做一次快速复核；后台失败会覆盖已存结果，但“完整诊断”和
+“修复”的结果不会被后台复核替换。不标记“已过期”——每个
 已检查行提供“清除”、卡片头部提供“清除全部”，经同一路由的 `DELETE`（可带
 `?distro=`）删除本地保存的结果，不枚举、不探测也不修改发行版；直接删除该文件
 仍可等效重置面板历史。每行提供“快速检查”和“完整诊断”两个只读检查动作；完整

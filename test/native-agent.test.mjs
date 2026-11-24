@@ -2,27 +2,22 @@
  * Checks for the native agent's host-side copy/verify plumbing (ADR 0002).
  */
 import assert from "node:assert/strict";
+import { newTally, runCheck, skip, summaryLine } from "./skip.mjs";
 import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { copyBinary, ensureNativeBackend, nativeCacheScript, clearNativeBackendCache, configureAgentBackend, ensureNativeSessionAgent, NATIVE_AGENT_ENV } from "../lib/native-agent.js";
+import { copyBinary, ensureNativeBackend, nativeBackendFailure, nativeCacheScript, clearNativeBackendCache, configureAgentBackend, ensureNativeSessionAgent, NATIVE_AGENT_ENV } from "../lib/native-agent.js";
 
-let passed = 0;
+/** The suite's totals: a check this host cannot run counts as skipped, never as passed. */
+const tally = newTally();
 /**
  * Runs one check now.
  * @param {string} name - the check name.
  * @param {() => void | Promise<void>} fn - the check body.
  */
 const check = async (name, fn) => {
-  try {
-    await fn();
-    passed += 1;
-    console.log(`PASS  ${name}`);
-  } catch (error) {
-    console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
-    process.exitCode = 1;
-  }
+  await runCheck(name, fn, tally);
 };
 
 check("the cache script derives the path from the digest and verifies it", () => {
@@ -78,6 +73,57 @@ await check("an unsupported architecture is refused", async () => {
     copy: async () => { throw new Error("must not copy"); },
   });
   assert.equal(path, undefined);
+  assert.match(nativeBackendFailure("debian", "wsl.exe", "C:\\native") ?? "", /architecture "riscv64"/, "the one failure the user cannot fix says so");
+});
+
+await check("a failed preparation is not a verdict: the next call tries again, and the reason is on record", async () => {
+  clearNativeBackendCache();
+  let attempts = 0;
+  /**
+   * The preparation's edges, with a copy that fails or succeeds.
+   * @param {boolean} fails - whether the copy fails.
+   */
+  const edges = (fails) => ({
+    wslPath: "wsl.exe",
+    distro: "ze-native-retry",
+    source: "C:\\native",
+    readSource: async () => Buffer.from("x"),
+    run: async () => {
+      attempts += 1;
+      return "x86_64\n";
+    },
+    copy: async () => {
+      if (fails) throw new Error("cannot-execute");
+      return "/cache/retried";
+    },
+  });
+  assert.equal(await ensureNativeBackend(edges(true)), undefined);
+  assert.equal(nativeBackendFailure("ze-native-retry", "wsl.exe", "C:\\native"), "cannot-execute", "the reason is kept for a diagnosis");
+  // The user makes the cache directory executable. No restart:
+  const result = await ensureNativeBackend(edges(false));
+  assert.equal(result?.path, "/cache/retried");
+  assert.equal(attempts, 2, "the second call prepared again instead of answering the remembered failure");
+  assert.equal(nativeBackendFailure("ze-native-retry", "wsl.exe", "C:\\native"), undefined, "a success clears the reason");
+});
+
+await check("callers that arrive while a preparation is in flight share it, failed or not", async () => {
+  clearNativeBackendCache();
+  let attempts = 0;
+  const edges = {
+    wslPath: "wsl.exe",
+    distro: "ze-native-inflight",
+    source: "",
+    readSource: async () => { throw new Error("ENOENT"); },
+    run: async () => {
+      attempts += 1;
+      await new Promise((resolve) => setImmediate(resolve));
+      return "x86_64\n";
+    },
+    copy: async () => { throw new Error("must not copy"); },
+  };
+  const [first, second] = await Promise.all([ensureNativeBackend(edges), ensureNativeBackend(edges)]);
+  assert.deepEqual([first, second], [undefined, undefined]);
+  assert.equal(attempts, 1, "one preparation served both callers");
 });
 
 await check("a failed copy falls back to undefined", async () => {
@@ -224,7 +270,7 @@ if (process.platform !== "win32") {
 }
 
 await check("the shared agent's native prepare arms the real binary transport", async () => {
-  if (process.platform === "win32") return; // the fake wsl.exe is a POSIX script
+  if (process.platform === "win32") skip("the fake wsl.exe is a POSIX script");
   const { chmodSync } = await import("node:fs");
   const { sharedAgent } = await import("../lib/agent-shared.js");
   const bin = mkdtempSync(join(tmpdir(), "dsh-native-shared-"));
@@ -271,7 +317,7 @@ exit 1
 });
 
 await check("a copy script that fails names its stderr", async () => {
-  if (process.platform === "win32") return; // the fixture is a POSIX script
+  if (process.platform === "win32") skip("the fixture is a POSIX script");
   const dir = mkdtempSync(join(tmpdir(), "dsh-native-fail-"));
   try {
     const fixture = join(dir, "failing.sh");
@@ -299,4 +345,4 @@ await check("a copy that answers nothing leaves the backend unprepared", async (
   assert.equal(result, undefined, "an empty cache path is no backend, not a crash");
 });
 
-console.log(`\n${passed} native-agent checks pass`);
+console.log(`\n${summaryLine(tally, "native-agent")}`);

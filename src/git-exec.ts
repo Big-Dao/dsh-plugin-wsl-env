@@ -15,7 +15,13 @@
  * The caps map onto the agent's single per-request capture ceiling as the
  * larger of the two stream budgets; the reader then slices each stream to its
  * own budget and reports `lossy` from that slice, so the caller's contract
- * (per-stream cut flags) holds even though the wire carries one cap.
+ * (per-stream cut flags) holds even though the wire carries one cap. A stream
+ * is lossy when the agent cut it at the wire cap OR when it runs past its own
+ * budget, and a cut keeps the TAIL — what the one-shot handle's own reader
+ * keeps (an in-memory tail window), so the last line of a failure survives
+ * on both transports. What the agent discarded is gone: the wire carries one
+ * cap, so a stream with the smaller budget can be cut beyond recovery before
+ * this reader sees it.
  *
  * Environment rides the agent's per-request `env` (an `env --` argv prefix —
  * no `SETENV` global pollution), holding only the translated `GIT_*` names:
@@ -188,7 +194,9 @@ export function gitExecutionHandle({ agent, cwd, argv, env, stdin, caps, distro,
       readFrom(from) {
         const buffer = state[slot] ?? Buffer.alloc(0);
         const lossy = state.lossy[slot] || buffer.length > cap;
-        const visible = lossy ? buffer.subarray(0, cap) : buffer;
+        // The tail, not the head: the one-shot delegate's reader is a tail
+        // window, and a git failure's cause is its LAST line.
+        const visible = lossy ? buffer.subarray(Math.max(0, buffer.length - cap)) : buffer;
         const start = Math.min(from, visible.length);
         return { text: visible.subarray(start).toString("utf8"), lossy, nextOffset: visible.length };
       },
@@ -282,6 +290,10 @@ export function gitExecutionHandle({ agent, cwd, argv, env, stdin, caps, distro,
         result = await agent.exec({ cwd, argv, env, stdin, maxOutputBytes: wireCap, signal: controller.signal });
         state.stdout = discovery ? translateDiscoveryOutput(distro, result.stdout) : result.stdout;
         state.stderr = result.stderr;
+        // The agent cut a stream at the wire cap. Its length then EQUALS the
+        // cap, so the length test in the reader cannot see it: a diff read as
+        // whole was missing every change past the cap.
+        state.lossy = { stdout: result.truncated?.stdout === true, stderr: result.truncated?.stderr === true };
       } catch (error) {
         if (controller.signal.aborted) {
           // Our kill() or the caller's cancellation: the killed outcome the

@@ -185,13 +185,32 @@ export declare class DistroFs {
      * The wire type is the entry's own (lstat): a symlink child then gets one
      * follow-up stat (its target's version and size) plus a realpath (its
      * identity), and a dangling symlink degrades to the peer's `other` with no
-     * version — exactly what the peer's null follow-probe produces.
+     * version — exactly what the peer's null follow-probe produces. Those
+     * follow-ups are collected first and sent together, one batched frame per
+     * {@link LINKS_PER_BATCH} links: one at a time, a directory of 200 links
+     * cost 400 sequential round trips and about half a second to expand in the
+     * GUI file tree, where the same 400 operations in one frame took 5 ms.
      *
      * @param target - the resolved directory to list.
      * @param signal - aborts between children.
      * @returns the child rows, name-sorted.
      */
     listChildren(target: ResolvedTarget, signal?: AbortSignal): Promise<ChildRow[]>;
+    /**
+     * Give the listing's symlink children their targets' identity: the row's
+     * type, version and size from a following stat, and its target key from the
+     * realpath. A link whose target cannot be stat'ed — dangling, or a record
+     * that will not parse — keeps the dangling shape the caller seeded.
+     *
+     * A batch-capable resident gets every follow-up in one frame per
+     * {@link LINKS_PER_BATCH} links; anything else keeps the serial road of one
+     * stat and one realpath per link, which is the only one it can serve.
+     *
+     * @param links - the symlink children, each with the index of its row.
+     * @param entries - the rows, updated in place.
+     * @param signal - aborts between frames.
+     */
+    private followLinks;
     /**
      * Stat the target as a regular file or refuse, mirroring the peer's
      * `statRegularFile` messages.
@@ -205,9 +224,18 @@ export declare class DistroFs {
     /**
      * Read the whole file's bytes through windowed frames.
      *
+     * A window is never wider than one frame should be, cap or no cap: with a
+     * finite cap the first request used to ask for `maxBytes + 1` bytes at
+     * once, which cancelled the windowing — an edit's diff basis, bounded at
+     * 10 MiB, arrived as one multi-megabyte frame however the unbounded read
+     * was chunked.
+     *
      * @param target - the resolved file.
      * @param signal - the caller's cancellation.
      * @param maxBytes - inclusive byte cap on the complete content.
+     * @param first - the first window, already read by a caller that sent it
+     *   ahead of the stat's answer ({@link readWholePipelined}); the loop then
+     *   continues from its end.
      * @returns the file's bytes.
      */
     private readWhole;
@@ -229,15 +257,27 @@ export declare class DistroFs {
      */
     private statThenReadWhole;
     /**
-     * The protocol-7 batch path for {@link readWholeText}: the stat and the
-     * first read window ride ONE FSB frame — the GUI preview's dominant
-     * shape — and further windows stay single reads.
+     * The protocol-7 road for {@link readWholeText}: the stat and the first
+     * read window go out together, each in its own frame, and neither answer
+     * is awaited until both are written.
+     *
+     * They used to share one batched frame. That put the window's bytes
+     * through base64 twice — once inside the batch's record and once around
+     * the whole record stream — for a read of 1 MiB: 40 ms against 25 ms for
+     * a plain read frame. Sending the two frames back to back keeps the one
+     * host round trip without it: a resident that serves requests concurrently
+     * runs them side by side, and a serial one already finds the second frame
+     * in its pipe when it finishes the first.
+     *
+     * The stat is still judged first. A target that is missing or not a regular
+     * file refuses through the stat's own failure, whatever the read answers —
+     * including a read that never answers, as one of a FIFO would not.
      *
      * @param target - the resolved file.
      * @param signal - aborts the read.
      * @returns the file's bytes.
      */
-    private readWholeBatched;
+    private readWholePipelined;
     /**
      * Read a whole regular file as raw bytes, bounded by `maxBytes`.
      *

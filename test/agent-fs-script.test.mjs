@@ -56,9 +56,13 @@ const checks = [];
 
 /** One live agent process over a temp directory, driven frame by frame. */
 class Harness {
-  constructor() {
+  /**
+   * @param {Record<string, string>} [env] - environment entries laid over the
+   *   test's own, for the checks that put a stand-in tool on the PATH.
+   */
+  constructor(env = {}) {
     this.dir = mkdtempSync(join(tmpdir(), "wsl-agent-fs-"));
-    this.child = spawn("sh", [SCRIPT], { stdio: ["pipe", "pipe", "pipe"] });
+    this.child = spawn("sh", [SCRIPT], { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, ...env } });
     this.lines = createInterface({ input: this.child.stdout });
     /** @type {string[]} */
     this.queue = [];
@@ -178,6 +182,31 @@ const runExec = async (agent, argv, { timeoutMs = 0, maxOutputBytes = 0 } = {}) 
     if (message.type === "result" && message.id === id) return message;
   }
 };
+
+checks.push(["a listing whose directory loses an entry mid-way still answers", async () => {
+  // `find` names an entry that vanished between the directory read and its
+  // own stat on stderr and exits 1. The directory is still there and every
+  // other entry is in the records: that listing is the right answer, not a
+  // failure (the native agent skips the entry for the same reason).
+  const bin = mkdtempSync(join(tmpdir(), "wsl-agent-find-"));
+  const agent = new Harness({ PATH: `${bin}${process.env.PATH === undefined ? "" : `:${process.env.PATH}`}` });
+  try {
+    await agent.hello();
+    const record = "printf 'f\\t1\\t1\\t2\\t1.0\\t1.0\\t/d/survivor\\0'\n";
+    writeFileSync(join(bin, "find"), `#!/bin/sh\n${record}printf "find: '/d/vanished': No such file or directory\\n" >&2\nexit 1\n`, { mode: 0o755 });
+    const result = await agent.call("list", [agent.dir]);
+    assert.equal(result.exitCode, 0, `a vanished entry must not fail the listing: ${result.stderr.toString("utf8")}`);
+    assert.match(result.stdout.toString("latin1"), /\/d\/survivor/, "the entries that are there are listed");
+    // Any other diagnostic is still the listing's own failure.
+    writeFileSync(join(bin, "find"), `#!/bin/sh\nprintf "find: '/d/locked': Permission denied\\n" >&2\nexit 1\n`, { mode: 0o755 });
+    const refused = await agent.call("list", [agent.dir]);
+    assert.equal(refused.exitCode, 1);
+    assert.equal(Harness.fsFailure(refused).reason, "perm");
+  } finally {
+    await agent.close();
+    rmSync(bin, { recursive: true, force: true });
+  }
+}]);
 
 checks.push(["HELLO opens the protocol at the host's version", async () => {
   const agent = new Harness();

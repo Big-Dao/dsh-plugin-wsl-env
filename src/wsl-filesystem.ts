@@ -24,7 +24,7 @@ import { SocketIsolationError, socketMasksFor as resolveSocketMasks, type Socket
 import type { Context } from "@deepseek-ai/cordis";
 import type { FileSystem, FsDeleteOutcome, FsDirEntry, FsEditOutcome, FsEditRequest, FsErrorCode, FsInfo, FsMoveOutcome, FsPathInfo, FsTarget, FsVersion, FsWriteIntent, FsWriteOutcome } from "@deepseek-ai/dsh-fs";
 import type { ConfinedSandboxMode, SandboxExecutionPolicy, SandboxMode } from "@deepseek-ai/dsh-sandbox";
-import { ProviderRuntimeBook, distroHome, effectiveWritableRoots, resolveOperationDistro, sessionRuntimeWanted, wslWritableRoots } from "./provider-common.js";
+import { ProviderRuntimeBook, distroHome, effectiveWritableRoots, resolveOperationDistro, sessionRuntimeWanted, wslWritableRoots, SessionEndWatch } from "./provider-common.js";
 
 type PatchHunks = Parameters<FileSystem["patchText"]>[1];
 type MoveFileOptions = Parameters<FileSystem["moveFile"]>[2];
@@ -216,6 +216,8 @@ export class WslFileSystem extends LocalFileSystem {
   declare sessionRuntimes: SessionRuntimes;
   /** Isolates calls that have no session identity. */
   declare sessionRuntimeOwner: string;
+  /** Ends the session runtimes with their sessions; see `SessionEndWatch`. */
+  declare sessionEndWatch: SessionEndWatch;
   /** The preflight's host runner; tests substitute it. */
   declare sessionScopeProbe: (argv: string[]) => Promise<string>;
   /** The one-time writable-root check's runner; tests substitute it. */
@@ -267,8 +269,12 @@ export class WslFileSystem extends LocalFileSystem {
     this.sessionScopeProbe = (argv) => runCapture(argv);
     this.writableRootsProbe = (argv) => runCapture(argv);
     this.socketIsolationProbe = (argv) => runCapture(argv);
-    // The preset's disposer releases the runtime; the shell executor's effect
-    // releases its own reference, so the scope stops after the last one.
+    // The preset realm this row lives in is the PROCESS's, not the session's:
+    // upstream disposes it only when the preset definition is unregistered, so
+    // this disposer is the process-level backstop. The session's end is the
+    // harness's own `agent/disposed`, which the watch wires to a release — for
+    // this provider's reference and the shell executor's alike.
+    this.sessionEndWatch = new SessionEndWatch(this, ctx);
     ctx.effect(() => () => this.disposeSessionRuntimes().catch(() => {}), "wsl fs session runtimes");
   }
 
@@ -433,7 +439,8 @@ export class WslFileSystem extends LocalFileSystem {
    * The persistent session runtime for one confined mutation, when
    * `sessionSandbox` is on. The key is the shell executor's key for the same
    * session/policy, so the write and the commands share one agent, one mount
-   * view and one scope; the provider holds a reference until the session ends.
+   * view and one scope; the provider holds a reference until the session ends
+   * (`agent/disposed`, through {@link sessionEndWatch}).
    *
    * @param policy - the resolved confined policy.
    * @param distro - the resolved distro name.
@@ -447,7 +454,14 @@ export class WslFileSystem extends LocalFileSystem {
     const sessionId = policy.sessionId || this.sessionRuntimeOwner;
     const key = SessionRuntimes.key({ sessionId, distro, workspaceRoot, mode: policy.mode, maskWindowsDrive: config.maskWindowsDrive, writableRoots, socketMasks, maskInterop });
     const held = this.runtimeBook.sessionRuntimeEntries.get(key);
-    if (held !== undefined) return held;
+    if (held !== undefined) {
+      // A session end tears its runtimes down through every holder. One that
+      // reached this runtime without this provider must not leave it handing
+      // out a closed agent: the stale reference goes, and a resumed session
+      // gets a fresh runtime below.
+      if (this.sessionRuntimes.holds(held)) return held;
+      this.runtimeBook.sessionRuntimeEntries.delete(key);
+    }
     const entry = this.sessionRuntimes.acquire({
       sessionId,
       distro,
@@ -460,6 +474,7 @@ export class WslFileSystem extends LocalFileSystem {
       maskInterop,
     });
     this.runtimeBook.sessionRuntimeEntries.set(key, entry);
+    this.sessionEndWatch.ensureSweep();
     return entry;
   }
 
@@ -494,12 +509,15 @@ export class WslFileSystem extends LocalFileSystem {
   }
 
   /**
-   * Release every runtime this provider holds. Called from the preset's
-   * dispose effect; public so tests and shutdown paths can await it.
+   * Release every runtime this provider holds. Called when the row goes away
+   * (the preset is unregistered, the app shuts down) — the sessions ended long
+   * before, each through {@link sessionEndWatch}; public so tests and shutdown
+   * paths can await it.
    *
    * @returns resolved once every reference is released.
    */
   async disposeSessionRuntimes(): Promise<void> {
+    this.sessionEndWatch.dispose();
     const entries = [...this.runtimeBook.sessionRuntimeEntries.values()];
     this.runtimeBook.sessionRuntimeEntries.clear();
     for (const entry of entries) await this.sessionRuntimes.release(entry.key);

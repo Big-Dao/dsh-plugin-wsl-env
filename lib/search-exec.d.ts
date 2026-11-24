@@ -43,6 +43,12 @@
  * Everything else — a genuine agent failure that is not `AgentUnavailableError`
  * — still propagates through `done` as a rejection.
  *
+ * The agent's capture cap is the tool's raw-output budget. A stream the
+ * agent cut there is reported `lossy`, exactly as the one-shot delegate's
+ * own reader reports it — the cut leaves the stream at exactly the budget,
+ * so a length cannot show it, and a result read as whole was missing every
+ * match past the cap.
+ *
  * The one-shot delegate is post-processed the same way, because the agent
  * being out must not change what a broken environment looks like: a missing
  * program's `execvpe(rg) failed` line (exit 1) becomes the same 127, and the

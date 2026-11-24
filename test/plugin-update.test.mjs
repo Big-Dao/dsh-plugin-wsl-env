@@ -383,6 +383,41 @@ await check("POST admits only one update at a time", async () => {
   assert.equal(done.body.updated, true);
 });
 
+await check("the lock is held across the version check: a second click inside it starts nothing", async () => {
+  // A cold or stale cache makes the check a registry round trip of seconds.
+  // The lock used to be taken only after it, so two clicks in that window
+  // each ran their own removal and install.
+  /** @type {() => void} */
+  let release = () => {};
+  const gate = new Promise((resolve) => { release = /** @type {() => void} */ (resolve); });
+  /** @type {() => void} */
+  let started = () => {};
+  const entered = new Promise((resolve) => { started = /** @type {() => void} */ (resolve); });
+  let updates = 0;
+  const manager = {
+    /** @returns {Promise<typeof FRESH>} the listing, once the gate opens. */
+    listVersions: async () => {
+      started();
+      await gate;
+      return FRESH;
+    },
+    updateBundle: async () => {
+      updates += 1;
+      return APPLIED;
+    },
+  };
+  const { handler } = handlerFor(manager);
+  const first = call(handler, "POST");
+  await entered;
+  const second = await call(handler, "POST");
+  assert.equal(second.status, 409, "the second click finds the update already running");
+  assert.match(second.body.error, /already running/u);
+  release();
+  const done = await first;
+  assert.equal(done.body.updated, true);
+  assert.equal(updates, 1, "one removal and install, not two");
+});
+
 await check("methods other than GET and POST are refused", async () => {
   const { handler } = handlerFor(undefined);
   const answer = await call(handler, "PUT");

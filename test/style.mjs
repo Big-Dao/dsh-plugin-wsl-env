@@ -216,7 +216,6 @@ check("test:unit and test:coverage name the same files", listDrift, listDrift.jo
 const docsShipped = new Set(/** @type {string[]} */ (pkg.files).filter((entry) => entry.startsWith("docs/")));
 const docsExceptions = new Set([
   "docs/DOCUMENTATION-MAP.md", // the maintainers' doc map
-  "docs/REQUIREMENTS.zh.md", // governance register (shipped: ARCHITECTURE links it)
   "docs/upstream-open-in-app-bug.md", // the dated incident record
   "docs/UPSTREAM-SPAWN-SEAM.md", // upstream negotiation, not user-facing
   "docs/UPSTREAM-SESSION-BACKGROUND-KILL.md", // upstream negotiation, not user-facing

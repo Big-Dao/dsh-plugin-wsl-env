@@ -48,7 +48,7 @@
 让这一点保持诚实的规则：
 
 - 绝不要编辑 `lib/` 下的生成文件——其模块文档会指明应编辑的源码，两者一旦偏移，`lint:build` 就会失败。生成产物保持 tsc 的规范格式（四空格缩进、紧凑格式）；审查每个模块时看 `src/`。
-- `lint:build`（`test/build-freshness.mjs`）强制文件集合闭合——每个 `lib/*.js` 都有对应的 `src/<name>.ts`，每个源码都有两个产物——然后为每个生成文件做快照，运行真实构建，逐字节比较并还原快照：这是一次检查，不是重建；偏移的补救办法是 `pnpm run build` 加一次提交。它位于 `test:syntax` 之后的检查链中。
+- `lint:build`（`test/build-freshness.mjs`）强制文件集合闭合——每个 `lib/*.js` 都有对应的 `src/<name>.ts`，每个源码都有两个产物——然后用同一个构建脚本（`scripts/build.mjs --outDir <临时目录>`）把同一份程序构建到临时目录，与提交的产物逐字节比较。检查从不写入 `lib/`：这是一次检查，不是重建；偏移的补救办法是 `pnpm run build` 加一次提交。它位于 `test:syntax` 之后的检查链中。
 - 生成文件完全不进入 `checkJs` 检查（`tsconfig.json` 覆盖 `test/**` 和环境类型声明）；它们的源码由构建程序以 `noEmitOnError` 做类型检查，因此损坏的构建永远不会覆盖 `lib/`。
 - 每个 JavaScript 导出都带有 `types` 条件（由 `lint:style` 强制），因此下游能解析这些声明；不存在第二套手写类型表面。
 - 协议消息联合体及相关类型现在是唯一的定义处：使用方直接 import 它们（`@typedef {import("./agent-protocol.js").AgentMessage} AgentMessage`），而不是重新声明；`lib/agent.js` 和脚本驱动的测试就是这样读取它们。
@@ -58,6 +58,33 @@
 1. 编写 `src/<name>.ts`；import 指向产物（`./x.js`），`nodenext` 会通过 TypeScript 源码解析它。把所有类型移入签名，保留说明文字，并保留每一个导出的名称——包括类型，因为使用方会 import 它们（`import("./paths.js").DistroPath`）。在模块文档末尾写上说明，指明生成的产物。
 2. 运行 `pnpm run build`，再运行 `pnpm test`。无需维护排除列表，也没有注册步骤：构建和 `lint:build` 从 `src/` 推导一切，`lib/` 是生成输出——绝不要手工编辑。
 3. 如果模块在 Plugins 页面拥有自己的一行，把它的显示元数据添加为 `locale/<name>/en.json` 和 `locale/<name>/zh.json`——各含一对 `meta.title` / `meta.description`——并通过 `exports` 暴露两者（`./<name>/locale/en.json`、`./<name>/locale/zh.json`），该页面会先读取它们，再回退到包的 `description`。bundle 自己的那一对是 `locale/en.json` / `locale/zh.json`，`subprocess`、`picker`、`shell-env` 和 `auto-preset` 各自带有自己的那一对。有一组运行时 catalog 不是 `exports` 条目：`locale/doctor/*.json` 为独立 CLI 的固定骨架提供本地化，由脚本自身从包根目录读取。`files` 已随包发布 `locale/**/*.json`，而 `lint:style` 会让不存在的 `exports` 目标失败。
+
+## 预设副本的同步（`preset-wsl`）
+
+`cordis.patch.yml` 的 `preset-wsl` 是应用自带标准 preset
+（`packages/bundle/web-app/presets/standard.patch.yml`）的派生副本：标准模式
+的各行挂到发行版的 shell 和文件系统上。应用给自己的 preset 加一行，WSL
+会话就缺一行，直到副本重新生成；而 pinned 依赖树里并没有这份 preset 可供
+比对，rc.2 新增的 office 工具、内置 skill 根和 subagent 开关因此漏了整条
+版本线。
+
+`pnpm run preset:sync`（`scripts/preset-sync.mjs`）把副本钉在一条可复现的
+版本线上。`test/fixtures/standard.patch.dsh-<版本>.yml` 是 dev pin 所指
+版本的那份上游文件；脚本用 include 自带的 `!!js` 方言解析两份文件，让上游
+各行经过副本注明的那几处改动（本插件自己的行、固定的 shell 工具选择），
+再逐行、按顺序比对，嵌套组一并比对。`pnpm test` 运行的是同一份检查。快照
+的文件名必须等于 `devDependencies` 里 `@deepseek-ai/dsh-fs` 的精确版本，
+所以只抬高 pin、不换快照会让检查失败；`--upstream <文件>` 可以指定 harness
+源码树里的任意一份 preset，在 pin 移动之前预览差异。
+
+跟随新版本线的步骤：
+
+1. 用新 tag 的 `standard.patch.yml` 替换快照：harness 源码树里是
+   `git show <tag>:packages/bundle/web-app/presets/standard.patch.yml`；发布包
+   `@deepseek-ai/dsh-web-app` 的 tarball 里带着同一份文件。
+2. 运行 `pnpm run preset:sync`，看上游改了什么。
+3. 按 `preset-wsl` 行上方的注释重新生成该行。
+4. 在同一提交里抬高 pin。
 
 ## 开发循环
 
@@ -89,6 +116,7 @@ pnpm run sync:windows
 | `pnpm run lint:style` | 风格与 lint 规则 | 否 |
 | `pnpm run lint:build` | 构建新鲜度检查：每个源码都有产物，且提交的字节匹配真实构建 | 否 |
 | `pnpm run lint:types` | 对 `test/**` 和环境类型声明的 TypeScript 检查（`tsc --noEmit`） | 否 |
+| `pnpm run preset:sync` | `preset-wsl` 与 pinned 版本的标准 preset 快照逐行比对；`pnpm test` 内含同一检查 | 否 |
 | `pnpm run e2e:install` | 在临时 `DSH_HOME` 中安装/升级/卸载打包 tarball；“最新已发布版 → 当前版本”leg 会用 overlay 探针启动 profile，断言三个接管实际挂载 | 是；Windows + WSL |
 | `pnpm run doctor` | 环境前置项、peer 和缓存（脚本使用 `--json`；`diagnose` 是只读别名） | 否；在发行版内 |
 | `pnpm run probe` | 针对真实发行版的文件系统行为 | 是 |
@@ -149,13 +177,15 @@ Windows+WSL runner，请使用 `self-hosted-wsl` 等无歧义标签，不要复�
 
 单元测试在 `node --test` 下运行。`package.json` 中的 `test:unit` 和 `test:coverage` 列表显式列出各自的文件；只涉及本仓库的测试应同时出现在两者中。保持两个列表同步且没有重复条目。
 
-两个脚本都在 `scripts/test-watchdog.mjs` 下运行各自的列表，该 watchdog 把整次运行限制在 180 秒内（可用 `DSH_TEST_WATCHDOG_MS` 覆盖）。`node --test` 没有逐文件截止时间，因此一个脚本式文件如果在尚未完成的顶层 await 背后留下活动句柄，就会让检查挂起，直到调用方杀掉它；到达截止时间时，包装器会中断运行，node 的 “Interrupted while running” 列表会指出从未完成的文件。脚本还会传入 `--test-timeout=60000`，它只限制文件用 `test()` 注册的测试——watchdog 才覆盖模块求值阶段的挂起。
+两个脚本都在 `scripts/test-watchdog.mjs` 下运行各自的列表，该 watchdog 把整次运行限制在 180 秒内（可用 `DSH_TEST_WATCHDOG_MS` 覆盖）。`node --test` 没有逐文件截止时间，因此一个脚本式文件如果在尚未完成的顶层 await 背后留下活动句柄，就会让检查挂起，直到调用方杀掉它；到达截止时间时，包装器会中断运行，node 的 “Interrupted while running” 列表会指出从未完成的文件。脚本还会传入 `--test-timeout=120000`。在 Node 24 上它只限制文件用 `test()` 注册的测试，模块求值阶段的挂起由 watchdog 覆盖；Node 22 还把脚本式文件的顶层求值整个计入这个时限，所以它必须高于最慢的文件——doctor 套件每次运行要起几十个假进程，还要等完抖动重试的真实延迟，约需一分钟。
 
 `test:coverage` 还会通过 `scripts/coverage-gate.mjs` 运行该列表。Node 的覆盖率基于加载——没有测试 import 的模块不会有一行记录，因此全局百分比会静默地只衡量一个子集——所以该检查要求每个 `lib/*.js` 都被测量，或在 `test/coverage-allowlist.json` 中列出并说明为何无法被受检查的测试套件加载；每个被测量的模块都要满足 85 行 / 70 分支 / 60 函数的下限。没有测试的新模块会让检查失败，已不存在模块的允许列表条目同样如此。新增测试是首选修复；允许列表让其余仅由探针覆盖的行保持可见，而不是让它们从分母中消失。
 
 import 固定版本 `@deepseek-ai/*` 包的测试也进入同样的列表，无需额外防护——CI 在 `pnpm test` 之前对锁定树运行 `pnpm install --frozen-lockfile`。例如，`test/provider.test.mjs` 覆盖装配后的服务行，`test/composition.test.mjs` 运行 loader 的真实 patch 算法。
 
 凡是存在无 peer 的接缝，优先使用它。`test/sandbox.test.mjs` 针对 `lib/sandbox-core.js` 运行，并用一个替身代替 peer 的 `SandboxUnavailableError` 契约，这样 `lib/sandbox.js` 中只剩一行 peer 绑定。那一行由 harness 探针覆盖——它们启动插件，从而通过 `lib/index.js` 到达 `WslSandbox`——而不是由 `probe:sandbox` 覆盖，后者只从 `lib/bwrap.js` 读取参数构建器。无法在所有环境运行的测试必须自行跳过——打印一行 `SKIP` 并以 0 退出——就像该文件在 `win32` 上的做法，在那里它的 fake `wsl.exe`（一个 POSIX 脚本）无法执行。
+
+脚本式套件里的单条检查经 `test/skip.mjs` 延后：检查体确认本机跑不了时调用 `skip("<原因>")`（它会抛出，其后的代码不再执行），由共享的 `runCheck` 打印带原因的 `SKIP` 行，汇总行（`summaryLine` / `skipNote`）写出 `(N skipped: <原因>)`。不要用提前 `return` 代替——runner 在函数返回后打印 PASS，这样的检查在日志里是绿的，实际从未运行；Windows CI 上宿主真实 cancel 路径的唯一单测曾长期如此。跳过要带具体原因：一次跳过若让某条行为在所有环境都没有单测，应先问这条检查能否改成在所有环境运行（例如把 inotify 目录监听换成文件目标）。
 
 ### 浏览器 E2E
 

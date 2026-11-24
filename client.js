@@ -955,6 +955,12 @@ window.__ModuleLoader__.load({
     // ── The panel ──────────────────────────────────────────────────────────
 
     /**
+     * The row phases in which a request is still in flight: a list read must
+     * leave such a row alone (see `loadDistros`).
+     */
+    const IN_FLIGHT = new Set(["checking", "fullChecking", "repairing", "refreshing"]);
+
+    /**
      * The WSL environment page: the installed distros, their quick verdicts, and
      * the directories recorded for Windows access.
      * @param props - the client root context.
@@ -1090,20 +1096,38 @@ window.__ModuleLoader__.load({
         try {
           const answer = await statusRequest("");
           setDistros(Array.isArray(answer.distros) ? answer.distros : []);
-          const cached = {};
-          for (const entry of Array.isArray(answer.cached) ? answer.cached : []) {
-            cached[entry.distro] = { phase: "done", ...entry, cached: true };
-          }
-          setChecks(cached);
+          const stored = Array.isArray(answer.cached) ? answer.cached : [];
+          // The list read MERGES into the rows: one whose check is still in
+          // flight keeps its state. Replacing the whole table reset such a
+          // row to its stored result, which re-enabled the row's buttons (a
+          // second doctor could start beside the first) and let the first
+          // check's late answer land over whatever had replaced it.
+          setChecks((previous) => {
+            const next = {};
+            for (const [distro, state] of Object.entries(previous)) {
+              if (state !== undefined && IN_FLIGHT.has(state.phase)) next[distro] = state;
+            }
+            for (const entry of stored) {
+              if (next[entry.distro] === undefined) next[entry.distro] = { phase: "done", ...entry, cached: true };
+            }
+            return next;
+          });
           setPhase("ready");
           if (allowBackground) {
             const running = new Set(Array.isArray(answer.running) ? answer.running : []);
-            for (const entry of Array.isArray(answer.cached) ? answer.cached : []) {
+            for (const entry of stored) {
               // A result from the last minute is already current; an error is
               // not retried automatically (the row's check button is the way
               // back), so a persistent failure cannot spin on every load.
               const recent = typeof entry.checkedAt === "number" && Date.now() - entry.checkedAt < 60_000;
-              if (running.has(entry.distro) && entry.verdict !== "error" && !recent) void refreshBackground(entry.distro);
+              // A full diagnosis or a repair is the user's own result. A
+              // background re-check is a QUICK one: it would drop the repair
+              // button and the repair's before → after evidence, sixty
+              // seconds after the user last opened the panel. (The route
+              // answers such a stored result as it is, for a client that
+              // asks anyway.)
+              const userOwn = entry.full === true || entry.repaired === true;
+              if (running.has(entry.distro) && entry.verdict !== "error" && !recent && !userOwn) void refreshBackground(entry.distro);
             }
           }
         } catch (error) {
@@ -1371,15 +1395,18 @@ window.__ModuleLoader__.load({
                   onClick: () => { void clearResults(null); },
                 }),
                 h(Btn, {
-                  label: "刷新",
+                  label: phase === "loading" ? "刷新中…" : "刷新",
                   small: true,
+                  // A list read while a row's check is in flight would show
+                  // that row's stale stored result under re-enabled buttons.
+                  disabled: phase !== "ready" || busyAny,
                   onClick: () => { void loadDistros(false); void loadAccessPaths(); },
                 }),
               ),
             },
             h("details", null,
               h("summary", { style: { ...styles.hint, cursor: "pointer" } }, "检查与修复说明"),
-              h("div", { style: styles.hint }, "“快速检查”验证首条命令的前置项；“完整诊断”运行完整 doctor，二者均只读。完整诊断发现可修复的插件自有状态（残留 session scope、损坏的 agent 缓存）后，才显示独立的“修复插件状态”按钮；修复后复检并显示 before→after。修复不安装软件包、不改写 Windows 配置；其余告警按各自处理办法手动处理。检查会启动已停止的发行版，所以只在点击时执行；页面加载的后台复核只针对正在运行的发行版，失败会按实际观测覆盖并标为“后台”来源。“清除”删除该发行版本机保存的检测结果，“清除全部”清空所有结果；两者都不探测、不修改发行版，但清除后需再次检查。"),
+              h("div", { style: styles.hint }, "“快速检查”验证首条命令的前置项；“完整诊断”运行完整 doctor，二者均只读。完整诊断发现可修复的插件自有状态（残留 session scope、损坏的 agent 缓存）后，才显示独立的“修复插件状态”按钮；修复后复检并显示 before→after。修复不安装软件包、不改写 Windows 配置；其余告警按各自处理办法手动处理。检查会启动已停止的发行版，所以只在点击时执行；页面加载的后台复核只针对正在运行的发行版，不会覆盖“完整诊断”和“修复”的结果，失败会按实际观测覆盖并标为“后台”来源。“清除”删除该发行版本机保存的检测结果，“清除全部”清空所有结果；两者都不探测、不修改发行版，但清除后需再次检查。"),
             ),
             phase === "loading"
               ? h("div", { style: styles.empty }, "加载中…")

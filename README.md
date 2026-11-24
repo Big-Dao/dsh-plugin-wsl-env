@@ -31,7 +31,7 @@ The full argument (why Linux rather than PowerShell, value and costs) is in [doc
 
 The desktop app has no `dsh` executable; the plugin installs through the in-app Plugins page. Three steps:
 
-1. `wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap`
+1. `wsl.exe -d <distro> -u root -- sh -c "apt-get update -qq && apt-get install -y --no-install-recommends bubblewrap"`
 2. Plugins page: **Add plugin** → `dsh-plugin-wsl-env`, enable it.
 3. Restart the app, open a folder inside the distro; type `/wsl-doctor` (host-side) for a `ready`/`blocked` verdict.
 

@@ -30,7 +30,22 @@ extern "C" {
     fn kill(pid: i32, sig: i32) -> i32;
     fn fcntl(fd: i32, command: i32, ...) -> i32;
     fn ioctl(fd: i32, request: u64, ...) -> i32;
+    fn syscall(number: i64, ...) -> i64;
 }
+
+/// `AT_FDCWD`: the path arguments are absolute or relative to the cwd.
+const AT_FDCWD: i32 = -100;
+/// `renameat2` flag: fail with `EEXIST` instead of replacing the target.
+const RENAME_NOREPLACE: i32 = 1;
+/// The `renameat2` system call's number. It is called by number rather than
+/// through a libc wrapper: the wrapper only exists in newer libcs (the musl
+/// this toolchain links against has none), the call does.
+#[cfg(target_arch = "x86_64")]
+const SYS_RENAMEAT2: i64 = 316;
+#[cfg(target_arch = "aarch64")]
+const SYS_RENAMEAT2: i64 = 276;
+/// `ESRCH`: no such process — what `kill(pid, 0)` reports for a dead pid.
+const ESRCH: i32 = 3;
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -266,9 +281,19 @@ fn list_records(directory: &str) -> Result<Vec<u8>, (String, String)> {
     for entry in entries {
         let entry = entry.map_err(|error| (reason_for(&error).to_string(), format!("cannot list \"{directory}\": {error}")))?;
         let path = entry.path();
-        let metadata = fs::symlink_metadata(&path).map_err(|error| {
-            (reason_for(&error).to_string(), format!("cannot list \"{directory}\": {error}"))
-        })?;
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            // The entry was created and removed again between the directory
+            // read and this stat — a build output directory, a package manager
+            // mid-install. It is simply not in the directory any more, which
+            // makes a listing without it a true answer; failing the whole
+            // listing turned a third of the listings of such a directory into
+            // "notfound" while the directory itself never went away.
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err((reason_for(&error).to_string(), format!("cannot list \"{directory}\": {error}")));
+            }
+        };
         let file_type = metadata.file_type();
         let kind = if file_type.is_file() {
             "f"
@@ -346,13 +371,82 @@ fn resolve_path(path: &str) -> Result<String, (String, String)> {
     }
 }
 
-fn create_staging(directory: &Path) -> io::Result<std::path::PathBuf> {
+/// How many bytes of a target's name ride in its staging directory's name:
+/// enough to tie the directory to its target, and few enough that a
+/// maximum-length file name still leaves room for the pid and the token.
+const STAGING_BASE_BYTES: usize = 64;
+
+/// The first at most {@link STAGING_BASE_BYTES} bytes of a name, cut on a
+/// character boundary.
+fn staging_base(base: &str) -> &str {
+    let mut end = 0;
+    for (index, character) in base.char_indices() {
+        if index + character.len_utf8() > STAGING_BASE_BYTES {
+            break;
+        }
+        end = index + character.len_utf8();
+    }
+    &base[..end]
+}
+
+/// Whether a process with this pid exists. `kill(pid, 0)` signals nothing: it
+/// only answers the question, and every answer but `ESRCH` — including an
+/// error this agent cannot interpret — counts as "exists", the safe side.
+fn process_exists(pid: i32) -> bool {
+    if pid <= 0 {
+        return false;
+    }
+    let result = unsafe { kill(pid, 0) };
+    result == 0 || std::io::Error::last_os_error().raw_os_error() != Some(ESRCH)
+}
+
+/// Remove this target's leftover staging directories whose creating process
+/// is gone. A killed agent cannot clean up after itself, and its half-written
+/// directory would sit in the target's directory forever and show up in
+/// listings. The creator's pid is the second component of the name, so a
+/// dead pid means an orphan; a live pid keeps its directory (pid reuse
+/// included), and so does this agent's own pid, which may have another
+/// request's staging in flight.
+///
+/// The name is the shell agent's — `.<base>.<pid>.<token>.tmpdir` — so each
+/// agent's sweep recognises the other's leftovers.
+fn sweep_staging(directory: &Path, base: &str) {
+    let prefix = format!(".{}.", staging_base(base));
+    let Ok(entries) = fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let Some(middle) = name.strip_prefix(&prefix).and_then(|rest| rest.strip_suffix(".tmpdir")) else {
+            continue;
+        };
+        let Some((pid, token)) = middle.split_once('.') else {
+            continue;
+        };
+        if pid.is_empty() || !pid.bytes().all(|byte| byte.is_ascii_digit()) || token.is_empty() || token.contains('.') {
+            continue;
+        }
+        let Ok(creator) = pid.parse::<i32>() else {
+            continue;
+        };
+        if creator == std::process::id() as i32 || process_exists(creator) {
+            continue;
+        }
+        let _ = fs::remove_dir_all(entry.path());
+    }
+}
+
+fn create_staging(directory: &Path, base: &str) -> io::Result<std::path::PathBuf> {
+    sweep_staging(directory, base);
     let mut random = File::open("/dev/urandom")?;
     for _ in 0..16 {
         let mut bytes = [0u8; 16];
         random.read_exact(&mut bytes)?;
         let token: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-        let staging = directory.join(format!(".dsh-wsl-{}-{token}.tmpdir", std::process::id()));
+        let staging = directory.join(format!(".{}.{}.{token}.tmpdir", staging_base(base), std::process::id()));
         match fs::DirBuilder::new().mode(0o700).create(&staging) {
             Ok(()) => return Ok(staging),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
@@ -360,6 +454,61 @@ fn create_staging(directory: &Path) -> io::Result<std::path::PathBuf> {
         }
     }
     Err(io::Error::new(io::ErrorKind::AlreadyExists, "cannot allocate staging directory"))
+}
+
+/// Move a file by renaming it, when the kernel allows that.
+///
+/// The caller has already verified both version guards. A no-replace move
+/// uses `renameat2(RENAME_NOREPLACE)`, so a destination that appeared since
+/// the guard fails with `exists` instead of being replaced; the requested
+/// mode is applied to the moved file itself, as the copy applied it to its
+/// new file. `Ok(false)` is "not this way": the two paths are on different
+/// filesystems, or this filesystem lacks the flag — a cross-filesystem move
+/// has to copy, and a replace-rename needs nothing special.
+fn rename_move(source: &str, destination: &str, mode: &str, no_replace: bool) -> Result<bool, (String, String)> {
+    let failed = |error: &io::Error| (reason_for(error).to_string(), format!("cannot move \"{source}\" to \"{destination}\": {error}"));
+    let renamed = if no_replace {
+        let (Ok(source), Ok(destination)) = (std::ffi::CString::new(source), std::ffi::CString::new(destination)) else {
+            return Err(("io".to_string(), "path contains a NUL byte".to_string()));
+        };
+        // The flag is refused as unsupported on some filesystems (and by the
+        // system call on old kernels): `EINVAL`/`ENOSYS` are the cue to copy.
+        // Every argument is passed at the call's full word width: a variadic
+        // caller's `int` leaves the upper half of the register undefined, and
+        // the kernel reads whole words.
+        let result = unsafe {
+            syscall(
+                SYS_RENAMEAT2,
+                i64::from(AT_FDCWD),
+                source.as_ptr() as usize,
+                i64::from(AT_FDCWD),
+                destination.as_ptr() as usize,
+                i64::from(RENAME_NOREPLACE),
+            )
+        };
+        match result {
+            0 => true,
+            _ => {
+                let error = std::io::Error::last_os_error();
+                match error.raw_os_error() {
+                    Some(22) | Some(38) => return Ok(false),
+                    _ => return Err(failed(&error)),
+                }
+            }
+        }
+    } else {
+        match fs::rename(source, destination) {
+            Ok(()) => true,
+            Err(error) if error.kind() == io::ErrorKind::CrossesDevices => return Ok(false),
+            Err(error) => return Err(failed(&error)),
+        }
+    };
+    if renamed && mode != "-" {
+        if let Ok(parsed) = u32::from_str_radix(mode, 8) {
+            let _ = fs::set_permissions(destination, fs::Permissions::from_mode(parsed & 0o7777));
+        }
+    }
+    Ok(renamed)
 }
 
 fn fs_execute(op: &str, args: &[Vec<u8>], cancelled: &Arc<AtomicBool>) -> Result<Vec<u8>, (String, String)> {
@@ -410,7 +559,7 @@ fn fs_execute(op: &str, args: &[Vec<u8>], cancelled: &Arc<AtomicBool>) -> Result
             if base.is_empty() {
                 return Err(("notfound".to_string(), "empty file name".to_string()));
             }
-            let staging = create_staging(directory)
+            let staging = create_staging(directory, &base)
                 .map_err(|error| (reason_for(&error).to_string(), format!("cannot write \"{path}\": {error}")))?;
             let temp = staging.join("content");
             let staged = (|| {
@@ -515,7 +664,20 @@ fn fs_execute(op: &str, args: &[Vec<u8>], cancelled: &Arc<AtomicBool>) -> Result
                     }
                 }
             }
-            let staging = create_staging(directory)
+            // Same filesystem: the rename IS the move. The inode changes
+            // directory, nothing is copied or rewritten, and the lock is held
+            // for microseconds instead of the copy's whole length — a 256 MiB
+            // move used to copy 256 MiB under `fs_lock`, with every FS frame
+            // behind it waiting. `None` means the kernel declined (another
+            // filesystem, or a filesystem without the no-replace flag) and
+            // the copy below is the move.
+            match rename_move(&source, &destination, &mode, guard == "no-replace") {
+                Ok(true) => return stat_record(&destination, true).map(String::into_bytes),
+                Ok(false) => {}
+                Err((reason, message)) => return Err((reason, message)),
+            }
+            let dbase = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let staging = create_staging(directory, &dbase)
                 .map_err(|error| (reason_for(&error).to_string(), format!("cannot move \"{source}\": {error}")))?;
             let temp = staging.join("content");
             let staged = fs::copy(&source, &temp).map(|_| ()).and_then(|()| {
@@ -557,6 +719,11 @@ fn fs_execute(op: &str, args: &[Vec<u8>], cancelled: &Arc<AtomicBool>) -> Result
     }
 }
 
+/// Whether an FS op changes anything. These and only these take `fs_lock`.
+fn is_mutation(op: &str) -> bool {
+    matches!(op, "write" | "delete" | "move")
+}
+
 fn handle_fs(
     id: String,
     op: String,
@@ -567,8 +734,13 @@ fn handle_fs(
     cancelled: Arc<AtomicBool>,
 ) {
     let _guard = RequestGuard { active, id: id.clone() };
-    let _serial = fs_lock.lock().unwrap();
+    // The ACK reports the DEQUEUE and nothing else: the host arms its
+    // execution watchdog on it. Taken after the lock, a read-only op queued
+    // behind a slow write announced itself only when it started to run.
     write_line(&out, &format!("ACK|{id}"));
+    // Only mutations serialize, with each other. Behind one lock, every
+    // stat and read waited for the slowest write or move in front of them.
+    let _serial = is_mutation(&op).then(|| fs_lock.lock().unwrap());
     if cancelled.load(Ordering::Acquire) {
         fs_fail(&out, &id, "io", "request cancelled");
         return;
@@ -591,8 +763,10 @@ fn handle_fsb(
     // (`OK <i>|<b64 payload>` / `BAD <i>|<reason>|<b64 message>`) are the
     // payload, so the host gets N op answers for one round trip.
     let _guard = RequestGuard { active, id: id.clone() };
-    let _serial = fs_lock.lock().unwrap();
     write_line(&out, &format!("ACK|{id}"));
+    // A batch holding one mutation is a mutation: its reads run under the
+    // same lock, in order, with that mutation.
+    let _serial = ops.iter().any(|(op, _)| is_mutation(op)).then(|| fs_lock.lock().unwrap());
     if cancelled.load(Ordering::Acquire) {
         fs_fail(&out, &id, "io", "request cancelled");
         return;
@@ -659,15 +833,6 @@ fn handle_exec(
         }
     };
     let pgid = child.id() as i32;
-    // Feed and close the child's stdin before any wait: the payload is
-    // bounded by the frame, so a blocking write cannot deadlock a reader that
-    // has not started yet — the OS pipe buffer holds a frame-sized feed.
-    if !stdin_payload.is_empty() {
-        if let Some(mut pipe) = child.stdin.take() {
-            use std::io::Write;
-            let _ = pipe.write_all(&stdin_payload);
-        }
-    }
     let cancel_after_spawn = {
         let mut requests = active.lock().unwrap();
         if let Some(request) = requests.get_mut(&id) {
@@ -687,6 +852,23 @@ fn handle_exec(
     let err_finished = Arc::clone(&finished);
     let out_reader = thread::spawn(move || stop_out.map(|pipe| read_bounded(pipe, cap, out_finished)).unwrap_or_default());
     let err_reader = thread::spawn(move || stop_err.map(|pipe| read_bounded(pipe, cap, err_finished)).unwrap_or_default());
+    // The stdin feed runs on its OWN thread, and only now that both output
+    // readers are running. Fed from this thread before the readers started,
+    // a payload larger than the OS pipe buffer deadlocked a child that
+    // echoes: the child filled its stdout pipe and blocked there, stopped
+    // reading stdin, and this thread blocked in the write — with the wait
+    // loop and its timeout queued behind it, so not even the agent's own
+    // timeout could fire. The pipe is dropped when the feed ends, which is
+    // the child's EOF.
+    let stdin_writer = if stdin_payload.is_empty() {
+        None
+    } else {
+        child.stdin.take().map(|mut pipe| {
+            thread::spawn(move || {
+                let _ = pipe.write_all(&stdin_payload);
+            })
+        })
+    };
     let started = Instant::now();
     let status = loop {
         let result = {
@@ -703,13 +885,16 @@ fn handle_exec(
             Ok(Some(status)) => break status,
             Ok(None) => {
                 if timeout_secs > 0 && started.elapsed() >= Duration::from_secs(timeout_secs) {
-                    unsafe { kill(-pgid, SIGTERM) };
-                    thread::sleep(Duration::from_millis(100));
-                    unsafe { kill(-pgid, SIGKILL) };
+                    // The cancel path's own TERM, then KILL once its grace
+                    // runs out: a command that cleans up on TERM gets the
+                    // time to. A fixed 100 ms then KILL reported 137 and
+                    // skipped the cleanup the shell agent's grace allows.
+                    cancel_group(&active, &id, pgid);
+                    let status = child.wait().unwrap_or_else(|_| std::process::ExitStatus::default());
                     if let Some(request) = active.lock().unwrap().get_mut(&id) {
                         request.pgid = None;
                     }
-                    break child.wait().unwrap_or_else(|_| std::process::ExitStatus::default());
+                    break status;
                 }
                 thread::sleep(Duration::from_millis(10));
             }
@@ -719,6 +904,19 @@ fn handle_exec(
     finished.store(true, Ordering::Release);
     let (stdout, stdout_cut) = out_reader.join().unwrap_or_default();
     let (stderr, stderr_cut) = err_reader.join().unwrap_or_default();
+    // A feed still blocked here belongs to a read end the child left behind
+    // (a descendant that inherited stdin and does not read it). It is given a
+    // moment to finish and then left alone: the thread ends when that end
+    // closes, and whether it did is not part of the command's outcome.
+    if let Some(writer) = stdin_writer {
+        let deadline = Instant::now() + Duration::from_millis(1000);
+        while !writer.is_finished() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        if writer.is_finished() {
+            let _ = writer.join();
+        }
+    }
     write_line(
         &out,
         &format!(

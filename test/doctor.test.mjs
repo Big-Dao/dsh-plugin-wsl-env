@@ -9,14 +9,14 @@
  * itself runs there; only this harness cannot).
  */
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { peerSatisfied, peerPackageDir, parseWslConfig, parseWslSize, parseIni, parseWslVerbose, effectiveMaskWindowsDrive, distroPath, hostDiskVerdict, localeNameFromReg, localeFromTag, overrideLocale, setDoctorLocale, doctorT } from "../scripts/doctor.mjs";
+import { peerSatisfied, peerPackageDir, parseWslConfig, parseWslSize, parseIni, parseWslVerbose, effectiveMaskWindowsDrive, distroPath, hostDiskVerdict, localeNameFromReg, localeFromTag, overrideLocale, setDoctorLocale, doctorT, probeHandshake, STALE_SCOPE_REPORT } from "../scripts/doctor.mjs";
 import { mergeLiveResidentStatus } from "../lib/doctor-live.js";
 import { doctorReport } from "../lib/index.js";
 import { DOCTOR_PEERS_ENV, resolvedPeerVersion, resolvedPeerVersions, versionAbove, withHostPeerVersions } from "../lib/peer-versions.js";
@@ -59,7 +59,16 @@ case "$all" in
   *"-d debian"*) [ "\${FAKE_STOP_DEBIAN:-no}" = yes ] && { printf 'WSL_E_DISTRO_NOT_FOUND\\n' >&2; exit 1; } ;;
 esac
 case "$all" in
-  *"-u root"*) : > "\${FAKE_STATE_DIR:-/nonexistent}/installed-bwrap"; exit 0 ;;
+  *"-u root"*)
+    state="\${FAKE_STATE_DIR:-/nonexistent}"
+    printf '%s\n' "$all" > "$state/install-args"
+    if [ "\${FAKE_INSTALL_FAIL:-no}" = yes ]; then
+      runs=$(cat "$state/install-runs" 2>/dev/null || echo 0); echo $((runs + 1)) > "$state/install-runs"
+      printf 'Reading package lists... 0%%\n' >&2
+      printf 'E: Unable to locate package bubblewrap\n' >&2
+      exit 100
+    fi
+    : > "$state/installed-bwrap"; exit 0 ;;
 esac
 case "$all" in
   *"--exec bwrap"*)
@@ -90,7 +99,16 @@ case "$all" in
 esac
 case "$all" in
   *"--exec sh /"*)
-    if [ "\${FAKE_HANDSHAKE:-ok}" = fail ] && [ ! -f "\${FAKE_STATE_DIR:-/nonexistent}/cache-purged" ]; then exit 0; fi
+    state="\${FAKE_STATE_DIR:-/nonexistent}"
+    echo x >> "$state/handshake-spawns"
+    case "\${FAKE_HANDSHAKE:-ok}" in
+      flake-once)
+        if [ ! -f "$state/handshake-flaked" ]; then : > "$state/handshake-flaked"; printf 'connection attempt failed because the connected party did not properly respond Wsl/Service/WSAETIMEDOUT\n' >&2; exit 1; fi ;;
+      flake-always) printf 'connection attempt failed because the connected party did not properly respond Wsl/Service/WSAETIMEDOUT\n' >&2; exit 1 ;;
+      hanging) exec sleep 20 ;;
+      garbage) printf 'not a hello\n'; exit 0 ;;
+    esac
+    if [ "\${FAKE_HANDSHAKE:-ok}" = fail ] && [ ! -f "$state/cache-purged" ]; then exit 0; fi
     if [ "\${FAKE_AGENT_DIGEST:-}" = bad ]; then printf 'HELLO|wsl-agent|7|deadbeef|4242|batch\\n'; else printf 'HELLO|wsl-agent|7|${AGENT_DIGEST}|4242|batch\\n'; fi
     [ "\${FAKE_RESIDENT_DIES:-no}" = yes ] && exit 0
     while IFS= read -r line; do
@@ -130,7 +148,7 @@ case "$all" in
         [ "\${FAKE_RG:-yes}" = no ] && printf 'missing rg\\n' || printf 'found rg /usr/bin/rg\\n'
         [ "\${FAKE_GIT_TOOL:-yes}" = no ] && printf 'missing git\\n' || printf 'found git /usr/bin/git\\n'
         printf 'found inotifywait /usr/bin/inotifywait\\n' ;;
-      *'for f in apt-get'*) printf 'apt-get' ;;
+      *'for f in apt-get'*) printf '%s' "\${FAKE_FAMILY:-apt-get}" ;;
       *'apt-get install'*) : > "\${FAKE_STATE_DIR:-/nonexistent}/installed-bwrap"; exit 0 ;;
       *'XDG_RUNTIME_DIR'*) printf 'R /run/user/1000\nU /run/user/1000/bus\nU /run/user/1000/systemd/private\nS /run/dbus/system_bus_socket\n' ;;
       *'wsl-writable-roots'*)
@@ -149,7 +167,9 @@ case "$all" in
       *'/run/systemd/system'*) [ "\${FAKE_SYSTEMD:-yes}" = no ] && printf 'none init' || printf 'systemd systemd' ;;
       *'command -v systemd-run'*) printf '/usr/bin/systemd-run' ;;
       *'systemctl --user stop'*) : > "\${FAKE_STATE_DIR:-/nonexistent}/swept-scopes"; exit 0 ;;
-      *'echo "$unit'*) { [ -f "\${FAKE_STATE_DIR:-/nonexistent}/swept-scopes" ] || [ "\${FAKE_STALE:-no}" != yes ]; } || printf 'dsh-wsl-ubuntu-x.scope stale' ;;
+      *'echo "$unit'*)
+        if [ -f "\${FAKE_STATE_DIR:-/nonexistent}/swept-scopes" ] && [ "\${FAKE_RECHECK:-}" = scopes ]; then printf 'connection attempt failed because the connected party did not properly respond Wsl/Service/WSAETIMEDOUT\n' >&2; exit 1; fi
+        { [ -f "\${FAKE_STATE_DIR:-/nonexistent}/swept-scopes" ] || [ "\${FAKE_STALE:-no}" != yes ]; } || printf 'dsh-wsl-ubuntu-x.scope stale' ;;
       *'systemctl --user stop'*) exit 0 ;;
       *'systemctl --user is-system-running'*) printf 'running' ;;
       *'loginctl show-user'*) printf 'Linger=yes' ;;
@@ -168,6 +188,7 @@ case "$all" in
       *'uname -m'*) printf 'x86_64' ;;
       *'rm -rf "$HOME/.cache/dsh-wsl/agent"'*) : > "\${FAKE_STATE_DIR:-/nonexistent}/cache-purged"; exit 0 ;;
       *'.cache/dsh-wsl/agent'*)
+        if [ -f "\${FAKE_STATE_DIR:-/nonexistent}/cache-purged" ] && [ "\${FAKE_RECHECK:-}" = cache ]; then printf 'connection attempt failed because the connected party did not properly respond Wsl/Service/WSAETIMEDOUT\n' >&2; exit 1; fi
         if [ "\${FAKE_CACHE:-good}" = noexec ]; then
           [ -f "\${FAKE_STATE_DIR:-/nonexistent}/cache-purged" ] && printf 'none' || printf 'noexec %s/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent' "$HOME"
         else printf 'exec %s/.cache/dsh-wsl/agent/${CACHE_DIGEST}/dsh-wsl-agent' "$HOME"; fi ;;
@@ -430,7 +451,7 @@ try {
     const rg = report.checks.find((entry) => entry.id === "tools.rg");
     assert.equal(rg?.status, "warn", "the missing search dependency is visible in the quick pass");
     assert.match(String(rg?.detail), /missing; the fs-search tool fails \(exit 127\)/);
-    assert.match(String(rg?.remedy), /apt-get install -y bubblewrap git ripgrep inotify-tools/);
+    assert.match(String(rg?.remedy), /wsl\.exe -d ubuntu -u root -- sh -c "apt-get update -qq && apt-get install -y --no-install-recommends bubblewrap git ripgrep inotify-tools"/);
     assert.equal(report.verdict, "ready", "a missing optional tool never blocks the first command");
   });
 
@@ -751,7 +772,7 @@ try {
     const report = /** @type {Report} */ (JSON.parse(run.stdout));
     const bwrap = report.checks.find((entry) => entry.id === "sandbox.bwrap");
     assert.equal(bwrap?.status, "fail");
-    assert.match(String(bwrap?.remedy), /apt-get install -y bubblewrap/);
+    assert.match(String(bwrap?.remedy), /sh -c "apt-get update -qq && apt-get install -y --no-install-recommends bubblewrap git ripgrep inotify-tools"/);
     assert.match(String(bwrap?.remedy), /pnpm run bootstrap ubuntu --install/);
     assert.equal(report.verdict, "blocked", "every confined command fails closed without bwrap");
     assert.ok(report.blockers?.includes("sandbox.bwrap"));
@@ -866,7 +887,7 @@ try {
       schemaVersion: 2,
       checks: [
         { id: "wsl.version", status: "ok", detail: "WSL version: 2.0.0" },
-        { id: "agent.handshake", status: "ok", detail: "probed: a fresh resident, pid 4242, protocol 6, digest matches", distro: "ubuntu", blocksFirstCommand: true },
+        { id: "agent.handshake", status: "ok", detail: "probed: a fresh resident, pid 4242, protocol 6, digest matches", distro: "ubuntu", blocksFirstCommand: false },
         { id: "runtime.scopes", status: "info", detail: "none" },
       ],
       summary: { ok: 1, info: 1, warn: 0, fail: 0, skipped: 0 },
@@ -874,7 +895,7 @@ try {
     /** A snapshot answering for a resident this process holds. @type {import("../lib/agent.js").AgentStatus} */
     const LIVE = { distro: "ubuntu", state: "ready", pid: 7000, lastError: "", deaths: 0, pending: 0 };
     assert.equal(mergeLiveResidentStatus(report, undefined), report, "no snapshot, no merge");
-    assert.equal(mergeLiveResidentStatus(report, { ...LIVE, pid: undefined }), report, "a never-started singleton says nothing about the app's resident");
+    assert.equal(mergeLiveResidentStatus(report, { ...LIVE, state: "idle", pid: undefined }), report, "a never-started singleton says nothing about the app's resident");
     const noHandshake = { ...report, checks: report.checks.filter((entry) => entry.id !== "agent.handshake") };
     assert.equal(mergeLiveResidentStatus(noHandshake, LIVE), noHandshake, "no handshake check, no merge");
 
@@ -884,7 +905,7 @@ try {
     assert.match(String(hand?.detail), /fresh-probe facts: probed: a fresh resident, pid 4242/, "the fresh probe's digest facts are kept");
     assert.equal(hand?.status, "ok", "no error, no verdict change");
     assert.equal(hand?.distro, "ubuntu", "the schema-2 shape fields ride through the merge");
-    assert.equal(hand?.blocksFirstCommand, true);
+    assert.equal(hand?.blocksFirstCommand, false, "the collector stamps `blocksFirstCommand` as \"this check fails\"; an unchanged verdict keeps its stamp");
     assert.equal(healthy.checks.find((entry) => entry.id === "wsl.version"), report.checks[0], "the other checks pass through");
 
     const wounded = mergeLiveResidentStatus(report, { ...LIVE, lastError: "agent handshake timed out after 30000ms", deaths: 2 });
@@ -896,8 +917,55 @@ try {
     assert.equal(wounded.summary.warn, 1, "the warn tally rises");
     assert.equal(report.summary.ok, 1, "the input report is not mutated");
 
-    const dead = mergeLiveResidentStatus(report, { ...LIVE, state: "dead", lastError: "permanently out after 4 deaths", deaths: 4 });
-    assert.equal(dead.checks.find((entry) => entry.id === "agent.handshake")?.status, "fail", "a dead live resident fails the check");
+    // The production shape of `dead`: every path into it clears the pid, so a
+    // pid-only test used to skip exactly the resident that was down — and with
+    // file operations failing closed behind it, the report read `ready`.
+    /** @type {import("../lib/agent.js").AgentStatus} */
+    const DOWN = { distro: "ubuntu", state: "dead", pid: undefined, lastError: "agent exited again (code=1); reviving in 2s, attempt 1/3", deaths: 1, pending: 0 };
+    const down = mergeLiveResidentStatus(report, DOWN);
+    const downHand = down.checks.find((entry) => entry.id === "agent.handshake");
+    assert.equal(downHand?.status, "fail", "a dead live resident fails the check");
+    assert.equal(downHand?.blocksFirstCommand, true, "a failing check blocks the first command, as the collector stamps it");
+    assert.match(String(downHand?.detail), /probed: the live resident \(pid none, state dead, deaths 1, pending 0\)/);
+    assert.equal(down.summary.fail, 1);
+
+    // A resident that came back is diagnosed by what it is now: an accepted
+    // handshake clears `lastError`, so a ready resident with no failure keeps
+    // the fresh probe's verdict. (It used to warn on the crash it survived
+    // until the app restarted.)
+    const recovered = mergeLiveResidentStatus(report, { ...LIVE, deaths: 1 });
+    assert.equal(recovered.checks.find((entry) => entry.id === "agent.handshake")?.status, "ok", "a recovered resident carries no unresolved failure");
+    assert.match(String(recovered.checks.find((entry) => entry.id === "agent.handshake")?.detail), /deaths 1, pending 0\); fresh-probe facts:/);
+
+    // The caller's note on why the resident is not on the native entry rides
+    // along as evidence, without touching the verdict.
+    const noted = mergeLiveResidentStatus(report, { ...LIVE, deaths: 1 }, { nativeNote: "the native agent failed to start" });
+    const notedHand = noted.checks.find((entry) => entry.id === "agent.handshake");
+    assert.equal(notedHand?.status, "ok");
+    assert.match(String(notedHand?.detail), /; native agent: the native agent failed to start$/);
+
+    // The verdict fields the collector derived from ITS checks are derived
+    // again from the merged ones: a digest trusts them over the checks.
+    /** A CLI-shaped report: every check stamped, the verdict fields derived. @type {import("../lib/doctor-live.js").DoctorReport} */
+    const derived = {
+      schemaVersion: 2,
+      checks: [
+        { id: "wsl.version", status: "ok", detail: "WSL version: 2.0.0" },
+        { id: "agent.handshake", status: "ok", detail: "probed: a fresh resident, pid 4242, protocol 6, digest matches", distro: "ubuntu", blocksFirstCommand: false },
+        { id: "runtime.scopes", status: "info", detail: "none" },
+      ],
+      summary: { ok: 2, info: 1, warn: 0, fail: 0, skipped: 0 },
+      blockers: [],
+      verdict: "ready",
+      distroVerdicts: [{ name: "ubuntu", verdict: "ready", blockers: [] }],
+    };
+    const blocked = mergeLiveResidentStatus(derived, DOWN);
+    assert.deepEqual(blocked.blockers, ["agent.handshake"], "the handshake failure reaches the blockers");
+    assert.equal(blocked.verdict, "blocked", "and the verdict");
+    assert.deepEqual(blocked.distroVerdicts, [{ name: "ubuntu", verdict: "blocked", blockers: ["agent.handshake"] }], "and the distro's own verdict");
+    const unchanged = mergeLiveResidentStatus(derived, { ...LIVE, deaths: 1 });
+    assert.deepEqual(unchanged.blockers, [], "an unchanged verdict leaves the derived fields as they were");
+    assert.equal(unchanged.verdict, "ready");
 
     // A fresh probe that carries a remedy keeps it through the merge — the
     // digest-mismatch shape, merged instead of discarded.
@@ -911,6 +979,7 @@ try {
 
     // Degenerate shapes: a detail-less check and a summary without the key
     // the tally shift touches must not crash the merge.
+    /** @type {import("../lib/doctor-live.js").DoctorReport} */
     const sparse = {
       schemaVersion: 1,
       checks: [{ id: "agent.handshake", status: "ok" }],
@@ -1047,7 +1116,7 @@ try {
     const run = doctor([], { FAKE_BWRAP: "no" });
     assert.equal(run.status, 1);
     assert.match(run.stdout, /fail {2}bubblewrap/);
-    assert.match(run.stdout, /fix: wsl\.exe -d ubuntu -u root -- apt-get install -y bubblewrap/);
+    assert.match(run.stdout, /fix: wsl\.exe -d ubuntu -u root -- sh -c "apt-get update -qq && apt-get install -y --no-install-recommends bubblewrap git ripgrep inotify-tools"/);
   });
 
   await check("a stopped distro is classified with a recovery remedy", () => {
@@ -1211,6 +1280,189 @@ try {
     assert.equal(report.verdict, "ready");
   });
 
+  await check("a recheck that does not answer is unknown, never a fixed scope sweep", () => {
+    const recheckState = join(stateDir, "recheck-scopes");
+    mkdirSync(recheckState, { recursive: true });
+    const run = doctor(["--json", "--fix"], { FAKE_STALE: "yes", FAKE_RECHECK: "scopes", FAKE_STATE_DIR: recheckState });
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    const fix = report.checks.find((entry) => entry.id === "fix.scopes");
+    assert.equal(fix?.status, "unknown", "an empty answer is not '0 stale'");
+    assert.match(String(fix?.detail), /^the sweep ran, but its recheck did not answer \(wsl\.exe reported a wedged service \(Wsl\/Service\/WSAETIMEDOUT\)\); 1 stale before → unknown after$/);
+    assert.match(String(fix?.remedy), /^rerun the doctor; if stale scopes remain, systemctl --user list-units 'dsh-wsl-\*\.scope' inside "ubuntu"$/);
+    assert.equal(report.checks.find((entry) => entry.id === "runtime.scopes")?.status, "unknown", "the scope row does not claim the after state either");
+    assert.equal(report.summary.unknown, 2);
+    assert.equal(run.status, 0, "an untrusted read never blocks");
+  });
+
+  await check("an unverified cache purge keeps the cache row's before-the-fix verdict", () => {
+    const recheckState = join(stateDir, "recheck-cache");
+    mkdirSync(recheckState, { recursive: true });
+    const run = doctor(["--json", "--fix", "--fix-owned"], { FAKE_CACHE: "noexec", FAKE_RECHECK: "cache", FAKE_STATE_DIR: recheckState });
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    const fix = report.checks.find((entry) => entry.id === "fix.cache");
+    assert.equal(fix?.status, "unknown");
+    assert.match(String(fix?.detail), /^the purge ran, but its recheck did not answer \(wsl\.exe reported a wedged service \(Wsl\/Service\/WSAETIMEDOUT\)\); 1 cached, 1 invalid before → unknown after$/);
+    const cache = report.checks.find((entry) => entry.id === "agent.cache");
+    assert.equal(cache?.status, "warn", "the row is not revised to a cleaner verdict on a read that did not answer");
+    assert.match(String(cache?.detail), /1 cached binary\(ies\), 1 not executable or not runnable/, "the before state stays visible");
+    assert.match(String(cache?.remedy), /^the purge above ran, but its recheck did not answer — rerun the doctor; until a read says otherwise this row keeps its before-the-fix verdict$/);
+    assert.equal(report.summary.unknown, 1, "only the fix row is unknown");
+    assert.equal(report.verdict, "ready", "under agentBackend auto an invalid cache warns; it does not block");
+  });
+
+  await check("a failed install quotes its output in the fix row", () => {
+    const installState = join(stateDir, "install-failed");
+    mkdirSync(installState, { recursive: true });
+    const run = doctor(["--json", "--fix", "--install", "--yes"], { FAKE_BWRAP: "no", FAKE_INSTALL_FAIL: "yes", FAKE_STATE_DIR: installState });
+    assert.equal(run.status, 1, "bubblewrap is still missing, so the verdict stays blocked");
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    const fix = report.checks.find((entry) => entry.id === "fix.install");
+    assert.equal(fix?.status, "warn");
+    assert.match(String(fix?.detail), /^failed \(last output: "Reading package lists\.\.\. 0% E: Unable to locate package bubblewrap"\)$/, "the reason is in the row, not in output the doctor never prints");
+    assert.doesNotMatch(String(fix?.detail), /see the output above/);
+    assert.match(String(fix?.remedy), /^wsl\.exe -d ubuntu -u root -- sh -c "apt-get update -qq && apt-get install -y --no-install-recommends bubblewrap git ripgrep inotify-tools"$/);
+    assert.equal(report.checks.find((entry) => entry.id === "sandbox.bwrap")?.status, "fail");
+  });
+
+  await check("the install command the fix runs is the one it prints", () => {
+    const installState = join(stateDir, "install-ran");
+    mkdirSync(installState, { recursive: true });
+    const run = doctor(["--json", "--fix", "--install", "--yes"], { FAKE_BWRAP: "no", FAKE_STATE_DIR: installState });
+    assert.equal(run.status, 0, run.stderr);
+    const report = /** @type {Report} */ (JSON.parse(run.stdout));
+    const fix = report.checks.find((entry) => entry.id === "fix.install");
+    assert.equal(fix?.status, "ok");
+    assert.match(String(fix?.detail), /^completed; bubblewrap now at \/usr\/bin\/bwrap, a read-only profile runs$/, "a succeeded fix carries no output tail");
+    assert.equal(fix?.remedy, undefined, "a succeeded fix leaves nothing to paste");
+    const ran = readFileSync(join(installState, "install-args"), "utf8").trim();
+    assert.equal(ran, "-d ubuntu -u root -- sh -c apt-get update -qq && apt-get install -y --no-install-recommends bubblewrap git ripgrep inotify-tools", "the fix runs the command it prints for a failed one, minus the shell quotes");
+  });
+
+  await check("pacman installs without refreshing the index, and without reinstalling", () => {
+    const installState = join(stateDir, "install-pacman");
+    mkdirSync(installState, { recursive: true });
+    const report = /** @type {Report} */ (JSON.parse(doctor(["--json"], { FAKE_BWRAP: "no", FAKE_FAMILY: "pacman", FAKE_STATE_DIR: installState }).stdout));
+    assert.match(String(report.checks.find((entry) => entry.id === "sandbox.bwrap")?.remedy), /^wsl\.exe -d ubuntu -u root -- sh -c "pacman -S --noconfirm --needed bubblewrap git ripgrep inotify-tools", or run "pnpm run bootstrap ubuntu --install"$/);
+    const fixed = doctor(["--json", "--fix", "--install", "--yes"], { FAKE_BWRAP: "no", FAKE_FAMILY: "pacman", FAKE_STATE_DIR: installState });
+    assert.equal(fixed.status, 0, fixed.stderr);
+    assert.equal(readFileSync(join(installState, "install-args"), "utf8").trim(), "-d ubuntu -u root -- sh -c pacman -S --noconfirm --needed bubblewrap git ripgrep inotify-tools");
+  });
+
+  await check("the handshake retries a transport flake once, and only a transport flake", async () => {
+    const handshakeState = join(stateDir, "handshake-retry");
+    mkdirSync(handshakeState, { recursive: true });
+    const wsl = join(bin, "wsl.exe");
+    const shipped = join(ROOT, "agent", "wsl-agent.sh");
+    const spawnLog = join(handshakeState, "handshake-spawns");
+    const spawns = () => (existsSync(spawnLog) ? readFileSync(spawnLog, "utf8").split("\n").filter(Boolean).length : 0);
+    const savedState = process.env.FAKE_STATE_DIR;
+    const savedMode = process.env.FAKE_HANDSHAKE;
+    process.env.FAKE_STATE_DIR = handshakeState;
+    const probe = (/** @type {number} */ helloMs) => probeHandshake("ubuntu", "/mnt/c/agent/wsl-agent.sh", wsl, shipped, { helloMs, settleMs: 20 });
+    try {
+      process.env.FAKE_HANDSHAKE = "flake-once";
+      const recovered = await probe(2000);
+      assert.equal(recovered.ok, true);
+      assert.equal(recovered.digestMatches, true);
+      assert.equal(spawns(), 2, "a transport flake is tried once more");
+      assert.match(String(recovered.detail), /^the first attempt flaked \(agent exited before its HELLO \(Wsl\/Service\/WSAETIMEDOUT\)\); the retry answered$/);
+
+      process.env.FAKE_HANDSHAKE = "garbage";
+      rmSync(spawnLog, { force: true });
+      const answered = await probe(2000);
+      assert.equal(answered.ok, false);
+      assert.equal(answered.flaked, false);
+      assert.equal(spawns(), 1, "an agent that answers with the wrong first line is not retried");
+      assert.match(String(answered.detail), /^unexpected first line: not a hello$/);
+
+      process.env.FAKE_HANDSHAKE = "flake-always";
+      rmSync(spawnLog, { force: true });
+      const wedged = await probe(2000);
+      assert.equal(wedged.ok, false);
+      assert.equal(wedged.flaked, true);
+      assert.equal(spawns(), 2, "one retry, not more");
+      assert.match(String(wedged.detail), /\(tried twice\)$/);
+
+      process.env.FAKE_HANDSHAKE = "hanging";
+      rmSync(spawnLog, { force: true });
+      const started = Date.now();
+      const silent = await probe(1000);
+      assert.equal(silent.ok, false);
+      assert.equal(silent.flaked, true, "the HELLO deadline is transport-shaped");
+      assert.equal(spawns(), 2);
+      assert.match(String(silent.detail), /^no HELLO within 1 s \(tried twice\)$/);
+      assert.ok(Date.now() - started >= 2000, "each attempt waits its full deadline");
+    } finally {
+      process.env.FAKE_STATE_DIR = savedState;
+      if (savedMode === undefined) delete process.env.FAKE_HANDSHAKE;
+      else process.env.FAKE_HANDSHAKE = savedMode;
+    }
+  });
+
+  await check("a doctor run records the retried handshake, and a wedged one still blocks", () => {
+    const retriedState = join(stateDir, "handshake-retried");
+    mkdirSync(retriedState, { recursive: true });
+    const retried = /** @type {Report} */ (JSON.parse(doctor(["--json"], { FAKE_HANDSHAKE: "flake-once", FAKE_STATE_DIR: retriedState }).stdout));
+    const recovered = retried.checks.find((entry) => entry.id === "agent.handshake");
+    assert.equal(recovered?.status, "ok", "one flaked attempt does not block the distro");
+    assert.match(String(recovered?.detail), /probed: a fresh resident, pid 4242, protocol 7, digest matches; the first attempt flaked \(.*\); the retry answered$/);
+    assert.equal(retried.verdict, "ready");
+
+    const wedgedState = join(stateDir, "handshake-wedged");
+    mkdirSync(wedgedState, { recursive: true });
+    const wedged = /** @type {Report} */ (JSON.parse(doctor(["--json"], { FAKE_HANDSHAKE: "flake-always", FAKE_STATE_DIR: wedgedState }).stdout));
+    const blocked = wedged.checks.find((entry) => entry.id === "agent.handshake");
+    assert.equal(blocked?.status, "fail");
+    assert.match(String(blocked?.detail), /\(tried twice\)$/);
+    assert.equal(wedged.verdict, "blocked");
+    assert.deepEqual(wedged.blockers, ["agent.handshake"]);
+    assert.equal(wedged.checks.find((entry) => entry.id === "functional.exec")?.status, "skipped", "both smoke legs still skip behind the blocker");
+  });
+
+  await check("one scope's pids stay its own in the stale-scope report", async () => {
+    // The report runs for real against a fake systemctl. Scope A's control
+    // group is this test's own, where a process named like the agent runs;
+    // scope B's is PID 1's, where none does. Before the fix B's line carried
+    // A's pid: the variable was cleared for `alive` only.
+    const fakeBin = join(stateDir, "systemctl-bin");
+    mkdirSync(fakeBin, { recursive: true });
+    const own = readFileSync("/proc/self/cgroup", "utf8").split("\n").find((line) => line.startsWith("0::"))?.slice(3) ?? "";
+    const procs = `/sys/fs/cgroup${own}/cgroup.procs`;
+    assert.equal(existsSync(procs), true, "this session's control group lists its processes");
+    writeFileSync(join(fakeBin, "systemctl"), `#!/bin/sh
+case "$*" in
+  "--user is-system-running") exit 0 ;;
+  "--user list-units"*) printf 'dsh-wsl-a.scope loaded active running\\ndsh-wsl-b.scope loaded active running\\n' ;;
+  "--user show"*) case "$*" in *dsh-wsl-a.scope*) printf '%s\\n' "$FAKE_CGROUP_A" ;; *) printf '/init.scope\\n' ;; esac ;;
+  *) exit 0 ;;
+esac
+`);
+    chmodSync(join(fakeBin, "systemctl"), 0o755);
+    const resident = spawn("bash", ["-c", "exec -a wsl-agent.sh sleep 60"], { stdio: "ignore" });
+    try {
+      const pid = /** @type {number} */ (resident.pid);
+      for (let waited = 0; waited < 50; waited += 1) {
+        if (existsSync(`/proc/${pid}/cmdline`) && readFileSync(`/proc/${pid}/cmdline`, "utf8").includes("wsl-agent.sh")) break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      assert.ok(readFileSync(`/proc/${pid}/cmdline`, "utf8").includes("wsl-agent.sh"), "the stand-in resident is named like the agent");
+      const report = spawnSync("sh", ["-c", STALE_SCOPE_REPORT], {
+        encoding: "utf8",
+        env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH ?? ""}`, FAKE_CGROUP_A: own },
+      });
+      assert.equal(report.status, 0, report.stderr);
+      // Anything else in this control group that is named like the agent —
+      // the shell that runs the suite, a parallel test's fake — counts for A.
+      const [lineA, lineB] = report.stdout.trim().split("\n");
+      assert.match(lineA ?? "", /^dsh-wsl-a\.scope active pids:/);
+      const pids = /pids:([0-9 ]+)$/.exec(lineA ?? "")?.[1]?.trim().split(/\s+/).map(Number) ?? [];
+      assert.ok(pids.includes(pid), `the stand-in resident (${pid}) is among A's pids ${JSON.stringify(pids)}`);
+      assert.equal(lineB, "dsh-wsl-b.scope stale pids:none", "a scope with no agent reports none, not the previous scope's pids");
+    } finally {
+      resident.kill();
+    }
+  });
+
   await check("deprecated profile keys are named with their migration", () => {
     const report = /** @type {Report} */ (JSON.parse(doctor(["--json"]).stdout));
     assert.equal(report.checks.find((entry) => entry.id === "config.deprecated")?.status, "ok", "the earlier fixture profiles carry no retired keys");
@@ -1259,7 +1511,9 @@ try {
     const bundlePath = join(scratch, "bundle.json");
     const run = doctor(["--json", "--bundle", bundlePath], { FAKE_STOPPED: "no" });
     assert.equal(run.status, 0, run.stderr);
-    assert.match(run.stdout, /bundle: written to/);
+    assert.match(run.stderr, /bundle: written to/, "the note about the file is not report content");
+    assert.doesNotMatch(run.stdout, /bundle: written to/);
+    assert.equal(JSON.parse(run.stdout).schemaVersion, 2, "stdout is the report and nothing else");
     const bundle = JSON.parse(readFileSync(bundlePath, "utf8"));
     assert.equal(bundle.kind, "dsh-plugin-wsl-env doctor bundle");
     assert.equal(bundle.report.verdict, "ready");

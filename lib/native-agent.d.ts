@@ -15,6 +15,14 @@
  * failed copy falls back to the shell agent — this module never throws to the
  * command path.
  *
+ * A prepared backend is remembered; a failed preparation is not. It describes
+ * the machine as it is at that moment (a distro still starting, a cache
+ * directory not executable yet), and remembering it would keep the shell
+ * agent on a distro whose native binary works the moment the user fixes it —
+ * without the app restart nothing tells them to take. The reason of the last
+ * failure is kept for {@link nativeBackendFailure}, so a diagnosis can say
+ * why the reads run on the shell agent.
+ *
  * This is a TypeScript source built to `lib/native-agent.js`; edit THIS file
  * and run `pnpm run build` — the artifact under `lib/` is generated, and
  * `pnpm test` fails when it drifts.
@@ -60,16 +68,29 @@ interface NativeBackendResult {
     digest: string;
 }
 /**
- * Copy the binary into the distro and verify it. The result is cached per
- * `(wslPath, distro, source)`; a failure is cached as `undefined` for this
- * process (the caller falls back to the shell agent).
+ * Copy the binary into the distro and verify it. A success is cached per
+ * `(wslPath, distro, source, packageRoot)` for the process, and callers that
+ * arrive while one is in flight share it. A failure answers `undefined` to
+ * its callers and is then forgotten — the next call tries again — but its
+ * reason is kept for {@link nativeBackendFailure}.
  *
  * @param options - the transport, distro, source and injectables.
  * @returns the Linux binary path and digest, or undefined when unusable.
  */
 export declare function ensureNativeBackend({ wslPath, distro, source, packageRoot, readSource, run, copy, }: NativeBackendOptions): Promise<NativeBackendResult | undefined>;
 /**
- * Forget the cache; tests only.
+ * Why the native agent could not be prepared for a distro, for a diagnosis.
+ * The reads fall back to the shell agent either way; this says why they did.
+ *
+ * @param distro - the distro.
+ * @param wslPath - the `wsl.exe` the preparation used.
+ * @param source - the host-path override the preparation used.
+ * @returns the last failure's reason, or undefined while none is recorded
+ *   (never attempted, or the last attempt succeeded).
+ */
+export declare function nativeBackendFailure(distro: string, wslPath?: string, source?: string): string | undefined;
+/**
+ * Forget the cache and the recorded failures; tests only.
  */
 export declare function clearNativeBackendCache(): void;
 /**

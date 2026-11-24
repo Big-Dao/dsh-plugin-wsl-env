@@ -113,6 +113,42 @@ try {
   rows.push(await scenario(`native write concurrent (${N})`, agent, N, writeAction, true));
   rows.push(await scenario(`native read concurrent (${N})`, agent, N, readBack, true));
   rows.push(await scenario(`native exec concurrent (${N})`, agent, N, execAction, true));
+  // A stdin payload by size (#86). One write above a pipe buffer (64 KiB) used
+  // to cost a fixed ~100 ms through `wsl.exe` before the resident saw the
+  // rest of the frame; `src/agent.ts` now writes frames up to half a mebibyte
+  // in pieces with a timer turn between. These sizes span the band and the
+  // single writes on either side of it, and the answer is checked, not just
+  // timed. The step only shows from a Windows host: inside the distro the
+  // same binary answers 16 KiB–1 MiB in 13–24 ms.
+  for (const kibibytes of [16, 64, 96, 256, 1024]) {
+    const payload = new Uint8Array(kibibytes * 1024).fill(0x61);
+    /** @type {number[]} */
+    const times = [];
+    for (let attempt = 0; attempt < 7; attempt += 1) {
+      const started = performance.now();
+      const result = await agent.exec({ cwd: "/", argv: ["wc", "-c"], stdin: payload, timeoutMs: 10000 });
+      if (result.exitCode !== 0 || result.stdout.toString().trim() !== String(payload.length)) {
+        throw new Error(`stdin write probe: wc answered exit ${result.exitCode} "${result.stdout.toString().trim().slice(0, 32)}" for ${kibibytes} KiB`);
+      }
+      times.push(performance.now() - started);
+    }
+    times.sort((left, right) => left - right);
+    rows.push({
+      label: `stdin write ${kibibytes} KiB (payload on one EXEC)`,
+      count: 7,
+      ok: 7,
+      failed: 0,
+      wall: round(times.reduce((sum, value) => sum + value, 0)),
+      perOp: round(times[3] ?? 0),
+      fsQueueAvg: 0,
+      fsQueueMax: 0,
+      fsExecAvg: 0,
+      execQueueMax: 0,
+      inFlightMax: 1,
+      rejected: 0,
+      requests: 7,
+    });
+  }
   // Mixed: shared reads and native writes at the same time (two agents).
   agent.resetMetrics();
   shared.resetMetrics();
@@ -144,4 +180,4 @@ try {
   await shared.close();
 }
 console.log(JSON.stringify(rows, null, 2));
-console.log(`\n${rows.length} scenarios; shared read rows show the shell's serial queue; native rows show the FS mutex and the concurrent EXEC.`);
+console.log(`\n${rows.length} scenarios; shared read rows show the shell's serial queue; native rows show the FS mutex and the concurrent EXEC; the stdin rows are perOp medians (time to result).`);

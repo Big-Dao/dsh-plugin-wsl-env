@@ -6,7 +6,9 @@
  * alive while a top-level await never settles — the shape every script-style
  * suite in this package has — keeps its child process running forever, and
  * `--test-timeout` does not bound it: that flag only times tests a file has
- * registered, and the hang happens before registration. The runner's own
+ * registered, and the hang happens before registration. (Node 22 also
+ * counts a script-style file's top-level evaluation against that flag, which
+ * is why the scripts set it above their slowest file.) The runner's own
  * message for it is the late, terminal `Promise resolution is still pending but
  * the event loop has already resolved`, which never arrives because the loop
  * never resolves.

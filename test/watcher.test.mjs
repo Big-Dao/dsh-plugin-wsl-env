@@ -9,7 +9,7 @@
  *   node test/watcher.test.mjs
  */
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,26 +17,20 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { PassThrough } from "node:stream";
 import { armDistroWatcher, watchLoopScript } from "../lib/watcher.js";
+import { newTally, runCheck, skip, summaryLine } from "./skip.mjs";
 
 /** @typedef {import("node:child_process").ChildProcess} ChildProcess */
 
-const hasInotify = process.platform !== "win32" && spawnSync("sh", ["-c", "command -v inotifywait"], { stdio: "ignore" }).status === 0;
 
-let passed = 0;
+/** The suite's totals: a check this host cannot run counts as skipped, never as passed. */
+const tally = newTally();
 /**
  * Runs one check now, printing its verdict; a throw fails the process exit code.
  * @param {string} name - the check's name.
  * @param {() => void | Promise<void>} fn - the check's assertions.
  */
 const check = async (name, fn) => {
-  try {
-    await fn();
-    passed += 1;
-    console.log(`PASS  ${name}`);
-  } catch (error) {
-    console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
-    process.exitCode = 1;
-  }
+  await runCheck(name, fn, tally);
 };
 
 /** @type {Array<[string, () => void | Promise<void>]>} */
@@ -76,7 +70,11 @@ checks.push(["the loop script dies loudly when the watched path vanishes", () =>
 
 
 checks.push(["closing the host pipe stops the loop and removes its stamp", async () => {
-  if (process.platform === "win32" || hasInotify) return; // inotify blocks in read; the host P-line close is covered by the fake and the probe
+  if (process.platform === "win32") skip("the loop is a POSIX shell script");
+  // A FILE target never starts inotify — the loop prefers it for an unbounded
+  // directory watch only — so this runs on an inotify host too. It used to
+  // return early there, which the runner printed as PASS: the one check of
+  // the pipe close had no unit coverage on any host with inotify-tools.
   const dir = mkdtempSync(join(tmpdir(), "wsl-watch-close-"));
   const file = join(dir, "a.txt");
   writeFileSync(file, "one");
@@ -114,7 +112,7 @@ checks.push(["closing the host pipe stops the loop and removes its stamp", async
 }]);
 
 checks.push(["a file target is watched by its mtime:size fingerprint", async () => {
-  if (process.platform === "win32") return;
+  if (process.platform === "win32") skip("the loop is a POSIX shell script");
   const dir = mkdtempSync(join(tmpdir(), "wsl-watch-"));
   const file = join(dir, "a.txt");
   writeFileSync(file, "one");
@@ -425,7 +423,7 @@ checks.push(["close stops the loop by the PID it announced, not just by killing 
 }]);
 
 checks.push(["a loop's stderr tail rides the failure, and close waits for the exit", async () => {
-  if (process.platform === "win32") return; // the fake children are POSIX-shaped events
+  if (process.platform === "win32") skip("the fake children are POSIX-shaped events");
   /** One fake loop child: pipes to write into, a kill that does nothing yet. */
   const fakeChild = () => {
     const child = /** @type {Omit<ChildProcess, "stdout" | "stderr"> & { stdout: PassThrough, stderr: PassThrough, kill: () => boolean }} */ (
@@ -483,5 +481,5 @@ checks.push(["a loop's stderr tail rides the failure, and close waits for the ex
 }]);
 
 for (const [name, fn] of checks) await check(name, fn);
-console.log(`\n${passed} watcher checks pass`);
+console.log(`\n${summaryLine(tally, "watcher")}`);
 

@@ -16,6 +16,267 @@ were part of the record.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A command runs when the resident agent is out.** The shell executor's
+  one-shot `wsl.exe` fallback only answered a synchronous throw from the agent
+  factory. The real `WslAgent.exec` is async, so a dead or backing-off resident,
+  or one whose handshake failed, failed the command with the bare refusal
+  instead of falling back, as the docs promise. Every refusal that arrives
+  asynchronously through `result()` now takes the fallback. A command that was
+  already in flight when the resident was lost is the deliberate exception:
+  it may have run, so it fails as "state is unknown" and is not executed a
+  second time (#72).
+- **A command run through the resident agent releases its handle when it
+  settles.** The agent-backed handle never called the executor's settlement
+  hook, so every confined command kept its handle — captured output included
+  — in the executor's fact table for the life of the process, and a background
+  process started through the resident reported no sandbox facts. The handle
+  now settles exactly where upstream's own one does.
+- **A session runtime is released when its session ends.** The shell and
+  filesystem providers registered the release as a disposer on the preset's
+  realm, but upstream keeps that realm for the process and disposes it only
+  when the preset is unregistered — so nothing was released per session. The
+  providers now listen for the harness's `agent/disposed`, drop their own
+  references for that session, and end it in the registry
+  (`SessionRuntimes.releaseSession`); a session resumed under the same id
+  acquires a fresh runtime instead of reusing a closed agent. A sweep
+  underneath ends a session whose runtimes have been quiet for ten minutes
+  with no live agent behind them. Note: Harness 0.2.2-rc.5 disposes an agent
+  only at teardown, not when a session view is closed, so on that version a
+  session's runtime still lives as long as its agent (#73).
+- **Stopping a session scope now stops the scope.** The stop named the unit
+  without the `.scope` suffix `systemd-run --scope` adds, so `systemctl
+  --user stop` resolved a `.service` that was never loaded and exited 5. An
+  empty scope died with its agent anyway; a session that left a background
+  process behind kept it. The teardown leg of `test/probe/native-session.mjs`
+  was passing vacuously on the same two grounds and now leaves a background
+  process in the scope and reads the `.scope` unit back.
+- **The native agent handles a stdin payload of any size.** It wrote the
+  payload from the request's own thread before the output readers started. A
+  child that echoes — `cat` with 1.25 MiB or more on stdin — filled its
+  stdout pipe, stopped reading, and the feed blocked with the request's
+  timeout queued behind it, until the host watchdog killed the transport
+  eighteen seconds in. The feed runs on its own thread, after both readers
+  (#74).
+- **Native agent filesystem fixes (#78).** Each is pinned by a check in
+  `agent/native/spike/test.mjs` that fails against the previous binary:
+  - Only mutations take `fs_lock`, and the `ACK` reports the dequeue before
+    any lock: a `stat` no longer waits behind a slow write or move.
+  - A listing skips an entry that vanished between the directory read and its
+    own stat instead of failing as `notfound`; the shell agent's `find` is
+    tolerated the same way.
+  - The in-distro timeout takes the cancel path's TERM-then-KILL grace
+    instead of `KILL` after 100 ms, so a command that cleans up on `TERM`
+    can.
+  - A `move` on one filesystem is a `rename` (with `renameat2(RENAME_NOREPLACE)`
+    for the no-replace guard) instead of a whole-file copy under the lock;
+    across filesystems it is still copied.
+  - A write sweeps the target's staging directories whose creating process is
+    gone. Both agents now stage under `.<base>.<pid>.<token>.tmpdir`, so
+    either sweep recognises the other's leftovers.
+- **Search and git results cut at the agent's capture cap are reported as
+  cut.** On the resident path neither handle read the agent's truncation
+  flags, so a result past the cap was parsed as complete — later matches and
+  changed files silently missing — and the git handle kept the head of an
+  over-budget stream where the one-shot handle keeps the tail. Both handles
+  now carry the flags, and a cut keeps the tail (#75).
+- **A dead resident is no longer replaced, and the native agent is demoted
+  only on evidence (#77).** `sharedAgent()` swapped in a fresh agent as soon
+  as the shared one was `dead` — including the two-second backoff window —
+  which reset the revival budget and, on any death, retired the native entry
+  for the rest of the process. The filesystem provider kept the old instance,
+  so commands ran on one agent and file operations on another. There is now
+  one instance per distro for the life of the process, and every holder
+  addresses it. The native entry is demoted only when it fails a start that
+  the shell entry then makes on the same distro, for five minutes, and is
+  tried again; a distro that is down fails both entries alike and is not
+  held against the native one. A failed native preparation (copy, digest,
+  execute check) is no longer cached for the process — the next start
+  prepares again — and its reason is kept for the doctor to report.
+- **`wsl_doctor` sees a dead resident, and stops warning after a recovery
+  (#81).** The merge that folds the live resident into a report required a
+  pid, and every path into `dead` clears it, so the resident that was down —
+  with file operations failing closed behind it — was reported as the fresh
+  probe's `ready`. The merge now fires for any resident this process held; a
+  dead one fails the check, and the report's blockers, verdict and per-distro
+  verdicts follow. An accepted handshake clears the last failure, so a
+  resident that recovered is diagnosed by what it is instead of warning on
+  the crash it survived until the app restarted.
+- **The port poller follows the sessions and leaves a stopped distro alone
+  (#80).** A polling timer, once started for a distro, ran until the row was
+  disposed: with no session left using the distro it kept scanning every ten
+  seconds and kept the shared resident from ever idling out, and after a
+  `wsl --terminate` or `--shutdown` its next `wsl.exe -d <distro>` booted the
+  distro back. Polling now stops when no live session works in the distro;
+  each round asks WSL which distros are running before it probes, so a
+  stopped distro is not probed and `DSH_WSL_PORTS` reads empty for it; and a
+  scan still in flight is not overlapped by the next tick.
+- **The WSL panel keeps a full diagnosis and a repair across a page load, and
+  one check at a time (#79).** The page load's background re-check is a quick
+  one; it used to replace a stored full diagnosis or repair sixty seconds
+  after the user last opened the panel, dropping the repair button and the
+  repair's before → after evidence. The panel no longer queues it for such a
+  result, and the route answers a stored full or repaired result as it is to
+  a background request that asks anyway (a failed full run is still
+  re-checkable). The list read now merges into the rows instead of replacing
+  the table, so a check in flight keeps its state, and **刷新** is disabled
+  while any check is running. The status route joins requests for the same
+  distro and mode into one run, so two doctors no longer sweep one distro
+  concurrently. The plugin-update route takes its one-at-a-time lock before
+  the version check instead of after it: inside a cold or stale check —
+  seconds of registry round trip — two clicks each ran their own removal and
+  install.
+- **Large file operations no longer stall the host, and symlink-heavy
+  directories list in one round trip (#76).** Three independent costs, each
+  measured on a real distro with the native agent (median; the previous code
+  on the same machine in parentheses):
+  - The line splitter joined every arriving chunk into one growing string and
+    rescanned it, which is quadratic: a 16 MiB read frame in 64 KiB chunks
+    held the host's event loop for 2678 ms. It now keeps a list of chunks,
+    searches each once and joins a line once: 83 ms.
+  - The stat and the first read window of a whole-file read shared one batched
+    frame, which put the window's bytes through base64 twice. The two frames
+    now go out back to back instead, so the read is a plain frame and the
+    pair still costs one round trip: 26.6 ms → 15.0 ms for 1 MiB.
+  - A directory's symlinks were followed one at a time, two round trips each.
+    They are now collected and sent in one batched frame per 256 links, stat
+    and realpath together: a directory of 200 symlinks went from 136.3 ms to
+    6.1 ms. A resident without the batch capability keeps the serial road.
+  - A byte-capped read asked for the whole allowance in one request, which
+    cancelled the windowing — an edit's diff basis, bounded at 10 MiB, was
+    one multi-megabyte frame. Every window is now at most one chunk wide.
+- **The packaged native binaries were rebuilt** from the hardened source with
+  the pinned toolchain (1.99.1). They were linked with the toolchain's
+  self-contained musl objects rather than by the CI job's `musl-gcc`/zig
+  linkers; both pass the full 35-check suite (aarch64 under qemu-user), the
+  native wiring check and the session-runtime probe.
+- **`preset-wsl` is regenerated from the rc.2 standard preset, and a parity
+  check keeps it there (#82).** The copy still followed `dsh-v0.2.2-rc.1`
+  while the peer pins had moved to rc.2, so every WSL session lacked three
+  things the app's own standard mode had: the `tool-office` row, the
+  `skill-filesystem` row's `customSkillDirs` (the preset package's bundled
+  skills), and `tool-subagent-control`'s `interrupt: false`. All three are
+  upstream's, verbatim. `pnpm run preset:sync`
+  ([scripts/preset-sync.mjs](https://github.com/Big-Dao/dsh-plugin-wsl-env/blob/main/scripts/preset-sync.mjs))
+  compares the row with a committed snapshot of the pinned line's
+  `standard.patch.yml` — the dependency tree ships none — row by row and in
+  order, nested groups included, and `pnpm test` runs the same check
+  (`test/preset-sync.test.mjs`). The snapshot's name is tied to the dev pin,
+  so raising the pins without refreshing it fails. Two things worth knowing:
+  the `customSkillDirs` expression is evaluated with the root Include's
+  `baseUrl` — the same for every row of the composition, this bundle's
+  included, which a real-Loader check now pins — and on the Desktop package
+  the bundled skills stay unreadable from a distro, because the app's
+  `node_modules` sit inside `app.asar`; that root is skipped as absent and is
+  documented in LIMITATIONS.
+- **The doctor's failure paths stop reporting success they cannot see (#83).**
+  Four defects in `scripts/doctor.mjs`, each reached when a fix or a probe
+  fails:
+  - The recheck after the stale-scope sweep and after the agent-cache purge
+    took one un-retried read and never looked at whether it succeeded, so a
+    read that timed out or flaked counted as "0 stale" / "0 invalid" and the
+    fix was recorded as done. Both now go through the flake-aware probe, and
+    a recheck that still does not answer makes the `fix.*` row `unknown`;
+    `runtime.scopes` is `unknown` too, while `agent.cache` keeps its
+    before-the-fix verdict rather than being cleared on no evidence.
+  - A failed fix said "see the output above", and the doctor never printed
+    output. The tail of it now rides the `fix.*` row (install, sweep, purge,
+    git whitelist), and wsl.exe's error class (`Wsl/Service/WSAETIMEDOUT`)
+    is quoted instead of the first 80 characters of a localized sentence.
+  - `--fix --install` had no `apt-get update` (a fresh Debian or Ubuntu
+    answers `E: Unable to locate package`), gave a whole install the 60 s
+    deadline every host command shares (a `dpkg` killed mid-configure is
+    left half-configured), and used pacman's `-Sy`, the index-only refresh
+    Arch advises against. apt now refreshes the index first, the install
+    gets ten minutes, and pacman takes `-S --noconfirm --needed`. The printed
+    remedy goes through `sh -c "…"`, which keeps the `&&` inside the distro
+    in cmd, PowerShell 5.1 and PowerShell 7 alike. `scripts/bootstrap.sh` and
+    the sandbox provider's fail-closed message print and run the same
+    command, and the docs that quote it follow.
+  - The handshake — a blocking check whose `fail` skips both smoke legs —
+    ran on one 5 s attempt with no retry, while the warn-level smoke legs
+    had 30 s and a second try. It now waits 15 s for the HELLO and retries a
+    transport flake once; a deterministic failure is answered at once.
+  - Two smaller ones from the same review: one scope's `pids` no longer leak
+    into every following line of the stale-scope report, and the `--bundle`
+    note and the confirmation prompt go to stderr, so `--json` output is the
+    report alone.
+- **The test suite's own gaps close (#84).** Three places where a green line
+  did not mean the named behaviour was exercised:
+  - The fence around `deleteFile`, `moveFile`, `patchText` and `editText` had
+    no test — only `writeText` did — although a test named for it existed and
+    proved only that the wrappers reached a stub. A table-driven check now
+    refuses every mutation route under workspace-write with a target outside
+    every writable root and under read-only with a target inside the
+    workspace, asserts `FS_SANDBOX_DENIED` and that the substrate was never
+    asked, and runs the same table once under an allowing policy as the
+    control. Removing one wrapper's fence fails it.
+  - Three checks could not see what they were named for. The PID-namespaced
+    resident asserted before the delayed cancel signal could fire (it now
+    waits, and fails when a prefixed resident is signalled); the watch check
+    asserted only "some error" (it now runs the real `armDistroWatcher` over a
+    recording `wsl.exe` and reads back the argv: the distro, the Linux path,
+    and the stopper's pid); the workspace-prompt check had no WSL workspace in
+    its startup catalog (it now covers a WSL-only catalog, a reorder, and a
+    later addition).
+  - A check that returned early because the host could not run it printed
+    PASS. The script-style suites now defer through a shared `skip()`
+    (`test/skip.mjs`), print `SKIP` with the reason and count it in the
+    summary. On the Windows CI leg that is one agent check, two native-agent
+    checks, three watcher checks and seven provider checks that now say so.
+    The honest SKIP surfaced one more: the watcher's pipe-close check skipped
+    itself on every host with `inotify-tools`, although its file target never
+    starts inotify — it runs there now.
+- **A large stdin payload no longer pays a fixed ~100 ms (#86).** A frame
+  above one Windows pipe buffer (64 KiB) written to the resident's stdin as
+  one `write()` cost about 100 ms before the resident had the rest of it.
+  Measured on the production path — Node on the Windows host, `wsl.exe`, the
+  native agent — a 68 KiB payload answered in 14 ms with the same binary
+  started directly inside the distro and in 114 ms through `wsl.exe`, and it
+  was the resident's `ACK` that came late: the frame, not the request, was
+  slow to arrive. Neither the piece size nor the reader is the cause; a timer
+  turn between pieces removes it. Since a timer turn costs about 10 ms on a
+  Windows host, frames between 64 KiB and half a mebibyte now go out in
+  60 KiB pieces with a turn between them and every other frame stays the
+  single write it was: time to result for a 64 / 96 / 128 / 256 KiB payload
+  went from 114 / 115 / 117 / 117 ms to 24 / 32 / 35 / 67 ms, with 512 KiB
+  and above unchanged (one write is the faster schedule there). Frames queue
+  behind a pieced one in order, and a rebuilt resident gets a fresh queue.
+  `test/probe/fs-queue.mjs` prints a `stdin write` row per payload size.
+- **A check no longer rewrites the tree it checks (#89).** `lint:build` ran
+  the real build over `lib/` and restored it from a snapshot, so a check
+  killed midway — Ctrl-C, the watchdog — left the artifacts rewritten and any
+  new one behind. It now runs the same build script with `--outDir` into a
+  scratch directory and byte-compares what was emitted; nothing under `lib/`
+  is written (verified by comparing every file's mtime across a run). The
+  same review closed a few smaller gaps in the gates:
+  - `lint:links` reads every Markdown file at the package root; seven were
+    never scanned (CONTRIBUTING, SECURITY, SUPPORT and CODE_OF_CONDUCT in
+    both languages). It also reports a pairing exemption whose counterpart
+    has appeared since, and its one exemption — the requirements register —
+    states the real reason (it is Chinese-only by decision and does ship).
+    The stale copy of that exemption is gone from the style gate.
+  - `scripts/doctor.mjs` is named in the type gate's `include` instead of
+    reaching it only through a test's import.
+  - The doc-consistency scope no longer lists CONTRIBUTING.md twice (its
+    summary said 32 files for 31), and its peer-version rule reports the day
+    the peer floors stop being release candidates, when it would otherwise
+    match nothing and pass in silence.
+- **Release and patrol scripts (#87 c, d).** The npm dist-tag now comes from
+  the script that already owns the tag/version rule:
+  `node scripts/check-release-tag.mjs --dist-tag` answers `next` for ANY
+  prerelease segment, where the workflow's list of four identifiers let a
+  version such as `0.30.0-preview.1` through to `latest`. The tag check also
+  refuses a version that is not `MAJOR.MINOR.PATCH` with an optional
+  `-prerelease`. The peer-canary's scratch install turns pnpm's release-age
+  window off (`--config.minimum-release-age=0`, as the release workflow's
+  install does), so a `next` line published inside the 24-hour window is no
+  longer refused and reported as a failed install; and it no longer re-runs
+  the composition boot test that `pnpm test` already includes. The publish
+  step's change is covered by the workflow-text assertions only — it has not
+  run on a release runner.
+
 ## [0.29.0] - 2026-11-23
 
 WSL panel release: diagnosis and repair are separate actions, with clearer

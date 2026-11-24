@@ -18,6 +18,12 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
   substrate，并附带恢复路径。一次崩溃可用一次重建；重建耗尽后进入有界复活
   （2/4/8 s），共三次尝试；第 4 次死亡才永久退出，直到应用重启。没有回退
   I/O——这是有意为之。
+- **native agent 的降级只凭证据，并且会自动重试** —— 每个 distro 只有一个共享
+  agent 实例，死亡后由它自己的重建与复活预算恢复，不会被换成一个新实例。
+  只有当一次启动里失败的是 native 入口、而随后的 shell 入口在同一发行版上
+  启动成功时，读操作才改走 shell agent，5 分钟后再试 native。发行版本身宕机
+  时两种入口一样失败，不算在 native 头上；准备失败（复制、校验、执行检查）
+  也不会被当成结论缓存，下一次启动会重新准备。
 - **变更守卫不是原子的比较并交换。** 创建使用不可替换的 link；覆盖在 rename 前
   会重新校验版本。不匹配时返回 `FS_STALE_VERSION`，但检查与 rename 之间发生的
   变更仍可能被覆盖。
@@ -44,8 +50,8 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
   provider 错误；工作目录缺失同样显式失败（rg 的错误码 2，`1` 只表示"无
   匹配"）。命令与常驻 agent 都继承 `wsl.exe` 的默认 PATH，因此
   `~/.local/bin` 下的用户级安装不可见——请装成系统级，或放在那个 PATH 上。
-  安装：`wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap
-  git ripgrep inotify-tools`（或检测到的包管理族对应的写法）。`--install` 只在
+  安装：`wsl.exe -d <distro> -u root -- sh -c "apt-get update -qq && apt-get install -y --no-install-recommends bubblewrap git ripgrep inotify-tools"`
+  （或检测到的包管理族对应的写法）。`--install` 只在
   缺少 `bubblewrap` 时才执行安装。
 - **`watch()` 是粗粒度失效，不是逐文件通知**：inotify 事件合并到 0.5 s，
   否则使用 `find -newer` 轮询循环。轮询路径会遗漏原地的 `cp -p`，以及恢复
@@ -77,11 +83,32 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
   `FileReferenceTraversal` 接缝：
   [UPSTREAM-FILE-REFERENCE-SEAM.md](UPSTREAM-FILE-REFERENCE-SEAM.md)。
 
+## 内置 skill
+
+`preset-wsl` 与应用自带的标准模式保持同一份行集，其中 `skill-filesystem`
+的 `customSkillDirs` 照搬上游，指向应用安装目录里 agent preset 包自带的
+`skills` 目录。该目录在宿主上，而本 preset 的文件系统是发行版的：
+
+- **内置 skill 经发行版的 `/mnt/<盘符>/…` 读取**：`wsl-fs` 把宿主盘符路径
+  映射到发行版的挂载点，再由常驻 agent 读取（2026-11-24 实测：未打包的
+  宿主目录 `resolve` 与 `listDir` 正常）。发行版把盘符挂在别处
+  （`/etc/wsl.conf` 的 `automount.root`）时读不到。
+- **Desktop 安装包的 WSL 会话里没有内置 skill**：应用的 `node_modules` 打在
+  `app.asar` 归档内，`/mnt/c/…/app.asar/…` 在发行版内不是目录，`wsl-fs`
+  以 `FS_NOT_DIRECTORY` 拒绝（2026-11-24 实测）；skill 提供方把这类根按
+  「不存在」跳过，所以内置的 `dsh-doc` 不会出现在工具面，其余 skill 根
+  （项目目录、用户目录）不受影响。宿主模式由应用进程直接读归档，没有
+  这个限制。
+
 ## 沙箱
 
 - **一次性回退路径只有宿主截止时间** —— `wsl.exe` 被杀时不会把 kill 传进
   发行版，因此 Linux 进程树可能比调用活得更久。长命令建议
   `agent: true` 并使用会话 runtime。
+- **常驻 agent 丢失时已在途的命令不会重跑** —— 命令尚未到达常驻 agent
+  （agent 已死、正在退避、握手失败）时回退到一次性 `wsl.exe`。常驻 agent
+  在命令执行途中死亡时，命令可能已经生效：它以「状态未知」失败，并提示先
+  检查发行版，不会在一次性路径上再执行一遍。
 - **批量读取按发行版共享一个原生 agent**（16 个并发调用 2.4-4.1 ms；
   第一次调用要付出约 70 ms 的准备）。
 - **aarch64 只在 CI 中于 qemu 下运行**（身边没有 Windows-on-ARM 机器——
@@ -92,6 +119,13 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
   （无 systemd 时即按命令形态）或 `false` 保留旧的按命令形态。应用硬崩溃
   可能留下过期的 `dsh-wsl-*.scope`；预检会在下一个
   WSL 会话时清扫过期 scope（从不清扫其他活跃会话的）。
+- **会话 runtime 随会话的 agent 释放** —— 会话的 agent 被处置（上游的
+  `agent/disposed`）时，两个 provider 各自放掉该会话的引用，scope 被停止，
+  其中的后台进程一并回收。当前 Harness（≤ 0.2.2-rc.5）在关闭会话视图时并不
+  处置 agent，而是保留到应用退出，所以在此之前每个跑过命令的会话各有一个
+  runtime。另有一层兜底清扫：runtime 连续 10 分钟没有任何交换、且已没有活跃
+  agent 属于该会话（或它从未指明会话）时，该会话结束；会话仍活跃的 runtime
+  不设空闲时限。
 - **沙箱不管辖 WSL interop** —— 上报为 `enforcement: partial`。
   `maskWindowsDrive` 和 `interopVisibility` 收窄 `/mnt` 但不是关闭；即使是
   `interopVisibility: "disabled"` 也只是给出 `wsl.conf` 中
@@ -152,7 +186,9 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
   在跑的那个——存在共享 agent 时，doctorReport 会经
   `mergeLiveResidentStatus` 合入 `WslAgent.status()` 的在驻视角（0.18.0），
   但 CLI 的握手检查仍会标注其探测来源（`probed: a fresh resident`）；
-  没有应用侧调用时，`lastError` 仍留在应用日志里。
+  没有应用侧调用时，`lastError` 仍留在应用日志里。已经死亡的常驻 agent
+  会让合并后的检查失败，报告的 verdict 随之变为 blocked；恢复后的常驻
+  agent 沿用新探测的结论，读操作不在 native agent 上时合并详情会写明原因。
 - **`dsh-wsl-*.scope` 计数是某一时刻的快照**；`--fix` 会执行预检的清扫。
 - **doctor 的 `git.win-safe` 探针通过 interop 的 `git.exe` 报告 Windows git
   的信任状态** —— 装了 Windows git 时，WSL 变更审查需要那份
@@ -210,9 +246,12 @@ Windows git `safe.directory` 白名单）。`--fix-owned` 把运行收窄到插�
 
 ## 端口
 
-- **端口轮询让常驻 agent 在每个活跃发行版上永久保温**
-  （10 s 刷新）。把 `portsRefreshMs` 调到超过 agent 的空闲超时即可恢复
-  空闲关停，代价是端口事实更陈旧。
+- **端口轮询让常驻 agent 在使用它的发行版上保持保温** —— 只要有存活
+  会话在该发行版里工作，就每 `portsRefreshMs`（默认 10 s）刷新一次；会话
+  都结束后停止轮询，agent 才会空闲关停。每个周期先向 WSL 确认哪些发行版
+  在运行：已停止的发行版不会被探测（探测会把它重新启动起来），
+  `DSH_WSL_PORTS` 读作空。把 `portsRefreshMs` 调到超过 agent 的空闲超时可以
+  提早恢复空闲关停，代价是端口事实更陈旧。
 
 ## 目录选择器
 

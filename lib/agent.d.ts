@@ -17,6 +17,13 @@
  *    dead, calls reject with {@link AgentUnavailableError} — the executor's cue
  *    to fall back to the one-shot `wsl.exe` path it shipped with, so the worst
  *    case of the agent is "today's behaviour, plus one failed round trip".
+ *    The cue is exact: a request the resident provably never took rejects with
+ *    the plain class, while one that was with the resident when it was lost
+ *    rejects with {@link AgentRequestStateUnknownError} — still unavailable,
+ *    never safe to replay for a caller whose request has effects.
+ *    `lastError` is the failure not yet recovered from: an accepted handshake
+ *    clears it, so a resident that came back is diagnosed by what it is now,
+ *    not by the crash it survived.
  * 2. **The in-distro timeout is the real one.** The EXEC frame carries the
  *    timeout in whole seconds and the agent SIGTERMs the child itself, so a
  *    timed-out command dies where it lives instead of leaving an orphan
@@ -156,7 +163,7 @@ interface AgentMetrics {
     inFlightMax: number;
 }
 /** The entry an async preparation may select before the first spawn. */
-interface WslAgentPrepared {
+export interface WslAgentPrepared {
     /** The agent entrypoint (the shell script or the native cache path). */
     scriptPath: string;
     /** The HELLO digest to verify. */
@@ -288,12 +295,26 @@ export declare class WslAgent {
     revivalBackoffMs: number;
     /** The idle-shutdown timer. */
     idleTimer: NodeJS.Timeout | null;
+    /**
+     * When the resident last exchanged a frame with this host, in epoch ms; the
+     * construction time before the first one. A resident with no idle shutdown
+     * of its own (a session runtime) is still measured by it, so an owner can
+     * tell "quiet" from "abandoned".
+     */
+    lastActivityAt: number;
+    /** The frames waiting for the current resident's stdin; see {@link writeLines}. */
+    private writes;
     /** The last failure, for `unavailableReason` and log messages. */
     lastError: string;
     /** Cumulative request metrics; see {@link metrics}. */
     requestMetrics: AgentMetrics;
     /** The optional async preparation hook. */
     prepare: (() => Promise<WslAgentPrepared | undefined>) | undefined;
+    /** The optional start-outcome hook; see the constructor's `onStart`. */
+    onStart: ((outcome: {
+        ok: boolean;
+        native: boolean;
+    }) => void) | undefined;
     /**
      * @param config - the agent configuration.
      */
@@ -373,6 +394,17 @@ export declare class WslAgent {
         prepare?: () => Promise<WslAgentPrepared | undefined>;
         /** The first revival delay in ms; doubles per death. Tests shorten it. */
         revivalBackoffMs?: number;
+        /**
+         * Told how each start ended and which entry it used. `native` is true
+         * when the entry came from the async preparation (the native binary) and
+         * false for the instance's default entry (the shell script). A start that
+         * ends in a handshake failure or timeout is `ok: false`; a resident that
+         * dies after its handshake is not a start, and is not reported here.
+         */
+        onStart?: (outcome: {
+            ok: boolean;
+            native: boolean;
+        }) => void;
     });
     /**
      * Whether the agent is permanently out — the executor's fallback cue.
@@ -414,6 +446,8 @@ export declare class WslAgent {
     /**
      * Spawn the process and run the handshake.
      *
+     * @param native - whether this start runs the prepared entry rather than
+     *   the instance's default one.
      * @returns resolved once the state is `ready`.
      */
     private beginStart;
@@ -429,10 +463,18 @@ export declare class WslAgent {
      */
     private wireAgentProcess;
     /**
-     * The stdout line splitter: a bounded buffer instead of readline, which
-     * accumulates an over-long line whole before anyone can object — exactly the
-     * unbounded-capture hole. Protocol lines are ASCII by construction (ids,
-     * numbers, base64), so chunk-boundary decoding is not a concern.
+     * The stdout line splitter: a list of the chunks of the line still
+     * arriving, instead of readline, which accumulates an over-long line whole
+     * before anyone can object — exactly the unbounded-capture hole. Protocol
+     * lines are ASCII by construction (ids, numbers, base64), so chunk-boundary
+     * decoding is not a concern.
+     *
+     * The chunks are searched, never a joined string. One growing string made
+     * this quadratic — every chunk copied the whole frame so far and scanned
+     * it again for the newline — and since this runs on the host's event loop,
+     * a 16 MiB read frame arriving in 64 KiB chunks held that loop for about
+     * 2.6 seconds. Now a chunk is searched once, and a line is joined once,
+     * when its newline has arrived.
      *
      * @param child - the transport to read.
      * @param current - whether this child is still the current generation.
@@ -549,6 +591,18 @@ export declare class WslAgent {
      * @param message - the reason, already stored as `lastError`.
      */
     private rejectAllPending;
+    /**
+     * The refusal an abandoned entry rejects with. An entry whose frame reached
+     * the resident may have run, and its refusal says so — that is what keeps a
+     * caller with a non-idempotent request from replaying it. An entry that was
+     * never written provably never ran, which is the plain out-of-service cue
+     * such a caller may act on.
+     *
+     * @param pending - the abandoned entry.
+     * @param reason - what happened to the resident.
+     * @returns the refusal.
+     */
+    private refusalFor;
     /**
      * Register one request's pending entry and write its frame: the shared
      * request machinery (abort, submission, the ACK-armed watchdog). The
@@ -793,7 +847,7 @@ export declare class WslAgent {
      * @param lines - the lines to write.
      */
     private writeLinesSafe;
-    /** Restart the idle-shutdown countdown. */
+    /** Note the exchange, then restart the idle-shutdown countdown. */
     private rearmIdleTimer;
     /**
      * Detach an entry's timer and abort listener.

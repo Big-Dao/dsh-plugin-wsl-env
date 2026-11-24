@@ -7,7 +7,7 @@ import { pinnedDistro } from "./distro-route.js";
 import { WslSandbox } from "./sandbox.js";
 import { withBwrapHint } from "./sandbox-core.js";
 import type { WslAgent } from "./agent.js";
-import { AgentUnavailableError, SpawnError } from "./agent-errors.js";
+import { AgentRequestStateUnknownError, AgentUnavailableError, SpawnError } from "./agent-errors.js";
 import { agentExecutionHandle, type AgentExecutionHandle } from "./agent-exec.js";
 import { sharedAgent } from "./agent-shared.js";
 import { SessionRuntimes, probeSessionRuntime, sessionRuntimes, setSessionNativeAgent } from "./session-runtime.js";
@@ -18,7 +18,7 @@ import type { SessionRuntimeEntry } from "./session-runtime.js";
 import { defaultDistro, defaultShell, runCapture, shellArgs, workdirFailure, wslErrorCode } from "./wsl.js";
 import { validateWritableRootsConfig } from "./writable-roots.js";
 import { SocketIsolationError, socketMasksFor as resolveSocketMasks, type SocketIsolation } from "./socket-isolation.js";
-import { ProviderRuntimeBook, configuredCwd, distroHome, effectiveMaskWindowsDrive, effectiveWritableRoots, resolveOperationDistro, sessionRuntimeWanted } from "./provider-common.js";
+import { ProviderRuntimeBook, SessionEndWatch, configuredCwd, distroHome, effectiveMaskWindowsDrive, effectiveWritableRoots, resolveOperationDistro, sessionRuntimeWanted } from "./provider-common.js";
 import type { Context } from "@deepseek-ai/cordis";
 import type { ConfinedSandboxMode, SandboxExecutionPolicy, SandboxMode } from "@deepseek-ai/dsh-sandbox";
 import type { SubprocessSpawnSpec } from "@deepseek-ai/dsh-subprocess";
@@ -49,6 +49,21 @@ type ConfinedProfile = Awaited<ReturnType<InstanceType<typeof WslSandbox>["confi
  * seam's `ShellExecSpec` does not know them.
  */
 type WslExecSpec = ShellExecSpec & { relativeWorkdir?: string };
+
+/**
+ * Whether one rejection is the executor's cue to run the command again on the
+ * one-shot `wsl.exe` path: the resident is out AND the command provably never
+ * reached a distro process through it. A request that was with the resident
+ * when it was lost may have run — {@link AgentRequestStateUnknownError} — and
+ * re-running it there would run non-idempotent work twice, or report a create
+ * that succeeded as a refusal, so it is not a cue.
+ *
+ * @param error - the rejection the agent path settled with.
+ * @returns true when the command may be retried one-shot.
+ */
+function isFallbackCue(error: unknown): error is AgentUnavailableError {
+  return error instanceof AgentUnavailableError && !(error instanceof AgentRequestStateUnknownError);
+}
 
 /**
  * Every model shell call gets a rebuilt managed `DSH_*` namespace (see
@@ -294,9 +309,11 @@ export class WslShellExecutor
     /**
      * Run commands through the resident agent when it is up (one long-lived
      * in-distro process; in-distro timeout semantics), falling back to the
-     * one-shot `wsl.exe` path whenever the agent is out. `false` never uses
-     * the agent. The confinement, the output budgets' shapes and the result
-     * decoration are identical on both paths.
+     * one-shot `wsl.exe` path whenever the agent is out and the command had
+     * not reached it. A command that was in flight when the resident died is
+     * not run again — its state is unknown — and fails saying so. `false`
+     * never uses the agent. The confinement, the output budgets' shapes and
+     * the result decoration are identical on both paths.
      */
     agent: z.boolean().default(true),
     agentBackend: z.union(["auto", "native", "shell"]).default("auto"),
@@ -304,8 +321,8 @@ export class WslShellExecutor
      * Run this session's commands in one persistent systemd user scope (ADR
      * 0001): background processes survive the command that started them, `/tmp`
      * is the distro's real `/tmp` under workspace-write, and `ps` sees the
-     * session. The executor holds the runtime until the session's scope
-     * disposes, then stops it. Requires systemd, a reachable user manager and
+     * session. The executor holds the runtime until the session's agent is
+     * disposed, then stops it. Requires systemd, a reachable user manager and
      * `Linger`; the preflight refuses with the remedy when one is missing, and
      * only a success is cached. Off by default; requires `agent: true`.
      */
@@ -330,6 +347,8 @@ export class WslShellExecutor
   declare sessionRuntimes: SessionRuntimes;
   /** Isolates calls that have no session identity. */
   declare sessionRuntimeOwner: string;
+  /** Ends the session runtimes with their sessions; see `SessionEndWatch`. */
+  declare sessionEndWatch: SessionEndWatch;
   /** The preflight's host runner; tests substitute it. */
   declare sessionScopeProbe: (argv: string[]) => Promise<string>;
   /** The one-time writable-root check's runner; tests substitute it. */
@@ -384,8 +403,11 @@ export class WslShellExecutor
     this.sessionScopeProbe = (argv) => runCapture(argv);
     this.writableRootsProbe = (argv) => runCapture(argv);
     this.socketIsolationProbe = (argv) => runCapture(argv);
-    // The preset realm disposes when the session ends; the scope must go with
-    // it, or a dev server outlives the session that started it.
+    // The preset realm this row lives in is the PROCESS's, not the session's:
+    // upstream disposes it only when the preset definition is unregistered, so
+    // this disposer is the process-level backstop. The session's end is the
+    // harness's own `agent/disposed`, which the watch wires to a release.
+    this.sessionEndWatch = new SessionEndWatch(this, ctx);
     ctx.effect(() => () => this.disposeSessionRuntimes().catch(() => {}), "wsl session runtimes");
   }
 
@@ -514,8 +536,9 @@ export class WslShellExecutor
 
   /**
    * The persistent session runtime for one policy, when `sessionSandbox` is
-   * on. The executor holds one reference per `(session, distro, workspace, policy)` and
-   * releases them when the session's scope disposes.
+   * on. The executor holds one reference per `(session, distro, workspace, policy)`;
+   * the session's end (`agent/disposed`, through {@link sessionEndWatch})
+   * releases them.
    *
    * @param policy - the resolved file-effect policy, when the executor has one.
    * @param resolved - the resolved spec, for the fallback workspace.
@@ -537,7 +560,14 @@ export class WslShellExecutor
     const sessionId = policy?.sessionId || resolved.dshEnv?.DSH_SESSION_ID || this.sessionRuntimeOwner;
     const key = SessionRuntimes.key({ sessionId, distro, workspaceRoot, mode, maskWindowsDrive: effectiveMaskWindowsDrive(config), writableRoots, socketMasks, maskInterop });
     const held = this.runtimeBook.sessionRuntimeEntries.get(key);
-    if (held !== undefined) return held;
+    if (held !== undefined) {
+      // A session end tears its runtimes down through every holder. One that
+      // reached this runtime without this executor must not leave it handing
+      // out a closed agent: the stale reference goes, and a resumed session
+      // gets a fresh runtime below.
+      if (this.sessionRuntimes.holds(held)) return held;
+      this.runtimeBook.sessionRuntimeEntries.delete(key);
+    }
     const entry = this.sessionRuntimes.acquire({
       sessionId,
       distro,
@@ -550,6 +580,7 @@ export class WslShellExecutor
       maskInterop,
     });
     this.runtimeBook.sessionRuntimeEntries.set(key, entry);
+    this.sessionEndWatch.ensureSweep();
     return entry;
   }
 
@@ -589,12 +620,14 @@ export class WslShellExecutor
 
   /**
    * Release every runtime this executor holds, stopping each scope. Called
-   * from the session's dispose hook; public so tests and shutdown paths can
-   * await it.
+   * when the row goes away (the preset is unregistered, the app shuts down) —
+   * the sessions ended long before, each through {@link sessionEndWatch};
+   * public so tests and shutdown paths can await it.
    *
    * @returns resolved once every runtime is torn down.
    */
   async disposeSessionRuntimes(): Promise<void> {
+    this.sessionEndWatch.dispose();
     const entries = [...this.runtimeBook.sessionRuntimeEntries.values()];
     this.runtimeBook.sessionRuntimeEntries.clear();
     for (const entry of entries) await this.sessionRuntimes.release(entry.key);
@@ -931,9 +964,10 @@ export class WslShellExecutor
       try {
         return await this.executeViaAgent(resolved, distro, shell, writableRoots, socketMasks, maskInterop);
       } catch (error) {
-        // Only an out-of-service agent falls back; anything else (a cwd
-        // refusal, a sandbox refusal) is the command's own verdict.
-        if (!(error instanceof AgentUnavailableError)) throw error;
+        // Only an out-of-service agent that never took the command falls
+        // back; anything else (a cwd refusal, a sandbox refusal, a command
+        // whose state is unknown) is the command's own verdict.
+        if (!isFallbackCue(error)) throw error;
       }
     }
     return this.executeOneShot(resolved, distro, shell, writableRoots, socketMasks, maskInterop);
@@ -958,8 +992,10 @@ export class WslShellExecutor
 
   /**
    * The agent-backed execution path: one long-lived in-distro process, the
-   * confinement argv unchanged, the handle shape unchanged. Any
-   * {@link AgentUnavailableError} propagates for the caller's fallback.
+   * confinement argv unchanged, the handle shape unchanged. An
+   * {@link AgentUnavailableError} for a command the resident never took
+   * settles the handle with the one-shot retry instead; one for a command
+   * that was in flight when the resident was lost propagates.
    *
    * @param resolved - the resolved spec from {@link WslShellExecutor.execute}.
    * @param distro - the resolved distro name.
@@ -1026,6 +1062,14 @@ export class WslShellExecutor
             });
           }
         : undefined,
+      // Upstream's own handle calls `onProcessDone` as it settles; without
+      // this the stamp `onStarted` left would never be applied to the handle
+      // (a background process would report no sandbox facts) and never be
+      // released — every confined command through the resident would keep its
+      // handle, output buffers included, in `processFacts` for good.
+      onSettled: (proc, error) => {
+        this.onProcessDone(proc as unknown as ShellExecution, proc.observed.stderr.readFrom(0).text, error !== undefined, error);
+      },
     });
     const decorated = WslShellExecutor.decorateResult(execution, (result) => {
       this.throwIfDistroUnavailable(result, distro);
@@ -1054,13 +1098,29 @@ export class WslShellExecutor
       }) as typeof result;
     }, (error) => {
       if (resolved.signal?.aborted === true) resolved.signal.throwIfAborted();
+      /**
+       * Run the command again on the one-shot path and settle with that
+       * handle's result. The agent handle stamped confinement facts for a run
+       * that never happened through it, so the stamp goes before the retry;
+       * the one-shot handle stamps and settles its own.
+       *
+       * @returns the one-shot result.
+       */
+      const retryOneShot = (): Promise<AgentSettledResult> => {
+        this.processFacts.delete(execution as unknown as ShellExecution);
+        return this.executeOneShot(resolved, distro, shell, writableRoots, socketMasks, maskInterop).then((fallback) => fallback.result() as unknown as AgentSettledResult);
+      };
       // The native agent reports a missing workdir as a spawn failure without
       // naming it. Retry that command on the one-shot path, whose `--cd`
       // warning names the directory — the failure path pays the extra spawn,
       // the hot path does not.
-      if (error instanceof SpawnError) {
-        return this.executeOneShot(resolved, distro, shell, writableRoots, socketMasks, maskInterop).then((fallback) => fallback.result() as unknown as AgentSettledResult);
-      }
+      if (error instanceof SpawnError) return retryOneShot();
+      // The resident refused the command before running it — dead, backing off
+      // after a death, or its handshake failed. `WslAgent.exec` is async, so
+      // that refusal always arrives here, through `result()`, never as the
+      // synchronous throw `execute` catches. A command that WAS with the
+      // resident when it was lost is not a cue: see `isFallbackCue`.
+      if (isFallbackCue(error)) return retryOneShot();
       throw error;
     });
     // The agent handle IS the upstream execution shape at runtime; its typedef

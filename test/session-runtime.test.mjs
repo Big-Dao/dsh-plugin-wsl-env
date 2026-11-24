@@ -7,7 +7,10 @@
  *   node test/session-runtime.test.mjs
  */
 import assert from "node:assert/strict";
+import { mock } from "node:test";
+import { Context } from "@deepseek-ai/cordis";
 import { SessionRuntimes, setSessionNativeAgent } from "../lib/session-runtime.js";
+import { ORPHAN_RUNTIME_IDLE_MS, ORPHAN_SWEEP_MS, ProviderRuntimeBook, SessionEndWatch, orphanedSessions } from "../lib/provider-common.js";
 
 let passed = 0;
 /** @type {Array<[string, () => void | Promise<void>]>} */
@@ -50,6 +53,8 @@ const harness = () => {
     spawnAgent: (options) => {
       spawns.push(options);
       return /** @type {import("../lib/agent.js").WslAgent} */ (/** @type {unknown} */ ({
+        // The real resident stamps its construction time the same way.
+        lastActivityAt: Date.now(),
         close: async () => {
           state.closes += 1;
           events.push("close");
@@ -272,6 +277,200 @@ check("the default stop is best effort against a scope that may already be gone"
   const entry = registry.acquire({ distro: "ze-default-stop", wslPath: "/nonexistent-dsh-wsl", workspaceRoot: "/home/u/proj", mode: "workspace-write", sessionId: "s1" });
   assert.ok(entry.agent, "the acquire itself does not depend on the stopper");
   await registry.release(entry.key);
+});
+
+check("an entry names its session; a request without one is keyed by a token of its own", () => {
+  const { registry } = harness();
+  assert.equal(registry.acquire(request).sessionId, "session-a");
+  const bare = registry.acquire({ ...request, sessionId: undefined });
+  assert.equal(bare.sessionId.length > 0, true, "the token is never empty, so a session end can name it");
+});
+
+check("releaseSession tears a session's runtimes down whatever their reference count, and only that session's", async () => {
+  const { registry, stops, events } = harness();
+  /** The agents closed so far, read from the event log the harness mutates. */
+  const closes = () => events.filter((event) => event === "close").length;
+  const shared = registry.acquire(request);
+  registry.acquire({ ...request });
+  assert.equal(shared.refs, 2, "precondition: two holders keep the runtime");
+  const sibling = registry.acquire({ ...request, mode: "read-only" });
+  const other = registry.acquire({ ...request, sessionId: "session-b" });
+  assert.equal(registry.holds(shared), true);
+  await registry.releaseSession("session-a");
+  assert.deepEqual(stops.map((stop) => stop.unit).sort(), [shared.unit, sibling.unit].sort(), "every runtime of the session stops, reference count or not");
+  assert.deepEqual(events, ["close", "stop", "close", "stop"], "each one closes its agent before its scope stops");
+  assert.equal(closes(), 2);
+  assert.equal(registry.holds(shared), false, "a holder's cached entry is no longer the registry's");
+  assert.equal(registry.holds(other), true, "another session's runtime is untouched");
+  assert.equal(registry.acquire({ ...request, sessionId: "session-b" }), other, "and still addressable");
+  await registry.releaseSession("session-a");
+  await registry.release(shared.key);
+  assert.equal(closes(), 2, "ending it again, or releasing a stale reference, tears nothing down twice");
+  const resumed = registry.acquire(request);
+  assert.notEqual(resumed, shared, "a session resumed under the same id gets a fresh runtime");
+  assert.equal(registry.holds(resumed), true);
+});
+
+check("orphanedSessions names the quiet runtimes nothing holds", () => {
+  const now = 1_000_000;
+  /**
+   * One held runtime over a scripted resident.
+   * @param {string} sessionId - the session the runtime belongs to.
+   * @param {{ lastActivityAt?: number }} agent - the resident's activity time, or none.
+   * @returns {Record<string, unknown>} the entry.
+   */
+  const held = (sessionId, agent) => ({ key: sessionId, unit: `u-${sessionId}`, agent, distro: "ubuntu", wslPath: "wsl.exe", refs: 1, sessionId });
+  const quiet = held("gone", { lastActivityAt: now - ORPHAN_RUNTIME_IDLE_MS });
+  // The entries spell the slice `orphanedSessions` reads; the one cast states
+  // which declared type they stand in for.
+  const entries = /** @type {import("../lib/session-runtime.js").SessionRuntimeEntry[]} */ (/** @type {unknown} */ ([
+    quiet,
+    held("gone", { lastActivityAt: now - ORPHAN_RUNTIME_IDLE_MS + 1 }),
+    held("gone", {}),
+    held("owner-token", { lastActivityAt: 0 }),
+    held("alive", { lastActivityAt: 0 }),
+  ]));
+  /** @param {string} id - a session id. */
+  const readable = (id) => id !== "gone";
+  assert.deepEqual(orphanedSessions({ entries, sessionless: "owner-token", sessionLive: readable, now }), ["gone", "owner-token"]);
+  assert.deepEqual(orphanedSessions({ entries, sessionless: "owner-token", sessionLive: readable, now, idleMs: ORPHAN_RUNTIME_IDLE_MS * 2 }), [], "a longer window spares the quiet one too");
+  assert.deepEqual(
+    orphanedSessions({ entries, sessionless: "owner-token", sessionLive: () => undefined, now }),
+    ["owner-token"],
+    "an agent registry that cannot be read spares every named session",
+  );
+  const gone = entries.filter((entry) => entry.sessionId === "gone").slice(0, 1);
+  assert.deepEqual(orphanedSessions({ entries: [...gone, ...gone], sessionless: "owner-token", sessionLive: readable, now }), ["gone"], "once per session, however many runtimes it had");
+});
+
+/**
+ * The dispatch slice the watch listens through: cordis's typed `Events` does
+ * not name the harness's agent events.
+ * @typedef {{ parallel: (event: "agent/disposed", payload: { agent: { id: string } }) => Promise<void> }} DisposalBus
+ */
+
+/**
+ * Views a context as the bus a disposal is dispatched on.
+ * @param {Context} ctx - the context.
+ * @returns {DisposalBus} the bus.
+ */
+const busOf = (ctx) => /** @type {DisposalBus} */ (/** @type {unknown} */ (ctx));
+
+/** Lets the teardown a sweep started run past its awaits. */
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+/**
+ * A provider-shaped owner over the recording registry.
+ * @param {SessionRuntimes} registry - the registry the provider holds runtimes in.
+ * @returns {import("../lib/provider-common.js").SessionEndOwner & { runtimeBook: ProviderRuntimeBook }} the owner.
+ */
+const ownerOf = (registry) => ({ runtimeBook: new ProviderRuntimeBook(), sessionRuntimes: registry, sessionRuntimeOwner: "owner-token" });
+
+check("agent/disposed ends the session through the watch: the holder's book goes first, then the scope", async () => {
+  const { registry, stops } = harness();
+  const ctx = new Context();
+  const owner = ownerOf(registry);
+  const watch = new SessionEndWatch(owner, ctx);
+  /**
+   * Acquire for the owner and record the reference in its book.
+   * @param {Partial<typeof request>} overrides - the request's differences.
+   * @returns {import("../lib/session-runtime.js").SessionRuntimeEntry} the held runtime.
+   */
+  const hold = (overrides) => {
+    const entry = registry.acquire({ ...request, ...overrides });
+    owner.runtimeBook.sessionRuntimeEntries.set(entry.key, entry);
+    return entry;
+  };
+  const ended = hold({});
+  registry.acquire(request);
+  assert.equal(ended.refs, 2, "precondition: a reference the watch does not know about");
+  const kept = hold({ sessionId: "session-b" });
+  await busOf(ctx).parallel("agent/disposed", { agent: { id: "session-a" } });
+  assert.equal(owner.runtimeBook.sessionRuntimeEntries.has(ended.key), false, "the holder's book no longer names the runtime");
+  assert.equal(registry.holds(ended), false, "the leftover reference did not keep the scope alive");
+  assert.deepEqual(stops.map((stop) => stop.unit), [ended.unit]);
+  assert.equal(registry.holds(kept), true, "another session keeps its runtime");
+  watch.dispose();
+  await busOf(ctx).parallel("agent/disposed", { agent: { id: "session-b" } });
+  assert.equal(registry.holds(kept), true, "a disposed watch no longer ends sessions");
+  await registry.disposeAll();
+});
+
+check("the sweep ends a session the event missed once it is quiet, and never one a live agent holds", async () => {
+  const { registry, stops } = harness();
+  const ctx = new Context();
+  // A service is readable through `ctx.get` only while its providing fiber is
+  // active, which in a bare Context means from inside a plugin — the shape
+  // the harness itself provides `agents` in.
+  await ctx.plugin({
+    name: "agents-host",
+    /** @param {Context} hostCtx - the host plugin's context. */
+    apply(hostCtx) {
+      hostCtx.provide("agents", {
+        /** @param {string} id - a session id. */
+        get: (id) => (id === "live-session" ? { id } : undefined),
+        list: () => [],
+      });
+    },
+  });
+  const owner = ownerOf(registry);
+  mock.timers.enable({ apis: ["setInterval", "Date"] });
+  try {
+    const watch = new SessionEndWatch(owner, ctx);
+    /**
+     * Acquire for the owner and record the reference in its book.
+     * @param {Partial<typeof request>} overrides - the request's differences.
+     * @returns {import("../lib/session-runtime.js").SessionRuntimeEntry} the held runtime.
+     */
+    const hold = (overrides) => {
+      const entry = registry.acquire({ ...request, ...overrides });
+      owner.runtimeBook.sessionRuntimeEntries.set(entry.key, entry);
+      return entry;
+    };
+    const held = hold({ sessionId: "live-session" });
+    const missed = hold({ sessionId: "missed-session" });
+    // A provider keys a request that names no session by its own token.
+    const sessionless = hold({ sessionId: owner.sessionRuntimeOwner });
+    watch.ensureSweep();
+    mock.timers.tick(ORPHAN_SWEEP_MS * 9);
+    await settle();
+    assert.equal(stops.length, 0, "inside the idle window nothing is ended, whatever holds it");
+    // The missed session's runtime is used again: its window starts over.
+    missed.agent.lastActivityAt = Date.now();
+    mock.timers.tick(ORPHAN_SWEEP_MS * 2);
+    await settle();
+    assert.deepEqual(stops.map((stop) => stop.unit), [sessionless.unit], "only the runtime that never named a session was quiet for a whole window");
+    assert.equal(owner.runtimeBook.sessionRuntimeEntries.size, 2, "the ended runtime left the book with its scope");
+    mock.timers.tick(ORPHAN_RUNTIME_IDLE_MS + ORPHAN_SWEEP_MS);
+    await settle();
+    assert.equal(registry.holds(missed), false, "quiet and held by no live agent: ended");
+    assert.equal(registry.holds(held), true, "quiet but held by a live agent: kept, for as long as the session lives");
+    assert.equal(stops.length, 2);
+    watch.dispose();
+  } finally {
+    mock.timers.reset();
+  }
+  await registry.disposeAll();
+});
+
+check("a watch over a context that exposes no agent registry ends nothing on its own", async () => {
+  const { registry, stops } = harness();
+  const ctx = new Context();
+  const owner = ownerOf(registry);
+  mock.timers.enable({ apis: ["setInterval", "Date"] });
+  try {
+    const watch = new SessionEndWatch(owner, ctx);
+    const entry = registry.acquire({ ...request, sessionId: "nobody-knows" });
+    owner.runtimeBook.sessionRuntimeEntries.set(entry.key, entry);
+    watch.ensureSweep();
+    mock.timers.tick(ORPHAN_RUNTIME_IDLE_MS + ORPHAN_SWEEP_MS * 2);
+    await settle();
+    assert.equal(stops.length, 0, "an unreadable fact is not read as gone");
+    watch.dispose();
+  } finally {
+    mock.timers.reset();
+  }
+  await registry.disposeAll();
 });
 
 for (const [name, fn] of checks) await runCheck(name, fn);

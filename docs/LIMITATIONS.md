@@ -48,8 +48,8 @@ operations never use the 9p share.
   fails explicitly too (rg's error code 2, because `1` means "no matches").
   Commands and the resident agent both inherit `wsl.exe`'s default PATH, so a
   user-local install under `~/.local/bin` is invisible — install it
-  system-wide, or somewhere on that PATH. Install: `wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap
-  git ripgrep inotify-tools` (or the detected family's spelling). `--install` runs it
+  system-wide, or somewhere on that PATH. Install: `wsl.exe -d <distro> -u root -- sh -c "apt-get update -qq && apt-get install -y --no-install-recommends bubblewrap git ripgrep inotify-tools"`
+  (or the detected family's spelling). `--install` runs it
   only for a missing `bubblewrap`.
 - **`watch()` is coarse invalidation, not per-file notifications**: inotify events
   coalesced to 0.5 s, or a `find -newer` poll loop otherwise. The polling path misses
@@ -61,6 +61,14 @@ operations never use the 9p share.
 - `editText` reads the whole file into memory before writing it back.
 - A distro that dies with a request in flight spends the resident's one rebuild;
   still down, the resident stays out until the app restarts.
+- **The native agent is demoted only on evidence, and tried again** — there is
+  one shared agent instance per distro, and it recovers through its own rebuild
+  and revival budget rather than being replaced. The reads move to the shell
+  agent only when the native entry fails a start and the shell entry then
+  starts on the same distro, and native is tried again after five minutes. A
+  distro that is down fails both entries alike, which is not held against the
+  native one; a failed preparation (copy, digest, execute check) is not
+  remembered as a verdict either — the next start prepares again.
 
 ## The GUI workspace-files service
 
@@ -81,11 +89,38 @@ operations never use the 9p share.
   upstream `FileReferenceTraversal` seam:
   [UPSTREAM-FILE-REFERENCE-SEAM.md](UPSTREAM-FILE-REFERENCE-SEAM.md).
 
+## Bundled skills
+
+`preset-wsl` keeps the row set of the app's own standard mode, and its
+`skill-filesystem` row carries the upstream `customSkillDirs` unchanged: the
+`skills` directory the agent preset package ships inside the app's
+installation. That directory is on the host, while this preset's filesystem is
+the distro's:
+
+- **Bundled skills are read through the distro's `/mnt/<drive>/…`**: `wsl-fs`
+  maps a host drive path to the distro's mount point and the resident agent
+  reads it (measured 2026-11-24: an unpacked host directory resolves and
+  lists). A distro that mounts its drives elsewhere (`automount.root` in
+  `/etc/wsl.conf`) cannot read them.
+- **A WSL session on the Desktop package has no bundled skills**: the app's
+  `node_modules` live inside the `app.asar` archive, `/mnt/c/…/app.asar/…` is
+  not a directory inside the distro, and `wsl-fs` refuses it with
+  `FS_NOT_DIRECTORY` (measured 2026-11-24). The skill provider treats such a
+  root as absent and skips it, so the bundled `dsh-doc` never reaches the tool
+  surface, while the other skill roots (the project's and the user's
+  directories) are unaffected. The host mode reads the archive through the app
+  process and has no such limit.
+
 ## The sandbox
 
 - **The one-shot fallback has only the host deadline** — a killed `wsl.exe` does not
   relay the kill into the distro, so the Linux process tree can outlive the call.
   Prefer `agent: true` and the session runtime for long commands.
+- **A command in flight when the resident is lost is not run again** — a command the
+  resident never took (dead, backing off, handshake failed) falls back to the one-shot
+  `wsl.exe`. When the resident dies while a command is running, the command may
+  already have taken effect: it fails as "state is unknown", with the advice to
+  inspect the distro first, and is not executed a second time on the one-shot path.
 - **Batch reads share one native agent per distro** (16 concurrent calls in
   2.4-4.1 ms; first call pays ~70 ms preparation).
 - **aarch64 runs under qemu in CI only** (no Windows-on-ARM machine in reach —
@@ -98,6 +133,15 @@ operations never use the 9p share.
   A hard app crash can leave a stale `dsh-wsl-*.scope`; the
   preflight sweeps stale scopes on the next WSL session (never another live
   session's).
+- **A session runtime is released with the session's agent** — when the agent is
+  disposed (upstream's `agent/disposed`), both providers drop their references
+  for that session, the scope stops, and the background processes inside it are
+  reaped. The current harness (≤ 0.2.2-rc.5) does not dispose an agent when a
+  session view is closed — agents live until the app exits — so until then every
+  session that ran a command keeps one runtime. A fallback sweep underneath ends
+  a session whose runtimes have been quiet for ten minutes with no live agent
+  behind them (or that never named a session); a live session's runtime has no
+  idle limit.
 - **The sandbox does not govern WSL interop** — reported as `enforcement: partial`.
   `maskWindowsDrive` and `interopVisibility` narrow `/mnt` but are not a closure;
   even `interopVisibility: "disabled"` only produces the `wsl.conf`
@@ -170,7 +214,10 @@ absolute path to pin one.
   (`doctorReport` merges `WslAgent.status()` via `mergeLiveResidentStatus`,
   0.18.0), but the CLI's handshake check still names its probe source
   (`probed: a fresh resident`); without an app-side call the `lastError`
-  stays in the app log.
+  stays in the app log. A resident that is dead fails the merged check and the
+  report's verdict follows; a resident that recovered keeps the fresh probe's
+  verdict, and when the reads are not on the native agent the merged detail
+  says why.
 - **`dsh-wsl-*.scope` counts are point-in-time**; `--fix` runs the preflight's sweep.
 - **The doctor's `git.win-safe` probe reports the Windows git trust through interop
   `git.exe`** — the `safe.directory` whitelist that WSL change review needs when
@@ -243,9 +290,13 @@ sandbox's security statement: `enforcement: partial` is untouched.
 
 ## Ports
 
-- **The port poller keeps the resident agent permanently warm** per active distro
-  (refresh 10 s). Raising `portsRefreshMs` past the agent's idle timeout restores
-  idle shutdown, at the cost of staler port facts.
+- **The port poller keeps the resident agent warm for the distros in use** — it
+  refreshes every `portsRefreshMs` (10 s by default) while a live session works
+  in a distro, and stops with the last of them, which is when the agent can
+  idle out. Each round asks WSL which distros are running first: a stopped
+  distro is not probed (the probe would boot it) and `DSH_WSL_PORTS` reads
+  empty for it. Raising `portsRefreshMs` past the agent's idle timeout brings
+  idle shutdown forward, at the cost of staler port facts.
 
 ## The directory picker
 

@@ -124,7 +124,7 @@ export interface AgentExecutionHandle {
  * @returns the execution handle (`status`, `exitCode`, `signal`, `observed`,
  *   `done`, `readOutput`, `kill`, `result`).
  */
-export declare function agentExecutionHandle({ agent, cwd, argv, timeoutMs, maxOutputBytes, env, signal, onStarted }: {
+export declare function agentExecutionHandle({ agent, cwd, argv, timeoutMs, maxOutputBytes, env, signal, onStarted, onSettled }: {
     /**
      * The {@link WslAgent}-like runner: `exec` accepting
      * `{cwd, argv, timeoutMs, env, signal}` and resolving `{exitCode, stdout, stderr}`;
@@ -157,5 +157,12 @@ export declare function agentExecutionHandle({ agent, cwd, argv, timeoutMs, maxO
      * Provider-facts hook, called synchronously before the handle can settle.
      */
     onStarted?: (proc: object) => void;
+    /**
+     * Settlement hook, called after the status, exit code and signal are
+     * stamped and before `done` resolves to anyone else — the point at which
+     * upstream's own handle calls its settlement hook. `error` is the failure
+     * `result()` rejects with, when there is one.
+     */
+    onSettled?: (proc: AgentExecutionHandle, error: unknown) => void;
 }): AgentExecutionHandle;
 export {};

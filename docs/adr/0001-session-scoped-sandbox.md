@@ -138,8 +138,9 @@ provider-local identity, so separate providers do not share their runtimes.
   `enforcement: partial` contract is unchanged and should say that PID
   isolation is not claimed.
 - **Resources:** one agent per (session, policy) instead of one per distro.
-  Idle shutdown and the lease still apply; the scope is stopped at session
-  end. A hard crash can leave the scope behind; the session preflight sweeps
+  Idle shutdown and the lease still apply; the scope is stopped when the
+  session's agent is disposed (see Migration step 6). A hard crash can leave
+  the scope behind; the session preflight sweeps
   `dsh-wsl-*.scope` units whose cgroup has no agent process (`wsl-agent.sh`
   or the native `dsh-wsl-agent`).
 - **FS mutations:** with `wsl-fs` `sessionSandbox: true` (the shipped preset),
@@ -172,6 +173,40 @@ provider-local identity, so separate providers do not share their runtimes.
    the per-command profile remains for `sessionSandbox: false` and the
    agent-unavailable fallback. `docs/LIMITATIONS.md` scope the two-`/tmp`
    note to the off case and records the crash caveat.
+6. **Session-end release (done 2026-11-24, #73).** Two gaps made "the scope
+   is stopped at session end" false before this date. (a) *Nothing ran at
+   session end:* the providers registered their release as a `ctx.effect`
+   disposer, but the preset realm they live in is the process's, not the
+   session's — upstream disposes that scope only when the preset definition
+   is unregistered, so the disposer ran once per process. The per-session
+   signal is the harness's `agent/disposed`; rows inside a preset inherit
+   the preset scope's tag and agent events flow up the scope chain, so each
+   provider now listens for it, drops its own references, and ends the
+   session in the registry (`SessionRuntimes.releaseSession`, which tears
+   the runtimes down whatever their reference count). A sweep underneath ends
+   a session whose runtimes sit quiet with no live agent behind them.
+   (b) *The stop stopped nothing:* `sessionScopeStopArgv` named the unit
+   without the `.scope` suffix `systemd-run --scope` adds, so `systemctl
+   --user stop` resolved a `.service` that was never loaded and exited 5. An
+   empty scope dies with its agent regardless, which is how the gap stayed
+   invisible; a session that left a background process kept it. The stop now
+   names the scope unit.
+
+   **Verified** on a real machine (WSL2, systemd as PID 1, `Linger`, the
+   packaged native agent) by `test/probe/native-session.mjs`, whose teardown
+   leg was hardened to be falsifiable: a background process is left in the
+   scope, the session ends through `releaseSession`, and the `.scope` unit is
+   the one read back — the scope is gone and the process reaped, while another
+   session's scope keeps serving. Against the old stop argv the same leg fails
+   on both counts.
+
+   **Not changed by this step:** what counts as a session end is upstream's
+   to define. Harness 0.2.2-rc.5 disposes an agent at teardown (app shutdown,
+   an agent-loop reload), not when a session view is closed, so on that
+   version a session's runtime lives exactly as long as its agent — the
+   per-live-session cost this ADR's resource note already states. A harness
+   that disposes agents on session close needs no plugin change to get the
+   release.
 
 ## Open questions
 

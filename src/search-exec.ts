@@ -43,6 +43,12 @@
  * Everything else — a genuine agent failure that is not `AgentUnavailableError`
  * — still propagates through `done` as a rejection.
  *
+ * The agent's capture cap is the tool's raw-output budget. A stream the
+ * agent cut there is reported `lossy`, exactly as the one-shot delegate's
+ * own reader reports it — the cut leaves the stream at exactly the budget,
+ * so a length cannot show it, and a result read as whole was missing every
+ * match past the cap.
+ *
  * The one-shot delegate is post-processed the same way, because the agent
  * being out must not change what a broken environment looks like: a missing
  * program's `execvpe(rg) failed` line (exit 1) becomes the same 127, and the
@@ -165,7 +171,13 @@ export function searchExecutionHandle({ agent, cwd, argv, distro, maxOutputBytes
    */
   spawnFallback: () => SearchExecutionHandle,
 }): SearchExecutionHandle {
-  const state: { delegate: SearchExecutionHandle | undefined, stdout: Buffer | undefined, stderr: Buffer | undefined } = { delegate: undefined, stdout: undefined, stderr: undefined };
+  const state: {
+    delegate: SearchExecutionHandle | undefined,
+    stdout: Buffer | undefined,
+    stderr: Buffer | undefined,
+    /** Per stream: the agent cut it at the capture cap. */
+    lossy: { stdout: boolean, stderr: boolean },
+  } = { delegate: undefined, stdout: undefined, stderr: undefined, lossy: { stdout: false, stderr: false } };
   const controller = new AbortController();
   if (signal?.aborted) controller.abort(signal.reason);
   else signal?.addEventListener("abort", () => controller.abort(signal.reason), { once: true });
@@ -176,7 +188,7 @@ export function searchExecutionHandle({ agent, cwd, argv, distro, maxOutputBytes
     readFrom(from) {
       const buffer = state[slot] ?? Buffer.alloc(0);
       const start = Math.min(from, buffer.length);
-      return { text: buffer.subarray(start).toString("utf8"), lossy: false, nextOffset: buffer.length };
+      return { text: buffer.subarray(start).toString("utf8"), lossy: state.lossy[slot], nextOffset: buffer.length };
     },
   });
 
@@ -192,6 +204,7 @@ export function searchExecutionHandle({ agent, cwd, argv, distro, maxOutputBytes
     state.delegate = undefined;
     state.stdout = Buffer.alloc(0);
     state.stderr = Buffer.from(stderr, "utf8");
+    state.lossy = { stdout: false, stderr: false };
     return { exitCode, signal: null };
   };
 
@@ -251,6 +264,7 @@ export function searchExecutionHandle({ agent, cwd, argv, distro, maxOutputBytes
         result = await agent.exec({ cwd, argv, maxOutputBytes, signal: controller.signal });
         state.stdout = result.stdout;
         state.stderr = result.stderr;
+        state.lossy = { stdout: result.truncated?.stdout === true, stderr: result.truncated?.stderr === true };
       } catch (error) {
         if (controller.signal.aborted) {
           // Our kill() or the caller's cancellation: the killed outcome the

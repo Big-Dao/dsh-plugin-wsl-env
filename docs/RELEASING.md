@@ -212,6 +212,13 @@ node scripts/check-release-tag.mjs vx.y.z
 npm publish --registry=https://registry.npmjs.org/ --access public
 ```
 
+The same script answers the npm dist-tag the workflow publishes under:
+`node scripts/check-release-tag.mjs --dist-tag` prints `next` for any
+version with a prerelease segment and `latest` otherwise, and the tag check
+refuses a version that is not `MAJOR.MINOR.PATCH` with an optional
+`-prerelease`. A prerelease must never move `latest`, so a manual publish of
+one adds `--tag "$(node scripts/check-release-tag.mjs --dist-tag)"`.
+
 Set `--registry` explicitly. A local `~/.npmrc` may point at a mirror, and a
 release published to a mirror is not a release.
 

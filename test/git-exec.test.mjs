@@ -124,6 +124,42 @@ check("each stream is cut at its own budget, not the wire cap", async () => {
   assert.equal(stderr.text.length, 100);
 });
 
+check("a stream the agent cut at the wire cap is lossy though its length equals the cap", async () => {
+  // The shape the real agent produces: a cut lands EXACTLY on the wire cap,
+  // so no length test can see it. Read as whole, a diff past the cap was
+  // parsed with every later change missing.
+  const agent = fakeAgent([{
+    exitCode: 0,
+    stdout: Buffer.alloc(64000, 0x61),
+    stderr: Buffer.alloc(16384, 0x62),
+    truncated: { stdout: true, stderr: true },
+  }]);
+  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent, cwd: CWD, argv: ARGV, distro: DISTRO, env: {}, caps: CAPS }))));
+  await handle.done;
+  const stdout = /** @type {GitReader} */ (handle.collected.stdout).readFrom(0);
+  assert.equal(stdout.text.length, 64000);
+  assert.equal(stdout.lossy, true, "the agent's cut flag reaches the caller");
+  const stderr = /** @type {GitReader} */ (handle.collected.stderr).readFrom(0);
+  assert.equal(stderr.lossy, true, "on the stderr tail too");
+});
+
+check("a stream past its own budget keeps its tail, as the one-shot reader does", async () => {
+  // 20 013 bytes of stderr under a 64 000-byte wire cap: the agent captured
+  // all of it and cut nothing, and the 16 384-byte tail budget applies here.
+  const agent = fakeAgent([{
+    exitCode: 0,
+    stdout: Buffer.alloc(10, 0x61),
+    stderr: Buffer.concat([Buffer.alloc(20000, 0x62), Buffer.from("fatal: the cause\n")]),
+    truncated: { stdout: false, stderr: false },
+  }]);
+  const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent, cwd: CWD, argv: ARGV, distro: DISTRO, env: {}, caps: CAPS }))));
+  await handle.done;
+  const stderr = /** @type {GitReader} */ (handle.collected.stderr).readFrom(0);
+  assert.equal(stderr.lossy, true);
+  assert.equal(stderr.text.length, 16384, "cut at the caller's tail budget");
+  assert.ok(stderr.text.endsWith("fatal: the cause\n"), "the LAST lines survive the cut — a failure's cause is its last line");
+});
+
 check("a one-character overflow past the cap flags lossy", async () => {
   const agent = fakeAgent([{ exitCode: 0, stdout: Buffer.alloc(CAPS.stderr + 1, 0x61), stderr: Buffer.alloc(0) }]);
   const handle = gitExecutionHandle(/** @type {Parameters<typeof gitExecutionHandle>[0]} */ (/** @type {AgentGitOptions} */ (/** @type {unknown} */ ({ agent, cwd: CWD, argv: ARGV, distro: DISTRO, env: {}, caps: { stdout: CAPS.stderr, stderr: CAPS.stderr } }))));

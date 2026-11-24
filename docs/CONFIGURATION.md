@@ -426,10 +426,13 @@ scripts/bootstrap.sh <distro> --install
 ```
 
 Without `--install`, the helper performs a read-only check. On apt-based
-distros, the direct install command is:
+distros, the direct install command is (the package index is refreshed first —
+a freshly installed Debian or Ubuntu has none; the `sh -c "…"` quotes keep the
+`&&` inside the distro when the line is pasted into cmd, PowerShell 5.1 or
+PowerShell 7 alike):
 
 ```bash
-wsl.exe -d <distro> -u root -- apt-get install -y bubblewrap
+wsl.exe -d <distro> -u root -- sh -c "apt-get update -qq && apt-get install -y --no-install-recommends bubblewrap"
 ```
 
 The `wsl-preflight` row runs these checks when a session opens, and — with
@@ -528,8 +531,10 @@ result structure (per-status totals and per-section tallies). The last result
 per distro is stored at `$DSH_HOME/cache/dsh-plugin-wsl-env/status.json`
 (`~/.dsh/...` when the host names no home), so a page reload or app restart
 still shows it. On load, a stored result for a distro that is currently
-running is re-checked in the background; a failed background run overwrites
-the stored result. Nothing is labeled expired — each checked row offers
+running is re-checked in the background with a quick check; a failed
+background run overwrites the stored result, while a **full diagnosis** or a
+**repair** result is never replaced by the background re-check. Nothing is
+labeled expired — each checked row offers
 **清除** and the card offers **清除全部**; both `DELETE` the same route
 (optionally with `?distro=`) to drop the stored verdict without enumerating,
 probing or modifying a distro. Deleting the file still resets the panel's

@@ -17,8 +17,10 @@
  *   node test/provider.test.mjs
  */
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { configureAgentBackend } from "../lib/native-agent.js";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -26,13 +28,15 @@ import { FsError, FsTargetKey } from "@deepseek-ai/dsh-fs";
 import { SandboxUnavailableError } from "@deepseek-ai/dsh-sandbox";
 import { WslShellExecutor, WslFileSystem } from "../lib/index.js";
 import { resetSocketIsolationCache } from "../lib/socket-isolation.js";
+import { newTally, runCheck, skip, skipNote } from "./skip.mjs";
 import shellEntry, { WslShellExecutor as ShellEntryNamed } from "../lib/shell.js";
 import fsEntry, { WslFileSystem as FsEntryNamed } from "../lib/fs.js";
 import { FsCodedError } from "../lib/fsio-text.js";
 import { WslAgent } from "../lib/agent.js";
 import { SessionRuntimes } from "../lib/session-runtime.js";
 
-let passed = 0;
+/** The suite's totals: a check this host cannot run counts as skipped, never as passed. */
+const tally = newTally();
 /** @type {Array<[string, () => void | Promise<void>]>} */
 const checks = [];
 /**
@@ -45,33 +49,16 @@ const check = (name, fn) => checks.push([name, fn]);
  * `check` for the checks whose fixture is a `#!/bin/sh` stand-in for `wsl.exe`.
  * Only a POSIX host can spawn such a file; on Windows the executor's probe gets
  * `spawn UNKNOWN` and the check would report a fixture failure, not a product
- * one. The Windows leg prints a skip instead — the covered arms are POSIX-side
- * probe plumbing that the Linux legs and the coverage job already measure.
+ * one. The body defers there (`skip`), so the runner prints SKIP with the
+ * reason and the summary counts it — the covered arms are POSIX-side probe
+ * plumbing that the Linux legs and the coverage job already measure.
  * @param {string} name - the check's name.
  * @param {() => void | Promise<void>} fn - the check's assertions.
  */
-const checkPosix = (name, fn) => {
-  if (process.platform === "win32") {
-    console.log(`SKIP  ${name} (the fake wsl.exe is a POSIX script)`);
-    return;
-  }
-  check(name, fn);
-};
-/**
- * Runs one check now, printing its verdict; a throw fails the process exit code.
- * @param {string} name - the check's name.
- * @param {() => void | Promise<void>} fn - the check's assertions.
- */
-const runCheck = async (name, fn) => {
-  try {
-    await fn();
-    passed += 1;
-    console.log(`PASS  ${name}`);
-  } catch (error) {
-    console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
-    process.exitCode = 1;
-  }
-};
+const checkPosix = (name, fn) => check(name, () => {
+  if (process.platform === "win32") skip("the fake wsl.exe is a POSIX script");
+  return fn();
+});
 
 const DISTRO = "ubuntu";
 const WORKSPACE = "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj";
@@ -99,6 +86,32 @@ const spec = (request) => /** @type {Parameters<WslShellExecutor["withDefaultWor
  * @returns {WslAgent} the same object, as the seam's declared agent type.
  */
 const asAgent = (fake) => /** @type {WslAgent} */ (fake);
+
+/**
+ * A `wsl.exe` transport the REAL `WslAgent` drives with no distro: an emitter
+ * carrying the three pipes the resident protocol runs over. A check scripts
+ * when the process "exits" and what its stdout says.
+ */
+class FakeTransport extends EventEmitter {
+  stdin = new PassThrough();
+  stdout = new PassThrough();
+  stderr = new PassThrough();
+
+  kill() {
+    return true;
+  }
+}
+
+/** The transport factory `WslAgent`'s config accepts. */
+/** @typedef {NonNullable<ConstructorParameters<typeof WslAgent>[0]["spawnTransport"]>} TransportFactory */
+
+/**
+ * Presents a fake-transport factory as the seam's declared transport factory;
+ * the one cast states which contract the fake stands in for.
+ * @param {() => FakeTransport} factory - the scripted factory.
+ * @returns {TransportFactory} the factory, as the seam's declared type.
+ */
+const asTransportFactory = (factory) => /** @type {TransportFactory} */ (/** @type {unknown} */ (factory));
 
 /**
  * The scripted substrate: `resolve` answers every Linux coordinate, and each
@@ -158,7 +171,7 @@ const spawnView = (executor) => /** @type {OneShotSeam} */ (/** @type {unknown} 
 /**
  * A filesystem provider over a fake substrate; the agent never spawns.
  * @param {{ sandbox?: boolean, restrictToDistro?: boolean, sessionSandbox?: boolean | "auto", distro?: string, policy?: { mode: "read-only"|"workspace-write"|"danger-full-access", workspaceRoot: string }, wslPath?: string, writableRoots?: string[], socketIsolation?: "off" | "session-bus" | "strict" }} [options] - the provider switches, the distro mode, the policy the fake resolves, an optional `wslPath` for the home and default-distro probes, root grants and the socket stance.
- * @returns {{ fs: WslFileSystem, substrate: MockSubstrate }} the provider and its scripted substrate.
+ * @returns {{ fs: WslFileSystem, substrate: MockSubstrate, ctx: Context }} the provider, its scripted substrate and its context.
  */
 function makeFs({ sandbox = true, restrictToDistro = true, distro = DISTRO, policy, sessionSandbox = false, wslPath, writableRoots, socketIsolation } = {}) {
   // The unit suite must never resolve the packaged native binary: no wsl.exe.
@@ -184,13 +197,13 @@ function makeFs({ sandbox = true, restrictToDistro = true, distro = DISTRO, poli
     },
   };
   fs.agentSubstrate = async () => /** @type {Awaited<ReturnType<WslFileSystem["agentSubstrate"]>>} */ (/** @type {unknown} */ (substrate));
-  return { fs, substrate };
+  return { fs, substrate, ctx };
 }
 
 /**
  * An executor whose agent and confinement are fakes at the seam.
  * @param {{ sandbox?: boolean, sessionSandbox?: boolean | "auto", distro?: string, writableRoots?: string[], additionalWritableRoots?: string[], socketIsolation?: "off" | "session-bus" | "strict" }} [options] - the executor switches, distro mode, root grants and socket stance.
- * @returns {{ executor: WslShellExecutor, agent: ScriptedAgent, agentCalls: AgentFrame[] }} the executor, its scripted frame-runner, and every frame it saw.
+ * @returns {{ executor: WslShellExecutor, agent: ScriptedAgent, agentCalls: AgentFrame[], ctx: Context }} the executor, its scripted frame-runner, every frame it saw, and its context.
  */
 function makeExecutor({ sandbox = true, sessionSandbox = false, distro = DISTRO, writableRoots, additionalWritableRoots, socketIsolation } = {}) {
   const policy = { mode: "workspace-write", workspaceRoot: WORKSPACE, ...(additionalWritableRoots === undefined ? {} : { additionalWritableRoots }) };
@@ -243,8 +256,51 @@ function makeExecutor({ sandbox = true, sessionSandbox = false, distro = DISTRO,
     },
   };
   executor.sandbox = /** @type {WslShellExecutor["sandbox"]} */ (/** @type {unknown} */ (sandboxCore));
-  return { executor, agent, agentCalls };
+  return { executor, agent, agentCalls, ctx };
 }
+
+/**
+ * The dispatch slice the providers' session-end listener hangs on: cordis's
+ * typed `Events` does not name the harness's agent events.
+ * @typedef {{ parallel: (event: "agent/disposed", payload: { agent: { id: string } }) => Promise<void> }} DisposalBus
+ */
+
+/**
+ * Deliver `agent/disposed` for one session to every listener a context
+ * carries, and wait for their teardowns.
+ * @param {Context} ctx - the provider's context.
+ * @param {string} sessionId - the session that ended.
+ */
+const disposeAgent = (ctx, sessionId) =>
+  /** @type {DisposalBus} */ (/** @type {unknown} */ (ctx)).parallel("agent/disposed", { agent: { id: sessionId } });
+
+/**
+ * A REAL registry over scripted spawn and stop edges: the refcount, the
+ * session end and the stale-entry check are the code under test, only systemd
+ * and the distro are faked.
+ * @returns {{ registry: SessionRuntimes, seen: { spawned: number }, stops: string[] }} the registry and what its edges saw.
+ */
+const realRegistry = () => {
+  const seen = { spawned: 0 };
+  /** @type {string[]} */
+  const stops = [];
+  const registry = new SessionRuntimes({
+    spawnAgent: () => {
+      seen.spawned += 1;
+      /** @type {ScriptedAgent & { close: () => Promise<void> }} */
+      const agent = {
+        exec: async () => ({ exitCode: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), truncated: { stdout: false, stderr: false } }),
+        close: async () => {},
+      };
+      return asAgent(agent);
+    },
+    stopScope: ({ unit }) => {
+      stops.push(unit);
+    },
+    token: () => `tok${seen.spawned}`,
+  });
+  return { registry, seen, stops };
+};
 
 // --- the filesystem guard chain -------------------------------------------
 
@@ -283,8 +339,10 @@ check("with sessionSandbox, a confined mutation runs in the shared session runti
     /** @param {{ distro: string, wslPath: string, workspaceRoot: string, mode: string, maskWindowsDrive?: boolean, sessionId?: string }} request - the runtime request. */
     acquire: (request) => {
       acquired.push(request);
-      return { key: "fs-runtime", unit: "u", agent: runtimeAgent, distro: request.distro, wslPath: "wsl.exe", refs: 1 };
+      return { key: "fs-runtime", unit: "u", agent: runtimeAgent, distro: request.distro, wslPath: "wsl.exe", refs: 1, sessionId: request.sessionId ?? "" };
     },
+    /** A scripted registry keeps everything it handed out. */
+    holds: () => true,
     /** @param {string} key - the registry key. */
     release: async (key) => {
       released.push(key);
@@ -904,8 +962,10 @@ check("with sessionSandbox, the command runs on the session runtime without the 
     /** @param {{ distro: string, wslPath: string, workspaceRoot: string, mode: string, maskWindowsDrive?: boolean, sessionId?: string }} request - the runtime request. */
     acquire: (request) => {
       acquired.push(request);
-      return { key: "k", unit: "u", agent: runtimeAgent, distro: request.distro, wslPath: "wsl.exe", refs: 1 };
+      return { key: "k", unit: "u", agent: runtimeAgent, distro: request.distro, wslPath: "wsl.exe", refs: 1, sessionId: request.sessionId ?? "" };
     },
+    /** A scripted registry keeps everything it handed out. */
+    holds: () => true,
     /** @param {string} key - the registry key. */
     release: async (key) => {
       released.push(key);
@@ -926,6 +986,72 @@ check("with sessionSandbox, the command runs on the session runtime without the 
   assert.equal(acquired.length, 1, "one runtime per session key");
   await executor.disposeSessionRuntimes();
   assert.deepEqual(released, ["k"], "disposing the executor releases the runtime");
+});
+
+check("agent/disposed ends a session: both providers drop its runtime, another session keeps its", async () => {
+  // The two providers share one REAL registry. The preset realm they live in
+  // is disposed once per process, not per session, so the session's own end —
+  // the harness's `agent/disposed` — is what must release the scope.
+  const { fs, ctx: fsCtx } = makeFs({ sessionSandbox: true });
+  const { executor, ctx: shellCtx } = makeExecutor({ sessionSandbox: true });
+  fs.sandbox = coreStub(true);
+  fs.sessionScopeProbe = async () => "ok";
+  executor.sessionScopeProbe = async () => "ok";
+  const { registry, seen, stops } = realRegistry();
+  fs.sessionRuntimes = registry;
+  executor.sessionRuntimes = registry;
+  /** @type {{ mode: "workspace-write", workspaceRoot: string, sessionId: string }} */
+  const sessionA = { mode: "workspace-write", workspaceRoot: WORKSPACE, sessionId: "session-a" };
+  const sessionB = { ...sessionA, sessionId: "session-b" };
+  /**
+   * Run one confined command through the executor and settle it.
+   * @param {{ mode: "workspace-write", workspaceRoot: string, sessionId: string }} sandboxPolicy - the command's policy.
+   * @returns {Promise<unknown>} the settled result.
+   */
+  const run = async (sandboxPolicy) => (await executor.execute(spec({ command: "echo hi", workdir: WORKSPACE, timeoutMs: 5000, sandboxPolicy }))).result();
+  await fs.mutationAgent(sessionA);
+  await run(sessionA);
+  await run(sessionB);
+  assert.equal(seen.spawned, 2, "one runtime for session a — its write and its commands share it — and one for session b");
+  const entryB = [...executor.runtimeBook.sessionRuntimeEntries.values()].find((entry) => entry.sessionId === "session-b");
+  assert.ok(entryB !== undefined, "precondition: session b has a runtime");
+  assert.equal(executor.runtimeBook.sessionRuntimeEntries.size, 2);
+  assert.equal(fs.runtimeBook.sessionRuntimeEntries.size, 1);
+  // Each provider registered its listener on its own context.
+  await Promise.all([disposeAgent(fsCtx, "session-a"), disposeAgent(shellCtx, "session-a")]);
+  assert.deepEqual(stops, ["dsh-wsl-ubuntu-tok0"], "the ended session's scope stopped once");
+  assert.equal(fs.runtimeBook.sessionRuntimeEntries.size, 0, "the filesystem provider dropped its reference");
+  assert.equal(executor.runtimeBook.sessionRuntimeEntries.size, 1, "the shell executor dropped its reference to that session only");
+  assert.equal(registry.holds(entryB), true, "the other session's runtime is untouched");
+  assert.equal(seen.spawned, 2, "ending a session spawns nothing");
+  await run(sessionA);
+  assert.equal(seen.spawned, 3, "a session resumed under the same id acquires a fresh runtime");
+  await executor.disposeSessionRuntimes();
+  await fs.disposeSessionRuntimes();
+  assert.equal(stops.length, 3, "disposing the providers stops what is left");
+});
+
+check("a cached runtime the registry tore down is not reused: the session acquires afresh", async () => {
+  const { executor } = makeExecutor({ sessionSandbox: true });
+  executor.sessionScopeProbe = async () => "ok";
+  const { registry, seen, stops } = realRegistry();
+  executor.sessionRuntimes = registry;
+  const policy = { mode: "workspace-write", workspaceRoot: WORKSPACE, sessionId: "session-a" };
+  const resolved = spec({ command: "echo hi", workdir: WORKSPACE, timeoutMs: 5000 });
+  const first = executor.sessionRuntimeFor(policy, resolved, DISTRO);
+  assert.ok(first !== undefined, "precondition: the session has a runtime");
+  // The session ended through a path this executor never heard — another
+  // holder's sweep, or a host teardown — so its book still names the runtime.
+  await registry.releaseSession("session-a");
+  assert.equal(executor.runtimeBook.sessionRuntimeEntries.size, 1, "precondition: the executor still caches the entry");
+  const again = executor.sessionRuntimeFor(policy, resolved, DISTRO);
+  assert.ok(again !== undefined);
+  assert.notEqual(again, first, "a closed agent is never handed out as a live runtime");
+  assert.equal(seen.spawned, 2);
+  assert.equal(registry.holds(again), true);
+  assert.equal(executor.runtimeBook.sessionRuntimeEntries.size, 1, "the stale reference is replaced, not kept beside the new one");
+  await executor.disposeSessionRuntimes();
+  assert.equal(stops.length, 2);
 });
 
 check("sessionSandbox: auto falls back to the per-command sandbox and reports it", async () => {
@@ -959,8 +1085,11 @@ check("sessionSandbox: auto uses the scope when the platform can host it", async
       distro: DISTRO,
       wslPath: "wsl.exe",
       refs: 1,
+      sessionId: "",
     }),
     release: async () => {},
+    /** A scripted registry keeps everything it handed out. */
+    holds: () => true,
   }));
   const result = await (await executor.execute(spec({
     command: "echo hi",
@@ -1190,6 +1319,94 @@ check("an agent spawn rejection retries one-shot, where the missing workdir is n
   assert.equal(oneShots.length, 1, "the spawn failure retried the command on the one-shot path");
 });
 
+check("an agent whose exec rejects falls back one-shot as well", async () => {
+  const { executor } = makeExecutor();
+  const { AgentUnavailableError } = await import("../lib/agent-errors.js");
+  // The production shape: `WslAgent.exec` is async, so a dead or backing-off
+  // resident refuses through the returned promise, never as the synchronous
+  // throw the check above scripts.
+  executor.executionAgent = () => asAgent({ exec: async () => { throw new AgentUnavailableError("agent is down; reviving in 2s, attempt 1/3"); } });
+  let oneShots = 0;
+  spawnView(executor).executeArgv = async (_resolved, argvBuilder) => {
+    oneShots += 1;
+    await argvBuilder(new AbortController().signal);
+    return /** @type {ShellExecution} */ (/** @type {unknown} */ ({
+      status: "completed",
+      result: async () => ({ exitCode: 0, signal: null, timedOut: false, aborted: false, timeoutMs: 5, stdout: { text: "one-shot\n", lossy: false, truncated: false }, stderr: { text: "", lossy: false, truncated: false } }),
+    }));
+  };
+  const result = await (await executor.execute(spec({
+    command: "echo hi",
+    workdir: WORKSPACE,
+    timeoutMs: 5000,
+    sandboxPolicy: { mode: "workspace-write", workspaceRoot: WORKSPACE },
+  }))).result();
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stdout.text, "one-shot\n", "the result is the one-shot run's, not a refusal");
+  assert.equal(oneShots, 1, "the refused command ran once, one-shot");
+  assert.deepEqual(factsOf(result), { mode: "workspace-write", denied: false, enforcement: "full", windowsDrive: "visible", sessionScope: "per-command" }, "the retry is confined by its own per-command profile");
+  assert.equal(executor.processFacts.size, 0, "the agent handle's stamp is released before the retry");
+});
+
+check("a REAL resident whose handshake fails hands the command to the one-shot path", async () => {
+  const { executor } = makeExecutor();
+  /** A transport that dies before it ever says HELLO. */
+  const deadTransport = () => {
+    const child = new FakeTransport();
+    setImmediate(() => child.emit("exit", 1, null));
+    return child;
+  };
+  const agent = new WslAgent({ distro: DISTRO, scriptPath: "/mnt/c/pkg/agent/wsl-agent.sh", idleMs: 0, spawnTransport: asTransportFactory(deadTransport) });
+  executor.executionAgent = () => agent;
+  let oneShots = 0;
+  spawnView(executor).executeArgv = async (_resolved, argvBuilder) => {
+    oneShots += 1;
+    await argvBuilder(new AbortController().signal);
+    return /** @type {ShellExecution} */ (/** @type {unknown} */ ({
+      result: async () => ({ exitCode: 0, signal: null, timedOut: false, aborted: false, timeoutMs: 5, stdout: { text: "", lossy: false, truncated: false }, stderr: { text: "", lossy: false, truncated: false } }),
+    }));
+  };
+  const result = await (await executor.execute(spec({ command: "echo hi", workdir: WORKSPACE, timeoutMs: 5000 }))).result();
+  assert.equal(result.exitCode, 0);
+  assert.equal(oneShots, 1, "the handshake failure cost one round trip, then the command ran one-shot");
+  assert.match(agent.lastError, /exited during handshake/, "the refusal really was the handshake's");
+  await agent.close();
+});
+
+check("a command that was in flight when a REAL resident died is not run again", async () => {
+  const { executor } = makeExecutor();
+  const { AgentRequestStateUnknownError } = await import("../lib/agent-errors.js");
+  const { AGENT_NAME, PROTOCOL_VERSION } = await import("../lib/agent-protocol.js");
+  /**
+   * A transport that completes the handshake and dies the moment it takes a
+   * command — the resident crashed while `git push` was running.
+   */
+  const dyingTransport = () => {
+    const child = new FakeTransport();
+    child.stdin.on("data", (chunk) => {
+      // The frame's header line is the first line of the write.
+      if (/^EXEC\|/m.test(chunk.toString("utf8"))) setImmediate(() => child.emit("exit", 1, null));
+    });
+    child.stdout.write(`HELLO|${AGENT_NAME}|${PROTOCOL_VERSION}|${"6f".repeat(32)}\n`);
+    return child;
+  };
+  const agent = new WslAgent({ distro: DISTRO, scriptPath: "/mnt/c/pkg/agent/wsl-agent.sh", idleMs: 0, spawnTransport: asTransportFactory(dyingTransport) });
+  executor.executionAgent = () => agent;
+  let oneShots = 0;
+  spawnView(executor).executeArgv = async () => {
+    oneShots += 1;
+    throw new Error("a non-idempotent command must not be re-run one-shot");
+  };
+  const execution = await executor.execute(spec({ command: "git push", workdir: WORKSPACE, timeoutMs: 5000 }));
+  await assert.rejects(
+    () => execution.result(),
+    (error) => error instanceof AgentRequestStateUnknownError && /state is unknown/.test(/** @type {Error} */ (error).message),
+    "the command fails with the unknown-state refusal, not with a second run",
+  );
+  assert.equal(oneShots, 0, "nothing was spawned one-shot");
+  await agent.close();
+});
+
 check("spawnSpec pins the host cwd, WSL_UTF8, and the managed WSLENV translation", () => {
   const { executor } = makeExecutor();
   // The mounted config wraps volatile fields in getters; a direct construction
@@ -1213,27 +1430,33 @@ check("spawnSpec pins the host cwd, WSL_UTF8, and the managed WSLENV translation
 });
 
 check("a confined background process carries the sandbox facts of its policy", async () => {
-  const { executor } = makeExecutor();
-  await executor.execute(spec({
+  const { executor, agent } = makeExecutor();
+  // The command is denied by bwrap: a non-zero exit and the denial dialect on
+  // stderr, exactly what the one-shot handle would settle with.
+  agent.exec = async () => ({ exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from("touch: /etc/x: Operation not permitted\n"), truncated: { stdout: false, stderr: false } });
+  const handle = await executor.execute(spec({
     command: "server",
     workdir: WORKSPACE,
     timeoutMs: 5000,
     sandboxPolicy: { mode: "workspace-write", workspaceRoot: WORKSPACE },
-  })).then((e) => e.result());
-  // The handle's onStarted stamped one process; settle it with a denial-
-  // matching stderr and read the stamp the background projection carries.
+  }));
   assert.equal(executor.processFacts.size, 1, "the stamp lives until settlement");
-  const proc = [...executor.processFacts.keys()][0];
-  assert.ok(proc !== undefined, "onStarted stamped one process");
-  proc.exitCode = 1;
-  executor.onProcessDone(proc, "touch: Operation not permitted", false, undefined);
-  assert.equal(executor.processFacts.size, 0, "settled facts are deleted, not accumulated");
-  const facts = /** @type {WslSandboxFacts | undefined} */ (proc.sandbox);
+  await handle.done;
+  assert.equal(executor.processFacts.size, 0, "the agent handle settles its own stamp: facts are released, not accumulated");
+  const facts = /** @type {WslSandboxFacts | undefined} */ (handle.sandbox);
   assert.deepEqual(
     { mode: facts?.mode, denied: facts?.denied, enforcement: facts?.enforcement, windowsDrive: facts?.windowsDrive },
     { mode: "workspace-write", denied: true, enforcement: "full", windowsDrive: "visible" },
     "the background projection answers what a foreground run would have",
   );
+});
+
+check("two confined commands through the resident leave no facts behind", async () => {
+  const { executor } = makeExecutor();
+  for (const command of ["first", "second"]) {
+    await (await executor.execute(spec({ command, workdir: WORKSPACE, timeoutMs: 5000, sandboxPolicy: { mode: "workspace-write", workspaceRoot: WORKSPACE } }))).result();
+  }
+  assert.equal(executor.processFacts.size, 0, "a completed command's handle is not retained");
 });
 
 check("a confinement runner that fails to spawn reads as sandbox-unavailable, not a denial", async () => {
@@ -1311,13 +1534,23 @@ check("the package entry points re-export the composed classes", () => {
 
 /**
  * A `wsl.exe` stand-in for the fact probes the executor makes directly through
- * its configured `wslPath`: the passwd shell and the distro home. Everything
- * else fails fast, so a stray resident spawn cannot hang the suite.
+ * its configured `wslPath`: the passwd shell and the distro home. It also
+ * plays the watcher's loop (its pid, then readiness, then idle until the host
+ * kills it) and the stopper that follows a close; with `DSH_FAKE_LOG` set,
+ * both record their argv there — one spawn per record, arguments separated by
+ * \x1f and records by \x1e, since the loop's own script argument spans lines —
+ * which is how a check proves what the provider armed. Everything else fails
+ * fast, so a stray resident spawn cannot hang the suite.
  */
 const factBin = mkdtempSync(join(tmpdir(), "dsh-wsl-facts-"));
 const FACT_WSL = `#!/bin/sh
 if [ "\$1" = "-l" ]; then echo ze-ubuntu; exit 0; fi
-for arg in "$@"; do
+log() { [ -z "\${DSH_FAKE_LOG:-}" ] || { printf '%s\\037' "\$@" >> "\$DSH_FAKE_LOG"; printf '\\036' >> "\$DSH_FAKE_LOG"; }; }
+case "\$*" in
+  *wsl-watch*) log "\$@"; printf 'P %s\\nR\\n' "\$\$"; exec sleep 60 ;;
+  *'kill -TERM'*) log "\$@"; exit 0 ;;
+esac
+for arg in "\$@"; do
   case "\$arg" in *getent*) echo /bin/zsh; exit 0 ;; esac
   case "\$arg" in *HOME*) echo /home/ze-user; exit 0 ;; esac
 done
@@ -1698,19 +1931,104 @@ check("the v7 mutation wrappers fence through checkedTarget and ride the substra
   }
 });
 
-check("watch arms the distro watcher for an in-distro target", async () => {
-  const { fs } = makeFs({ wslPath: join(factBin, "wsl.exe") }); // the fake fails the watch spawn fast
-  const target = { displayPath: "/home/andy/proj", targetKey: FsTargetKey(WORKSPACE) };
-  const controller = new AbortController();
-  await assert.rejects(
-    () => fs.watch(target, () => {}, controller.signal),
-    (error) => error instanceof Error,
-    "the watcher surfaces its spawn failure instead of watching nothing",
-  );
+check("every mutation wrapper fences first: a refused target never reaches the substrate", async () => {
+  const hunks = [{ lineNumber: 1, oldLines: ["one"], newLines: ["two"], isEndOfFile: false }];
+  /** A target inside the workspace, as the fence's re-resolve hands it back. */
+  const inside = { displayPath: "/home/andy/proj/a.ts", targetKey: FsTargetKey(`${WORKSPACE}\\a.ts`) };
+  /** A target outside every writable root. */
+  const outside = { displayPath: "/etc/passwd", targetKey: FsTargetKey("\\\\wsl.localhost\\ubuntu\\etc\\passwd") };
+  /**
+   * The fence's verdicts a check can ask for.
+   * @typedef {{ mode: "read-only" | "workspace-write" | "danger-full-access", workspaceRoot: string }} FencePolicy
+   */
+  /**
+   * One mutation route: the provider's call, and the substrate methods it would reach.
+   * @typedef {(fs: WslFileSystem, target: { displayPath: string, targetKey: FsTargetKey }, policy: FencePolicy) => Promise<unknown>} Mutation
+   */
+  /** @type {Array<[string, Mutation, string[]]>} */
+  const mutations = [
+    ["writeText", (fs, target, policy) => fs.writeText(target, "x", undefined, undefined, policy), ["writeText"]],
+    ["editText", (fs, target, policy) => fs.editText(target, { oldString: "a", newString: "b", replaceAll: false }, undefined, undefined, policy), ["editText"]],
+    ["patchText", (fs, target, policy) => fs.patchText(target, hunks, undefined, undefined, policy), ["patchText"]],
+    ["deleteFile", (fs, target, policy) => fs.deleteFile(target, undefined, undefined, policy), ["deleteFile"]],
+    ["moveFile, source refused", (fs, target, policy) => fs.moveFile(target, inside, {}, undefined, policy), ["moveFile"]],
+    ["moveFile, destination refused", (fs, target, policy) => fs.moveFile(inside, target, {}, undefined, policy), ["moveFile"]],
+  ];
+  /** Script the substrate so it records every route it is asked for. */
+  const wired = (/** @type {string[]} */ routes) => {
+    const made = makeFs();
+    /** @type {string[]} */
+    const reached = [];
+    const methods = methodTable(made.substrate);
+    for (const route of routes) methods[route] = async () => { reached.push(route); return {}; };
+    return { ...made, reached };
+  };
+  /** @type {Array<[string, FencePolicy, { displayPath: string, targetKey: FsTargetKey }]>} */
+  const refusals = [
+    ["workspace-write, target outside every writable root", { mode: "workspace-write", workspaceRoot: WORKSPACE }, outside],
+    ["read-only, target inside the workspace", { mode: "read-only", workspaceRoot: WORKSPACE }, inside],
+  ];
+  for (const [scenario, policy, target] of refusals) {
+    for (const [name, mutate, routes] of mutations) {
+      const { fs, reached } = wired(routes);
+      await assert.rejects(
+        () => mutate(fs, target, policy),
+        (error) => /** @type {{ code?: string }} */ (error).code === "FS_SANDBOX_DENIED",
+        `${scenario}: ${name} refuses with the sandbox code`,
+      );
+      assert.deepEqual(reached, [], `${scenario}: ${name} never reaches the substrate`);
+    }
+  }
+  // The control: under an allowing policy each route does reach its stub, so
+  // the refusals above are the fence's doing, not a stub wired to nothing.
+  for (const [name, mutate, routes] of mutations) {
+    const { fs, reached } = wired(routes);
+    await mutate(fs, inside, { mode: "workspace-write", workspaceRoot: WORKSPACE });
+    assert.deepEqual(reached, routes, `${name} reaches its substrate under an allowing policy`);
+  }
 });
 
-let failed = 0;
-for (const [name, fn] of checks) await runCheck(name, fn);
-failed = checks.length - passed;
-console.log(`\n${passed}/${checks.length} provider checks pass`);
+checkPosix("watch arms the distro watcher for an in-distro target", async () => {
+  // The real `armDistroWatcher` over the fake `wsl.exe`: what the provider
+  // armed is what the fake was asked to run. The fake is a POSIX script, so
+  // on Windows — where it cannot be spawned — the check is deferred rather
+  // than left to pass on any spawn error, which is what it used to do.
+  const log = join(factBin, "watch-argv.log");
+  rmSync(log, { force: true });
+  const savedLog = process.env.DSH_FAKE_LOG;
+  process.env.DSH_FAKE_LOG = log;
+  try {
+    const { fs } = makeFs({ wslPath: join(factBin, "wsl.exe") });
+    const target = { displayPath: "/home/andy/proj", targetKey: FsTargetKey(WORKSPACE) };
+    const controller = new AbortController();
+    /** @type {Array<Error | undefined>} */
+    const reports = [];
+    /** Every spawn the fake saw, one argv each. */
+    const spawns = () => (existsSync(log) ? readFileSync(log, "utf8").split("\x1e").filter((record) => record.length > 0).map((record) => record.replace(/\x1f$/, "").split("\x1f")) : []);
+    const close = await fs.watch(target, (error) => reports.push(error), controller.signal);
+    const loop = spawns()[0] ?? [];
+    assert.deepEqual(loop.slice(0, 5), ["-d", "ubuntu", "--exec", "sh", "-c"], "the watcher runs inside the target's distro");
+    assert.deepEqual(loop.slice(-2), ["wsl-watch", "/home/andy/proj"], "armed on the Linux coordinate the UNC target names");
+    assert.deepEqual(reports, [], "an armed watch reports nothing");
+    await close();
+    // The stopper is fire-and-forget on the host; its line lands a beat later.
+    let stopper = spawns()[1] ?? [];
+    for (let attempt = 0; attempt < 100 && stopper.length === 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      stopper = spawns()[1] ?? [];
+    }
+    assert.deepEqual(stopper.slice(0, -1), ["-d", "ubuntu", "--exec", "sh", "-c", 'kill -TERM "$1" 2>/dev/null', "sh"], "closing stops the loop inside the distro");
+    assert.match(stopper.at(-1) ?? "", /^[1-9][0-9]*$/, "by the pid the loop reported");
+    assert.deepEqual(reports, [], "a closed watch reports no error");
+  } finally {
+    if (savedLog === undefined) delete process.env.DSH_FAKE_LOG;
+    else process.env.DSH_FAKE_LOG = savedLog;
+  }
+});
+
+for (const [name, fn] of checks) await runCheck(name, fn, tally);
+const failed = checks.length - tally.passed - tally.skipped;
+const ran = checks.length - tally.skipped;
+const note = skipNote(tally);
+console.log(`\n${tally.passed}/${ran} provider checks pass${note.length === 0 ? "" : ` (${note})`}`);
 if (failed > 0) process.exitCode = 1;

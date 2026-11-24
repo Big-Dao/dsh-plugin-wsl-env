@@ -125,7 +125,7 @@ function memoryReader(buffer: Buffer): OutputReader {
  * @returns the execution handle (`status`, `exitCode`, `signal`, `observed`,
  *   `done`, `readOutput`, `kill`, `result`).
  */
-export function agentExecutionHandle({ agent, cwd, argv, timeoutMs = 0, maxOutputBytes = 0, env, signal, onStarted }: {
+export function agentExecutionHandle({ agent, cwd, argv, timeoutMs = 0, maxOutputBytes = 0, env, signal, onStarted, onSettled }: {
   /**
    * The {@link WslAgent}-like runner: `exec` accepting
    * `{cwd, argv, timeoutMs, env, signal}` and resolving `{exitCode, stdout, stderr}`;
@@ -158,6 +158,13 @@ export function agentExecutionHandle({ agent, cwd, argv, timeoutMs = 0, maxOutpu
    * Provider-facts hook, called synchronously before the handle can settle.
    */
   onStarted?: (proc: object) => void,
+  /**
+   * Settlement hook, called after the status, exit code and signal are
+   * stamped and before `done` resolves to anyone else — the point at which
+   * upstream's own handle calls its settlement hook. `error` is the failure
+   * `result()` rejects with, when there is one.
+   */
+  onSettled?: (proc: AgentExecutionHandle, error: unknown) => void,
 }): AgentExecutionHandle {
   // Our own controller is the kill channel; the caller's signal races it.
   const controller = new AbortController();
@@ -247,6 +254,7 @@ export function agentExecutionHandle({ agent, cwd, argv, timeoutMs = 0, maxOutpu
       proc.status = exitOutcome.signal !== null || exitOutcome.exitCode === null ? "killed" : "completed";
       proc.exitCode = exitOutcome.exitCode;
       proc.signal = exitOutcome.signal;
+      onSettled?.(proc, settleError);
     }),
     readOutput() {
       const out = stdoutReader().readFrom(stdoutOffset);

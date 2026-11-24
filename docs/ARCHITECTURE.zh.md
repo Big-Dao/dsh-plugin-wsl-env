@@ -20,7 +20,7 @@ DSH 以服务的形式暴露自身能力。面向模型的工具（`bash`、`rea
 
 | 服务 | 类 | 文件 | 作用 |
 |---|---|---|---|
-| `ctx.shell` | `WslShellExecutor` | [`lib/wsl-shell.js`](../lib/wsl-shell.js) | 在发行版的登录 shell 中运行每条命令，默认经由常驻的发行版内 agent，并包在发行版侧的 `bwrap` 沙箱里；agent 不在时，或设置 `agent: false` 时，同一条命令退回到一个 `wsl.exe -d <distro> --cd <linux dir> --exec <login shell> -lc <cmd>` 进程。 |
+| `ctx.shell` | `WslShellExecutor` | [`lib/wsl-shell.js`](../lib/wsl-shell.js) | 在发行版的登录 shell 中运行每条命令，默认经由常驻的发行版内 agent，并包在发行版侧的 `bwrap` 沙箱里；agent 不在时，或设置 `agent: false` 时，同一条命令退回到一个 `wsl.exe -d <distro> --cd <linux dir> --exec <login shell> -lc <cmd>` 进程；常驻 agent 在命令执行途中死亡的情况除外——该命令以「状态未知」失败，不会重跑。 |
 | `ctx.fs` | `WslFileSystem` | [`lib/wsl-filesystem.js`](../lib/wsl-filesystem.js) | 通过常驻的发行版内 agent 服务 WSL 路由的文件操作；此前的 Windows 侧 share 底座已退役（见下文）。 |
 | `ctx.subprocess` | `WslSubprocessRuntime` | [`lib/subprocess.js`](../lib/subprocess.js) | 在发行版内、会话工作区中打开 GUI 终端，并把文件搜索与 git 快照的 spawn 改写到发行版内（见下文）。 |
 

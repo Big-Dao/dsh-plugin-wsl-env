@@ -10,7 +10,11 @@
 # The install runs as the distro's root through `wsl.exe -d <distro> -u root --`,
 # so it never touches the Windows side and never needs a sudo prompt inside the
 # distro. Without --install the script is strictly read-only: it reports and
-# prints the exact commands, runnable as-is.
+# prints the exact command, runnable as-is. apt refreshes its package index
+# first (a freshly installed Debian or Ubuntu has none); that command contains
+# a `&&`, so every family's command runs through `sh -c "…"` and the printed
+# line carries the same quotes — they keep the operator inside the distro when
+# the line is pasted into cmd, PowerShell 5.1 or PowerShell 7.
 #
 # Exit status: 0 when everything REQUIRED is present (or was installed), 1 when
 # bubblewrap is still missing.
@@ -50,11 +54,11 @@ family() {
 
 install_command() {
   case "$(family)" in
-    apt-get) echo 'apt-get install -y bubblewrap git ripgrep inotify-tools' ;;
+    apt-get) echo 'apt-get update -qq && apt-get install -y --no-install-recommends bubblewrap git ripgrep inotify-tools' ;;
     dnf) echo 'dnf install -y bubblewrap git ripgrep inotify-tools' ;;
-    pacman) echo 'pacman -Sy --noconfirm bubblewrap git ripgrep inotify-tools' ;;
+    pacman) echo 'pacman -S --noconfirm --needed bubblewrap git ripgrep inotify-tools' ;;
     zypper) echo 'zypper --non-interactive install bubblewrap git ripgrep inotify-tools' ;;
-    *) echo 'apt-get install -y bubblewrap git ripgrep inotify-tools' ;;
+    *) echo 'apt-get update -qq && apt-get install -y --no-install-recommends bubblewrap git ripgrep inotify-tools' ;;
   esac
 }
 
@@ -87,7 +91,7 @@ report "inotifywait (watcher primary backend)" "inotifywait"
 CMD="$(install_command)"
 echo
 echo "install command:"
-echo "  wsl.exe -d $DISTRO -u root -- $CMD"
+echo "  wsl.exe -d $DISTRO -u root -- sh -c \"$CMD\""
 
 if [ "$BW_OK" = "yes" ]; then
   echo
@@ -103,7 +107,7 @@ fi
 
 echo
 echo "installing..."
-wsl.exe -d "$DISTRO" -u root -- $CMD
+wsl.exe -d "$DISTRO" -u root -- sh -c "$CMD"
 
 if present "bwrap"; then
   echo "bubblewrap installed successfully."

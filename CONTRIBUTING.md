@@ -118,10 +118,13 @@ Rules that keep this honest:
   every module.
 - `lint:build` (`test/build-freshness.mjs`) enforces that the corpus is closed
   — every `lib/*.js` has its `src/<name>.ts`, every source has both artifacts —
-  then snapshots every generated file, runs the real build, byte-compares and
-  RESTORES the snapshot: a check, not a rebuild; the remedy for drift is
-  `pnpm run build` plus a commit. It is part of the gate chain after
-  `test:syntax`.
+  then runs the same build script (`scripts/build.mjs --outDir <scratch>`) so
+  the same program emits into a scratch directory, and byte-compares what it
+  emitted with what is committed. The check never writes under `lib/`: a
+  check, not a rebuild — an earlier version rebuilt the tree and restored from
+  a snapshot, and one killed midway left the artifacts rewritten. The remedy
+  for drift is `pnpm run build` plus a commit. It is part of the gate chain
+  after `test:syntax`.
 - Generated files are not in the `checkJs` gate at all (`tsconfig.json` covers
   `test/**` and the ambient types); their sources are type-checked by the build
   program with `noEmitOnError`, so a broken build never overwrites `lib/`.
@@ -155,6 +158,36 @@ Rules that keep this honest:
    script itself. `files` already ships
    `locale/**/*.json`, and `lint:style` fails an `exports` target that does not
    exist.
+
+## Keeping the preset copy in step (`preset-wsl`)
+
+`cordis.patch.yml`'s `preset-wsl` is a derived copy of the app's own standard
+preset (`packages/bundle/web-app/presets/standard.patch.yml`): the standard
+mode's rows, mounted on the distro's shell and filesystem. A row the app adds
+to its own preset is missing from every WSL session until the copy is
+regenerated, and the pinned dependency tree ships no preset to compare against
+— which is how the rc.2 line's office tool, bundled skill root and subagent
+switch went missing for a whole release line.
+
+`pnpm run preset:sync` (`scripts/preset-sync.mjs`) pins the copy to one
+reproducible line. `test/fixtures/standard.patch.dsh-<version>.yml` is the
+upstream file of the line the dev pins name; the script parses both files with
+the include's own `!!js` dialect, passes the upstream rows through exactly the
+changes the copy documents (the plugin's own rows, the fixed shell-tool
+choice), and compares row by row, in order, nested groups included. `pnpm
+test` runs the same check. The snapshot's name must equal the exact version
+`devDependencies` pins `@deepseek-ai/dsh-fs` at, so raising the pins without
+refreshing it fails the check; `--upstream <file>` takes any preset from a
+harness source tree, to preview the differences before the pins move.
+
+To follow a newer line:
+
+1. Replace the snapshot with the new tag's `standard.patch.yml`: in a harness
+   source tree, `git show <tag>:packages/bundle/web-app/presets/standard.patch.yml`;
+   the published `@deepseek-ai/dsh-web-app` tarball carries the same file.
+2. Run `pnpm run preset:sync` to see what moved upstream.
+3. Regenerate the row as the comment above `preset-wsl` describes.
+4. Raise the pins in the same commit.
 
 ## The development loop
 
@@ -195,6 +228,7 @@ terminal if you would rather not see the prompt.
 | `pnpm run lint:style` | style and lint rules | no |
 | `pnpm run lint:build` | the build-freshness check: every source has its artifacts and the committed bytes match a real build | no |
 | `pnpm run lint:types` | the TypeScript check over `test/**` and the ambient types (`tsc --noEmit`) | no |
+| `pnpm run preset:sync` | `preset-wsl` against the snapshot of the pinned line's standard preset, row by row; `pnpm test` runs the same check | no |
 | `pnpm run e2e:install` | packed-tarball install/upgrade/uninstall into a temporary `DSH_HOME`; the newest published → current leg boots the profile with an overlay probe and asserts the three takeovers mount | yes; Windows + WSL |
 | `pnpm run doctor` | the environment prerequisites, peers and caches (`--json` for scripts; `diagnose` is the read-only alias) | no; inside the distro |
 | `pnpm run probe` | filesystem behaviour against a real distro | yes |
@@ -307,8 +341,12 @@ per-file deadline, so a script-style file that leaves a handle alive behind an
 unsettled top-level await would otherwise hang the gate until the caller kills
 it; at the deadline the wrapper interrupts the run and node's "Interrupted while
 running" list names the file that never finished. The scripts also pass
-`--test-timeout=60000`, which bounds only tests a file registers with `test()` —
-the watchdog is what covers a hang at module evaluation.
+`--test-timeout=120000`. On Node 24 it bounds only tests a file registers
+with `test()`, and the watchdog is what covers a hang at module evaluation;
+Node 22 also counts a script-style file's top-level evaluation against it,
+so it has to exceed the slowest file — the doctor suite, which starts
+dozens of fake processes per run and waits out the real delays of flake
+retries, takes about a minute.
 
 `test:coverage` runs that list through `scripts/coverage-gate.mjs` as well.
 Node's coverage is load-based — a module no test imports has no row, so the
@@ -334,6 +372,17 @@ line is covered by the harness probes, which boot the plugin and so reach
 the argument builder out of `lib/bwrap.js`. A test that cannot run everywhere
 must skip itself — print a `SKIP` line and exit 0 — the way that file does on
 `win32`, where its fake `wsl.exe` (a POSIX script) cannot execute.
+
+One check inside a script-style suite defers through `test/skip.mjs`: when its
+body finds this host cannot run it, it calls `skip("<reason>")` — which throws,
+so nothing after it executes — and the shared `runCheck` prints a `SKIP` line
+with the reason, while the summary (`summaryLine` / `skipNote`) says
+`(N skipped: <reason>)`. Do not return early instead: a runner prints PASS
+once the body returns, so such a check reads green in the log while it never
+ran — as the only unit test of the host's real cancel path did on the Windows
+CI leg. Give a skip its specific reason, and when one leaves a behaviour
+without a unit test on every host, first ask whether the check can be made to
+run everywhere (a file target instead of an inotify directory watch, say).
 
 ### Browser E2E
 

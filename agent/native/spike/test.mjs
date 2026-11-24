@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -108,9 +108,9 @@ class Session {
     this.child.stdin.write(`${lines.join("\n")}\n`);
   }
 
-  exec({ argv, cwd = repo, timeoutMs = 0, maxOutputBytes = 0 }) {
+  exec({ argv, cwd = repo, timeoutMs = 0, maxOutputBytes = 0, stdin }) {
     const id = `r${this.next += 1}`;
-    this.send(encodeExecFrame({ id, cwd, argv, timeoutMs, maxOutputBytes }));
+    this.send(encodeExecFrame({ id, cwd, argv, timeoutMs, maxOutputBytes, ...(stdin === undefined ? {} : { stdin }) }));
     return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }));
   }
 
@@ -248,6 +248,60 @@ await check("the output cap cuts and still drains the pipe", async () => {
   assert.equal(result.stdout.length, 1024);
   assert.equal(result.truncated.stdout, true);
   await session.close();
+});
+
+/**
+ * Fail a request that does not settle in time. The deadlock the stdin checks
+ * guard against held its request until the host's watchdog killed the
+ * transport eighteen seconds in; nothing correct needs that long.
+ * @template T
+ * @param {Promise<T>} promise - the request.
+ * @param {number} ms - the bound.
+ * @param {string} what - the failure to report.
+ * @returns {Promise<T>} the request's own result.
+ */
+const within = (promise, ms, what) => Promise.race([promise, new Promise((_, reject) => {
+  const timer = setTimeout(() => reject(new Error(what)), ms);
+  timer.unref?.();
+})]);
+
+await check("a stdin payload past the pipe buffers feeds an echoing child", async () => {
+  const session = new Session(binary, []);
+  await session.hello;
+  // 2 MiB holding every byte value, so the feed is proved binary-safe as well
+  // as large: fed from the request thread before the output readers started,
+  // 1.25 MiB deadlocked `cat` — it filled its stdout pipe and stopped reading.
+  const payload = Buffer.alloc(2 * 1024 * 1024);
+  for (let index = 0; index < payload.length; index += 1) payload[index] = index & 0xff;
+  try {
+    const result = await within(session.exec({ argv: ["cat"], stdin: payload }), 15_000, "the feed deadlocked: the request never settled");
+    assert.equal(result.exitCode, 0);
+    assert.ok(result.stdout.equals(payload), "the child read the payload whole and echoed it whole");
+    assert.equal(result.truncated.stdout, false);
+  } finally {
+    // A wedged agent is shut down too, so a failure here cannot hang the run.
+    await session.close();
+  }
+});
+
+await check("a payload the child never reads does not hold the request", async () => {
+  const session = new Session(binary, []);
+  await session.hello;
+  try {
+    const result = await within(
+      session.exec({ argv: ["sh", "-c", "printf done"], stdin: Buffer.alloc(2 * 1024 * 1024, 0x61) }),
+      15_000,
+      "the unfinished feed held the request",
+    );
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stdout.toString(), "done");
+    // The agent is still itself afterwards: the feed that was cut short by the
+    // child's exit did not take the loop down with it.
+    const next = await within(session.exec({ argv: ["sh", "-c", "printf next"] }), 15_000, "the agent stopped answering");
+    assert.equal(next.stdout.toString(), "next");
+  } finally {
+    await session.close();
+  }
 });
 
 
@@ -487,8 +541,17 @@ await check("a cancelled queued FS write never publishes", async () => {
   const session = new Session(binary, []);
   try {
     await session.hello;
-    const blocked = session.fs({ op: "read", args: [fifo, "0", "10"] });
+    // A batch that holds a mutation keeps fs_lock while its first op waits
+    // on the FIFO, so the plain write below queues on the lock behind it. (A
+    // read alone no longer holds the lock: reads wait for nothing.)
+    const blocked = session.fsb({
+      ops: [
+        { op: "read", args: [fifo, "0", "10"] },
+        { op: "write", args: [join(root, "batch-target"), "-", "no-replace", "-", "content"] },
+      ],
+    });
     await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(existsSync(join(root, "batch-target")), false, "precondition: the batch has not reached its write");
     const write = session.fs({ op: "write", args: [target, "-", "no-replace", "-", "content"] });
     session.kill("r2");
     const writer = spawn("sh", ["-c", "printf x > \"$1\"", "sh", fifo]);
@@ -667,6 +730,227 @@ await check("FS move publishes the destination, guards the source and removes it
       assert.equal(readFileSync(destination, "utf8"), "moved-body");
       assert.equal(existsSync(source), false, `${name}: the source is removed after publication`);
       await session.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+/**
+ * A scratch directory on another filesystem than the tmpdir, or null where
+ * this machine has none to offer.
+ * @returns {string | null} the directory, or null.
+ */
+const secondFilesystem = () => {
+  const here = statSync(tmpdir()).dev;
+  for (const base of ["/dev/shm", repo, process.env.HOME]) {
+    if (base === undefined) continue;
+    try {
+      if (statSync(base).dev === here) continue;
+      return mkdtempSync(join(base, ".dsh-spike-cross-"));
+    } catch {
+      // Not a usable filesystem here; the next candidate may be.
+    }
+  }
+  return null;
+};
+
+await check("a read-only op does not wait behind a blocked mutation", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spike-lock-"));
+  const fifo = join(root, "fifo");
+  const batchTarget = join(root, "batch-target");
+  const probed = join(root, "probed");
+  assert.equal(spawnSync("mkfifo", [fifo]).status, 0);
+  writeFileSync(probed, "x");
+  const session = new Session(binary, []);
+  try {
+    await session.hello;
+    // One batch, holding a mutation, stuck in its own first op: opening a
+    // FIFO for reading waits for a writer.
+    const blocked = session.fsb({
+      ops: [
+        { op: "read", args: [fifo, "0", "10"] },
+        { op: "write", args: [batchTarget, "-", "no-replace", "-", "content"] },
+      ],
+    });
+    // A failed check closes the session with the batch still pending; its
+    // rejection then must not take the whole run down as unhandled.
+    blocked.catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(existsSync(batchTarget), false, "precondition: the batch has not reached its write");
+    // Behind one lock this stat queued after the batch and answered only once
+    // the FIFO opened.
+    const stat = await within(session.fs({ op: "stat", args: [probed] }), 2000, "the read waited behind the blocked mutation");
+    assert.equal(stat.exitCode, 0, stat.stderr);
+    assert.equal(existsSync(batchTarget), false, "the mutation is still blocked: the read answered while it waited");
+    const writer = spawn("sh", ["-c", "printf x > \"$1\"", "sh", fifo]);
+    await new Promise((resolve) => writer.once("exit", resolve));
+    await blocked;
+    assert.equal(readFileSync(batchTarget, "utf8"), "content", "the batch finished once the FIFO opened");
+  } finally {
+    await session.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+await check("a listing of a directory under churn keeps answering", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spike-list-"));
+  const dir = join(root, "dir");
+  mkdirSync(dir);
+  for (let index = 0; index < 200; index += 1) writeFileSync(join(dir, `base-${index}`), "x");
+  const session = new Session(binary, []);
+  let changes = 0;
+  let stop = false;
+  // Entries appear and vanish the way a build output directory's do.
+  const churn = (async () => {
+    let count = 0;
+    while (!stop) {
+      const path = join(dir, `churn-${count += 1}`);
+      writeFileSync(path, "x");
+      rmSync(path);
+      changes += 1;
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  })();
+  try {
+    await session.hello;
+    /** @type {string[]} */
+    const failures = [];
+    let listings = 0;
+    for (let round = 0; round < 40; round += 1) {
+      const results = await Promise.all(Array.from({ length: 8 }, () => session.fs({ op: "list", args: [dir] })));
+      for (const result of results) {
+        listings += 1;
+        if (result.exitCode !== 0) failures.push(result.stderr.toString().trim());
+      }
+    }
+    stop = true;
+    await churn;
+    assert.ok(changes > 50, `precondition: the directory changed while it was listed (${changes} changes)`);
+    assert.deepEqual(failures.slice(0, 3), [], `${failures.length} of ${listings} listings failed while the directory existed`);
+  } finally {
+    stop = true;
+    await churn;
+    await session.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+await check("a timed-out command gets the TERM grace to clean up", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spike-timeout-"));
+  const marker = join(root, "cleaned");
+  const session = new Session(binary, []);
+  try {
+    await session.hello;
+    // The handler needs half a second — past the 100 ms the timeout used to
+    // allow before KILL, well inside the cancel path's three.
+    const result = await within(
+      session.exec({
+        argv: ["sh", "-c", `trap 'sleep 0.5; printf done > "${marker}"; exit 0' TERM; sleep 30`],
+        timeoutMs: 1000,
+      }),
+      8000,
+      "the timed-out command never settled",
+    );
+    assert.equal(result.exitCode, 0, `the cleanup ran and the command left with its own status (exit ${result.exitCode})`);
+    assert.equal(readFileSync(marker, "utf8"), "done");
+  } finally {
+    await session.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+await check("a move on one filesystem is a rename: the same inode, nothing copied", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spike-rename-"));
+  /** @type {string | null} */
+  let other = null;
+  const session = new Session(binary, []);
+  try {
+    await session.hello;
+    const source = join(root, "src.bin");
+    const destination = join(root, "dst.bin");
+    writeFileSync(source, Buffer.alloc(4 * 1024 * 1024, 1));
+    const before = statSync(source);
+    const moved = await session.fs({
+      op: "move",
+      args: [source, destination, "640", "replace", versionOf(parseStat((await session.fs({ op: "stat", args: [source] })).stdout)), "-"],
+    });
+    assert.equal(moved.exitCode, 0, moved.stderr);
+    assert.equal(existsSync(source), false, "the source is gone: it was moved, not copied");
+    const after = statSync(destination);
+    assert.deepEqual({ dev: after.dev, ino: after.ino }, { dev: before.dev, ino: before.ino }, "the destination is the source's own inode under its new name");
+    assert.equal(after.mode & 0o777, 0o640, "the requested mode is applied to the moved file");
+    assert.equal(after.size, 4 * 1024 * 1024);
+    assert.deepEqual(readdirSync(root).filter((name) => name.includes(".tmpdir")), [], "a rename stages nothing");
+
+    // The no-replace guard is the kernel's: a destination that is already
+    // there fails instead of being replaced.
+    const first = join(root, "first.txt");
+    const second = join(root, "second.txt");
+    const fresh = join(root, "fresh.txt");
+    writeFileSync(first, "one");
+    writeFileSync(second, "two");
+    const refused = await session.fs({ op: "move", args: [first, second, "-", "no-replace", "-", "-"] });
+    assert.equal(refused.reason, "exists", `${refused.exitCode}: ${refused.stderr}`);
+    assert.equal(readFileSync(first, "utf8"), "one", "the source survives the refusal");
+    assert.equal(readFileSync(second, "utf8"), "two", "and the destination was not replaced");
+    const created = await session.fs({ op: "move", args: [first, fresh, "-", "no-replace", "-", "-"] });
+    assert.equal(created.exitCode, 0, created.stderr);
+    assert.equal(existsSync(first), false);
+    assert.equal(readFileSync(fresh, "utf8"), "one");
+
+    // Across filesystems a rename is refused and the copy is the move.
+    other = secondFilesystem();
+    if (other === null) {
+      console.log("INFO  no second filesystem here: the cross-filesystem move (the copy path) was not exercised");
+    } else {
+      const big = join(root, "cross.bin");
+      const far = join(other, "cross-dst.bin");
+      writeFileSync(big, Buffer.alloc(2 * 1024 * 1024, 7));
+      const bigStat = statSync(big);
+      const copied = await session.fs({
+        op: "move",
+        args: [big, far, "-", "replace", versionOf(parseStat((await session.fs({ op: "stat", args: [big] })).stdout)), "-"],
+      });
+      assert.equal(copied.exitCode, 0, copied.stderr);
+      assert.equal(existsSync(big), false, "the source is removed after the copy");
+      const farStat = statSync(far);
+      assert.equal(farStat.size, 2 * 1024 * 1024);
+      assert.notDeepEqual({ dev: farStat.dev, ino: farStat.ino }, { dev: bigStat.dev, ino: bigStat.ino }, "a new inode on the other filesystem: the file was copied");
+    }
+  } finally {
+    await session.close();
+    rmSync(root, { recursive: true, force: true });
+    if (other !== null) rmSync(other, { recursive: true, force: true });
+  }
+});
+
+await check("a write sweeps the staging directories of dead creators only (both agents)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spike-sweep-"));
+  try {
+    for (const [name, command, args] of [["native", binary, []], ["shell", "sh", [shellAgent]]]) {
+      // The name is the same on both agents — `.<base>.<pid>.<token>.tmpdir`
+      // — so either sweep recognises the other's leftovers.
+      const orphan = join(root, `.${name}-target.99999999.deadbeef.tmpdir`);
+      const live = join(root, `.${name}-target.${process.pid}.feedface.tmpdir`);
+      const foreign = join(root, `.${name}-other.99999999.deadbeef.tmpdir`);
+      const lookalike = join(root, `.${name}-target.99999999.tmpdir`);
+      for (const directory of [orphan, live, foreign, lookalike]) {
+        mkdirSync(directory);
+        writeFileSync(join(directory, "keep"), "x");
+      }
+      const session = new Session(command, args);
+      try {
+        await session.hello;
+        const result = await session.fs({ op: "write", args: [join(root, `${name}-target`), "-", "no-replace", "-", "content"] });
+        assert.equal(result.exitCode, 0, `${name}: ${result.stderr}`);
+      } finally {
+        await session.close();
+      }
+      assert.equal(existsSync(orphan), false, `${name}: the staging directory of a process that is gone is swept`);
+      assert.equal(existsSync(live), true, `${name}: a live creator keeps its directory`);
+      assert.equal(existsSync(foreign), true, `${name}: another target's staging is not this write's to sweep`);
+      assert.equal(existsSync(lookalike), true, `${name}: a directory that merely looks like staging is kept`);
     }
   } finally {
     rmSync(root, { recursive: true, force: true });

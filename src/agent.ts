@@ -17,6 +17,13 @@
  *    dead, calls reject with {@link AgentUnavailableError} — the executor's cue
  *    to fall back to the one-shot `wsl.exe` path it shipped with, so the worst
  *    case of the agent is "today's behaviour, plus one failed round trip".
+ *    The cue is exact: a request the resident provably never took rejects with
+ *    the plain class, while one that was with the resident when it was lost
+ *    rejects with {@link AgentRequestStateUnknownError} — still unavailable,
+ *    never safe to replay for a caller whose request has effects.
+ *    `lastError` is the failure not yet recovered from: an accepted handshake
+ *    clears it, so a resident that came back is diagnosed by what it is now,
+ *    not by the crash it survived.
  * 2. **The in-distro timeout is the real one.** The EXEC frame carries the
  *    timeout in whole seconds and the agent SIGTERMs the child itself, so a
  *    timed-out command dies where it lives instead of leaving an orphan
@@ -45,7 +52,8 @@
 
 import { spawn } from "node:child_process";
 import type { ChildProcess, ChildProcessWithoutNullStreams } from "node:child_process";
-import { AgentUnavailableError, BASH_TIMEOUT_REASON, CwdError, SpawnError } from "./agent-errors.js";
+import type { Writable } from "node:stream";
+import { AgentRequestStateUnknownError, AgentUnavailableError, BASH_TIMEOUT_REASON, CwdError, SpawnError } from "./agent-errors.js";
 import { AGENT_NAME, MAX_FRAME_BYTES, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, encodeExecFrame, encodeFsbFrame, encodeFsFrame, encodeKill, parseAgentLine } from "./agent-protocol.js";
 import type { AckMessage, AgentErrorMessage, AgentMessage, FsErrorMessage, HelloMessage, ResultMessage } from "./agent-protocol.js";
 
@@ -197,7 +205,7 @@ function emptyAgentMetrics(): AgentMetrics {
 }
 
 /** The entry an async preparation may select before the first spawn. */
-interface WslAgentPrepared {
+export interface WslAgentPrepared {
   /** The agent entrypoint (the shell script or the native cache path). */
   scriptPath: string;
   /** The HELLO digest to verify. */
@@ -238,6 +246,96 @@ const DEFAULT_REVIVAL_BACKOFF_MS = 2000;
  * dies promptly.
  */
 const CANCEL_SIGNAL_GRACE_MS = 60;
+
+/**
+ * How a frame reaches the resident's stdin (#86).
+ *
+ * One `write()` of a frame larger than a Windows pipe's buffer (64 KiB) costs
+ * a fixed ~100 ms before the resident has the rest of it. Measured on the
+ * production path — Windows host, `wsl.exe`, the native agent — a 68 KiB
+ * stdin payload answered in 14 ms with the same binary spawned directly in
+ * the distro and in 114 ms through `wsl.exe`, and the resident's `ACK` was
+ * what came late: the frame, not the request, was slow to arrive. The piece
+ * size is not the cause — the same bytes as several pieces written back to
+ * back pay it too — and neither reader nor agent is: a plain line reader and
+ * `cat` see 68 KiB in under 5 ms. What removes the cost is a timer turn
+ * between the pieces, which lets the relay drain the pipe before more of the
+ * frame arrives.
+ *
+ * A timer turn costs about 10 ms on a Windows host, so the schedule pays it
+ * only where the measurement says it wins. A payload of 64–384 KiB takes
+ * 30–98 ms pieced against 115–120 ms as one write; at 512 KiB one write is
+ * faster (123 ms against 144), and at 1 MiB far more so (36 against 264).
+ * So frames above one pipe buffer and up to half a mebibyte go out in pieces
+ * with a turn between them, and every other frame stays the single write it
+ * always was.
+ */
+const PIECED_WRITE_ABOVE_BYTES = 64 * 1024;
+const PIECED_WRITE_UNTIL_BYTES = 512 * 1024;
+const WRITE_PIECE_BYTES = 60 * 1024;
+
+/**
+ * Whether a frame goes out in pieces.
+ * @param frame - the frame, terminator included.
+ * @returns true for a frame in the band where piecing wins.
+ */
+function isPieced(frame: string): boolean {
+  const bytes = Buffer.byteLength(frame);
+  return bytes > PIECED_WRITE_ABOVE_BYTES && bytes <= PIECED_WRITE_UNTIL_BYTES;
+}
+
+/**
+ * Put one frame on a stream: in pieces with a timer turn between them when
+ * {@link isPieced} says so, otherwise as one write.
+ * @param stdin - the resident's stdin.
+ * @param frame - the frame, terminator included.
+ */
+async function writeFrame(stdin: Writable, frame: string): Promise<void> {
+  if (!isPieced(frame)) {
+    stdin.write(frame);
+    return;
+  }
+  const buffer = Buffer.from(frame);
+  for (let offset = 0; offset < buffer.length; offset += WRITE_PIECE_BYTES) {
+    // The timer turn: the relay drains what is in the pipe before more arrives.
+    if (offset > 0) await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    const piece = buffer.subarray(offset, Math.min(buffer.length, offset + WRITE_PIECE_BYTES));
+    // Each piece is awaited: one that fits the pipe answers at once, and a
+    // slow relay holds the next piece back instead of piling bytes up here.
+    await new Promise<void>((resolve, reject) => {
+      stdin.write(piece, (error) => (error == null ? resolve() : reject(error)));
+    });
+  }
+}
+
+/**
+ * The frames waiting for one resident's stdin.
+ */
+interface PendingWrites {
+  /** The stream they are for; a rebuilt resident gets a fresh record, and the old one drains into its own dead pipe. */
+  readonly stdin: Writable;
+  /** In the order they were queued. */
+  readonly frames: string[];
+  /** Whether a {@link drainWrites} loop is running for this record. */
+  draining: boolean;
+}
+
+/**
+ * Write the queued frames one at a time, so the pieces of one never interleave
+ * with the next. A dead pipe empties the queue: the stream's error listener
+ * has already absorbed the event, and nothing after a failed piece is worth
+ * sending.
+ * @param {PendingWrites} writes - the record to drain.
+ */
+async function drainWrites(writes: PendingWrites): Promise<void> {
+  try {
+    for (let frame = writes.frames.shift(); frame !== undefined; frame = writes.frames.shift()) await writeFrame(writes.stdin, frame);
+  } catch {
+    writes.frames.length = 0;
+  } finally {
+    writes.draining = false;
+  }
+}
 
 /**
  * How many requests one resident may hold in flight before refusing more. The
@@ -413,12 +511,23 @@ export class WslAgent {
   declare revivalBackoffMs: number;
   /** The idle-shutdown timer. */
   declare idleTimer: NodeJS.Timeout | null;
+  /**
+   * When the resident last exchanged a frame with this host, in epoch ms; the
+   * construction time before the first one. A resident with no idle shutdown
+   * of its own (a session runtime) is still measured by it, so an owner can
+   * tell "quiet" from "abandoned".
+   */
+  declare lastActivityAt: number;
+  /** The frames waiting for the current resident's stdin; see {@link writeLines}. */
+  private writes: PendingWrites | undefined;
   /** The last failure, for `unavailableReason` and log messages. */
   declare lastError: string;
   /** Cumulative request metrics; see {@link metrics}. */
   declare requestMetrics: AgentMetrics;
   /** The optional async preparation hook. */
   declare prepare: (() => Promise<WslAgentPrepared | undefined>) | undefined;
+  /** The optional start-outcome hook; see the constructor's `onStart`. */
+  declare onStart: ((outcome: { ok: boolean, native: boolean }) => void) | undefined;
 
   /**
    * @param config - the agent configuration.
@@ -488,6 +597,14 @@ export class WslAgent {
     prepare?: () => Promise<WslAgentPrepared | undefined>,
     /** The first revival delay in ms; doubles per death. Tests shorten it. */
     revivalBackoffMs?: number,
+    /**
+     * Told how each start ended and which entry it used. `native` is true
+     * when the entry came from the async preparation (the native binary) and
+     * false for the instance's default entry (the shell script). A start that
+     * ends in a handshake failure or timeout is `ok: false`; a resident that
+     * dies after its handshake is not a start, and is not reported here.
+     */
+    onStart?: (outcome: { ok: boolean, native: boolean }) => void,
   }) {
     this.distro = config.distro;
     this.scriptPath = config.scriptPath;
@@ -516,11 +633,13 @@ export class WslAgent {
     this.deadUntil = 0;
     this.revivalBackoffMs = config.revivalBackoffMs ?? DEFAULT_REVIVAL_BACKOFF_MS;
     this.idleTimer = null;
+    this.lastActivityAt = Date.now();
     this.lastError = "";
     this.protocolVersion = 0;
     this.caps = new Set();
     this.requestMetrics = emptyAgentMetrics();
     this.prepare = config.prepare;
+    this.onStart = config.onStart;
   }
 
   /**
@@ -604,13 +723,14 @@ export class WslAgent {
     if (this.startPromise) return this.startPromise;
     const prepared = this.prepare?.();
     if (prepared === undefined) {
-      const started = this.beginStart();
+      const started = this.beginStart(false);
       this.startPromise = started;
       return started;
     }
     const started = prepared.then((entry) => {
-      if (entry !== undefined) this.applyPrepared(entry);
-      return this.beginStart();
+      if (entry === undefined) return this.beginStart(false);
+      this.applyPrepared(entry);
+      return this.beginStart(true);
     });
     this.startPromise = started;
     return started;
@@ -632,9 +752,11 @@ export class WslAgent {
   /**
    * Spawn the process and run the handshake.
    *
+   * @param native - whether this start runs the prepared entry rather than
+   *   the instance's default one.
    * @returns resolved once the state is `ready`.
    */
-  private beginStart(): Promise<void> {
+  private beginStart(native: boolean): Promise<void> {
     this.state = "starting";
     this.agentPid = undefined;
     return new Promise((resolve, reject) => {
@@ -663,9 +785,11 @@ export class WslAgent {
         if (error) {
           this.state = this.rebuildUsed ? "dead" : "idle";
           if (this.rebuildUsed) this.lastError = this.lastError || String(error);
+          this.onStart?.({ ok: false, native });
           reject(error instanceof AgentUnavailableError ? error : new AgentUnavailableError(String(error)));
         } else {
           this.state = "ready";
+          this.onStart?.({ ok: true, native });
           resolve();
         }
       };
@@ -725,10 +849,18 @@ export class WslAgent {
   }
 
   /**
-   * The stdout line splitter: a bounded buffer instead of readline, which
-   * accumulates an over-long line whole before anyone can object — exactly the
-   * unbounded-capture hole. Protocol lines are ASCII by construction (ids,
-   * numbers, base64), so chunk-boundary decoding is not a concern.
+   * The stdout line splitter: a list of the chunks of the line still
+   * arriving, instead of readline, which accumulates an over-long line whole
+   * before anyone can object — exactly the unbounded-capture hole. Protocol
+   * lines are ASCII by construction (ids, numbers, base64), so chunk-boundary
+   * decoding is not a concern.
+   *
+   * The chunks are searched, never a joined string. One growing string made
+   * this quadratic — every chunk copied the whole frame so far and scanned
+   * it again for the newline — and since this runs on the host's event loop,
+   * a 16 MiB read frame arriving in 64 KiB chunks held that loop for about
+   * 2.6 seconds. Now a chunk is searched once, and a line is joined once,
+   * when its newline has arrived.
    *
    * @param child - the transport to read.
    * @param current - whether this child is still the current generation.
@@ -736,29 +868,38 @@ export class WslAgent {
    * @param handshakeTimer - the handshake watchdog.
    */
   private readAgentOutput(child: ChildProcessWithoutNullStreams, current: () => boolean, settleStart: (error?: unknown) => void, handshakeTimer: NodeJS.Timeout): void {
-    let buffered = "";
-    child.stdout.on("data", (chunk) => {
+    /** The chunks of the line still arriving, in arrival order. */
+    let chunks: Buffer[] = [];
+    /** How many bytes {@link chunks} hold. */
+    let held = 0;
+    child.stdout.on("data", (chunk: Buffer) => {
       if (!current()) return;
-      buffered += chunk.toString("utf8");
+      let rest = chunk;
       for (;;) {
-        const newline = buffered.indexOf("\n");
+        const newline = rest.indexOf(0x0a);
         if (newline === -1) {
-          if (buffered.length > this.frameCapBytes) {
-            this.lastError = `agent frame of ${buffered.length} bytes exceeded the ${this.frameCapBytes}-byte protocol cap`;
-            buffered = "";
+          if (held + rest.length > this.frameCapBytes) {
+            this.lastError = `agent frame of ${held + rest.length} bytes exceeded the ${this.frameCapBytes}-byte protocol cap`;
+            chunks = [];
+            held = 0;
             child.kill();
+          } else if (rest.length > 0) {
+            chunks.push(rest);
+            held += rest.length;
           }
           return;
         }
-        const line = buffered.slice(0, newline);
-        buffered = buffered.slice(newline + 1);
+        const head = rest.subarray(0, newline);
+        const line = chunks.length === 0 ? head : Buffer.concat([...chunks, head], held + head.length);
+        chunks = [];
+        held = 0;
+        rest = rest.subarray(newline + 1);
         if (line.length > this.frameCapBytes) {
           this.lastError = `agent frame of ${line.length} bytes exceeded the ${this.frameCapBytes}-byte protocol cap`;
-          buffered = "";
           child.kill();
           return;
         }
-        this.handleLine(line, settleStart, handshakeTimer);
+        this.handleLine(line.toString("utf8"), settleStart, handshakeTimer);
       }
     });
   }
@@ -816,6 +957,9 @@ export class WslAgent {
     this.agentPid = message.pid;
     this.protocolVersion = message.version;
     this.caps = new Set(message.caps ?? []);
+    // The resident is up, so whatever failed last is over. Kept, the old
+    // failure warned in every later diagnosis until the app restarted.
+    this.lastError = "";
     settleStart();
   }
 
@@ -987,7 +1131,7 @@ export class WslAgent {
         this.clearPending(pending);
         if (pending.settled) continue;
         pending.settled = true;
-        pending.reject(new AgentUnavailableError(`agent exited before request ${pending.id} was sent; it never ran`));
+        pending.reject(this.refusalFor(pending, "the agent exited before the request was dispatched"));
       } else if (isReplayableFrame(pending.lines)) {
         if (pending.watchdog) {
           clearTimeout(pending.watchdog);
@@ -1001,9 +1145,7 @@ export class WslAgent {
         this.clearPending(pending);
         if (pending.settled) continue;
         pending.settled = true;
-        pending.reject(new AgentUnavailableError(
-          `agent exited while request ${pending.id} was in flight; its state is unknown — inspect the distro before retrying`,
-        ));
+        pending.reject(this.refusalFor(pending, "the agent exited while the request was in flight"));
       }
     }
     return relayable;
@@ -1035,7 +1177,7 @@ export class WslAgent {
             this.pending.delete(id);
             if (pending.settled) continue;
             pending.settled = true;
-            pending.reject(new AgentUnavailableError(`agent exited before request ${id} could be re-sent; its state is unknown`));
+            pending.reject(this.refusalFor(pending, "the agent exited before the request could be re-sent"));
           }
         }
         this.dispatchQueued();
@@ -1061,9 +1203,26 @@ export class WslAgent {
       this.clearPending(pending);
       if (pending.settled) continue;
       pending.settled = true;
-      pending.reject(new AgentUnavailableError(message));
+      pending.reject(this.refusalFor(pending, message));
     }
     this.pending.clear();
+  }
+
+  /**
+   * The refusal an abandoned entry rejects with. An entry whose frame reached
+   * the resident may have run, and its refusal says so — that is what keeps a
+   * caller with a non-idempotent request from replaying it. An entry that was
+   * never written provably never ran, which is the plain out-of-service cue
+   * such a caller may act on.
+   *
+   * @param pending - the abandoned entry.
+   * @param reason - what happened to the resident.
+   * @returns the refusal.
+   */
+  private refusalFor(pending: PendingRequest, reason: string): AgentUnavailableError {
+    return pending.sent
+      ? new AgentRequestStateUnknownError(`${reason}; request ${pending.id} was in flight and its state is unknown — inspect the distro before retrying`)
+      : new AgentUnavailableError(`${reason}; request ${pending.id} was never sent, so it never ran`);
   }
   /**
    * Register one request's pending entry and write its frame: the shared
@@ -1533,12 +1692,11 @@ export class WslAgent {
     this.process = null;
     this.agentPid = undefined;
     if (this.pending.size > 0) {
-      const reason = new AgentUnavailableError("the agent was closed before this request answered");
       for (const pending of this.pending.values()) {
         this.clearPending(pending);
         if (pending.settled) continue;
         pending.settled = true;
-        pending.reject(reason);
+        pending.reject(this.refusalFor(pending, "the agent was closed before this request answered"));
       }
       this.pending.clear();
     }
@@ -1585,7 +1743,24 @@ export class WslAgent {
   private writeLines(lines: string[]): boolean {
     const child = this.process;
     if (!child || !child.stdin || !child.stdin.writable) return false;
-    child.stdin.write(`${lines.join("\n")}\n`);
+    const stdin = child.stdin;
+    const frame = `${lines.join("\n")}\n`;
+    let writes = this.writes;
+    if (writes === undefined || writes.stdin !== stdin) {
+      // A new resident. Its predecessor's record keeps its own queue and ends
+      // against a dead pipe on its own.
+      writes = { stdin, frames: [], draining: false };
+      this.writes = writes;
+    }
+    if (!writes.draining && !isPieced(frame)) {
+      stdin.write(frame);
+    } else {
+      writes.frames.push(frame);
+      if (!writes.draining) {
+        writes.draining = true;
+        void drainWrites(writes);
+      }
+    }
     this.rearmIdleTimer();
     return true;
   }
@@ -1608,8 +1783,9 @@ export class WslAgent {
     }
   }
 
-  /** Restart the idle-shutdown countdown. */
+  /** Note the exchange, then restart the idle-shutdown countdown. */
   private rearmIdleTimer(): void {
+    this.lastActivityAt = Date.now();
     if (!this.idleMs) return;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => {

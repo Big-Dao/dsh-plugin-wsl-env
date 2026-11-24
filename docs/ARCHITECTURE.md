@@ -21,7 +21,7 @@ smaller integrations listed below.
 
 | Service | Class | File | What it does |
 |---|---|---|---|
-| `ctx.shell` | `WslShellExecutor` | [`lib/wsl-shell.js`](../lib/wsl-shell.js) | Runs each command in the distro's login shell over the resident in-distro agent (the default), wrapped in a distro-side `bwrap` sandbox; while the agent is out, or with `agent: false`, the same command falls back to one `wsl.exe -d <distro> --cd <linux dir> --exec <login shell> -lc <cmd>` process. |
+| `ctx.shell` | `WslShellExecutor` | [`lib/wsl-shell.js`](../lib/wsl-shell.js) | Runs each command in the distro's login shell over the resident in-distro agent (the default), wrapped in a distro-side `bwrap` sandbox; while the agent is out, or with `agent: false`, the same command falls back to one `wsl.exe -d <distro> --cd <linux dir> --exec <login shell> -lc <cmd>` process; a command that was already running when the resident died is the exception — it fails as "state is unknown" and is not run again. |
 | `ctx.fs` | `WslFileSystem` | [`lib/wsl-filesystem.js`](../lib/wsl-filesystem.js) | Serves WSL-routed file operations through the resident in-distro agent; the former Windows-side share substrate is retired (see below). |
 | `ctx.subprocess` | `WslSubprocessRuntime` | [`lib/subprocess.js`](../lib/subprocess.js) | Opens the GUI terminal inside the distro, in the session workspace, and rewrites the file-search and git-snapshot spawns into the distro (see below). |
 

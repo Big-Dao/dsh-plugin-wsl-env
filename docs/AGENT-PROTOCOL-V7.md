@@ -16,7 +16,7 @@ negotiation rule, four capabilities.
 |---|---|---|---|---|
 | Capability advertisement | HELLO gains a 6th field | `conc,batch` | `batch` | capability-aware FS scheduling |
 | Structured FS errors | new `FSERR\|id\|reason\|b64 message` line | yes | yes | direct FsError mapping (the `dsh-fs\|…` stderr-line sniffing stays as a fallback for older agents) |
-| Batched FS reads | new `FSB\|id\|timeout\|nops` frame, `OP\|op\|nargs` op specs follow | sequential under `fs_lock`, one RES | sequential in one worker, one RES | GUI-preview-shaped page reads in one round trip |
+| Batched FS reads | new `FSB\|id\|timeout\|nops` frame, `OP\|op\|nargs` op specs follow | sequential in one worker, one RES (`fs_lock` only when the batch holds a mutation) | sequential in one worker, one RES | GUI-preview-shaped page reads in one round trip |
 | `delete` / `move` FS ops | new op names in the FS frame vocabulary | yes | yes | guarded, mapped to `FsDeleteOutcome` / `FsMoveOutcome` |
 | `patchText` | **no wire change** — host-side hunk application + a guarded `replace` write | n/a | n/a | hunks applied in-process via `@deepseek-ai/dsh-fs-patch` (a new peer dependency, the peer's own `applyHunks` — perfect error parity, `FS_PATCH_MISMATCH` free) |
 
@@ -42,7 +42,9 @@ Concurrency capability is negotiated separately, because the two backends
 honestly differ:
 
 - `conc` — the agent runs FS ops concurrently and may answer out of order
-  (the native agent already does: worker threads + `fs_lock` on mutations).
+  (the native agent already does: worker threads, with `fs_lock` for mutations
+  only — a read never waits behind a write, and the `ACK` reports the dequeue
+  before any lock is taken, so the host's watchdog measures execution).
 - `batch` — the agent accepts `FSB` (any backend; a batch is sequential
   inside one worker, which is exactly why it is safe everywhere).
 - The SHELL agent does **not** advertise `conc`: its read loop is serial and

@@ -16,6 +16,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { doctorReport } from "../lib/doctor-report.js";
+import { runDoctorProcess } from "../lib/doctor-process.js";
 
 const scratch = mkdtempSync(join(tmpdir(), "dsh-doctor-collector-"));
 const REPORT = JSON.stringify({ schemaVersion: 2, checks: [], summary: {} });
@@ -67,6 +68,21 @@ check("a doctor that never exits is killed at the deadline and named", async () 
   );
   const elapsed = Date.now() - started;
   assert.ok(elapsed < 5000, `the collector settled promptly (${elapsed}ms)`);
+});
+
+check("a multi-byte code point split across chunks is reassembled", async () => {
+  // The command runner used to decode each chunk with toString("utf8"); a
+  // UTF-8 sequence split at a chunk boundary became replacement characters.
+  // The shared collector decodes through StringDecoder (setEncoding), which
+  // holds the partial sequence until the rest arrives.
+  const script = fakeDoctor("split.mjs", `
+const bytes = Buffer.from("报告");
+process.stdout.write(bytes.subarray(0, 1));
+setTimeout(() => { process.stdout.write(bytes.subarray(1)); process.exit(0); }, 20);
+`);
+  const run = await runDoctorProcess([script], { timeoutMs: 10_000 });
+  assert.equal(run.stdout, "报告");
+  assert.equal(run.timedOut, false);
 });
 
 check("a runaway stream is capped, killed and named", async () => {

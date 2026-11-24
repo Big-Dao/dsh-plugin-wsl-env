@@ -27,7 +27,6 @@
  *
  * @module dsh-plugin-wsl-env/wsl-doctor-command
  */
-import { spawn } from "node:child_process";
 import type { Context } from "@deepseek-ai/cordis";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,6 +34,7 @@ import { distroOfUnc } from "./distro-route.js";
 import { withHostPeerVersions } from "./peer-versions.js";
 import { digestReport, renderDigest, SECTIONS, type DoctorDigest, type DoctorReportLike } from "./wsl-doctor-tool.js";
 import { mergeAutoPresetSeam } from "./doctor-live.js";
+import { DOCTOR_OUTPUT_LIMIT_BYTES, runDoctorProcess } from "./doctor-process.js";
 import { installMessagesLocale, t } from "./messages.js";
 import { mergeTakeoverReport, takeoverSnapshot, type TakeoverSnapshot } from "./takeover-report.js";
 
@@ -227,57 +227,33 @@ export function parseDoctorInput(rawInput: string): ParsedDoctorInput {
  * @param timeoutMs - the deadline; tests shrink it to exercise the timeout.
  * @returns the CLI's stdout (one JSON report).
  */
-export function runDoctorCli(argv: string[], signal?: AbortSignal, timeoutMs: number = DOCTOR_CLI_TIMEOUT_MS): Promise<string> {
-  return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(process.execPath, [DOCTOR_SCRIPT, ...argv], {
-      env: withHostPeerVersions({ ...process.env, ELECTRON_RUN_AS_NODE: "1" }),
-      windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"],
-      signal,
-    });
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    let timedOut = false;
-    const settle = (finish: () => void): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(deadline);
-      finish();
-    };
-    const deadline = setTimeout(() => {
-      timedOut = true;
-      try {
-        child.kill();
-      } catch {
-        // Already exited: the close handler settles the run.
-      }
-    }, timeoutMs);
-    child.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
-    child.stderr?.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); });
-    child.on("error", (error) => {
-      // An abort arrives here as an AbortError; normalize it so the settled
-      // message names the run rather than the DOMException.
-      settle(() => rejectPromise((error as NodeJS.ErrnoException).name === "AbortError" ? new Error(t("doctorCliCancelled", {})) : error));
-    });
-    child.on("close", (code, signalName) => {
-      const text = stdout.trim();
-      if (text.startsWith("{")) {
-        settle(() => resolvePromise(text));
-        return;
-      }
-      if (timedOut) {
-        settle(() => rejectPromise(new Error(
-          t("doctorCliTimeout", { seconds: timeoutMs / 1000 }),
-        )));
-        return;
-      }
-      settle(() => rejectPromise(new Error(t("doctorCliNoReport", {
-        status: String(code ?? signalName ?? "signal"),
-        detail: stderr.trim().length > 0 ? `: ${stderr.trim().slice(0, 400)}` : "",
-      }))));
-    });
+export async function runDoctorCli(argv: string[], signal?: AbortSignal, timeoutMs: number = DOCTOR_CLI_TIMEOUT_MS): Promise<string> {
+  // The shared collector owns the deadline, the output cap and the decoding,
+  // so this runner and the in-app report runner cannot drift apart.
+  const run = await runDoctorProcess([DOCTOR_SCRIPT, ...argv], {
+    env: withHostPeerVersions({ ...process.env, ELECTRON_RUN_AS_NODE: "1" }),
+    timeoutMs,
+    ...(signal === undefined ? {} : { signal }),
   });
+  if (signal?.aborted || run.spawnError?.message === "doctor run aborted") {
+    throw new Error(t("doctorCliCancelled", {}));
+  }
+  // The deadline outranks a JSON prefix: a killed run may have flushed a
+  // truncated object that still starts with `{`.
+  if (run.timedOut) throw new Error(t("doctorCliTimeout", { seconds: timeoutMs / 1000 }));
+  if (run.overLimit) {
+    throw new Error(t("doctorCliNoReport", {
+      status: `more than ${DOCTOR_OUTPUT_LIMIT_BYTES} bytes`,
+      detail: "",
+    }));
+  }
+  if (run.spawnError !== undefined) throw run.spawnError;
+  const text = run.stdout.trim();
+  if (text.startsWith("{")) return text;
+  throw new Error(t("doctorCliNoReport", {
+    status: String(run.status ?? run.signal ?? "signal"),
+    detail: run.stderr.trim().length > 0 ? `: ${run.stderr.trim().slice(0, 400)}` : "",
+  }));
 }
 
 /**

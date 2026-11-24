@@ -4,7 +4,7 @@ import { mergeAutoPresetSeam, mergeLiveResidentStatus, type DoctorReport } from 
 import { nativeBackendFailure } from "./native-agent.js";
 import { sharedAgentNativeNote } from "./agent-shared.js";
 import { withHostPeerVersions } from "./peer-versions.js";
-import { spawn } from "node:child_process";
+import { DOCTOR_OUTPUT_LIMIT_BYTES, runDoctorProcess } from "./doctor-process.js";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -13,126 +13,6 @@ const DOCTOR_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "..", "scrip
 
 /** How long the doctor subprocess may run before the collector kills it. */
 const DOCTOR_TIMEOUT_MS = 120_000;
-
-/**
- * How much of one doctor stream the collector retains. The `--json` report is
- * a few dozen KiB; the cap exists so a runaway child cannot grow the Host's
- * memory without bound.
- */
-const DOCTOR_OUTPUT_LIMIT_BYTES = 4 * 1024 * 1024;
-
-/**
- * How long after the doctor exits the collector waits for its pipes. A
- * grandchild that inherited the pipes can keep them open forever; the report
- * on stdout is complete once the doctor itself has exited, so the wait is
- * bounded instead of following the pipes to EOF.
- */
-const DOCTOR_DRAIN_GRACE_MS = 500;
-
-/** One finished doctor subprocess, as the collector hands it to the parser. */
-interface DoctorRun {
-  stdout: string;
-  stderr: string;
-  /** The exit status; null when a signal ended the run. */
-  status: number | null;
-  /** The terminating signal name, when one ended the run. */
-  signal: string | null;
-  /** The run outlived its deadline and was killed. */
-  timedOut: boolean;
-  /** Stream capture crossed {@link DOCTOR_OUTPUT_LIMIT_BYTES} and the run was killed. */
-  overLimit: boolean;
-  /** The transport failure: a spawn error (ENOENT, EACCES) or an abort. */
-  spawnError?: Error;
-}
-
-/**
- * Run the doctor CLI asynchronously and collect its streams.
- *
- * `spawnSync` would block the Host's event loop for the whole run — up to the
- * deadline, with no way to cancel and every other tool stalled behind it — so
- * the collector spawns, arms a deadline and the caller's abort signal, and
- * settles on the child's exit plus a bounded drain window. A grandchild that
- * inherits the pipes cannot hold the collector past that window.
- *
- * @param argv - the node argv (script path first).
- * @param options - the child env, the deadline, and the caller's signal.
- * @returns the finished run, including the spawn failure when it never started.
- */
-function runDoctorProcess(argv: string[], options: { env?: NodeJS.ProcessEnv; timeoutMs: number; signal?: AbortSignal }): Promise<DoctorRun> {
-  return new Promise((resolvePromise) => {
-    let stdout = "";
-    let stderr = "";
-    let timedOut = false;
-    let overLimit = false;
-    let spawnError: Error | undefined;
-    let exit: { status: number | null; signal: string | null } | undefined;
-    let drainTimer: NodeJS.Timeout | undefined;
-    let settled = false;
-
-    const child = spawn(process.execPath, argv, {
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-      ...(options.env === undefined ? {} : { env: options.env }),
-      ...(options.signal === undefined ? {} : { signal: options.signal }),
-    });
-
-    const settle = (): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(deadlineTimer);
-      if (drainTimer !== undefined) clearTimeout(drainTimer);
-      resolvePromise({
-        stdout,
-        stderr,
-        status: exit?.status ?? null,
-        signal: exit?.signal ?? null,
-        timedOut,
-        overLimit,
-        ...(spawnError === undefined ? {} : { spawnError }),
-      });
-    };
-    const kill = (): void => {
-      try {
-        child.kill();
-      } catch {
-        // An already-exited child: the exit handler settles the run.
-      }
-    };
-    const deadlineTimer = setTimeout(() => {
-      timedOut = true;
-      kill();
-    }, options.timeoutMs);
-
-    const capture = (chunk: string, which: "stdout" | "stderr"): void => {
-      if (settled) return;
-      if (which === "stdout") stdout += chunk;
-      else stderr += chunk;
-      if (stdout.length + stderr.length > DOCTOR_OUTPUT_LIMIT_BYTES) {
-        overLimit = true;
-        kill();
-      }
-    };
-    child.stdout?.on("data", (chunk: Buffer) => capture(chunk.toString("utf8"), "stdout"));
-    child.stderr?.on("data", (chunk: Buffer) => capture(chunk.toString("utf8"), "stderr"));
-    child.on("error", (error) => {
-      // A spawn failure never reaches `exit`; an abort is reported with the
-      // same event, so the marker is normalized into a plain message.
-      spawnError = (error as NodeJS.ErrnoException).name === "AbortError"
-        ? new Error("doctor run aborted")
-        : error;
-      if (exit === undefined) settle();
-    });
-    child.on("exit", (code, signalName) => {
-      exit = { status: code, signal: signalName ?? null };
-      // The report is complete at exit; give the pipes one bounded window to
-      // flush (a grandchild holding them must not stall the collector).
-      drainTimer = setTimeout(settle, DOCTOR_DRAIN_GRACE_MS);
-    });
-    child.on("close", () => {
-      if (exit !== undefined) settle();
-    });
-  });
-}
 
 /**
  * Collect the doctor's versioned JSON report and merge the live resident's

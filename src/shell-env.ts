@@ -182,6 +182,19 @@ export async function apply(ctx: ShellEnvContext, config: ShellEnvConfig = {}): 
   }
   const defaultName = distros[0];
 
+  /**
+   * The spelling this row uses for one distro: the listed name when WSL knows
+   * it, the input otherwise. `facts`, the port timers and the snapshots are
+   * keyed by it, so two casings of one distro must not become two entries.
+   *
+   * @param name - the distro name as a session or the config spelled it.
+   * @returns the canonical spelling.
+   */
+  const canonicalDistro = (name: string): string => {
+    const normalized = name.toLowerCase();
+    return distros.find((known) => known.toLowerCase() === normalized) ?? name;
+  };
+
   /** The facts one distro can answer; a failed probe leaves its key absent. */
   const facts = new Map<string, { shell?: string, home?: string }>();
   const inflight = new Set<string>();
@@ -339,8 +352,9 @@ export async function apply(ctx: ShellEnvContext, config: ShellEnvConfig = {}): 
     if (parsed === undefined) return;
     if (pinned !== undefined && parsed.distro.toLowerCase() !== pinned.toLowerCase()) return;
     if (isDefaultDistro(configured) && defaultName !== undefined && parsed.distro.toLowerCase() !== defaultName.toLowerCase()) return;
-    void ensureFacts(parsed.distro);
-    ensurePorts(parsed.distro);
+    const distro = canonicalDistro(parsed.distro);
+    void ensureFacts(distro);
+    ensurePorts(distro);
   };
   const off = lifecycle.on?.("agent/created", (payload) => consider(payload?.agent));
   // The live-agent sweep is a convenience, not a dependency: `inject` names
@@ -362,7 +376,7 @@ export async function apply(ctx: ShellEnvContext, config: ShellEnvConfig = {}): 
       const named = parsed.distro;
       if (pinned !== undefined && named.toLowerCase() !== pinned.toLowerCase()) return {};
       if (isDefaultDistro(configured) && defaultName !== undefined && named.toLowerCase() !== defaultName.toLowerCase()) return {};
-      const canonical = [...facts.keys()].find((distro) => distro.toLowerCase() === named.toLowerCase()) ?? named;
+      const canonical = canonicalDistro(named);
       const doctorCommand = doctorFactValue ?? doctorFact(process.execPath, dirname(dirname(fileURLToPath(import.meta.url))));
       doctorFactValue = doctorCommand;
       const known = facts.get(canonical);

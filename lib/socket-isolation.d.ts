@@ -20,9 +20,9 @@
  *   3. {@link socketMaskPaths} maps a mode plus facts to the absolute paths
  *      bwrap binds `/dev/null` over.
  *   4. {@link socketMasksFor} runs the probe once per `(wslPath, distro)` and
- *      caches the facts; a probe failure is thrown, never read as "nothing to
- *      mask" — a configured isolation that silently disappears is worse than
- *      no isolation.
+ *      keeps the facts for a short TTL; a probe failure is thrown, never read
+ *      as "nothing to mask" — a configured isolation that silently disappears
+ *      is worse than no isolation.
  *
  * The masks are a narrowing, not a closure. The distro user's other IPC
  * (`/proc`, a same-user process's sockets, the interop transport) remains;
@@ -84,11 +84,19 @@ export declare function parseSocketIsolationFacts(text: string): SocketIsolation
  * @returns the masks, deduplicated; empty for `off`.
  */
 export declare function socketMaskPaths(mode: SocketIsolation, facts: SocketIsolationFacts): string[];
+/**
+ * How long resolved facts stay fresh. A daemon started after the first
+ * confined command (docker, podman, the user manager) adds a socket that a
+ * process-lifetime cache would never mask; the TTL bounds that window while
+ * still keeping a burst of commands to one probe.
+ */
+export declare const SOCKET_FACTS_TTL_MS = 60000;
 /** Test hook: forget the remembered facts. */
 export declare function resetSocketIsolationCache(): void;
 /**
  * Resolve the socket masks for one distro and stance, running the in-distro
- * probe once per `(wslPath, distro)`.
+ * probe once per `(wslPath, distro)` and re-running it after
+ * {@link SOCKET_FACTS_TTL_MS} so a socket that appears later is masked too.
  *
  * @param options - the stance, transport, distro and host runner.
  * @returns the masks; empty for `off`.

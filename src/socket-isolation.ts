@@ -20,9 +20,9 @@
  *   3. {@link socketMaskPaths} maps a mode plus facts to the absolute paths
  *      bwrap binds `/dev/null` over.
  *   4. {@link socketMasksFor} runs the probe once per `(wslPath, distro)` and
- *      caches the facts; a probe failure is thrown, never read as "nothing to
- *      mask" — a configured isolation that silently disappears is worse than
- *      no isolation.
+ *      keeps the facts for a short TTL; a probe failure is thrown, never read
+ *      as "nothing to mask" — a configured isolation that silently disappears
+ *      is worse than no isolation.
  *
  * The masks are a narrowing, not a closure. The distro user's other IPC
  * (`/proc`, a same-user process's sockets, the interop transport) remains;
@@ -132,8 +132,16 @@ export function socketMaskPaths(mode: SocketIsolation, facts: SocketIsolationFac
   return [...new Set(paths)];
 }
 
+/**
+ * How long resolved facts stay fresh. A daemon started after the first
+ * confined command (docker, podman, the user manager) adds a socket that a
+ * process-lifetime cache would never mask; the TTL bounds that window while
+ * still keeping a burst of commands to one probe.
+ */
+export const SOCKET_FACTS_TTL_MS = 60_000;
+
 /** The successful facts, keyed by the exact transport + distro pair; a failure is not remembered. */
-const factsCache = new Map<string, Promise<SocketIsolationFacts>>();
+const factsCache = new Map<string, { at: number, pending: Promise<SocketIsolationFacts> }>();
 
 /** Test hook: forget the remembered facts. */
 export function resetSocketIsolationCache(): void {
@@ -142,7 +150,8 @@ export function resetSocketIsolationCache(): void {
 
 /**
  * Resolve the socket masks for one distro and stance, running the in-distro
- * probe once per `(wslPath, distro)`.
+ * probe once per `(wslPath, distro)` and re-running it after
+ * {@link SOCKET_FACTS_TTL_MS} so a socket that appears later is masked too.
  *
  * @param options - the stance, transport, distro and host runner.
  * @returns the masks; empty for `off`.
@@ -158,8 +167,10 @@ export async function socketMasksFor(options: {
   if (options.mode === "off") return [];
   options.signal?.throwIfAborted();
   const key = `${options.wslPath}\u0000${options.distro}`;
-  let pending = factsCache.get(key);
-  if (pending === undefined) {
+  const now = Date.now();
+  const cached = factsCache.get(key);
+  let entry: { at: number, pending: Promise<SocketIsolationFacts> };
+  if (cached === undefined || now - cached.at >= SOCKET_FACTS_TTL_MS) {
     const argv = [
       options.wslPath,
       ...(options.distro.length > 0 ? ["-d", options.distro] : []),
@@ -168,13 +179,18 @@ export async function socketMasksFor(options: {
       "-c",
       socketIsolationProbeScript(),
     ];
-    pending = options.run(argv).then(parseSocketIsolationFacts);
-    factsCache.set(key, pending);
-    pending.catch(() => factsCache.delete(key));
+    const pending = options.run(argv).then(parseSocketIsolationFacts);
+    entry = { at: now, pending };
+    factsCache.set(key, entry);
+    pending.catch(() => {
+      if (factsCache.get(key) === entry) factsCache.delete(key);
+    });
+  } else {
+    entry = cached;
   }
   let facts: SocketIsolationFacts;
   try {
-    facts = await pending;
+    facts = await entry.pending;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new SocketIsolationError(options.mode, `socketIsolation: ${options.mode} could not read the distro's socket facts (${reason}); fix the distro access or set socketIsolation: off to accept the partial boundary`);

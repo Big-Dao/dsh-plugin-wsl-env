@@ -62,7 +62,7 @@ runs:
         $null = Invoke-Wsl @("-d", $distro, "-u", "root", "--exec", "apt-get", "install", "-y", "--no-install-recommends", "bubblewrap", "dbus", "git", "ca-certificates", "curl", "build-essential") 900 2
         # Callers may need one or two packages beyond the plugin's own set; a
         # separate invocation keeps the pinned list (and its test) unchanged.
-        $extra = "${{ inputs.extra-packages }}".Trim()
+        $extra = "${{ inputs['extra-packages'] }}".Trim()
         if ($extra) {
           $extraArgs = @("-d", $distro, "-u", "root", "--exec", "apt-get", "install", "-y", "--no-install-recommends") + ($extra -split "\s+")
           $null = Invoke-Wsl $extraArgs 600 2

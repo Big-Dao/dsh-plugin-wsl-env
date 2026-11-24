@@ -76,25 +76,33 @@ const committed = generatedPaths();
 const scratch = mkdtempSync(join(tmpdir(), "dsh-build-freshness-"));
 /** @type {string[]} */
 const drifted = [];
+/** The compiler's output when the build cannot run to the end; reported once the scratch directory is gone. */
+let buildFailure;
 try {
   try {
     execFileSync(process.execPath, [BUILD, "--outDir", scratch], { cwd: ROOT, stdio: "pipe" });
   } catch (error) {
-    const detail = String(/** @type {{stdout?: unknown}} */ (error).stdout ?? (/** @type {Error} */ (error)).message).trim();
-    console.error(`FAIL  the build itself fails:\n${detail}`);
-    process.exit(1);
+    // Not `process.exit` here: that would skip the cleanup below and leave the scratch directory behind.
+    buildFailure = String(/** @type {{stdout?: unknown}} */ (error).stdout ?? (/** @type {Error} */ (error)).message).trim();
   }
-  for (const path of committed) {
-    let built;
-    try {
-      built = readFileSync(join(scratch, basename(path)));
-    } catch {
-      built = undefined;
+  if (buildFailure === undefined) {
+    for (const path of committed) {
+      let built;
+      try {
+        built = readFileSync(join(scratch, basename(path)));
+      } catch {
+        built = undefined;
+      }
+      if (built === undefined || !built.equals(readFileSync(path))) drifted.push(`${relative(ROOT, path)} is stale`);
     }
-    if (built === undefined || !built.equals(readFileSync(path))) drifted.push(`${relative(ROOT, path)} is stale`);
   }
 } finally {
   rmSync(scratch, { recursive: true, force: true });
+}
+
+if (buildFailure !== undefined) {
+  console.error(`FAIL  the build itself fails:\n${buildFailure}`);
+  process.exit(1);
 }
 
 if (drifted.length > 0) {

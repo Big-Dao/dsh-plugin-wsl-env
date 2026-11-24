@@ -72,7 +72,19 @@ export function doctorFact(execPath: string, pluginRoot: string, isWindows: bool
   const script = join(pluginRoot, "scripts", "doctor.mjs");
   const existing = process.env.WSLENV;
   const wslenv = existing !== undefined && existing.length > 0 ? `ELECTRON_RUN_AS_NODE:${existing}` : "ELECTRON_RUN_AS_NODE";
-  return `WSLENV="${wslenv}" ELECTRON_RUN_AS_NODE=1 '${windowsToPosix(execPath)}' '${script}'`;
+  return `WSLENV="${wslenv}" ELECTRON_RUN_AS_NODE=1 ${posixQuote(windowsToPosix(execPath))} ${posixQuote(script)}`;
+}
+
+/**
+ * Quote one value for a POSIX shell. A lone apostrophe would otherwise end
+ * the quoted string early — a path may legally contain one, and the whole
+ * command then fails with a syntax error instead of running the doctor.
+ *
+ * @param value - the raw value.
+ * @returns the value in single quotes with embedded apostrophes escaped.
+ */
+function posixQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 export const name = "wsl-shell-env";
@@ -181,7 +193,13 @@ export async function apply(ctx: ShellEnvContext, config: ShellEnvConfig = {}): 
         defaultShell(distro),
         linuxHomePath(distro).catch(() => undefined),
       ]);
-      facts.set(distro, { shell, home });
+      // A probe that failed leaves NO key behind: the comment above promises
+      // that, and caching an all-undefined entry made one transient failure
+      // permanent for the process (no DSH_WSL_SHELL/DSH_WSL_HOME until a
+      // restart). A partial answer is still worth caching.
+      if (shell !== undefined || home !== undefined) {
+        facts.set(distro, { ...(shell === undefined ? {} : { shell }), ...(home === undefined ? {} : { home }) });
+      }
     } finally {
       inflight.delete(distro);
     }

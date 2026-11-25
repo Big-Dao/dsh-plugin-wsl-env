@@ -16,6 +16,11 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.29.1] - 2026-11-25
+
+Correctness and performance fixes across the resident agent, the session
+runtime, isolation and diagnostics (#72-#78, #85, #89-#91).
+
 ### Fixed
 
 - **A command runs when the resident agent is out.** The shell executor's
@@ -343,6 +348,15 @@ were part of the record.
   scripts, the three byte-identical fake-resident `close()` copies share
   `test/resident-close.mjs`, and the process-tree check polls for the clean
   tree instead of sleeping a fixed 4.5 s.
+
+### Verification
+
+- `pnpm test`, `pnpm run test:coverage`, `pnpm run test:browser` and
+  `pnpm run e2e:install` passed (2026-11-25); the e2e leg upgraded the newest
+  published stable (0.29.0) to this version and booted it with all three
+  takeovers served by this plugin. The closed-app real-machine probe suite was
+  not run while preparing this release; the tag's candidate and post-release
+  gates produce their own official-package evidence.
 
 ## [0.29.0] - 2026-11-23
 

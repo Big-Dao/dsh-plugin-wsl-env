@@ -312,6 +312,33 @@ checks.push(["writeText creates and updates with the peer's outcome shape", asyn
   });
 }]);
 
+checks.push(["an overwrite reads the target's stat once for the guard and the diff basis", async () => {
+  await substrate(async (sub, root) => {
+    const target = await targetOf(sub, join(root, "one-stat.txt"));
+    await sub.writeText(target, "one\n", undefined);
+    /**
+     * Count the substrate's stat round trips. `writeText` needs one for the
+     * guard and one after the write (the published version); the diff basis
+     * used to issue a third against the same row.
+     * @typedef {{ stat: (path: string, options?: { follow?: boolean, signal?: AbortSignal }) => Promise<unknown> }} StatSpy
+     */
+    const spy = /** @type {StatSpy} */ (/** @type {unknown} */ (sub.fs));
+    const real = spy.stat.bind(sub.fs);
+    let calls = 0;
+    spy.stat = async (path, options) => {
+      calls += 1;
+      return real(path, options);
+    };
+    try {
+      const updated = await sub.writeText(target, "two\n", undefined);
+      assert.equal(updated.operation, "update");
+      assert.equal(calls, 2, "one guard stat plus the post-write stat; the basis reused the first");
+    } finally {
+      spy.stat = real;
+    }
+  });
+}]);
+
 checks.push(["writeText forwards the guard: stale versions and unread files are refused", async () => {
   await substrate(async (sub, root) => {
     const target = await targetOf(sub, join(root, "a.txt"));

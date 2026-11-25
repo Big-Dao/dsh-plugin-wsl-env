@@ -446,11 +446,22 @@ export declare class DistroFs {
      * one (binary, at/above the bound, vanished), so the write still succeeds
      * and presentation falls back to a whole-file diff.
      *
+     * `known` is the stat the caller already made for its own guard: the write
+     * paths read the target once for type, mode and version, and this basis
+     * used to stat it a second time on every overwrite. The basis is best
+     * effort, so judging the bound from that earlier row (and letting a raced
+     * read degrade to null) is within its contract.
+     *
      * @param target - the resolved file.
      * @param maxBytes - exclusive upper bound for the held basis.
      * @param signal - cancellation propagates, unlike I/O failure.
+     * @param known - the caller's already-fetched stat row, or null when the
+     *   target was known absent.
      * @returns the LF-normalized text, or null.
      */
-    readTextForDiff(target: ResolvedTarget, maxBytes: number, signal?: AbortSignal): Promise<string | null>;
+    readTextForDiff(target: ResolvedTarget, maxBytes: number, signal?: AbortSignal, known?: {
+        type: string;
+        size: number;
+    } | null): Promise<string | null>;
 }
 export {};

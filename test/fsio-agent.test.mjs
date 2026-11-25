@@ -755,6 +755,39 @@ checks.push(["readTextForDiff serves a small text file and nulls a big, missing,
   });
 }]);
 
+checks.push(["readTextForDiff reuses the caller's stat instead of probing again", async () => {
+  if (!POSIX) return;
+  await substrate(async (fs, root) => {
+    const file = join(root, "reuse.txt");
+    writeFileSync(file, "one\ntwo\n");
+    const target = await fs.resolveTarget(file);
+    /**
+     * The stat seam, made observable for this check. `readTextForDiff` calls
+     * `this.stat`, so replacing the instance method counts the round trips
+     * without changing what the substrate answers.
+     * @typedef {{ stat: (path: string, options?: { follow?: boolean, signal?: AbortSignal }) => Promise<{ type: string, size: number } | null> }} SpyFs
+     */
+    const spy = /** @type {SpyFs} */ (/** @type {unknown} */ (fs));
+    const realStat = spy.stat.bind(fs);
+    let calls = 0;
+    spy.stat = async (path, options) => {
+      calls += 1;
+      return realStat(path, options);
+    };
+    try {
+      const info = await realStat(file);
+      assert.ok(info !== null, "the fixture stats as a regular file");
+      calls = 0;
+      assert.equal(await fs.readTextForDiff(target, 1024, undefined, info), "one\ntwo\n", "the known row still serves the basis");
+      assert.equal(calls, 0, "a known stat means no extra agent round trip");
+      assert.equal(await fs.readTextForDiff(target, 1024), "one\ntwo\n");
+      assert.equal(calls, 1, "a caller without a stat still gets one");
+    } finally {
+      spy.stat = realStat;
+    }
+  });
+}]);
+
 checks.push(["the EXEC frame is untouched by the adapter's arrival", () => {
   const lines = encodeExecFrame({ id: "r1", cwd: "/", argv: ["true"], timeoutMs: 0 });
   const head = lines[0];

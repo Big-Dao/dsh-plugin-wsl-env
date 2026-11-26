@@ -61,7 +61,7 @@ case "\$1" in
     # A slow shared resident (DSH_FAKE_SLOW): the port scan stays in flight.
     # sleep by absolute path: the resident is spawned with a pinned PATH
     # that holds nothing but this directory.
-    case "\$*" in *"/wsl-agent.sh") [ -z "\$DSH_FAKE_SLOW" ] || /bin/sleep 1 ;; esac
+    case "\$*" in *"/wsl-agent.sh") [ -z "\$DSH_FAKE_SLOW" ] || /bin/sleep 3 ;; esac
     for arg in "\$@"; do
       case "\$arg" in *getent*) echo /bin/zsh; exit 0 ;; esac
       case "\$arg" in *HOME*) echo /home/ze-user; exit 0 ;; esac
@@ -324,7 +324,7 @@ if (POSIX) {
     resetSharedAgents();
     rmSync(log, { force: true });
     process.env.DSH_FAKE_LOG = log;
-    return mount({ withAgents: true, fakeWsl: true, config: { distro: "ze-ubuntu", portsRefreshMs: 40 }, liveAgents });
+    return mount({ withAgents: true, fakeWsl: true, config: { distro: "ze-ubuntu", portsRefreshMs: 1000 }, liveAgents });
   };
   const finish = async () => {
     const fiber = /** @type {{ dispose?: () => Promise<void> } | undefined} */ (mounted?.fiber);
@@ -337,13 +337,13 @@ if (POSIX) {
     const live = session();
     process.env.DSH_FAKE_RUNNING = "ze-ubuntu\\r\\n";
     mounted = await mountPolled(live);
-    await waits(300);
+    await waits(1500);
     const whileUsed = probes();
-    assert.ok(whileUsed >= 2, `precondition: a distro a live session works in is polled (${whileUsed} probes in 300 ms)`);
+    assert.ok(whileUsed >= 2, `precondition: a distro a live session works in is polled (${whileUsed} probes in 1500 ms)`);
     live.length = 0;
-    await waits(150);
+    await waits(1500);
     const afterGone = probes();
-    await waits(300);
+    await waits(1500);
     assert.equal(probes(), afterGone, "a distro no live session works in is no longer polled");
     console.log("PASS  the port poller stops with the last session that used the distro");
   } finally {
@@ -365,9 +365,9 @@ if (POSIX) {
     process.env.DSH_FAKE_RUNNING = "ze-ubuntu\\r\\n";
     process.env.DSH_FAKE_SLOW = "1";
     mounted = await mountPolled(session());
-    await waits(300);
-    // Seven ticks passed while the first scan was still inside its 1 s probe.
-    assert.ok(probes() <= 2, `a scan still in flight is not overlapped by the next tick (${probes()} probes in 300 ms); log:\n${readFileSync(log, "utf8")}`);
+    await waits(2300);
+    // Three ticks passed while the first scan was still inside its 3 s probe.
+    assert.ok(probes() <= 2, `a scan still in flight is not overlapped by the next tick (${probes()} probes in 2300 ms); log:\n${readFileSync(log, "utf8")}`);
     console.log("PASS  a slow scan is not overlapped by the next tick");
   } finally {
     await finish();

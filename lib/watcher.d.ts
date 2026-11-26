@@ -11,7 +11,9 @@
  * When `inotifywait` is installed and the target is an unbounded directory,
  * the watcher uses inotify: recursive kernel watches, one `C` per 0.5s of
  * events (a build's event storm is coalesced, the first event is immediate).
- * Otherwise it falls back to the long-lived polling loop: every cadence,
+ * If the inotify source dies mid-watch (an inotify limit, a vanished source),
+ * the heartbeat notices and hands over to the polling loop. Otherwise it
+ * falls back to the long-lived polling loop: every cadence,
  * `find <dir> -newer <stamp>` — the directory itself is in the scan, so
  * creations AND deletions (which bump the parent's mtime) are both seen — and
  * one `C` line per hit. A FILE target uses the `mtime:size` fingerprint (so a

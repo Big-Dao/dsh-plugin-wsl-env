@@ -971,4 +971,72 @@ await check("the shell agent answers the same EXEC shape (differential)", async 
   await session.close();
 });
 
+/**
+ * Drive one frame whose trailing lines were lost (the host died mid-write):
+ * send what survived, close stdin, and collect everything the agent said
+ * before it exited.
+ * @param {string[]} lines - the frame lines that survived the cut.
+ * @returns {Promise<{ stdout: string, code: number | null }>} the wire text and exit code.
+ */
+const driveTruncated = async (lines) => {
+  const child = spawnAgent(binary, []);
+  let stdout = "";
+  const hello = new Promise((resolve, reject) => {
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+      if (stdout.includes("HELLO|")) resolve(undefined);
+    });
+    child.once("error", reject);
+  });
+  await hello;
+  child.stdin.write(`${lines.join("\n")}\n`);
+  child.stdin.end();
+  const code = await new Promise((resolve) => child.once("exit", resolve));
+  return { stdout, code };
+};
+
+await check("a truncated FS write at EOF is refused, never dispatched", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spike-trunc-fs-"));
+  try {
+    const target = join(root, "keep.txt");
+    writeFileSync(target, "keep");
+    const frame = encodeFsFrame({ id: "t1", op: "write", args: [target, "-", "replace", "-", "replacement"] });
+    const { stdout } = await driveTruncated(frame.slice(0, -1));
+    assert.match(stdout, /^FSERR\|t1\|protocol\|/m, "the truncated frame is refused on the wire");
+    assert.equal(readFileSync(target, "utf8"), "keep", "the truncated write never published");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+await check("a truncated EXEC at EOF is refused, never spawned", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spike-trunc-exec-"));
+  try {
+    const marker = join(root, "ran");
+    const frame = encodeExecFrame({ id: "t2", cwd: root, argv: ["sh", "-c", `printf x > "${marker}"`] });
+    const { stdout } = await driveTruncated(frame.slice(0, -1));
+    assert.match(stdout, /^ERR\|t2\|protocol\|/m, "the truncated frame is refused on the wire");
+    assert.equal(existsSync(marker), false, "the truncated command never ran");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+await check("a truncated FSB at EOF is refused, never dispatched", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spike-trunc-fsb-"));
+  try {
+    const target = join(root, "keep.txt");
+    writeFileSync(target, "keep");
+    const frame = encodeFsbFrame({
+      id: "t3",
+      ops: [{ op: "write", args: [target, "-", "replace", "-", "replacement"] }],
+    });
+    const { stdout } = await driveTruncated(frame.slice(0, -1));
+    assert.match(stdout, /^FSERR\|t3\|protocol\|/m, "the truncated batch is refused on the wire");
+    assert.equal(readFileSync(target, "utf8"), "keep", "the truncated batch never published");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 console.log(`\n${passed} native spike checks pass`);

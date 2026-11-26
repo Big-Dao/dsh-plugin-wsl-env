@@ -978,18 +978,30 @@ fn main() {
                     .map(|v| v == 1)
                     .unwrap_or(false);
                 let mut argv = Vec::with_capacity(nargs);
+                let mut truncated = false;
                 for _ in 0..nargs {
                     match lines.next() {
                         Some(Ok(arg)) => argv.push(String::from_utf8_lossy(&b64_decode(&arg)).into_owned()),
-                        _ => break,
+                        _ => {
+                            truncated = true;
+                            break;
+                        }
                     }
                 }
                 let mut stdin_payload: Vec<u8> = Vec::new();
-                if stdin_flag {
+                if stdin_flag && !truncated {
                     match lines.next() {
                         Some(Ok(payload)) => stdin_payload = b64_decode(&payload),
-                        _ => {}
+                        _ => truncated = true,
                     }
+                }
+                // A frame whose lines ran out mid-read is a host that died
+                // writing it: dispatching the partial request would run a
+                // partial argv. Refuse and exit, like the shell agent's
+                // `|| exit 0` on a failed read.
+                if truncated {
+                    write_line(&out, &format!("ERR|{id}|protocol|{}", b64_encode(b"truncated EXEC frame")));
+                    break;
                 }
                 let envs = Arc::clone(&envs);
                 let active = Arc::clone(&active);
@@ -1002,10 +1014,14 @@ fn main() {
                 let id = fields.get(1).copied().unwrap_or("").to_string();
                 let nops: usize = fields.get(3).and_then(|v| v.parse().ok()).unwrap_or(0);
                 let mut ops: Vec<(String, Vec<Vec<u8>>)> = Vec::with_capacity(nops);
+                let mut truncated = false;
                 for _ in 0..nops {
                     let spec = match lines.next() {
                         Some(Ok(spec)) => spec,
-                        _ => break,
+                        _ => {
+                            truncated = true;
+                            break;
+                        }
                     };
                     let spec_fields: Vec<&str> = spec.split('|').collect();
                     let op = spec_fields.get(1).copied().unwrap_or("").to_string();
@@ -1014,10 +1030,20 @@ fn main() {
                     for _ in 0..nargs {
                         match lines.next() {
                             Some(Ok(arg)) => args.push(b64_decode(&arg)),
-                            _ => break,
+                            _ => {
+                                truncated = true;
+                                break;
+                            }
                         }
                     }
+                    if truncated {
+                        break;
+                    }
                     ops.push((op, args));
+                }
+                if truncated {
+                    write_line(&out, &format!("FSERR|{id}|protocol|{}", b64_encode(b"truncated FSB frame")));
+                    break;
                 }
                 let out = Arc::clone(&out);
                 let fs_lock = Arc::clone(&fs_lock);
@@ -1031,11 +1057,21 @@ fn main() {
                 let op = fields.get(2).copied().unwrap_or("").to_string();
                 let nargs: usize = fields.get(4).and_then(|v| v.parse().ok()).unwrap_or(0);
                 let mut args = Vec::with_capacity(nargs);
+                let mut truncated = false;
                 for _ in 0..nargs {
                     match lines.next() {
                         Some(Ok(arg)) => args.push(b64_decode(&arg)),
-                        _ => break,
+                        _ => {
+                            truncated = true;
+                            break;
+                        }
                     }
+                }
+                // A short read means the host died mid-frame; a write missing
+                // its content line would publish an empty file. Refuse.
+                if truncated {
+                    write_line(&out, &format!("FSERR|{id}|protocol|{}", b64_encode(b"truncated FS frame")));
+                    break;
                 }
                 let out = Arc::clone(&out);
                 let fs_lock = Arc::clone(&fs_lock);

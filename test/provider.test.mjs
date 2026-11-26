@@ -778,9 +778,11 @@ check("maskWindowsDrive reaches the per-command confinement, not only the sessio
   }));
   const sandbox = executor.sandbox;
   assert.ok(sandbox, "the sandbox core exists while sandbox is on");
-  // The per-command profile is built here, not in a session runtime; only the
-  // bwrap probe (which would spawn wsl.exe) is substituted.
+  // The per-command profile is built here, not in a session runtime; the two
+  // distro round trips (the bwrap probe and the workspace physical check) are
+  // substituted so nothing spawns wsl.exe.
   sandbox.usable = async () => true;
+  sandbox.checkWorkspaceRoot = async () => {};
   const confined = await sandbox.confine(["sh", "-c", "true"], policy, { distro: DISTRO });
   const mnt = confined.argv.indexOf("/mnt");
   assert.notEqual(mnt, -1, "the per-command profile shadows the drive");

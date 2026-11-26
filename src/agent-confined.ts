@@ -48,6 +48,8 @@ const confinedAgents = new Map<string, WslAgent>();
  *   <root>`) and bwrap refuses a missing bind source, so `mkdir -p` it — on a
  *   freshly imported distro the first write's workspace may not exist yet
  *   (WSL-305).
+ * - `workspace-symlink`: the root must be its own physical directory; a
+ *   symlinked root would bind its target read-write, widening the grant.
  * - `interpreter`: the resident runs as `sh <script>`; a distro without `sh`
  *   is not a distro this plugin can serve.
  * - `base64` and `sha256sum`: the agent script's frames and its HELLO digest
@@ -63,6 +65,11 @@ const confinedAgents = new Map<string, WslAgent>();
 export function spawnChecklistScript(root: string): string {
   return [
     'mkdir -p -- "$1" || { echo workspace-root >&2; exit 1; }',
+    // A symlinked root would bind its target read-write, widening the grant
+    // to wherever the link points — the same physical-path rule the extra
+    // writable roots follow.
+    'p=$(cd -- "$1" 2>/dev/null && pwd -P) || { echo workspace-root >&2; exit 1; }',
+    '[ "$p" = "$1" ] || { echo workspace-symlink >&2; exit 1; }',
     "command -v sh >/dev/null || { echo interpreter >&2; exit 1; }",
     "command -v base64 >/dev/null || { echo base64 >&2; exit 1; }",
     "command -v sha256sum >/dev/null || { echo sha256sum >&2; exit 1; }",
@@ -92,7 +99,10 @@ export async function runSpawnChecklist({ wslPath, distro, root, runFn }: { wslP
     // folded into the message — where the failing step named itself.
     detail = String(error).trim();
   }
-  const named = /workspace-root|interpreter|base64|sha256sum/.exec(detail)?.[0];
+  const named = /workspace-root|workspace-symlink|interpreter|base64|sha256sum/.exec(detail)?.[0];
+  if (named === "workspace-symlink") {
+    throw new Error(`dsh-plugin-wsl-env: the workspace root in ${distro} is a symlink; use the physical directory path (symlinked workspace roots are not supported)`);
+  }
   if (named !== undefined) {
     throw new Error(`dsh-plugin-wsl-env: the confined spawn checklist step '${named}' failed in ${distro}`);
   }

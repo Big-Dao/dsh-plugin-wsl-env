@@ -121,7 +121,13 @@ effective stance and the detected surfaces. The default is `off`: the escape
 remains reachable unless an operator chooses a stance, and the masks are a
 user-level narrowing, not a closure — same-user `/proc` and other IPC remain,
 and `enforcement` stays `partial`. The distro-wide switch is still `[interop]
-enabled=false` plus `wsl.exe --shutdown`. The reproduction steps stay private; the exact
+enabled=false` plus `wsl.exe --shutdown`. Socket facts are cached with a
+60-second TTL: a socket that appears after the probe stays unmasked until the
+cache expires, and a confined resident already running lives under the mount
+table it started with — a changed mask set addresses a new resident, but the
+old one keeps its old table until it idles out. For an immediate narrowing,
+restart the session (or wait for the idle retirement) and re-run doctor to
+confirm the effective stance. The reproduction steps stay private; the exact
 paths are listed in
 [docs/CONFIGURATION.md](docs/CONFIGURATION.md#socket-isolation) because an
 operator must know what the key covers. The finding, its verification and the

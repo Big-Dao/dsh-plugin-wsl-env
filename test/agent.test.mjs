@@ -834,11 +834,12 @@ checkReg("the confined factory builds a whole command: program, profile, separat
     "the read-only base of the profile follows the program",
   );
   assert.deepEqual(
-    profile.slice(-6),
-    ["--bind", "/tmp", "/tmp", "--bind", "/home/u/ws", "/home/u/ws"],
+    profile.slice(-8),
+    ["--bind", "/tmp", "/tmp", "--tmpfs", "/dev/shm", "--bind", "/home/u/ws", "/home/u/ws"],
     "workspace-write binds the workspace AND the real /tmp the fence grants: a write the fence approved must land where every reader reads",
   );
-  assert.equal(profile.includes("--tmpfs"), false, "the fs resident must not publish into an ephemeral tmpfs");
+  const tmpfsAt = profile.indexOf("--tmpfs");
+  assert.deepEqual(profile.slice(tmpfsAt, tmpfsAt + 2), ["--tmpfs", "/dev/shm"], "the fs resident's only tmpfs is the shm temp area; /tmp stays real");
 
   resetConfinedAgents();
   const ephemeral = confinedAgent({
@@ -848,8 +849,8 @@ checkReg("the confined factory builds a whole command: program, profile, separat
   });
   const ephemeralProfile = ephemeral.argvPrefix.slice(1, -1);
   assert.deepEqual(
-    ephemeralProfile.slice(-5),
-    ["--tmpfs", "/tmp", "--bind", "/home/u/ws", "/home/u/ws"],
+    ephemeralProfile.slice(-7),
+    ["--tmpfs", "/tmp", "--tmpfs", "/dev/shm", "--bind", "/home/u/ws", "/home/u/ws"],
     "realTmp: false restores the ephemeral temp area (tests and probes only)",
   );
 
@@ -877,10 +878,10 @@ checkReg("realTmp binds the real /tmp the fence grants, instead of an ephemeral 
   const real = bwrapProfileArgs({ mode: "workspace-write", workspaceRoot: "/w" }, { realTmp: true });
   assert.deepEqual(
     real.slice(9),
-    ["--bind", "/tmp", "/tmp", "--bind", "/w", "/w"],
+    ["--bind", "/tmp", "/tmp", "--tmpfs", "/dev/shm", "--bind", "/w", "/w"],
     "the real /tmp is bound read-write where the ephemeral tmpfs used to sit",
   );
-  assert.equal(real.includes("--tmpfs"), false, "no ephemeral temp area remains");
+  assert.deepEqual(real.slice(real.indexOf("--tmpfs"), real.indexOf("--tmpfs") + 2), ["--tmpfs", "/dev/shm"], "the only tmpfs is the shm temp area, not /tmp");
   const ephemeral = bwrapProfileArgs({ mode: "workspace-write", workspaceRoot: "/w" });
   assert.deepEqual(ephemeral.slice(9, 10), ["--tmpfs"], "the default keeps the ephemeral temp area");
   const readOnly = bwrapProfileArgs({ mode: "read-only", workspaceRoot: "/" }, { realTmp: true });
@@ -916,7 +917,7 @@ checkReg("pidNamespace: false keeps the mounts and lets background processes sur
   const session = bwrapProfileArgs({ mode: "workspace-write", workspaceRoot: "/w" }, { pidNamespace: false, realTmp: true });
   assert.equal(session.includes("--unshare-pid"), false, "the session runtime has no PID namespace");
   assert.ok(session.includes("--proc"), "the /proc mount stays");
-  assert.deepEqual(session.slice(-6), ["--bind", "/tmp", "/tmp", "--bind", "/w", "/w"]);
+  assert.deepEqual(session.slice(-8), ["--bind", "/tmp", "/tmp", "--tmpfs", "/dev/shm", "--bind", "/w", "/w"]);
   const perCommand = bwrapProfileArgs({ mode: "workspace-write", workspaceRoot: "/w" });
   assert.equal(perCommand.includes("--unshare-pid"), true, "the default stays the per-command shape");
 });
@@ -1779,9 +1780,21 @@ checkReg("the checklist script names its steps in order and takes the root as $1
   const script = spawnChecklistScript("/home/andy/.dsh-fsprobe");
   assert.match(script, /mkdir -p -- "\$1"/, "the root rides as $1, never interpolated into the body");
   assert.match(script, /echo workspace-root >&2/);
+  assert.match(script, /pwd -P/, "the root must be its own physical directory, like the grants");
+  assert.match(script, /echo workspace-symlink >&2/);
   assert.match(script, /echo interpreter >&2/);
   assert.match(script, /echo base64 >&2/);
   assert.match(script, /echo sha256sum >&2/);
+});
+
+checkReg("a symlinked workspace root is named on the rejection", async () => {
+  await assert.rejects(
+    runSpawnChecklist({
+      wslPath: "wsl.exe", distro: "Debian", root: "/home/u/link",
+      runFn: async () => { throw new Error("workspace-symlink"); },
+    }),
+    /the workspace root in Debian is a symlink; use the physical directory path/,
+  );
 });
 
 checkReg("runSpawnChecklist issues one exec round trip with the root as $1", async () => {

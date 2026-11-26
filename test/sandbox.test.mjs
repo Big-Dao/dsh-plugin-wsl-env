@@ -50,7 +50,9 @@ const marker = join(dir, "usable");
  */
 const fakeWsl = async (name, markerPath = marker) => {
   const path = join(dir, name);
-  await writeFile(path, `import { existsSync } from "node:fs";\nprocess.exitCode = existsSync(${JSON.stringify(markerPath)}) ? 0 : 1;\n`);
+  // The marker stands for bwrap's presence; the writable-roots check is a
+  // different fact (the workspace directory), so it answers independently.
+  await writeFile(path, `import { existsSync } from "node:fs";\nprocess.exitCode = process.argv.includes("wsl-writable-roots") || existsSync(${JSON.stringify(markerPath)}) ? 0 : 1;\n`);
   return path;
 };
 /** @type {{mode: "workspace-write", workspaceRoot: string}} */
@@ -118,6 +120,41 @@ await check("maskInterop shadows the WSL interop transport", async () => {
   const index = confined.argv.indexOf("/run/WSL");
   assert.ok(index > 0, "the interop transport is in the profile");
   assert.deepEqual(confined.argv.slice(index - 1, index + 1), ["--tmpfs", "/run/WSL"]);
+});
+
+await check("socket masks land after the writable binds they must survive", async () => {
+  const confined = await flipping.confine(["sh", "-c", "true"], policy, {
+    distro: "ubuntu",
+    writableRoots: ["/run"],
+    socketMasks: ["/run/dbus/system_bus_socket"],
+  });
+  const grant = confined.argv.indexOf("/run");
+  const mask = confined.argv.indexOf("/run/dbus/system_bus_socket");
+  assert.ok(grant > 0, "the ancestor grant is bound");
+  assert.ok(mask > grant, "a grant covering the socket's ancestor must not re-expose the masked socket");
+});
+
+await check("workspace-write mounts a writable /dev/shm", async () => {
+  const confined = await flipping.confine(["sh", "-c", "true"], policy, { distro: "ubuntu" });
+  const index = confined.argv.indexOf("/dev/shm");
+  assert.ok(index > 0, "the temp area the write fence grants must exist writable in the profile");
+  assert.deepEqual(confined.argv.slice(index - 1, index + 1), ["--tmpfs", "/dev/shm"]);
+});
+
+await check("a symlinked workspace is refused before binding", async () => {
+  const wslPath = join(dir, "wsl-symlink-root.mjs");
+  await writeFile(wslPath, [
+    'const argv = process.argv.slice(2).join(" ");',
+    'if (argv.includes("wsl-writable-roots")) { console.log("0|symlink -> /real"); process.exit(5); }',
+    "process.exit(0);",
+    "",
+  ].join("\n"));
+  const sandbox = new WslSandbox({ wslPath });
+  await assert.rejects(
+    () => sandbox.confine(["sh", "-c", "true"], { mode: "workspace-write", workspaceRoot: "/home/u/link" }, { distro: "ubuntu" }),
+    /physical directory path/,
+    "a workspace that is a symlink would bind its target read-write",
+  );
 });
 
 await check("read-only mode grants no workspace bind", async () => {

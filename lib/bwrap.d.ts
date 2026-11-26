@@ -72,9 +72,9 @@ interface BwrapProfileOptions {
  * `--ro-bind / /` makes the whole distro read-only, `--dev /dev` supplies the
  * `/dev/null` sink a shell needs, `--unshare-pid` keeps the sandbox's process
  * view its own, and `--proc /proc` gives it a matching `/proc`. Under
- * `workspace-write` the workspace is bound read-write and `/tmp` becomes an
- * ephemeral tmpfs — the temp area the mode promises, without exposing the
- * distro's real `/tmp`.
+ * `workspace-write` the workspace is bound read-write, `/tmp` becomes an
+ * ephemeral tmpfs (unless `realTmp`) and `/dev/shm` gets a writable tmpfs —
+ * the temp areas the mode's write fence grants.
  *
  * `options.maskWindowsDrive` mounts an empty tmpfs over `/mnt` AFTER the
  * read-only root, shadowing the Windows drive: the drive's files disappear

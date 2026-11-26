@@ -111,6 +111,8 @@ export interface WslSandboxCoreInstance {
     maskWindowsDrive: boolean;
     /** Probe the distro's `bwrap`. */
     usable: (distro: string, signal?: AbortSignal | undefined) => Promise<boolean>;
+    /** The workspace bind's physical-path check; overridable like `usable`. */
+    checkWorkspaceRoot: (distro: string, root: string, signal?: AbortSignal | undefined) => Promise<void>;
     /** Wrap one argv in the profile. */
     confine: (argv: string[], policy: {
         mode: "read-only" | "workspace-write";

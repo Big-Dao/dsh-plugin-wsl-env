@@ -108,6 +108,10 @@ WSL interop 启动 Windows 程序，例如 `/mnt/c/.../*.exe`。该程序在 Lin
 用户级收窄，不是关闭——同用户 `/proc` 与其他 IPC 仍在，`enforcement` 仍是
 `partial`。整发行版开关仍是 `[interop] enabled=false` 加
 `wsl.exe --shutdown`。
+socket 事实按 60 秒 TTL 缓存：探测之后新出现的 socket 在缓存过期前不会被
+遮蔽，且已启动的受限驻留进程按其启动时的挂载表生活——遮蔽面变化会寻址到
+新的驻留实例，但旧实例在其空闲退役前仍按旧表执行。需要即时收窄时，重启
+会话（或等待空闲退役）并重跑 doctor 确认生效档位。
 复现步骤仍不公开；具体路径列在
 [docs/CONFIGURATION.zh.md](docs/CONFIGURATION.zh.md#socket-isolation)，因为
 operator 需要知道该键覆盖什么。发现、验证与剩余决定记录在

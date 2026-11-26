@@ -10,7 +10,8 @@ import assert from "node:assert/strict";
 import { mock } from "node:test";
 import { Context } from "@deepseek-ai/cordis";
 import { SessionRuntimes, setSessionNativeAgent } from "../lib/session-runtime.js";
-import { ORPHAN_RUNTIME_IDLE_MS, ORPHAN_SWEEP_MS, ProviderRuntimeBook, SessionEndWatch, orphanedSessions } from "../lib/provider-common.js";
+import { ORPHAN_RUNTIME_IDLE_MS, ORPHAN_SWEEP_MS, ProviderRuntimeBook, SessionEndWatch, orphanedSessions, wslWritableRoots } from "../lib/provider-common.js";
+import { posixToUnc } from "../lib/paths.js";
 
 let passed = 0;
 /** @type {Array<[string, () => void | Promise<void>]>} */
@@ -148,7 +149,7 @@ check("the same key is one runtime, refcounted, with the scope + mount prefix", 
   assert.equal(prefix.includes("--unshare-pid"), false, "the session runtime has no PID namespace");
   assert.deepEqual(prefix.slice(bwrap), [
     "bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--die-with-parent",
-    "--bind", "/tmp", "/tmp", "--bind", "/home/andy/proj", "/home/andy/proj", "--",
+    "--bind", "/tmp", "/tmp", "--tmpfs", "/dev/shm", "--bind", "/home/andy/proj", "/home/andy/proj", "--",
   ]);
   await registry.release(first.key);
   assert.equal(events.length, 0, "one holder still keeps the runtime alive");
@@ -471,6 +472,16 @@ check("a watch over a context that exposes no agent registry ends nothing on its
     mock.timers.reset();
   }
   await registry.disposeAll();
+});
+
+check("the WSL write fence grants /dev/shm beside /tmp", () => {
+  const roots = wslWritableRoots(
+    /** @type {import("@deepseek-ai/dsh-sandbox").SandboxExecutionPolicy} */ ({ mode: "workspace-write", workspaceRoot: "\\\\wsl.localhost\\Ubuntu\\home\\u\\proj" }),
+    "Ubuntu",
+    [],
+  );
+  assert.ok(roots.includes(posixToUnc("Ubuntu", "/tmp")), "the real temp area stays granted");
+  assert.ok(roots.includes(posixToUnc("Ubuntu", "/dev/shm")), "the fence must grant what the profile makes writable");
 });
 
 for (const [name, fn] of checks) await runCheck(name, fn);

@@ -8,6 +8,8 @@ import { WslAgent } from "./agent.js";
  *   <root>`) and bwrap refuses a missing bind source, so `mkdir -p` it — on a
  *   freshly imported distro the first write's workspace may not exist yet
  *   (WSL-305).
+ * - `workspace-symlink`: the root must be its own physical directory; a
+ *   symlinked root would bind its target read-write, widening the grant.
  * - `interpreter`: the resident runs as `sh <script>`; a distro without `sh`
  *   is not a distro this plugin can serve.
  * - `base64` and `sha256sum`: the agent script's frames and its HELLO digest

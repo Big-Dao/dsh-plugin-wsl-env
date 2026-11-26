@@ -65,6 +65,7 @@ export function wslWritableRoots(policy: SandboxExecutionPolicy, distro: string,
   const roots = new Set([canonicalPath(policy.workspaceRoot)]);
   if (isWslUnc(policy.workspaceRoot)) {
     roots.add(canonicalPath(posixToUnc(distro, "/tmp")));
+    roots.add(canonicalPath(posixToUnc(distro, "/dev/shm")));
     for (const root of linuxExtraRoots) roots.add(canonicalPath(posixToUnc(distro, root)));
   } else {
     for (const root of writableRoots(policy)) roots.add(root);

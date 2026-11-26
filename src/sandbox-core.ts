@@ -21,6 +21,7 @@ import { createProbeCache } from "./probe-cache.js";
 import { toLinuxPath } from "./paths.js";
 import { runCapture } from "./wsl.js";
 import { bwrapArgvPrefix } from "./bwrap.js";
+import { ensureWritableRoots } from "./writable-roots.js";
 import { t } from "./messages.js";
 
 /**
@@ -324,6 +325,8 @@ export interface WslSandboxCoreInstance {
   maskWindowsDrive: boolean;
   /** Probe the distro's `bwrap`. */
   usable: (distro: string, signal?: AbortSignal | undefined) => Promise<boolean>;
+  /** The workspace bind's physical-path check; overridable like `usable`. */
+  checkWorkspaceRoot: (distro: string, root: string, signal?: AbortSignal | undefined) => Promise<void>;
   /** Wrap one argv in the profile. */
   confine: (
     argv: string[],
@@ -374,6 +377,30 @@ export function createSandboxCore({ SandboxUnavailableError }: {
     }
 
     /**
+     * The workspace bind follows the same physical-path rule as the extra
+     * grants: a symlinked root would widen the rw bind to its target. The
+     * check's success is durable; a refusal names the physical path to use.
+     * A method, like `usable`, so a test that substitutes the probe can
+     * substitute the distro round trip this check spends too.
+     *
+     * @param distro - the distro the workspace lives in.
+     * @param root - the workspace root, already a Linux path.
+     * @param signal - optional cancellation.
+     * @returns resolved when the root is its own physical directory.
+     */
+    async checkWorkspaceRoot(distro: string, root: string, signal?: AbortSignal): Promise<void> {
+      await ensureWritableRoots({
+        wslPath: this.wslPath,
+        distro,
+        roots: [root],
+        signal,
+        // The check spawns through the same seam as the probe, so a test
+        // fake (`.mjs`) runs under this Node on Windows too.
+        run: (argv) => runCapture([...wslCommand(this.wslPath), ...argv.slice(1)], signal),
+      });
+    }
+
+    /**
      * Wrap one distro-side argv in the bwrap profile the policy asks for.
      *
      * The policy's `workspaceRoot` arrives in whichever coordinate system the
@@ -406,6 +433,9 @@ export function createSandboxCore({ SandboxUnavailableError }: {
         );
       }
       const workspaceRoot = toLinuxPath(policy.workspaceRoot);
+      if (policy.mode === "workspace-write") {
+        await this.checkWorkspaceRoot(distro, workspaceRoot, signal);
+      }
       const prefix = bwrapArgvPrefix({ ...policy, workspaceRoot }, { maskWindowsDrive: this.maskWindowsDrive, writableRoots: options.writableRoots, socketMasks: options.socketMasks, maskInterop: options.maskInterop });
       return {
         argv: [...prefix, ...argv],

@@ -11,7 +11,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -478,6 +478,88 @@ checks.push(["a loop's stderr tail rides the failure, and close waits for the ex
   loop.emit("exit", 0, null);
   await done;
   assert.equal(children.length, 2, "the pid stopper spawned exactly once");
+}]);
+
+/**
+ * A directory watcher driven by a fake `inotifywait` first on PATH, so the
+ * test controls when the inotify source dies or storms regardless of the
+ * host's inotify-tools.
+ * @param {string} fakeBody - the fake inotifywait's shell body.
+ * @returns {{ child: ChildProcess, next: (timeoutMs?: number) => Promise<string>, dir: string, cleanup: () => void, cCount: () => number }} the armed loop and its line queue.
+ */
+const armWithFakeInotify = (fakeBody) => {
+  const root = mkdtempSync(join(tmpdir(), "wsl-watch-fake-"));
+  const dir = join(root, "tree");
+  const bin = join(root, "bin");
+  mkdirSync(dir);
+  mkdirSync(bin);
+  const fake = join(bin, "inotifywait");
+  writeFileSync(fake, `#!/bin/sh\n${fakeBody}\n`);
+  chmodSync(fake, 0o755);
+  const child = spawn("sh", ["-c", watchLoopScript(1), "wsl-watch", dir], {
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+  });
+  const lines = createInterface({ input: child.stdout });
+  /** @type {string[]} */
+  const queue = [];
+  let cCount = 0;
+  lines.on("line", (line) => {
+    if (line === "C") cCount += 1;
+    queue.push(line);
+  });
+  const next = async (timeoutMs = 5000) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const line = queue.shift();
+      if (line !== undefined) {
+        if (line === "H" || line.startsWith("P ")) continue;
+        return line;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error("the watcher did not answer in time");
+  };
+  const cleanup = () => {
+    child.kill();
+    lines.close();
+    rmSync(root, { recursive: true, force: true });
+  };
+  return { child, next, dir, cleanup, cCount: () => cCount };
+};
+
+checks.push(["inotifywait's death falls back to polling instead of a silent watch", async () => {
+  if (process.platform === "win32") skip("the loop is a POSIX shell script");
+  // The fake exits shortly after arming — the shape of an inotify limit or a
+  // vanished watch source. The heartbeat must notice the death and hand over
+  // to the polling loop, not keep reading its own markers forever.
+  const { next, dir, cleanup } = armWithFakeInotify("sleep 0.2\nexit 0");
+  try {
+    assert.equal(await next(), "R");
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    writeFileSync(join(dir, "late.txt"), "x");
+    assert.equal(await next(), "C", "the polling fallback sees a change made after inotifywait died");
+  } finally {
+    cleanup();
+  }
+}]);
+
+checks.push(["an event storm coalesces instead of one C per buffered event", async () => {
+  if (process.platform === "win32") skip("the loop is a POSIX shell script");
+  // Sixty events land at once (a build's output burst), then the source goes
+  // quiet but stays alive. The loop must answer the burst with a handful of
+  // coarse invalidations, not keep firing at 2 Hz until the backlog drains.
+  const { next, dir, cleanup, cCount } = armWithFakeInotify("i=0\nwhile [ \"$i\" -lt 60 ]; do printf 'MODIFY\\n'; i=$((i+1)); done\nsleep 5");
+  try {
+    assert.equal(await next(), "R");
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    const burst = cCount();
+    assert.ok(burst <= 3, `the 60-event burst coalesced into ${burst} invalidations, not one per event`);
+    writeFileSync(join(dir, "after.txt"), "x");
+    assert.equal(await next(), "C", "the loop still answers changes after the burst");
+  } finally {
+    cleanup();
+  }
 }]);
 
 for (const [name, fn] of checks) await check(name, fn);

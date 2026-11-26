@@ -16,6 +16,79 @@ were part of the record.
 
 ## [Unreleased]
 
+## [0.29.2] - 2026-11-27
+
+Sandbox boundary, protocol fail-closed and lifecycle fixes
+(#100-#105).
+
+### Fixed
+
+- **The sandbox boundary gaps are closed (#102).** Socket and interop masks
+  now land after every writable bind, so an ancestor grant (a `/run` grant
+  over the D-Bus socket) can no longer re-expose a masked socket.
+  `workspace-write` mounts a writable `/dev/shm` tmpfs and the write fence
+  grants `/dev/shm` beside `/tmp`, making the documented temp-area semantics
+  true on every bwrap version. The confined spawn checklist and the
+  per-command confine both verify the workspace root is its own physical
+  directory (`pwd -P`), refusing a symlinked root that would widen the rw
+  bind to its target; the refusal names the physical path to use. SECURITY
+  discloses the 60 s socket-facts TTL window and the resident's
+  lifetime-fixed mount table.
+- **The native agent refuses truncated frames instead of dispatching them
+  (#100).** A host that died mid-frame left the EXEC/FS/FSB readers
+  dispatching the partial request — a write missing its content line
+  published an empty file over the target. The native agent now answers
+  ERR/FSERR with reason `protocol` and exits, matching the shell agent's
+  fail-closed shape. Both musl binaries are rebuilt with the pinned 1.99.1
+  toolchain.
+- **The watcher survives a dead inotifywait and coalesces event storms
+  (#101).** The loop held the FIFO's write end itself, so a dead
+  `inotifywait` never EOFed the read: the heartbeat kept answering its own
+  markers and the documented polling fallback was unreachable — a watch
+  over a tree past `max_user_watches` went silently dead. The heartbeat now
+  checks the source with `kill -0` and hands over to polling. A build's
+  burst also earned one change event per buffered event at 2 Hz, firing for
+  minutes after the tree went quiet; after the cooldown the loop reads
+  through the next heartbeat and answers the whole window with one event.
+- **POSIX absolute paths route to the distro on Windows (#103).** The root
+  router's resolve/lstat only recognized WSL UNC inputs, so a POSIX
+  absolute path (the displayPath coordinate) fell to the host backend and
+  resolved against the process drive (`C:\home\...`). `inputIsDistro` now
+  reads POSIX absolutes as distro coordinates on a Windows host, while a
+  POSIX host keeps them as host paths. The shipped-but-unwired
+  @-completion traversal scripts are POSIX-sh safe (no bash-only
+  substitution), the containment pattern works at the distro root, and the
+  listing is NUL-terminated so filenames containing newlines survive.
+- **Resident lifecycle leaks are fixed (#104).** The handshake stderr
+  listener stayed attached for the resident's lifetime and accumulated
+  every byte unbounded; it now detaches at settle with a 4000-byte tail.
+  The shell agent's temp dir carries its pid and the boot sweep asks
+  `kill -0` instead of guessing from mtimes, so an idle-but-live sibling is
+  never swept. A cancelled FS write orphaned its staging dir inside the
+  target directory; the staging path now rides a file the cancel trap and
+  EXIT trap both read. `launchEnvironment` aligns with the host
+  `scrubbedParentEnv` rule (credential-shaped keys and `DSH_*`), and
+  `portsRefreshMs` is floored at 1 s.
+- **Low-severity review findings (#105).** Read-only-bind denials on
+  delete/move classify as `FS_SANDBOX_DENIED`, matching the write path. The
+  host output budget starts at the agent's ACK, the caller-abort listener
+  detaches at settle, and lossy UTF-8 captures are reported truthfully. A
+  non-integer HELLO version is refused; a queue-full refusal is an
+  `AgentUnavailableError` so the executor falls back. The update check
+  single-flights its registry read. Only `GIT_*` names ride `WSLENV`.
+  `toLinuxPath` normalizes dot segments. All polled distros share one
+  refresh timer. A caller's abort no longer kills the shared home/shell
+  probe. The plugin-update panel's POST demands a JSON content-type (the
+  open-in-app CSRF posture). The doctor joins its PATH overlay with the
+  platform delimiter.
+- **The doctor's `run()` settles synchronous spawn failures.** Windows
+  `uv_spawn` returns `UV_UNKNOWN` synchronously for a file that is not a PE
+  executable, and Node throws from `spawn()` instead of emitting a deferred
+  `error` event; that escaped `run()`'s never-throws contract and crashed
+  the doctor subprocess with no report. `run()` now catches the synchronous
+  throw and settles a failed capture, and the POSIX git fake is no longer
+  staged on Windows, where the real git answers.
+
 ## [0.29.1] - 2026-11-25
 
 Correctness and performance fixes across the resident agent, the session

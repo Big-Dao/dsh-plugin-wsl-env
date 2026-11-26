@@ -103,10 +103,14 @@ set -u
 # Every known consumer parses line-oriented stdin that tolerates a missing
 # final newline.
 PROTO_VERSION=7
-TMPDIR_AGENT=$(mktemp -d "${TMPDIR:-/tmp}/wsl-agent.XXXXXX")
+# The pid rides the dir name so the boot sweep can ask the kernel whether
+# the owner is alive instead of guessing from mtimes.
+TMPDIR_AGENT=$(mktemp -d "${TMPDIR:-/tmp}/wsl-agent.$$.XXXXXX")
 OUT_FILE="$TMPDIR_AGENT/out"
 ERR_FILE="$TMPDIR_AGENT/err"
-trap 'rm -rf "$TMPDIR_AGENT"; [ -z "${CURRENT_STAGING:-}" ] || rm -rf -- "$CURRENT_STAGING"; [ -z "${WATCHDOG_PID:-}" ] || kill "$WATCHDOG_PID" 2>/dev/null; exit 0' EXIT
+# The staging path rides a file, not a variable: FS handlers run in a forked
+# subshell, whose assignments never reach this shell's EXIT trap.
+trap 'exit_staging=$(cat "$TMPDIR_AGENT/staging" 2>/dev/null); [ -z "$exit_staging" ] || rm -rf -- "$exit_staging"; rm -rf "$TMPDIR_AGENT"; [ -z "${WATCHDOG_PID:-}" ] || kill "$WATCHDOG_PID" 2>/dev/null; exit 0' EXIT
 
 # The content identity of this script file, reported in the handshake: the
 # host hashes its own shipped copy and refuses an agent whose file differs.
@@ -115,16 +119,26 @@ trap 'rm -rf "$TMPDIR_AGENT"; [ -z "${CURRENT_STAGING:-}" ] || rm -rf -- "$CURRE
 AGENT_DIGEST=$(sha256sum -- "$0" 2>/dev/null | cut -d' ' -f1)
 
 # Bounded cleanup: temp dirs from agents whose host died without giving them
-# an EXIT (a `wsl --shutdown`, a force-killed wsl.exe). Own pattern only, and
-# only when nothing inside moved for an hour — a live agent's dir mtime moves
-# on every request (the inflight marker in run_capture is created and
-# removed), so a sibling being served right now is never touched. A confined
+# an EXIT (a `wsl --shutdown`, a force-killed wsl.exe). Own pattern only. The
+# pid in the name decides: a live owner keeps its dir no matter how long it
+# has sat idle (the mtime rule used to delete an idle-but-alive sibling's
+# dir); a dead pid's dir goes at once. Old-pattern dirs without a pid fall
+# back to the mtime rule — nothing inside moved for an hour. A confined
 # agent's /tmp is a private tmpfs: its own dir vanishes with it and it sees
 # no siblings, so the sweep is a no-op there.
 for stale in "${TMPDIR:-/tmp}"/wsl-agent.*; do
   [ -d "$stale" ] || continue
   [ "$stale" = "$TMPDIR_AGENT" ] && continue
-  [ -z "$(find "$stale" -maxdepth 1 -mmin -60 -print -quit 2>/dev/null)" ] && rm -rf -- "$stale" 2>/dev/null
+  stale_pid=${stale##*/wsl-agent.}
+  stale_pid=${stale_pid%%.*}
+  case $stale_pid in
+    ''|*[!0-9]*)
+      [ -z "$(find "$stale" -maxdepth 1 -mmin -60 -print -quit 2>/dev/null)" ] && rm -rf -- "$stale" 2>/dev/null
+      ;;
+    *)
+      kill -0 "$stale_pid" 2>/dev/null || rm -rf -- "$stale" 2>/dev/null
+      ;;
+  esac
 done
 
 # The client lease: when the host goes silent without closing the pipe (a
@@ -155,10 +169,6 @@ esac
 # The request currently in flight, for KILL and for the exit trap.
 CURRENT_PID=
 CURRENT_ID=
-# The staged-publication directory of an in-flight FS write. TERM/INT would
-# otherwise orphan it inside the target's own directory; a KILL cannot be
-# trapped, which is what the sweep in fs_write is for.
-CURRENT_STAGING=
 
 b64dec() {
   # `base64 -d` with GNU and BusyBox spellings; a decode failure yields empty.
@@ -215,6 +225,14 @@ cancel_current() {
   cancel_pid=$CURRENT_PID
   kill_request TERM "$cancel_pid"
   ( sleep 3; kill_request KILL "$cancel_pid" ) </dev/null >/dev/null 2>&1 &
+  # A cancelled FS write's staging dir is known only through the file the
+  # subshell left behind; without this the dir orphans inside the target's
+  # own directory (the name carries THIS pid, so sweep_staging keeps it).
+  cancel_staging=$(cat "$TMPDIR_AGENT/staging" 2>/dev/null)
+  if [ -n "$cancel_staging" ]; then
+    rm -rf -- "$cancel_staging"
+    rm -f -- "$TMPDIR_AGENT/staging"
+  fi
 }
 
 trap shutdown TERM INT HUP
@@ -565,7 +583,7 @@ drop_staging() {
   # Remove the current write's staging dir and forget it, so the EXIT trap
   # never re-removes (or, worse, removes a newer write's staging) after it.
   rm -rf -- "$staging"
-  CURRENT_STAGING=
+  rm -f -- "$TMPDIR_AGENT/staging"
 }
 
 sweep_staging() {
@@ -624,7 +642,7 @@ fs_write() {
     err=$(cat "$ERR_FILE")
     fs_fail "$(fs_classify "$err")" "$err"
   }
-  CURRENT_STAGING=$staging
+  printf '%s' "$staging" >"$TMPDIR_AGENT/staging"
   chmod 700 -- "$staging" 2>/dev/null
   tmp="$staging/$base.tmp"
   # Decode straight to the file: the base64 text is the one form that crosses
@@ -785,7 +803,7 @@ fs_move() {
     err=$(cat "$ERR_FILE")
     fs_fail "$(fs_classify "$err")" "$err"
   }
-  CURRENT_STAGING=$staging
+  printf '%s' "$staging" >"$TMPDIR_AGENT/staging"
   chmod 700 -- "$staging" 2>/dev/null
   tmp="$staging/$dbase.tmp"
   # The bytes travel kernel-side (cat to the staged temp) — no base64 round

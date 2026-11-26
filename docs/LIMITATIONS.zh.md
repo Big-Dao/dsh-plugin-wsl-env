@@ -332,7 +332,9 @@ Windows git `safe.directory` 白名单）。`--fix-owned` 把运行收窄到插�
 ## 宿主的"在应用中打开"
 
 - **插件的"在 VS Code 中打开（WSL）"菜单项可用；随包的"在应用中打开"仍然
-  失败。** `wsl-open-in-app` 行只从**编辑器子进程**的环境里删除
+  失败。** `wsl-open-in-app` 行按宿主 `scrubbedParentEnv()` 的同一规则清理
+  **编辑器子进程**的环境——剔除名含 `KEY`/`PASSWORD`/`SECRET`/`TOKEN`
+  （不区分大小写）的变量和 `DSH_*` 命名空间——并删除
   `ELECTRON_RUN_AS_NODE`，VS Code 因此按应用启动；路由把 WSL UNC 工作区转换为
   `vscode-remote` URI，编辑器直接进入 Remote-WSL。这个清理刻意只作用于子进程：
   从 Host 进程环境删除会破坏 Windows Job runner 这类需要继承该变量的

@@ -1849,6 +1849,18 @@ checkReg("a handshake exit carries the resident's stderr on the failure", async 
   await agent.close();
 });
 
+checkReg("the handshake stderr listener detaches once HELLO arrives", async () => {
+  const child = new FakeAgentProcess();
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  await agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 });
+  await flush();
+  // The handshake tail exists only to decorate a handshake failure; left
+  // attached it accumulates every stderr byte for the resident's lifetime.
+  assert.equal(child.stderr.listenerCount("data"), 1, "only the diagnostic stderr listener may remain after the handshake");
+  await agent.close();
+});
+
 checkReg("interopVisibility stance takes precedence over the legacy boolean", () => {
   assert.equal(effectiveMaskWindowsDrive({}), false, "unset stance and no legacy boolean masks nothing");
   assert.equal(effectiveMaskWindowsDrive({ maskWindowsDrive: true }), true, "the legacy boolean answers while the stance key is unset");

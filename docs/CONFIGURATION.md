@@ -210,7 +210,7 @@ takes no configuration.
 | | `sessionSandbox` | `true` | Also check systemd, the user manager, `systemd-run`, and Linger. Set false when the profile does not use a session runtime. |
 | | `startup` | `true` | Also run the same checks once at plugin load — install + restart — against the pinned or WSL-default distro, so the verdict is in the log before any session opens. |
 | `wsl-shell-env` | `distro` | `''` | Distro used to populate the `DSH_WSL_*` environment facts. |
-| | `portsRefreshMs` | `10000` | Listening-port snapshot interval, in milliseconds. |
+| | `portsRefreshMs` | `10000` | Listening-port snapshot interval, in milliseconds; floored at 1000 — smaller values are treated as 1000. |
 | `wsl-cwd-prompt` | `enabled` | `true` (shipped) | Rewrite the runtime context's working-directory entry to the distro's POSIX form. |
 | `wsl-update-check` | `enabled` | `true` | Whether the plugin checks the app's plugin manager for a newer stable release. The result is served as `DSH_WSL_PLUGIN_UPDATE`; the background check never installs (the panel's one-click upgrade is a separate explicit POST). |
 | | `intervalMs` | `86400000` | Check interval, in milliseconds (first check 2–10 minutes after startup); floored at one minute. |

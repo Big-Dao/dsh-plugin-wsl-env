@@ -161,7 +161,9 @@ export async function apply(ctx: ShellEnvContext, config: ShellEnvConfig = {}): 
   // probed when a session created in it appears, so a machine with several
   // stopped distros does not boot them all at application start.
   const configured = config.distro ?? "";
-  const portsRefreshMs = config.portsRefreshMs ?? 10_000;
+  // A sub-second interval would spin the poller and read as "every 0s" in
+  // the variable's description; one second is the floor.
+  const portsRefreshMs = Math.max(config.portsRefreshMs ?? 10_000, 1000);
   const pinned = pinnedDistro(configured);
   let distros: string[];
   if (pinned !== undefined) {

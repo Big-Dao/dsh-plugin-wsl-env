@@ -11,9 +11,9 @@
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -291,6 +291,74 @@ checks.push(["write replace publishes content through a staging dir that is clea
     assert.equal(Number(size), "alpha\n".length);
   } finally {
     await agent.close();
+  }
+}]);
+
+checks.push(["boot sweep leaves a live sibling's temp dir alone and takes a dead pid's", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "wsl-agent-sweep-"));
+  try {
+    // This test process is the live sibling: its pid is running, so its dir
+    // must survive even when nothing inside moved for hours (a resident can
+    // sit idle far longer than the mtime window).
+    const live = join(scratch, `wsl-agent.${process.pid}.LLLLLL`);
+    mkdirSync(live);
+    const marker = join(live, "marker");
+    writeFileSync(marker, "x");
+    const dead = spawnSync(process.execPath, ["-e", ""]);
+    assert.ok(dead.pid !== undefined, "the reaped child reports its pid");
+    const orphan = join(scratch, `wsl-agent.${dead.pid}.MMMMMM`);
+    mkdirSync(orphan);
+    const legacy = join(scratch, "wsl-agent.legacy");
+    mkdirSync(legacy);
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    for (const p of [live, marker, orphan, legacy]) utimesSync(p, old, old);
+    const agent = new Harness({ TMPDIR: scratch });
+    try {
+      await agent.hello();
+      assert.equal(existsSync(live), true, "a live pid's dir survives the boot sweep");
+      assert.equal(existsSync(orphan), false, "a dead pid's stale dir is swept");
+      assert.equal(existsSync(legacy), false, "an old-pattern stale dir falls back to the mtime rule");
+    } finally {
+      await agent.close();
+    }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}]);
+
+checks.push(["a cancelled write leaves no staging dir behind", async () => {
+  // A stand-in base64 that pauses before every decode widens the window
+  // between the staging mkdir and the content landing in it, so the cancel
+  // deterministically arrives mid-write.
+  const shimDir = mkdtempSync(join(tmpdir(), "wsl-agent-shim-"));
+  const realBase64 = spawnSync("sh", ["-c", "command -v base64"], { encoding: "utf8" }).stdout.trim();
+  assert.ok(realBase64.length > 0, "the host has a real base64");
+  writeFileSync(join(shimDir, "base64"), `#!/bin/sh\n[ "\${1:-}" = "-d" ] && sleep 0.4\nexec '${realBase64}' "$@"\n`, { mode: 0o755 });
+  const agent = new Harness({ PATH: `${shimDir}:${process.env.PATH ?? ""}` });
+  try {
+    await agent.hello();
+    const target = join(agent.dir, "big.txt");
+    const id = agent.fs("write", [target, "644", "replace", "-", "x".repeat(1024 * 1024)]);
+    for (;;) {
+      const message = /** @type {AgentMessage} */ (parseAgentLine(await agent.nextLine()));
+      if (message.type === "ack" && message.id === id) break;
+    }
+    const deadline = Date.now() + 15_000;
+    let staged = false;
+    while (Date.now() < deadline) {
+      if (readdirSync(agent.dir).some((name) => name.includes(".tmpdir"))) { staged = true; break; }
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.ok(staged, "precondition: the write reached its staging dir");
+    agent.child.kill("SIGUSR1");
+    for (;;) {
+      const message = /** @type {AgentMessage} */ (parseAgentLine(await agent.nextLine()));
+      if ((message.type === "result" || message.type === "fsError") && message.id === id) break;
+    }
+    assert.equal(readdirSync(agent.dir).filter((name) => name.includes(".tmpdir")).length, 0, "the cancelled write's staging dir must be removed");
+  } finally {
+    await agent.close();
+    rmSync(shimDir, { recursive: true, force: true });
   }
 }]);
 

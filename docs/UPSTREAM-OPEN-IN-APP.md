@@ -15,7 +15,7 @@ current runtime.
 
 **No host patch is required for this plugin's path.** The `wsl-open-in-app`
 row (below) registers its own authenticated launch route and scrubs
-`ELECTRON_RUN_AS_NODE` from the editor child's environment, so the plugin's
+the editor child's environment (including `ELECTRON_RUN_AS_NODE`), so the plugin's
 **在 VS Code 中打开（WSL）** menu item works on an unpatched archive and lands in
 Remote-WSL. The shipped "Open in app" item still inherits the flag and still
 fails; that half remains the upstream ask. The local archive patches described
@@ -44,10 +44,13 @@ The patched module is archived in
 
 `src/open-in-app.ts` replaces the archive patch with two Host-side facts:
 
-- the `wsl-open-in-app` row scrubs `ELECTRON_RUN_AS_NODE` from the **editor
-  child's** environment before spawning it, so an Electron editor starts as an
-  application; the Host process environment is left alone, because deleting the
-  name there breaks Node-mode helpers such as the Windows Job runner;
+- the `wsl-open-in-app` row scrubs the **editor child's** environment before
+  spawning it, with the same rule as the host's `scrubbedParentEnv()` (keys
+  matching `/KEY|PASSWORD|SECRET|TOKEN/i` and `DSH_*`) plus
+  `ELECTRON_RUN_AS_NODE`, so an Electron editor starts as an application and
+  no credential-shaped or managed variables reach it; the Host process
+  environment is left alone, because deleting the name there breaks Node-mode
+  helpers such as the Windows Job runner;
 - the row registers `POST /api/wsl-env/open-in-app` on the authenticated
   `/api` channel. The browser's session-header menu posts the Session cwd; the
   handler accepts only a `\\wsl...` UNC path, builds the
@@ -108,5 +111,5 @@ Drop `ELECTRON_RUN_AS_NODE` in `launchDetachedApp()` (or in the shared
 target (VS Code, Cursor, …) hits the same path.
 
 The plugin owns a narrow launch bridge because the upstream launcher offers no
-configuration seam: one environment-name deletion plus one WSL-only route. The
+configuration seam: one environment scrub plus one WSL-only route. The
 upstream ask above remains the permanent fix.

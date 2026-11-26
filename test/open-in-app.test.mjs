@@ -122,6 +122,15 @@ test("launchEnvironment scrubs the child copy without touching the source", () =
   assert.deepEqual(source, { ELECTRON_RUN_AS_NODE: "1", PATH: "x" });
 });
 
+test("launchEnvironment strips credential-shaped and DSH_ keys like the host scrub", () => {
+  const source = {
+    PATH: "x", SAFE: "ok", API_KEY: "k", MY_PASSWORD: "p", client_secret: "s",
+    GITHUB_TOKEN: "t", DSH_SESSION: "d", ELECTRON_RUN_AS_NODE: "1",
+  };
+  assert.deepEqual(launchEnvironment(source), { PATH: "x", SAFE: "ok" });
+  assert.equal(source.API_KEY, "k", "the source copy is untouched");
+});
+
 test("launchDetached classifies exit, error, throw, and the watch window", async () => {
   const launchedChild = new FakeChild();
   const success = launchDetached("Code.exe", ["--folder-uri", "u"], { watchMs: 1000, env: {} }, spawnOf(launchedChild));

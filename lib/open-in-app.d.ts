@@ -116,9 +116,11 @@ export declare function resolveEditor(config: OpenInAppConfig, env: Environment,
 export declare function dropElectronRunAsNode(env: NodeJS.ProcessEnv): boolean;
 /**
  * The child environment for one editor launch: the Host environment with
- * `ELECTRON_RUN_AS_NODE` removed. The deletion is scoped to this child;
- * editing the Host's own environment would break Node-mode helpers (the
- * Windows Job runner, for one) that legitimately inherit the flag.
+ * the same keys the host's open-in-app scrub strips — credential-shaped
+ * names (`KEY`/`PASSWORD`/`SECRET`/`TOKEN`) and the managed `DSH_*`
+ * namespace — plus `ELECTRON_RUN_AS_NODE`. The deletion is scoped to this
+ * child; editing the Host's own environment would break Node-mode helpers
+ * (the Windows Job runner, for one) that legitimately inherit the flag.
  *
  * @param env - source environment; defaults to the current process environment.
  * @returns a fresh environment safe to hand to an Electron editor.

@@ -393,9 +393,11 @@ sandbox's security statement: `enforcement: partial` is untouched.
 ## Host "Open in app"
 
 - **The plugin's "Open in VS Code (WSL)" menu item works; the shipped "Open in
-  app" item still does not.** The `wsl-open-in-app` row scrubs
-  `ELECTRON_RUN_AS_NODE` from the **editor child's** environment, so VS Code
-  starts as an application; the route converts a WSL UNC workspace to its
+  app" item still does not.** The `wsl-open-in-app` row scrubs the **editor
+  child's** environment with the host `scrubbedParentEnv()` rule — keys
+  matching `KEY`/`PASSWORD`/`SECRET`/`TOKEN` (case-insensitive) and the `DSH_*`
+  namespace — and drops `ELECTRON_RUN_AS_NODE`, so VS Code starts as an
+  application; the route converts a WSL UNC workspace to its
   `vscode-remote` URI and the editor lands in Remote-WSL. The scrub is
   deliberately child-scoped: deleting the name from the Host process
   environment breaks Node-mode helpers such as the Windows Job runner. The

@@ -809,24 +809,31 @@ export class WslAgent {
    * @param handshakeTimer - the handshake watchdog.
    */
   private wireAgentProcess(child: ChildProcessWithoutNullStreams, current: () => boolean, settleStart: (error?: unknown) => void, handshakeTimer: NodeJS.Timeout): void {
+    // The resident's own stderr is the only diagnostic a handshake failure
+    // carries (bwrap's refusal names the missing bind source, a libc
+    // mismatch names itself); surface a bounded tail on the lastError
+    // instead of leaving the caller a bare exit code. The tail is bounded
+    // and the listener detaches at settle: left attached, it accumulates
+    // every stderr byte for the resident's whole lifetime.
+    let hsErr = "";
+    const handshakeStderr = (chunk: Buffer | string): void => {
+      hsErr = (hsErr + String(chunk)).slice(-4000);
+    };
+    const settle = (error?: unknown): void => {
+      child.stderr?.off("data", handshakeStderr);
+      settleStart(error);
+    };
     child.on("error", (error) => {
       if (!current()) return;
       this.lastError = String(error);
-      settleStart(error);
+      settle(error);
     });
     // The write side can hit EPIPE after the child exits — a failed
     // handshake followed by close(), or a scope stop. The failure is already
     // reflected in the state/pending requests; an unhandled stream error
     // would crash the host process instead.
     child.stdin?.on("error", () => {});
-    // The resident's own stderr is the only diagnostic a handshake failure
-    // carries (bwrap's refusal names the missing bind source, a libc
-    // mismatch names itself); surface a bounded tail on the lastError
-    // instead of leaving the caller a bare exit code.
-    let hsErr = "";
-    child.stderr?.on("data", (chunk) => {
-      hsErr += String(chunk);
-    });
+    child.stderr?.on("data", handshakeStderr);
     child.on("exit", (code, signalName) => {
       if (!current()) {
         // A stale child's exit: release its pipes, but never touch the
@@ -836,11 +843,11 @@ export class WslAgent {
       }
       if (this.state === "starting") {
         this.lastError = `agent exited during handshake (code=${code} signal=${signalName ?? "none"})${hsErr ? ` stderr=${hsErr.trim().slice(-400)}` : ""}`;
-        settleStart(new Error(this.lastError));
+        settle(new Error(this.lastError));
       }
       this.handleProcessExit(child, code, signalName);
     });
-    this.readAgentOutput(child, current, settleStart, handshakeTimer);
+    this.readAgentOutput(child, current, settle, handshakeTimer);
     child.stderr?.on("data", (chunk) => {
       if (!current()) return;
       // Diagnostics only; `wsl.exe` and the shell chatter here on failure.

@@ -388,6 +388,24 @@ if (POSIX) {
   mounted.restorePath();
 }
 
+// A zero (or tiny) portsRefreshMs must not read as "refreshed every 0s" nor
+// spin the poller: the interval is floored at one second.
+{
+  const mounted = await mount({ fakeWsl: true, config: { distro: "ze-ubuntu", portsRefreshMs: 0 } });
+  try {
+    const contributor = mounted.registered[0];
+    assert.ok(contributor, "the row registered");
+    const ports = contributor.variables.DSH_WSL_PORTS;
+    assert.ok(ports, "the ports variable is declared");
+    assert.match(ports.description, /refreshed every 1s/, "a sub-second interval is floored at one second");
+    console.log("PASS  portsRefreshMs is floored at one second");
+  } finally {
+    const fiber = /** @type {{ dispose?: () => Promise<void> } | undefined} */ (mounted.fiber);
+    if (fiber && typeof fiber.dispose === "function") await fiber.dispose();
+    mounted.restorePath();
+  }
+}
+
 // The update fact rides the accepted-branch as a timer-fed read: staged via
 // the tests-only setter, it resolves into the managed key, and clearing it
 // returns the key to its empty posture. The staged fact must be cleared even

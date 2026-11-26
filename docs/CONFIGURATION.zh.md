@@ -197,7 +197,7 @@ Loader 在挂载该行之前会校验宿主和发行版设置；
 | | `sessionSandbox` | `true` | 同时检查 systemd、user manager、`systemd-run` 和 Linger。profile 不使用会话 runtime 时设为 false。 |
 | | `startup` | `true` | 插件加载时（即安装 + 重启后）对 pin 的或 WSL 默认发行版预先运行同一组检查，让判定在任何会话打开之前就出现在日志里。 |
 | `wsl-shell-env` | `distro` | `''` | 用于填充 `DSH_WSL_*` 环境事实的发行版。 |
-| | `portsRefreshMs` | `10000` | 监听端口快照的刷新间隔，单位毫秒。 |
+| | `portsRefreshMs` | `10000` | 监听端口快照的刷新间隔，单位毫秒；下限 1000，更小的值按 1000 处理。 |
 | `wsl-cwd-prompt` | `enabled` | `true`（shipped） | 把 runtime context 的工作目录条目改写为发行版的 POSIX 形式。 |
 | `wsl-update-check` | `enabled` | `true` | 插件是否向应用的插件管理器查询更新的稳定版。结果经 `DSH_WSL_PLUGIN_UPDATE` 送达；后台检查从不安装（面板的一键升级是独立的显式 POST）。 |
 | | `intervalMs` | `86400000` | 检查间隔，单位毫秒（启动后 2–10 分钟首查）；下限一分钟。 |

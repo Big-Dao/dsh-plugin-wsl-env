@@ -6,7 +6,20 @@ import { sharedAgentNativeNote } from "./agent-shared.js";
 import { withHostPeerVersions } from "./peer-versions.js";
 import { DOCTOR_OUTPUT_LIMIT_BYTES, runDoctorProcess } from "./doctor-process.js";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
+
+/**
+ * Prepend one directory to a PATH value with the platform's list delimiter —
+ * `;` on Windows, `:` on POSIX — so a staged fake is found under either host.
+ *
+ * @param envPath - the directory to prepend.
+ * @param current - the existing PATH value; empty keeps the overlay alone.
+ * @param delim - the list delimiter; the running platform's by default.
+ * @returns the overlaid PATH.
+ */
+export function joinPathEnv(envPath: string, current: string, delim: string = delimiter): string {
+  return current.length > 0 ? `${envPath}${delim}${current}` : envPath;
+}
 
 /** The doctor script this package ships, resolved from the compiled module. */
 const DOCTOR_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "..", "scripts", "doctor.mjs");
@@ -40,8 +53,8 @@ export async function doctorReport(distro: string, options?: {
   wslPath?: string;
   /**
    * Run the quick profile instead of the full scan: first-command
-   * prerequisites only (host/session/sandbox, no smokes, no registry query,
-   * no port survey) — forwarded as `--quick`.
+   * prerequisites only (host/session/sandbox, no smokes, no port survey) —
+   * forwarded as `--quick`.
    */
   quick?: boolean;
   /**
@@ -77,7 +90,7 @@ export async function doctorReport(distro: string, options?: {
   // itself (a separate Node process has no profile interception).
   const env = withHostPeerVersions(options?.envPath === undefined
     ? process.env
-    : { ...process.env, PATH: `${options.envPath}:${process.env.PATH ?? ""}` });
+    : { ...process.env, PATH: joinPathEnv(options.envPath, process.env.PATH ?? "") });
   const run = await runDoctorProcess(argv, {
     timeoutMs,
     env,

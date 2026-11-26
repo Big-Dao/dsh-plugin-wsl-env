@@ -21,6 +21,7 @@ import { Skipped, skip } from "./skip.mjs";
 import { peerSatisfied, peerPackageDir, parseWslConfig, parseWslSize, parseIni, parseWslVerbose, effectiveMaskWindowsDrive, distroPath, hostDiskVerdict, localeNameFromReg, localeFromTag, overrideLocale, setDoctorLocale, doctorT, probeHandshake, STALE_SCOPE_REPORT, composeBatch, composeSystemdBatch, parseBatchFacts } from "../scripts/doctor.mjs";
 import { mergeLiveResidentStatus } from "../lib/doctor-live.js";
 import { doctorReport } from "../lib/index.js";
+import { joinPathEnv } from "../lib/doctor-report.js";
 import { DOCTOR_PEERS_ENV, resolvedPeerVersion, resolvedPeerVersions, versionAbove, withHostPeerVersions } from "../lib/peer-versions.js";
 import { effectiveMaskWindowsDrive as libEffectiveMaskWindowsDrive } from "../lib/index.js";
 
@@ -1105,6 +1106,11 @@ try {
     const mergedSparse = mergeLiveResidentStatus(sparse, { ...LIVE, lastError: "transient", state: "ready" });
     assert.equal(mergedSparse.summary.warn, 1, "a missing tally key counts up from zero");
     assert.match(String(mergedSparse.checks[0]?.detail), /fresh-probe facts: $/, "a detail-less fresh check degrades to an empty tail");
+  });
+
+  await check("the PATH overlay joins with the platform delimiter", () => {
+    assert.equal(joinPathEnv("C:\\bin", "C:\\Windows", ";"), "C:\\bin;C:\\Windows");
+    assert.equal(joinPathEnv("/tmp/bin", "/usr/bin", ":"), "/tmp/bin:/usr/bin");
   });
 
   await check("doctorReport collects the real script and merges the injected live snapshot", async () => {

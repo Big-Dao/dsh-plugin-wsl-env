@@ -134,11 +134,12 @@ export declare class DistroFs {
     /**
      * Turn a failed op into the coded error, reading the agent's
      * `dsh-fs|<reason>|<b64 message>` line; a frame without one is a raw I/O
-     * fault carrying whatever stderr the agent did produce. On a WRITE, the
-     * kernel's read-only-bind denial is classified as the sandbox refusal it is,
-     * mirroring the command path's denial signatures.
+     * fault carrying whatever stderr the agent did produce. On a mutation
+     * (write, delete, move), the kernel's read-only-bind denial is classified
+     * as the sandbox refusal it is, mirroring the command path's denial
+     * signatures.
      *
-     * @param op - the failed op (`read` or `write`).
+     * @param op - the failed op (`read`, `write`, `delete`, `move`, …).
      * @param result - the failed round trip's result.
      * @param displayPath - the caller-facing path for the message.
      * @returns the structured failure.

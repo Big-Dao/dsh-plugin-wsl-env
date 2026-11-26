@@ -150,6 +150,12 @@ const mount = async ({ cwd = DISTRO_UNC, agentless = false, report = READY, call
   return { tool: /** @type {any} */ (registered[0]), calls, options };
 };
 
+await check("the depth description promises no registry query the doctor no longer makes", async () => {
+  const { tool } = await mount();
+  const depth = /** @type {any} */ (tool).parameters.properties.depth;
+  assert.doesNotMatch(depth.description, /registry/i);
+});
+
 await check("execute resolves the session distro and returns the digest", async () => {
   const { tool, calls } = await mount();
   assert.equal(tool.name, "wsl_doctor");

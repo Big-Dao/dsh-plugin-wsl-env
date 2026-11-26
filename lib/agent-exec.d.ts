@@ -47,6 +47,8 @@ export interface AgentExecRequest {
     stdin?: Uint8Array;
     /** The caller's cancellation. */
     signal?: AbortSignal;
+    /** Fired once when the agent dequeues the request (its ACK). */
+    onAck?: () => void;
 }
 /** What an agent `exec` resolves with. */
 export interface AgentExecResult {

@@ -132,7 +132,9 @@ const handlerFor = (manager, overrides = {}) => {
  * @returns {Promise<{ status: number, body: any }>} the status and decoded body.
  */
 const call = async (handler, method, query = "") => {
-  const response = await handler(new Request(`http://host${PLUGIN_UPDATE_PATH}${query}`, { method }));
+  const response = await handler(new Request(`http://host${PLUGIN_UPDATE_PATH}${query}`, method === "POST"
+    ? { method, headers: { "content-type": "application/json" } }
+    : { method }));
   return { status: response.status, body: await response.json() };
 };
 
@@ -244,6 +246,12 @@ await check("POST refuses without a manager or without updateBundle", async () =
   const noUpdater = await call(handlerFor(/** @type {any} */ (versionOnly)).handler, "POST");
   assert.equal(noUpdater.status, 501);
   assert.match(noUpdater.body.error, /Plugins page/u);
+});
+
+await check("POST demands a JSON content-type like the open-in-app route", async () => {
+  const { handler } = handlerFor(managerFor(FRESH).manager);
+  const response = await handler(new Request(`http://host${PLUGIN_UPDATE_PATH}`, { method: "POST", headers: { "content-type": "text/plain" } }));
+  assert.equal(response.status, 415);
 });
 
 await check("POST installs the checked stable release and reports the versions", async () => {

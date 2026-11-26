@@ -291,12 +291,14 @@ export function resetWslProbeCacheForTests(): void {
  */
 export function linuxHomePath(distro: string, options: WslCallOptions = {}): Promise<string> {
   const wslPath = options.wslPath ?? DEFAULT_WSL_PATH;
+  // No caller's signal inside the probe: it is shared, so the first caller's
+  // cancellation must not kill it for the others — each caller races its own
+  // signal via sharedProbe instead.
   return sharedProbe(
     homeProbes,
     probeKey(wslPath, distro),
     async () => parseHomePath(distro, await runCapture(
       [wslPath, "-d", distro, "--exec", "sh", "-c", 'printf %s "$HOME"'],
-      options.signal,
     )),
     () => true,
     options.signal,
@@ -557,7 +559,8 @@ export async function defaultShell(distro: string, options: WslShellProbeOptions
    */
   const ask = async (script: string): Promise<string | undefined> => {
     try {
-      const value = (await runCapture([wslPath, "-d", distro, "--exec", "sh", "-c", script], options.signal)).trim();
+      // No caller's signal: the probe is shared (see linuxHomePath).
+      const value = (await runCapture([wslPath, "-d", distro, "--exec", "sh", "-c", script])).trim();
       return value.startsWith("/") ? value : undefined;
     } catch {
       return undefined;

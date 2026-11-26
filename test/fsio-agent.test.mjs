@@ -862,7 +862,32 @@ checks.push(["a kernel read-only denial on a WRITE is the sandbox refusal, not a
   );
 }]);
 
-checks.push(["the same signature is sandbox-classified ONLY on the write path", async () => {
+checks.push(["a kernel read-only denial on DELETE and MOVE is the sandbox refusal too", async () => {
+  // The fence refuses every mutating op the same way; only the write path
+  // used to carry the escalation code, so a refused delete/move read as a
+  // plain I/O error and the tool layer never offered the sandbox remedy.
+  const denial = (/** @type {string} */ message) => asAgent(cannedAgent({ exitCode: 1, stdout: Buffer.alloc(0), stderr: fsLine("io", message) }));
+  const remover = new DistroFs({ agent: denial("rm: cannot remove '/doc/file.txt': Read-only file system"), distro: DISTRO });
+  await assert.rejects(
+    () => remover.removeFile("/doc/file.txt", undefined, undefined),
+    (/** @type {Error & {code?: string}} */ error) => {
+      assert.equal(error.code, "FS_SANDBOX_DENIED");
+      assert.match(error.message, /cannot delete "\/doc\/file\.txt"/);
+      return true;
+    },
+  );
+  const mover = new DistroFs({ agent: denial("mv: cannot move '/doc/a.txt': Read-only file system"), distro: DISTRO });
+  await assert.rejects(
+    () => mover.moveAtomic("/doc/a.txt", "/doc/b.txt", { mode: 0o644, guard: "replace" }),
+    (/** @type {Error & {code?: string}} */ error) => {
+      assert.equal(error.code, "FS_SANDBOX_DENIED");
+      assert.match(error.message, /cannot move "\/doc\/a\.txt"/);
+      return true;
+    },
+  );
+}]);
+
+checks.push(["the same signature is sandbox-classified ONLY on the mutation paths", async () => {
   // A read-side op reporting the dialect is an I/O failure — the read mounts
   // are never read-only-refused in a way the fence caused.
   const fs = new DistroFs({

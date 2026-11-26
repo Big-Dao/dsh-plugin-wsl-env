@@ -55,7 +55,7 @@ export function mountTakeover(ctx: Context, service: string, mount: () => void):
   ctx.logger?.warn?.(
     `dsh-plugin-wsl-env: "${service}" is still registered by an outgoing provider; the WSL provider will take over when it releases — restart DSH to apply it immediately`,
   );
-  ctx.on("internal/service", (name: string, value: unknown) => {
+  const off = ctx.on("internal/service", (name: string, value: unknown) => {
     if (name !== service || value !== undefined) return;
     if (occupied()) return;
     // The observed release may be this fiber's own disposal; never register
@@ -63,5 +63,6 @@ export function mountTakeover(ctx: Context, service: string, mount: () => void):
     if (ctx.fiber.state !== FiberState.ACTIVE) return;
     ctx.logger?.debug?.(`dsh-plugin-wsl-env: "${service}" was released; the WSL provider takes over now`);
     mount();
+    off();
   });
 }

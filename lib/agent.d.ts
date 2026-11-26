@@ -101,6 +101,8 @@ interface PendingRequest {
     onAbort: (() => void) | null;
     /** Arms `watchdog`; null when the request carries no timeout. */
     armWatchdog: (() => void) | null;
+    /** The caller's dequeue hook, fired once when the agent ACKs. */
+    onAck: (() => void) | null;
     /** Whether the agent has ACKed this request (it is the running one). */
     started: boolean;
     /** Whether the request frame has been sent to the agent. */
@@ -665,7 +667,7 @@ export declare class WslAgent {
      * @returns the settled result.
      * @throws {AgentUnavailableError} when the agent is out for this process.
      */
-    exec({ cwd, argv, timeoutMs, maxOutputBytes, env, stdin, signal }: {
+    exec({ cwd, argv, timeoutMs, maxOutputBytes, env, stdin, signal, onAck }: {
         /** Linux path to run in. */
         cwd: string;
         /** The argv, already bwrap-wrapped when the caller confines. */
@@ -692,11 +694,14 @@ export declare class WslAgent {
          * v6); the child sees EOF at the payload's end. Omitted or empty keeps
          * the v5 shape — an empty stdin and immediate EOF. Note the shell agent
          * decodes the payload through command substitution, which strips
-         * trailing newlines; the native agent delivers the bytes verbatim.
+         * trailing newlines AND NUL bytes (dash/bash cannot hold a NUL in a
+         * variable); the native agent delivers the bytes verbatim.
          */
         stdin?: Uint8Array;
         /** Cancels the request, sending KILL if it was already dispatched. */
         signal?: AbortSignal;
+        /** Fired once when the agent ACKs — the caller's own budget starts here. */
+        onAck?: () => void;
     }): Promise<{
         exitCode: number;
         stdout: Buffer;

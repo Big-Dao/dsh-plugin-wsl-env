@@ -121,15 +121,16 @@ export function translateGitEnvValue(value: string | undefined): string | undefi
  * must ride `WSLENV`.
  *
  * @param env - the spawn's environment, or undefined.
- * @returns the environment to forward (every key, path-shaped values
- *   translated) and the `WSLENV` names.
+ * @returns the environment to forward (every key, `GIT_*` path-shaped values
+ *   translated) and the `GIT_*` `WSLENV` names — only those cross the
+ *   interop boundary; the distro's own login environment supplies the rest.
  */
 export function translateGitEnv(env: Record<string, string | undefined> | undefined): { env: Record<string, string | undefined>, wslenv: string[] } {
   const translated: Record<string, string | undefined> = {};
   const names: string[] = [];
   for (const [name, value] of Object.entries(env ?? {})) {
     translated[name] = name.startsWith("GIT_") ? translateGitEnvValue(value) : value;
-    names.push(name);
+    if (name.startsWith("GIT_")) names.push(name);
   }
   return { env: translated, wslenv: names };
 }

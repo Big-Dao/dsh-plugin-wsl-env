@@ -360,7 +360,9 @@ platform.window.__ModuleLoader__.load({
      *   transport has never rendered as anything but its string form.
      */
     const jsonRequest = async (path, query, method = "GET") => {
-      const answer = await fetch(path + (query ?? ""), { method });
+      const answer = await fetch(path + (query ?? ""), method === "GET"
+        ? { method }
+        : { method, headers: { "content-type": "application/json" } });
       const body = /** @type {Reply} */ (await answer.json().catch(() => ({})));
       if (!answer.ok) throw new Error(/** @type {{ error?: string }} */ (body).error ?? `接口返回 ${answer.status}`);
       return body;

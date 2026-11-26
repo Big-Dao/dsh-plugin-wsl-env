@@ -86,8 +86,9 @@ export declare function translateGitEnvValue(value: string | undefined): string 
  * must ride `WSLENV`.
  *
  * @param env - the spawn's environment, or undefined.
- * @returns the environment to forward (every key, path-shaped values
- *   translated) and the `WSLENV` names.
+ * @returns the environment to forward (every key, `GIT_*` path-shaped values
+ *   translated) and the `GIT_*` `WSLENV` names — only those cross the
+ *   interop boundary; the distro's own login environment supplies the rest.
  */
 export declare function translateGitEnv(env: Record<string, string | undefined> | undefined): {
     env: Record<string, string | undefined>;

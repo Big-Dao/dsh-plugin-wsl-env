@@ -60,14 +60,14 @@ export declare const STATUS_PATH = "/api/wsl-env/status";
 export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     /** How long one distro's quick verdict stays fresh, in milliseconds. */
     cacheMs: z<number, number, "defined">;
-    /** Deadline for one scoped quick doctor run, in milliseconds. */
+    /** Deadline for one scoped quick doctor run, in milliseconds; the floor keeps the derived probe deadline positive. */
     timeoutMs: z<number, number, "defined">;
     /** `wsl.exe` to list the distros; keep in step with the providers' `wslPath`. */
     wslPath: z<string, string, "defined">;
 }>>, Schemastery.ObjectT<NoInfer<{
     /** How long one distro's quick verdict stays fresh, in milliseconds. */
     cacheMs: z<number, number, "defined">;
-    /** Deadline for one scoped quick doctor run, in milliseconds. */
+    /** Deadline for one scoped quick doctor run, in milliseconds; the floor keeps the derived probe deadline positive. */
     timeoutMs: z<number, number, "defined">;
     /** `wsl.exe` to list the distros; keep in step with the providers' `wslPath`. */
     wslPath: z<string, string, "defined">;

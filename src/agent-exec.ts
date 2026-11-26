@@ -50,6 +50,8 @@ export interface AgentExecRequest {
   stdin?: Uint8Array;
   /** The caller's cancellation. */
   signal?: AbortSignal;
+  /** Fired once when the agent dequeues the request (its ACK). */
+  onAck?: () => void;
 }
 
 /** What an agent `exec` resolves with. */
@@ -100,6 +102,23 @@ export interface AgentExecutionHandle {
 }
 
 /**
+ * Whether decoding these bytes as UTF-8 replaces anything: a capture cut
+ * mid-codepoint (or genuinely non-UTF-8 output) reads lossy, exactly as the
+ * one-shot path's fatal-decoder probe reports it.
+ *
+ * @param bytes - the captured slice.
+ * @returns true when the text form lost information.
+ */
+function lossyUtf8(bytes: Uint8Array): boolean {
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+/**
  * A memory-backed output reader in the seam's shape.
  *
  * @param buffer - the complete stream.
@@ -111,7 +130,7 @@ function memoryReader(buffer: Buffer): OutputReader {
       const start = Math.min(fromByte, buffer.length);
       return {
         text: buffer.subarray(start).toString("utf8"),
-        lossy: false,
+        lossy: lossyUtf8(buffer.subarray(start)),
         nextOffset: buffer.length,
       };
     },
@@ -171,18 +190,25 @@ export function agentExecutionHandle({ agent, cwd, argv, timeoutMs = 0, maxOutpu
   let timedOut = false;
   let killed = false;
   let callerAborted = false;
+  const onCallerAbort = () => { callerAborted = true; controller.abort(signal?.reason); };
   if (signal) {
     if (signal.aborted) callerAborted = true;
-    else signal.addEventListener("abort", () => { callerAborted = true; controller.abort(signal.reason); }, { once: true });
+    else signal.addEventListener("abort", onCallerAbort, { once: true });
   }
-  if (timeoutMs > 0) {
-    setTimeout(() => {
+  // The budget starts at the agent's dequeue ACK, mirroring the agent-side
+  // watchdog: time spent queued behind an earlier request never spends this
+  // command's budget.
+  let budgetTimer: NodeJS.Timeout | undefined;
+  const armBudget = () => {
+    if (timeoutMs <= 0 || budgetTimer !== undefined) return;
+    budgetTimer = setTimeout(() => {
       timedOut = true;
       controller.abort(new Error(BASH_TIMEOUT_REASON));
-    }, timeoutMs).unref?.();
-  }
+    }, timeoutMs);
+    budgetTimer.unref?.();
+  };
 
-  const settle: Promise<SettledExec> = agent.exec({ cwd, argv, timeoutMs, maxOutputBytes, env, signal: controller.signal }).then(
+  const settle: Promise<SettledExec> = agent.exec({ cwd, argv, timeoutMs, maxOutputBytes, env, signal: controller.signal, onAck: armBudget }).then(
     (result) => ({ ok: true, result }),
     (error: unknown) => {
       // A workdir the distro cannot enter is the command's own failure, not
@@ -212,6 +238,8 @@ export function agentExecutionHandle({ agent, cwd, argv, timeoutMs = 0, maxOutpu
 
   let settleError: unknown;
   const done = settle.then(({ ok, result, error }) => {
+    if (budgetTimer !== undefined) clearTimeout(budgetTimer);
+    signal?.removeEventListener("abort", onCallerAbort);
     if (ok) {
       stdout = result.stdout;
       stderr = result.stderr;
@@ -264,7 +292,7 @@ export function agentExecutionHandle({ agent, cwd, argv, timeoutMs = 0, maxOutpu
       const separator = out.text.length > 0 && !out.text.endsWith("\n") ? "\n" : "";
       return {
         delta: out.text + (err.text.length > 0 ? `${separator}[stderr]\n${err.text}` : ""),
-        lossy: false,
+        lossy: out.lossy || err.lossy,
       };
     },
     kill() {
@@ -285,15 +313,15 @@ export function agentExecutionHandle({ agent, cwd, argv, timeoutMs = 0, maxOutpu
         // copies the field unconditionally, and an `undefined` fails the wire's
         // lossless-JSON snapshot ("value is not lossless JSON"). The agent's
         // capture-cap flags are what make it TRUE instead of a perma-lie.
-        const output = (text: string, truncated: boolean) => ({ text, lossy: false, truncated });
+        const output = (bytes: Buffer, truncated: boolean) => ({ text: bytes.toString("utf8"), lossy: lossyUtf8(bytes), truncated });
         return {
           exitCode: proc.exitCode,
           signal: proc.signal,
           timedOut,
           aborted: callerAborted && !timedOut,
           timeoutMs,
-          stdout: output(stdout.toString("utf8"), stdoutTruncated),
-          stderr: output(stderr.toString("utf8"), stderrTruncated),
+          stdout: output(stdout, stdoutTruncated),
+          stderr: output(stderr, stderrTruncated),
         };
       });
     },

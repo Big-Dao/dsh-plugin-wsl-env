@@ -99,9 +99,11 @@ set -u
 # line after the argv words. One documented limitation, the same one SETENV
 # and every argv word already carry: command substitution strips TRAILING
 # NEWLINES from the decoded payload, so a stdin feed ending in `\n` reaches
-# the child without it (NUL bytes — `check-ignore -z` separators — survive).
-# Every known consumer parses line-oriented stdin that tolerates a missing
-# final newline.
+# the child without it. NUL bytes do NOT survive either — dash/bash cannot
+# hold a NUL in a variable, so `check-ignore -z` style separators arrive
+# stripped; the native agent delivers stdin verbatim and is the backend for
+# NUL-bearing feeds (docs/LIMITATIONS.md). Every known consumer parses
+# line-oriented stdin that tolerates a missing final newline.
 PROTO_VERSION=7
 # The pid rides the dir name so the boot sweep can ask the kernel whether
 # the owner is alive instead of guessing from mtimes.

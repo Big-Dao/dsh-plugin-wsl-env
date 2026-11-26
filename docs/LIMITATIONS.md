@@ -214,6 +214,12 @@ absolute path to pin one.
 - **fnm's multishell PATH cannot form inside the sandbox** (`/run` is read-only) —
   use the fallback recipe in
   [Configuration](CONFIGURATION.md#zshfnm-recipe-for-model-run-commands).
+- **The shell agent's stdin payload keeps neither NUL bytes nor trailing
+  newlines.** The payload is decoded through command substitution; dash/bash
+  variables cannot hold a NUL, and trailing newlines are stripped. The native
+  agent delivers the bytes verbatim — a feed that relies on NUL separators
+  (such as `git check-ignore -z`) needs the native backend, which the default
+  `agentBackend: auto` picks whenever it is available.
 
 ## Agent diagnostics
 
@@ -227,6 +233,14 @@ absolute path to pin one.
   verdict, and when the reads are not on the native agent the merged detail
   says why.
 - **`dsh-wsl-*.scope` counts are point-in-time**; `--fix` runs the preflight's sweep.
+- **Cancellation signals carry a residual delivery window.** After a request
+  is cancelled the host waits out the grace period, confirms it is unanswered
+  with no newer ACK, then delivers `SIGUSR1` through a second `wsl.exe`. That
+  `wsl.exe` itself takes a few hundred milliseconds to start; if the old
+  command finishes inside the window and the next one has already started,
+  the signal can land on the next command. The sequence guard rules out the
+  vast majority of mis-sends, but the delivery latency cannot be removed
+  host-side; the KILL frame is the fallback that does not depend on signals.
 - **The doctor's `git.win-safe` probe reports the Windows git trust through interop
   `git.exe`** — the `safe.directory` whitelist that WSL change review needs when
   Windows git is installed (see Terminals below).

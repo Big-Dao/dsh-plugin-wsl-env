@@ -46,7 +46,9 @@ const runCheck = async (name, fn) => {
  */
 function fakeAgent(outcome, ms = 5) {
   return {
-    exec({ signal }) {
+    exec({ signal, onAck }) {
+      // The fake dequeues immediately: the ACK fires before the outcome.
+      onAck?.();
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => (outcome.throw ? reject(outcome.throw) : resolve(/** @type {import("../lib/agent-exec.js").AgentExecResult} */ (outcome))), ms);
         signal?.addEventListener("abort", () => {
@@ -134,6 +136,61 @@ check("the in-distro timeout reports a killed process with SIGTERM", async () =>
   assert.equal(result.exitCode, null);
   assert.equal(result.signal, "SIGTERM");
   assert.equal(proc.status, "killed");
+});
+
+check("the caller signal listener is removed once the command settles", async () => {
+  const controller = new AbortController();
+  const signal = controller.signal;
+  let removed = 0;
+  const original = signal.removeEventListener.bind(signal);
+  signal.removeEventListener = (type, listener, options) => {
+    if (type === "abort") removed += 1;
+    return original(type, listener, options);
+  };
+  const proc = agentExecutionHandle({
+    agent: fakeAgent({ exitCode: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }),
+    cwd: "/tmp",
+    argv: ["true"],
+    signal,
+  });
+  await proc.result();
+  assert.ok(removed >= 1, "the abort listener must not outlive the command on a long-lived caller signal");
+});
+
+check("a capture cut mid-character reports lossy output", async () => {
+  // 0xC3 is the lead byte of a two-byte sequence; the cap cut its tail off.
+  const cut = Buffer.from([0x61, 0xC3]);
+  const proc = agentExecutionHandle({
+    agent: fakeAgent({ exitCode: 0, stdout: cut, stderr: Buffer.alloc(0), truncated: { stdout: true, stderr: false } }),
+    cwd: "/tmp",
+    argv: ["x"],
+    maxOutputBytes: 2,
+  });
+  const result = await proc.result();
+  assert.equal(result.stdout.lossy, true, "a replacement character in the cut stream is lossy");
+  assert.equal(result.stderr.lossy, false);
+  assert.equal(proc.readOutput().lossy, true, "the incremental read reports it too");
+});
+
+check("a queued request does not spend the host budget before its ACK", async () => {
+  /** @type {(() => void) | undefined} */
+  let ack;
+  /** @type {((result: import("../lib/agent-exec.js").AgentExecResult) => void) | undefined} */
+  let settleExec;
+  const runner = {
+    exec: (/** @type {import("../lib/agent-exec.js").AgentExecRequest} */ request) => {
+      ack = request.onAck;
+      return new Promise((resolve) => { settleExec = resolve; });
+    },
+  };
+  const proc = agentExecutionHandle({ agent: runner, cwd: "/tmp", argv: ["true"], timeoutMs: 20 });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(typeof ack, "function", "the exec request carries the dequeue hook");
+  assert.ok(settleExec !== undefined);
+  settleExec({ exitCode: 0, stdout: Buffer.from("ok"), stderr: Buffer.alloc(0) });
+  const result = await proc.result();
+  assert.equal(result.timedOut, false, "queue time is not the command's budget");
+  assert.equal(result.exitCode, 0);
 });
 
 check("readOutput after settlement returns the whole stream once, then nothing", async () => {

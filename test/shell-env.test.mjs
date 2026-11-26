@@ -406,6 +406,39 @@ if (POSIX) {
   }
 }
 
+// N polled distros share ONE refresh timer: a timer per distro each fired the
+// same global tick, so N distros meant N scan rounds every period.
+{
+  resetSharedAgents();
+  const mounted = await mount({ fakeWsl: true, config: { distro: "", portsRefreshMs: 60_000 } });
+  const original = globalThis.setInterval;
+  let created = 0;
+  /**
+   * Count every interval creation, then delegate to the real one.
+   * @param {...unknown} args - the caller's setInterval arguments.
+   * @returns {unknown} the real timer handle.
+   */
+  function spy(...args) {
+    created += 1;
+    return /** @type {(...a: unknown[]) => unknown} */ (original)(...args);
+  }
+  globalThis.setInterval = /** @type {typeof setInterval} */ (/** @type {unknown} */ (spy));
+  try {
+    const resolve = mounted.registered[0]?.resolve;
+    assert.ok(resolve, "the row registered its resolver");
+    resolve({ agent: { session: { header: { cwd: "\\\\wsl.localhost\\ze-ubuntu\\home\\u" } } } });
+    resolve({ agent: { session: { header: { cwd: "\\\\wsl.localhost\\debian\\home\\u" } } } });
+    assert.equal(created, 1, "two polled distros share one interval");
+    console.log("PASS  polled distros share one refresh timer");
+  } finally {
+    globalThis.setInterval = original;
+    const fiber = /** @type {{ dispose?: () => Promise<void> } | undefined} */ (mounted.fiber);
+    if (fiber && typeof fiber.dispose === "function") await fiber.dispose();
+    mounted.restorePath();
+    resetSharedAgents();
+  }
+}
+
 // The update fact rides the accepted-branch as a timer-fed read: staged via
 // the tests-only setter, it resolves into the managed key, and clearing it
 // returns the key to its empty posture. The staged fact must be cleared even

@@ -408,6 +408,13 @@ export function createPluginUpdateHandler(options: PluginUpdateHandlerOptions): 
       const refresh = new URL(request.url).searchParams.get("refresh") === "1";
       return read(refresh);
     }
+    // The upgrade is a state change: demand the JSON content-type the panel
+    // sends, like the open-in-app route — a cross-origin form POST cannot
+    // set it, so a simple-request CSRF cannot reach the install.
+    const essence = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+    if (essence !== "application/json") {
+      return json({ error: "POST requires an application/json content-type" }, 415);
+    }
     return update();
   };
 }

@@ -302,15 +302,24 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** The one registry read in flight, shared by concurrent callers. */
+let inflight: Promise<UpdateFact | undefined> | undefined;
+
 /**
  * Run one check against the host's plugin-manager and publish the fact.
+ * Concurrent callers share the one in-flight read, so a slow listing is never
+ * queried twice and no stale result overwrites the newer fact.
  *
  * @param manager - the host plugin-manager, or undefined when the host has none.
  * @returns the published fact, or undefined when the check learned nothing.
  */
 export async function checkForUpdate(manager: PluginManagerSlice | undefined): Promise<UpdateFact | undefined> {
-  const check = await inspectVersions(manager, "unknown");
-  return check.status === "available" ? currentUpdateFact() : undefined;
+  if (inflight !== undefined) return inflight;
+  inflight = (async () => {
+    const check = await inspectVersions(manager, "unknown");
+    return check.status === "available" ? currentUpdateFact() : undefined;
+  })().finally(() => { inflight = undefined; });
+  return inflight;
 }
 
 /**
@@ -384,9 +393,12 @@ export async function apply(ctx: UpdateCheckContext, config: UpdateCheckConfig =
   repeat.unref?.();
 
   // Disposing matters: a config hot-reload re-runs apply(), and two live
-  // timers would double the registry traffic.
+  // timers would double the registry traffic. The published fact goes too —
+  // the replacement row must not serve the old row's answer until its own
+  // first check.
   ctx.effect(() => () => {
     clearTimeout(first);
     clearInterval(repeat);
+    setUpdateFact(undefined);
   });
 }

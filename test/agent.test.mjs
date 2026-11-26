@@ -1713,6 +1713,24 @@ checkReg("the pending queue refuses a submission past its cap", async () => {
   await first;
 });
 
+checkReg("a queue-full refusal is an AgentUnavailableError so the executor falls back", async () => {
+  const child = new FakeAgentProcess();
+  child.silent = true;
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport, maxPending: 1 });
+  const first = agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }).then(
+    () => "settled",
+    (error) => error,
+  );
+  await flush();
+  await assert.rejects(
+    () => agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }),
+    AgentUnavailableError,
+  );
+  await agent.close();
+  await first;
+});
+
 await check("the agent records per-kind queue/exec metrics and resets them", async () => {
   const child = new FakeAgentProcess();
   const { transport } = scriptedTransport([child]);
@@ -1858,6 +1876,18 @@ checkReg("the handshake stderr listener detaches once HELLO arrives", async () =
   // The handshake tail exists only to decorate a handshake failure; left
   // attached it accumulates every stderr byte for the resident's lifetime.
   assert.equal(child.stderr.listenerCount("data"), 1, "only the diagnostic stderr listener may remain after the handshake");
+  await agent.close();
+});
+
+checkReg("a NaN HELLO version is refused, not silently inside the window", async () => {
+  const child = new FakeAgentProcess({ helloVersion: NaN });
+  const { transport } = scriptedTransport([child]);
+  const agent = new WslAgent({ ...CONFIG, spawnTransport: transport });
+  // NaN < MIN and NaN > MAX are both false: the window check alone accepts it.
+  await assert.rejects(
+    () => agent.exec({ cwd: "/", argv: ["true"], timeoutMs: 0 }),
+    /handshake mismatch/,
+  );
   await agent.close();
 });
 

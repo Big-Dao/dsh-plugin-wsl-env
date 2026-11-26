@@ -201,6 +201,8 @@ export declare function updateTarget(list: Extract<VersionList, {
 export declare function inspectVersions(manager: PluginManagerSlice | undefined, installed: string, now?: number): Promise<VersionCheck>;
 /**
  * Run one check against the host's plugin-manager and publish the fact.
+ * Concurrent callers share the one in-flight read, so a slow listing is never
+ * queried twice and no stale result overwrites the newer fact.
  *
  * @param manager - the host plugin-manager, or undefined when the host has none.
  * @returns the published fact, or undefined when the check learned nothing.

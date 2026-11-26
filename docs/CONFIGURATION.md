@@ -491,7 +491,7 @@ grouped by distro, the copy-paste remedy under every failure — the user just
 asks for a diagnosis. The tool is interactive by design: `depth: "quick"` (the
 default) runs the prerequisites only (~10 s in one distro: host facts, the
 session sandbox quartet, bubblewrap, and one combined optional-tool probe —
-rg/git/inotifywait — no smokes, no registry query, no port
+rg/git/inotifywait — no smokes, no port
 survey) and is the right first call; `section` narrows a follow-up to one area
 (`host`, `sandbox`, `session`, `conf`, `net`, `agent`); `depth: "full"` is
 the complete scan and answers for everything. The `/wsl-doctor` command (the

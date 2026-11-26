@@ -160,12 +160,16 @@ export function reasonToCode(reason: string): string {
 }
 
 /**
- * The kernel's denial dialect: a write that a read-only bind refused. The
+ * The kernel's denial dialect: a mutation that a read-only bind refused. The
  * command path classifies the same signature into its sandbox denial, so a
- * confined write the mount table refused carries `FS_SANDBOX_DENIED` — the
- * model sees the escalation offer instead of an unexplained I/O failure.
+ * confined write, delete or move the mount table refused carries
+ * `FS_SANDBOX_DENIED` — the model sees the escalation offer instead of an
+ * unexplained I/O failure.
  */
 const DENIAL_SIGNATURES = ["read-only file system"];
+
+/** The ops whose read-only-bind denial is the sandbox refusal. */
+const MUTATION_OPS = new Set(["write", "delete", "move"]);
 
 /** One `find` listing row, as `listChildren` shapes it. */
 interface ChildRow {
@@ -267,11 +271,12 @@ export class DistroFs {
   /**
    * Turn a failed op into the coded error, reading the agent's
    * `dsh-fs|<reason>|<b64 message>` line; a frame without one is a raw I/O
-   * fault carrying whatever stderr the agent did produce. On a WRITE, the
-   * kernel's read-only-bind denial is classified as the sandbox refusal it is,
-   * mirroring the command path's denial signatures.
+   * fault carrying whatever stderr the agent did produce. On a mutation
+   * (write, delete, move), the kernel's read-only-bind denial is classified
+   * as the sandbox refusal it is, mirroring the command path's denial
+   * signatures.
    *
-   * @param op - the failed op (`read` or `write`).
+   * @param op - the failed op (`read`, `write`, `delete`, `move`, …).
    * @param result - the failed round trip's result.
    * @param displayPath - the caller-facing path for the message.
    * @returns the structured failure.
@@ -280,8 +285,8 @@ export class DistroFs {
     const text = result.stderr.toString("utf8");
     if (result.reason !== undefined) {
       const message = text.trim();
-      if (op === "write" && DENIAL_SIGNATURES.some((signature) => message.toLowerCase().includes(signature))) {
-        return new FsCodedError(`cannot write "${displayPath}": ${message}`, "FS_SANDBOX_DENIED");
+      if (MUTATION_OPS.has(op) && DENIAL_SIGNATURES.some((signature) => message.toLowerCase().includes(signature))) {
+        return new FsCodedError(`cannot ${op} "${displayPath}": ${message}`, "FS_SANDBOX_DENIED");
       }
       return new FsCodedError(message, REASON_CODES[result.reason] ?? "FS_IO_ERROR");
     }
@@ -289,8 +294,8 @@ export class DistroFs {
     if (first.startsWith("dsh-fs|")) {
       const [, reason, encoded] = first.split("|");
       const message = Buffer.from(encoded ?? "", "base64").toString("utf8");
-      if (op === "write" && DENIAL_SIGNATURES.some((signature) => message.toLowerCase().includes(signature))) {
-        return new FsCodedError(`cannot write "${displayPath}": ${message}`, "FS_SANDBOX_DENIED");
+      if (MUTATION_OPS.has(op) && DENIAL_SIGNATURES.some((signature) => message.toLowerCase().includes(signature))) {
+        return new FsCodedError(`cannot ${op} "${displayPath}": ${message}`, "FS_SANDBOX_DENIED");
       }
       // `first` starts with "dsh-fs|", so the split always yields the reason slot.
       return new FsCodedError(message, REASON_CODES[reason as string] ?? "FS_IO_ERROR");

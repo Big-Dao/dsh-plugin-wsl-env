@@ -362,6 +362,28 @@ checks.push(["a cancelled write leaves no staging dir behind", async () => {
   }
 }]);
 
+checks.push(["the shell agent strips NUL bytes from a stdin payload (command substitution)", async () => {
+  // Characterization, not aspiration: dash and bash command substitution
+  // cannot carry NUL, so the shell backend delivers "a\0b" as "ab". The
+  // native agent passes the bytes verbatim — the divergence is documented
+  // (LIMITATIONS), and this check pins the shell side's actual behavior.
+  const agent = new Harness();
+  try {
+    await agent.hello();
+    const id = `x${agent.n++}`;
+    for (const line of encodeExecFrame({ id, cwd: "/", argv: ["cat"], timeoutMs: 0, maxOutputBytes: 0, stdin: Buffer.from("a\0b") })) agent.child.stdin.write(`${line}\n`);
+    for (;;) {
+      const message = /** @type {AgentMessage} */ (parseAgentLine(await agent.nextLine()));
+      if (message.type !== "result" || message.id !== id) continue;
+      assert.equal(message.exitCode, 0, message.stderr.toString("utf8"));
+      assert.equal(message.stdout.toString("latin1"), "ab", "the NUL byte does not survive the shell backend");
+      break;
+    }
+  } finally {
+    await agent.close();
+  }
+}]);
+
 checks.push(["write no-replace refuses an existing target with the exists reason and keeps its content", async () => {
   const agent = new Harness();
   try {

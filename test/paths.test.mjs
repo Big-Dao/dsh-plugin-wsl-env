@@ -60,6 +60,12 @@ check("toLinuxPath resolves a relative path against a UNC cwd", () => {
   assert.equal(toLinuxPath("src/a.ts", { cwd: UNC }), "/home/andy/proj/src/a.ts");
 });
 
+check("toLinuxPath normalizes dot segments and duplicate slashes", () => {
+  assert.equal(toLinuxPath("/a//b/../c"), "/a/c");
+  assert.equal(toLinuxPath("x/../y", { cwd: "/w" }), "/w/y");
+  assert.equal(toLinuxPath("\\\\wsl.localhost\\ubuntu\\a\\..\\b"), "/b");
+});
+
 check("toWorldPath maps Linux paths onto the UNC share", () => {
   assert.equal(toWorldPath("/home/andy/proj", { distro: "ubuntu" }), UNC);
   assert.equal(toWorldPath(UNC, { distro: "ubuntu" }), UNC);

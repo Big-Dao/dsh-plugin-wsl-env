@@ -20,6 +20,8 @@
  * @module dsh-plugin-wsl-env/paths
  */
 
+import { posix } from "node:path";
+
 /** The WSL UNC share prefix Node can read. `\\wsl$\<distro>\...` is the legacy spelling. */
 const UNC_RE = /^\\\\wsl(?:\.localhost|\$)\\([^\\]+)(?:\\([\s\S]*))?$/i;
 const DRIVE_RE = /^([A-Za-z]):[\\/]([\s\S]*)$/;
@@ -258,13 +260,13 @@ export function toLinuxPath(value: string, options?: { cwd?: string }): string {
   const text = String(value ?? "");
   if (text.length === 0) return text;
   const parsed = uncToPosix(text);
-  if (parsed !== undefined) return parsed.linuxPath;
-  if (isPosixAbsolute(text)) return text;
+  if (parsed !== undefined) return posix.normalize(parsed.linuxPath);
+  if (isPosixAbsolute(text)) return posix.normalize(text);
   const mounted = windowsToLinuxMount(text);
-  if (mounted !== undefined) return mounted;
+  if (mounted !== undefined) return posix.normalize(mounted);
   const base = options?.cwd ?? "/";
   const baseLinux = toLinuxPath(base);
-  return `${baseLinux.replace(/\/+$/, "")}/${text.replace(/^\.\//, "")}`;
+  return posix.normalize(`${baseLinux.replace(/\/+$/, "")}/${text.replace(/^\.\//, "")}`);
 }
 
 /**

@@ -106,6 +106,8 @@ interface PendingRequest {
   onAbort: (() => void) | null;
   /** Arms `watchdog`; null when the request carries no timeout. */
   armWatchdog: (() => void) | null;
+  /** The caller's dequeue hook, fired once when the agent ACKs. */
+  onAck: (() => void) | null;
   /** Whether the agent has ACKed this request (it is the running one). */
   started: boolean;
   /** Whether the request frame has been sent to the agent. */
@@ -140,6 +142,8 @@ interface TrackRequest {
   timeoutMs: number;
   /** The caller's cancellation. */
   signal?: AbortSignal;
+  /** Fired once when the agent ACKs — the caller's own budget starts here. */
+  onAck?: () => void;
 }
 
 /** Per-kind request metrics. */
@@ -979,7 +983,7 @@ export class WslAgent {
    * @returns the refusal reason, or undefined when the handshake is accepted.
    */
   private handshakeRefusal(message: HelloMessage): string | undefined {
-    if (message.name !== AGENT_NAME || message.version < MIN_PROTOCOL_VERSION || message.version > PROTOCOL_VERSION) {
+    if (!Number.isSafeInteger(message.version) || message.name !== AGENT_NAME || message.version < MIN_PROTOCOL_VERSION || message.version > PROTOCOL_VERSION) {
       return `agent handshake mismatch: got ${message.name}@${message.version}, want ${AGENT_NAME}@${MIN_PROTOCOL_VERSION}..${PROTOCOL_VERSION}`;
     }
     if (this.expectedDigest !== undefined && message.digest !== this.expectedDigest) {
@@ -1010,6 +1014,7 @@ export class WslAgent {
     this.recordAck(pending);
     if (pending.cancelled) this.armCancelSignal(pending);
     pending.armWatchdog?.();
+    pending.onAck?.();
   }
 
   /**
@@ -1245,7 +1250,7 @@ export class WslAgent {
     const { id, kind = "exec", signal } = request;
     if (this.pending.size >= this.maxPending) {
       this.noteRejected(kind);
-      request.reject(new Error(`the resident agent has ${this.pending.size} requests in flight (max ${this.maxPending}); retry when the queue drains`));
+      request.reject(new AgentUnavailableError(`the resident agent has ${this.pending.size} requests in flight (max ${this.maxPending}); retry when the queue drains`));
       return;
     }
     const pending = this.newPendingRequest(request, kind);
@@ -1285,7 +1290,7 @@ export class WslAgent {
    * @param kind - the metric bucket, with the caller's default resolved.
    * @returns the entry, not yet registered.
    */
-  private newPendingRequest({ id, lines, resolve, reject, timeoutMs, signal }: TrackRequest, kind: "fs" | "exec"): PendingRequest {
+  private newPendingRequest({ id, lines, resolve, reject, timeoutMs, signal, onAck }: TrackRequest, kind: "fs" | "exec"): PendingRequest {
     const pending: PendingRequest = {
       id,
       seq: Number(id.slice(1)),
@@ -1311,6 +1316,7 @@ export class WslAgent {
       answered: false,
       signalTimer: null,
       dispatchWatchdog: null,
+      onAck: onAck ?? null,
       armWatchdog:
         timeoutMs > 0
           ? () => {
@@ -1448,7 +1454,7 @@ export class WslAgent {
    * @returns the settled result.
    * @throws {AgentUnavailableError} when the agent is out for this process.
    */
-  async exec({ cwd, argv, timeoutMs = 0, maxOutputBytes = 0, env, stdin, signal }: {
+  async exec({ cwd, argv, timeoutMs = 0, maxOutputBytes = 0, env, stdin, signal, onAck }: {
     /** Linux path to run in. */
     cwd: string,
     /** The argv, already bwrap-wrapped when the caller confines. */
@@ -1475,11 +1481,14 @@ export class WslAgent {
      * v6); the child sees EOF at the payload's end. Omitted or empty keeps
      * the v5 shape — an empty stdin and immediate EOF. Note the shell agent
      * decodes the payload through command substitution, which strips
-     * trailing newlines; the native agent delivers the bytes verbatim.
+     * trailing newlines AND NUL bytes (dash/bash cannot hold a NUL in a
+     * variable); the native agent delivers the bytes verbatim.
      */
     stdin?: Uint8Array,
     /** Cancels the request, sending KILL if it was already dispatched. */
     signal?: AbortSignal,
+    /** Fired once when the agent ACKs — the caller's own budget starts here. */
+    onAck?: () => void,
   }): Promise<{ exitCode: number, stdout: Buffer, stderr: Buffer, truncated: { stdout: boolean, stderr: boolean } }> {
     const assignments = Object.entries(env ?? {}).map(([key, value]) => {
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || value.includes("\0")) {
@@ -1494,7 +1503,7 @@ export class WslAgent {
     const requestArgv = assignments.length > 0 ? ["env", "--", ...assignments, ...commandArgv] : argv;
     const lines = encodeExecFrame({ id, cwd, argv: requestArgv, timeoutMs, maxOutputBytes, stdin });
     return new Promise((resolve, reject) => {
-      this.track({ id, kind: "exec", lines, resolve, reject, timeoutMs, signal });
+      this.track({ id, kind: "exec", lines, resolve, reject, timeoutMs, signal, onAck });
     });
   }
 

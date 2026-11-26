@@ -151,6 +151,7 @@ writeFileSync(fakeWsl, `#!${process.execPath}
 const fs = require("node:fs");
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.FAKE_WSL_LOG, args.join(" ") + "\\n");
+if (Number(process.env.FAKE_WSL_DELAY ?? 0) > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(process.env.FAKE_WSL_DELAY));
 if (process.env.FAKE_WSL_FAIL === "1") { process.stderr.write("probe failed\\n"); process.exit(1); }
 const script = args[args.length - 1] ?? "";
 if (script.includes("getent")) { process.stdout.write(process.env.FAKE_WSL_SHELL ?? "/bin/bash"); process.exit(0); }
@@ -167,6 +168,7 @@ process.on("exit", () => rmSync(probeDir, { recursive: true, force: true }));
 const freshProbeLog = () => {
   resetWslProbeCacheForTests();
   delete process.env.FAKE_WSL_FAIL;
+  delete process.env.FAKE_WSL_DELAY;
   const log = join(probeDir, "probe.log");
   writeFileSync(log, "");
   process.env.FAKE_WSL_LOG = log;
@@ -206,6 +208,26 @@ checks.push(["concurrent callers share one in-flight probe", async () => {
   assert.equal(first, "/home/andy");
   assert.equal(second, "/home/andy");
   assert.equal(probeLines(log).length, 1, "the second caller joined the in-flight probe");
+}]);
+
+checks.push(["one caller's abort does not kill the shared probe for the others", async () => {
+  if (process.platform === "win32") {
+    console.log("SKIP  shared-probe abort isolation (the fake wsl.exe is a POSIX executable)");
+    return;
+  }
+  const log = freshProbeLog();
+  process.env.FAKE_WSL_DELAY = "150";
+  try {
+    const controller = new AbortController();
+    const first = linuxHomePath("ubuntu", { wslPath: fakeWsl, signal: controller.signal });
+    const second = linuxHomePath("ubuntu", { wslPath: fakeWsl });
+    setTimeout(() => controller.abort(), 20);
+    await assert.rejects(first, /abort/i);
+    assert.equal(await second, "/home/andy", "the other caller's probe survives the first caller's cancellation");
+    assert.equal(probeLines(log).length, 1);
+  } finally {
+    delete process.env.FAKE_WSL_DELAY;
+  }
 }]);
 
 checks.push(["a failed home probe stays retryable", async () => {

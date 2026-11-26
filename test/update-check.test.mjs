@@ -242,5 +242,33 @@ check("enabled: false mounts nothing at all", async () => {
   assert.equal(currentUpdateFact(), undefined, "a disabled row publishes no fact");
 });
 
+check("concurrent checks share one registry read", async () => {
+  setUpdateFact(undefined);
+  /** @type {(() => void) | undefined} */
+  let release;
+  const gate = new Promise((resolve) => { release = () => resolve(undefined); });
+  /** @type {string[]} */
+  const calls = [];
+  const manager = {
+    /** @param {string} name - the package asked for. */
+    listVersions: async (name) => { calls.push(name); await gate; return LISTED_FRESH; },
+  };
+  const first = checkForUpdate(manager);
+  const second = checkForUpdate(manager);
+  assert.ok(release !== undefined);
+  release();
+  await Promise.all([first, second]);
+  assert.equal(calls.length, 1, "a slow listing is not queried twice, and no stale result overwrites the newer fact");
+  setUpdateFact(undefined);
+});
+
+check("disposing the row clears the published fact", async () => {
+  setUpdateFact({ installed: "0.19.0", latest: "0.20.0", incompatible: false, checkedAt: 1 });
+  const ctx = new Context();
+  const fiber = /** @type {{ dispose: () => Promise<void> }} */ (await ctx.plugin(rowModule, { enabled: true }));
+  await fiber.dispose();
+  assert.equal(currentUpdateFact(), undefined, "a hot reload must not serve the old row's fact until its own first check");
+});
+
 for (const [name, fn] of checks) await runCheck(name, fn);
 console.log(`\n${passed} update-check checks pass`);

@@ -89,8 +89,8 @@ function defaultStatePath(): string {
 export const Config = z.object({
   /** How long one distro's quick verdict stays fresh, in milliseconds. */
   cacheMs: z.natural().default(15_000),
-  /** Deadline for one scoped quick doctor run, in milliseconds. */
-  timeoutMs: z.natural().min(1).default(90_000),
+  /** Deadline for one scoped quick doctor run, in milliseconds; the floor keeps the derived probe deadline positive. */
+  timeoutMs: z.natural().min(3_000).default(90_000),
   /** `wsl.exe` to list the distros; keep in step with the providers' `wslPath`. */
   wslPath: z.string().default("wsl.exe"),
 });
@@ -552,7 +552,9 @@ export function createStatusHandler(options: StatusHandlerOptions): StatusHandle
       // under the outer kill, so the report names the read that hung: the
       // probe deadline plus one flake retry and the settle delay is 2T + 2s
       // (the settle is the doctor's 2 s), kept strictly below the budget.
-      const probeTimeout = Math.ceil((options.timeoutMs - 2_000) / 2) - 1;
+      // The floor holds even for a hand-built tiny budget: a non-positive
+      // probe deadline would disable the doctor's own hang detection.
+      const probeTimeout = Math.ceil((Math.max(options.timeoutMs, 3_000) - 2_000) / 2) - 1;
       const argv = mode === "repair"
         ? ["--json", "--fix", "--fix-owned", "--probe-timeout", String(probeTimeout), "--distro", distro]
         : mode === "full"

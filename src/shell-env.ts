@@ -186,7 +186,7 @@ export async function apply(ctx: ShellEnvContext, config: ShellEnvConfig = {}): 
 
   /**
    * The spelling this row uses for one distro: the listed name when WSL knows
-   * it, the input otherwise. `facts`, the port timers and the snapshots are
+   * it, the input otherwise. `facts`, the port polling and the snapshots are
    * keyed by it, so two casings of one distro must not become two entries.
    *
    * @param name - the distro name as a session or the config spelled it.
@@ -246,13 +246,15 @@ export async function apply(ctx: ShellEnvContext, config: ShellEnvConfig = {}): 
 
   // The port snapshot refreshes on a timer and is served synchronously: the
   // registry's resolve is sync by contract, so live reads are impossible —
-  // the timer bounds staleness instead (see lib/ports.js). A timer runs only
-  // for a distro a live session works in, so multi-distro users do not keep
-  // every distro's resident agent warm — and when the last session that used
-  // a distro is gone, its timer goes with it, and with it the scans that
-  // kept that resident from ever idling out.
+  // the timer bounds staleness instead (see lib/ports.js). One shared timer
+  // drives every polled distro, and a distro is polled only while a live
+  // session works in it, so multi-distro users do not keep every distro's
+  // resident agent warm — and when the last session that used a distro is
+  // gone, its polling goes with it, and with it the scans that kept that
+  // resident from ever idling out.
   const ports = new Map<string, number[]>();
-  const timers = new Map<string, ReturnType<typeof setInterval>>();
+  const polled = new Set<string>();
+  let pollTimer: ReturnType<typeof setInterval> | undefined;
   /** The scans in flight, by distro: a slow one is not overlapped by the next tick. */
   const scanning = new Set<string>();
   /**
@@ -300,9 +302,11 @@ export async function apply(ctx: ShellEnvContext, config: ShellEnvConfig = {}): 
   };
   /** Stop polling a distro; its last snapshot stays readable. */
   const stopPorts = (distro: string): void => {
-    const timer = timers.get(distro);
-    if (timer !== undefined) clearInterval(timer);
-    timers.delete(distro);
+    polled.delete(distro);
+    if (polled.size === 0 && pollTimer !== undefined) {
+      clearInterval(pollTimer);
+      pollTimer = undefined;
+    }
   };
   let ticking = false;
   /**
@@ -316,19 +320,19 @@ export async function apply(ctx: ShellEnvContext, config: ShellEnvConfig = {}): 
     ticking = true;
     try {
       const active = sessionDistros();
-      for (const distro of [...timers.keys()]) {
+      for (const distro of [...polled]) {
         if (requested.has(distro) || active === undefined || active.has(distro.toLowerCase())) continue;
         stopPorts(distro);
       }
       requested.clear();
-      if (timers.size === 0) return;
+      if (polled.size === 0) return;
       let running: Set<string> | undefined;
       try {
         running = new Set((await listRunningDistros()).map((name) => name.toLowerCase()));
       } catch {
         // WSL did not answer: probe as before rather than guess a distro stopped.
       }
-      for (const distro of [...timers.keys()]) {
+      for (const distro of [...polled]) {
         if (running !== undefined && !running.has(distro.toLowerCase())) {
           ports.set(distro, []);
           continue;
@@ -341,10 +345,12 @@ export async function apply(ctx: ShellEnvContext, config: ShellEnvConfig = {}): 
   };
   const ensurePorts = (distro: string) => {
     requested.add(distro);
-    if (timers.has(distro)) return;
-    const timer = setInterval(() => void tick(), portsRefreshMs);
-    timer.unref?.();
-    timers.set(distro, timer);
+    if (polled.has(distro)) return;
+    polled.add(distro);
+    if (pollTimer === undefined) {
+      pollTimer = setInterval(() => void tick(), portsRefreshMs);
+      pollTimer.unref?.();
+    }
     void tick();
   };
 
@@ -404,8 +410,9 @@ export async function apply(ctx: ShellEnvContext, config: ShellEnvConfig = {}): 
   // rejects a second contributor claiming the same keys.
   ctx.effect(() => () => {
     off?.();
-    for (const timer of timers.values()) clearInterval(timer);
-    timers.clear();
+    if (pollTimer !== undefined) clearInterval(pollTimer);
+    pollTimer = undefined;
+    polled.clear();
     dispose();
   });
 }

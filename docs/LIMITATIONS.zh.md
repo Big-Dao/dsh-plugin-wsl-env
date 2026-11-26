@@ -185,6 +185,10 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
 - **fnm 的 multishell PATH 在沙箱内无法形成**（`/run` 只读）——
   使用 [Configuration](CONFIGURATION.md#zshfnm-recipe-for-model-run-commands)
   中的回退配方。
+- **shell agent 的 stdin 载荷不保留 NUL 字节与末尾换行。** 载荷经命令替换
+  解码，dash/bash 的变量无法持有 NUL，末尾换行也会被剥掉；native agent
+  逐字节原样传递。依赖 NUL 分隔的输入（如 `git check-ignore -z`）需要
+  native 后端——默认的 `agentBackend: auto` 在可用时即选 native。
 
 ## Agent 诊断
 
@@ -196,6 +200,11 @@ Windows 侧 share 后端（`substrate: "share"`）在启动时被拒绝；WSL �
   会让合并后的检查失败，报告的 verdict 随之变为 blocked；恢复后的常驻
   agent 沿用新探测的结论，读操作不在 native agent 上时合并详情会写明原因。
 - **`dsh-wsl-*.scope` 计数是某一时刻的快照**；`--fix` 会执行预检的清扫。
+- **取消信号存在残余投递窗口。** 请求被取消后，宿主先等宽限期、确认它
+  尚未被应答且没有更新的 ACK，再经第二个 `wsl.exe` 递送 `SIGUSR1`。
+  这个 `wsl.exe` 自身的启动需要数百毫秒；若旧命令恰在窗口内完成、下一条
+  命令已开始执行，信号可能落在下一条命令上。序列号守卫排除了绝大多数
+  误发，但投递延迟无法在宿主侧消除；KILL 帧是不依赖信号的兜底路径。
 - **doctor 的 `git.win-safe` 探针通过 interop 的 `git.exe` 报告 Windows git
   的信任状态** —— 装了 Windows git 时，WSL 变更审查需要那份
   `safe.directory` 白名单（见下文"终端"）。

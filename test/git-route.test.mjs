@@ -127,7 +127,8 @@ check("translateGitEnv keeps the git hygiene flags and translates path-shaped va
   assert.equal(env.GIT_INDEX_FILE, "/home/andy/proj/.git/index", "UNC identities map onto Linux paths");
   assert.equal(env.GIT_OBJECT_DIRECTORY, "/mnt/c/Users/andy/AppData/Local/Temp/scratch/objects", "drive scratch maps onto its mount");
   assert.equal(env.GIT_ALTERNATE_OBJECT_DIRECTORIES, "/home/andy/proj/.git/objects");
-  assert.deepEqual(wslenv, ["GIT_CONFIG_COUNT", "GIT_TERMINAL_PROMPT", "GIT_OPTIONAL_LOCKS", "LC_ALL", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES"]);
+  assert.deepEqual(wslenv, ["GIT_CONFIG_COUNT", "GIT_TERMINAL_PROMPT", "GIT_OPTIONAL_LOCKS", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES"], "only GIT_* names ride WSLENV; LC_ALL stays in the forwarded env");
+  assert.equal(env.LC_ALL, "C", "a non-GIT key is forwarded verbatim, not WSLENV-named");
 });
 
 check("a multi-directory list value is not skipped: Windows form folds onto the first drive, POSIX form rides verbatim", () => {
@@ -146,6 +147,12 @@ check("a multi-directory list value is not skipped: Windows form folds onto the 
 check("an empty or absent environment translates to nothing to forward", () => {
   assert.deepEqual(translateGitEnv(undefined).wslenv, []);
   assert.deepEqual(translateGitEnv({}).env, {});
+});
+
+check("only GIT_* names ride WSLENV: host variables must not leak into the distro", () => {
+  const { env, wslenv } = translateGitEnv({ PATH: "C:\\Windows", GIT_DIR: "/home/andy/proj/.git", HOME: "C:\\Users\\andy" });
+  assert.deepEqual(wslenv, ["GIT_DIR"], "the one-shot forwards exactly the names the agent path does");
+  assert.equal(env.PATH, "C:\\Windows", "the copy keeps every key; WSLENV decides what crosses");
 });
 
 for (const [name, fn] of checks) await runCheck(name, fn);

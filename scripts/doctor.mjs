@@ -1324,7 +1324,7 @@ async function main(options) {
   // `--quick` and `--sections` bound what this run probes and reports: a
   // scoped run still probes `distro.reachable` (the transport gate) but its
   // report carries only the requested sections, and the expensive legs — the
-  // resident smokes, the fence smoke, the registry query, the port survey —
+  // resident smokes, the fence smoke, the port survey —
   // run only when their section is selected and the run is not quick. A full
   // run (the default) sets `wanted = null`: every section, no gating.
   const wanted = options.quick

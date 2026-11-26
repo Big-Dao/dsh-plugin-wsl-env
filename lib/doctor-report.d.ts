@@ -1,6 +1,16 @@
 import type { AgentStatus } from "./agent.js";
 import { type DoctorReport } from "./doctor-live.js";
 /**
+ * Prepend one directory to a PATH value with the platform's list delimiter —
+ * `;` on Windows, `:` on POSIX — so a staged fake is found under either host.
+ *
+ * @param envPath - the directory to prepend.
+ * @param current - the existing PATH value; empty keeps the overlay alone.
+ * @param delim - the list delimiter; the running platform's by default.
+ * @returns the overlaid PATH.
+ */
+export declare function joinPathEnv(envPath: string, current: string, delim?: string): string;
+/**
  * Collect the doctor's versioned JSON report and merge the live resident's
  * own lifecycle facts when this process holds one (WSL-313).
  *
@@ -26,8 +36,8 @@ export declare function doctorReport(distro: string, options?: {
     wslPath?: string;
     /**
      * Run the quick profile instead of the full scan: first-command
-     * prerequisites only (host/session/sandbox, no smokes, no registry query,
-     * no port survey) — forwarded as `--quick`.
+     * prerequisites only (host/session/sandbox, no smokes, no port survey) —
+     * forwarded as `--quick`.
      */
     quick?: boolean;
     /**

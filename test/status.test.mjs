@@ -146,6 +146,16 @@ const send = async (handler, query = "", method = "GET") => {
  */
 const get = (handler, query = "") => send(handler, query);
 
+await check("a tiny timeoutMs cannot drive a negative probe deadline", async () => {
+  const { handler, calls } = handlerFor({ timeoutMs: 1 });
+  const { status } = await get(handler, "?distro=Ubuntu");
+  assert.equal(status, 200);
+  const argv = calls[0] ?? [];
+  const at = argv.indexOf("--probe-timeout");
+  assert.ok(at >= 0, "the scoped run carries a probe deadline");
+  assert.ok(Number(argv[at + 1]) > 0, `the probe deadline stays positive (got ${argv[at + 1]})`);
+});
+
 await check("a list request answers the installed distros without running anything", async () => {
   const { handler, calls } = handlerFor();
   const { status, body } = await get(handler);

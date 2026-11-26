@@ -36,6 +36,9 @@ workspace root。对一个 `\\wsl.localhost\<distro>` 工作区，它的每一�
 targetKey（或 path/cwd）是 \\wsl.localhost\<distro> UNC
   → distro substrate（懒加载的 WslFileSystem 实例：常驻 agent 上的
     canonical/stat/读/listDir/watch，使用目标路径所在的发行版文件系统）
+Windows 宿主上的 POSIX 绝对路径（displayPath 形态，如 /home/...）
+  → 同上：它在宿主没有合法含义（宿主会解析到进程盘符 C:\home\...），
+    是 distro 路径的坐标；POSIX 宿主上同一写法仍是宿主路径
 否则（盘符、相对路径解析到盘符）
   → super（宿主 LocalFileSystem：NTFS 原生，含 chokidar watch）
 ```

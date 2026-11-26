@@ -7,6 +7,11 @@
  *   node test/file-reference-wsl.test.mjs
  */
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
 import {
   hostFileReferenceTraversal,
   normalizeDisplaySegments,
@@ -15,8 +20,10 @@ import {
   traversalArgv,
   wslFileReferenceTraversal,
 } from "../lib/file-reference-wsl.js";
+import { newTally, runCheck, skip, summaryLine } from "./skip.mjs";
 
-let passed = 0;
+const execFileAsync = promisify(execFile);
+const tally = newTally();
 /** @type {Array<[string, () => void | Promise<void>]>} */
 const checks = [];
 /**
@@ -25,21 +32,6 @@ const checks = [];
  * @param {() => void | Promise<void>} fn - the check's assertions.
  */
 const check = (name, fn) => checks.push([name, fn]);
-/**
- * Runs one check now, printing its verdict; a throw fails the process exit code.
- * @param {string} name - the check's name.
- * @param {() => void | Promise<void>} fn - the check's assertions.
- */
-const runCheck = async (name, fn) => {
-  try {
-    await fn();
-    passed += 1;
-    console.log(`PASS  ${name}`);
-  } catch (error) {
-    console.log(`FAIL  ${name}\n      ${/** @type {Error} */ (error).message}`);
-    process.exitCode = 1;
-  }
-};
 
 const ROOT = "\\\\wsl.localhost\\ubuntu\\home\\andy\\proj";
 const LIVE = new AbortController().signal;
@@ -102,12 +94,12 @@ check("traversalArgv keeps the path an argv element, never script text", () => {
   const script = argv[2];
   assert.ok(script !== undefined, "the script rides as one argv element");
   assert.ok(!script.includes(dir), "the script must not embed the path");
-  assert.ok(script.includes("find \"$real\" -mindepth 1 -maxdepth 1 -printf '%y\\t%f\\n'"));
-  assert.ok(script.includes("head -n \"$max\""));
+  assert.ok(script.includes("find \"$real\" -mindepth 1 -maxdepth 1 -printf '%y\\t%f\\0'"));
+  assert.ok(script.includes("head -z -n \"$max\""));
 });
 
 check("parseTraversalListing keeps Dirent fidelity: symlinks and specials skipped", () => {
-  const entries = parseTraversalListing("d\tsrc\nf\tREADME.md\nl\tlink\nd\ta b's dir\ns\tsock\n");
+  const entries = parseTraversalListing("d\tsrc\0f\tREADME.md\0l\tlink\0d\ta b's dir\0s\tsock\0");
   assert.deepEqual(entries.map((entry) => entry.name), ["src", "README.md", "a b's dir"]);
   const [srcEntry, readmeEntry] = entries;
   assert.ok(srcEntry !== undefined && readmeEntry !== undefined, "the parse kept the three kept entries in order");
@@ -127,6 +119,46 @@ check("resolveDirectoryArgv walks the segments as argv elements", () => {
   assert.ok(script.includes('[ -d "$cur" ]'), "a non-directory component is refused");
 });
 
+check("the resolve walk runs under a POSIX sh, not bash-only syntax", async () => {
+  if (process.platform === "win32") skip("the walk is a POSIX shell script");
+  const root = await mkdtemp(join(tmpdir(), "dsh-fileref-"));
+  try {
+    await mkdir(join(root, "src", "lib"), { recursive: true });
+    const argv = resolveDirectoryArgv(root, ["src", "lib"]);
+    const [program, ...args] = argv;
+    assert.ok(program !== undefined);
+    const { stdout } = await execFileAsync(program, args);
+    assert.equal(stdout.trim(), `${root}/src/lib`, "dash must walk the segments, not die on a bash substitution");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+check("the containment guard accepts the distro root itself", async () => {
+  if (process.platform === "win32") skip("the listing is a POSIX shell script");
+  const argv = traversalArgv("/", "/tmp", 5);
+  const [program, ...args] = argv;
+  assert.ok(program !== undefined);
+  const { stdout } = await execFileAsync(program, args);
+  assert.ok(stdout.length > 0, "root / contains /tmp; the include pattern must not become //*");
+});
+
+check("a newline in a filename survives the listing whole", async () => {
+  if (process.platform === "win32") skip("the listing is a POSIX shell script");
+  const root = await mkdtemp(join(tmpdir(), "dsh-fileref-"));
+  try {
+    await writeFile(join(root, "a\nb"), "");
+    const argv = traversalArgv(root, root, 100);
+    const [program, ...args] = argv;
+    assert.ok(program !== undefined);
+    const { stdout } = await execFileAsync(program, args, { encoding: "buffer" });
+    const entries = parseTraversalListing(stdout);
+    assert.deepEqual(entries.map((entry) => entry.name), ["a\nb"], "the name must not split at its embedded newline");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 check("a non-distro search root is answered by the default traversal wholesale", () => {
   const runner = fakeRunner({ exitCode: 0, stdout: "", stderr: "" });
   const traversal = wslFileReferenceTraversal({ root: "C:\\Users\\x", runnerFor: () => runner, defaultTraversal: DEFAULT });
@@ -134,7 +166,7 @@ check("a non-distro search root is answered by the default traversal wholesale",
 });
 
 check("readWorkspaceRoot lists the root through the agent and maps the entries", async () => {
-  const runner = fakeRunner({ exitCode: 0, stdout: "d\tsrc\nf\tREADME.md\nl\tlink\n", stderr: "" });
+  const runner = fakeRunner({ exitCode: 0, stdout: "d\tsrc\0f\tREADME.md\0l\tlink\0", stderr: "" });
   const traversal = wslFileReferenceTraversal({ root: ROOT, runnerFor: () => runner, defaultTraversal: DEFAULT });
   const entries = await traversal.readWorkspaceRoot(ROOT, LIVE);
   assert.deepEqual(entries.map((entry) => entry.name), ["src", "README.md"]);
@@ -146,7 +178,7 @@ check("readWorkspaceRoot lists the root through the agent and maps the entries",
 });
 
 check("readDirectory routes a joined child UNC with the workspace root as the guard", async () => {
-  const runner = fakeRunner({ exitCode: 0, stdout: "f\tmain.rs\n", stderr: "" });
+  const runner = fakeRunner({ exitCode: 0, stdout: "f\tmain.rs\0", stderr: "" });
   const traversal = wslFileReferenceTraversal({ root: ROOT, runnerFor: () => runner, defaultTraversal: DEFAULT });
   const entries = await traversal.readDirectory(`${ROOT}\\src`, LIVE);
   assert.deepEqual(entries.map((entry) => entry.name), ["main.rs"]);
@@ -261,8 +293,5 @@ check("the host default traversal mirrors the upstream default semantics", async
   assert.equal(await traversal.resolveDisplayDirectory("C:\\w", "../etc", LIVE), undefined, "an escape is refused");
 });
 
-let failed = 0;
-for (const [name, fn] of checks) await runCheck(name, fn);
-failed = checks.length - passed;
-console.log(`\n${passed}/${checks.length} file-reference-wsl checks pass`);
-if (failed > 0) process.exitCode = 1;
+for (const [name, fn] of checks) await runCheck(name, fn, tally);
+console.log(`\n${summaryLine(tally, "file-reference-wsl")}`);

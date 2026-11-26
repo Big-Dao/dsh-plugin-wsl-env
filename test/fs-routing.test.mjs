@@ -60,6 +60,14 @@ check("inputIsDistro names the distro for UNC inputs only", () => {
   assert.equal(inputIsDistro("C:\\proj"), false);
 });
 
+check("inputIsDistro reads POSIX absolutes as distro coordinates on a Windows host", () => {
+  assert.equal(inputIsDistro("/home/x", "win32"), true, "a POSIX absolute has no host meaning on Windows; it is the displayPath coordinate");
+  assert.equal(inputIsDistro("/home/x", "linux"), false, "on a POSIX host the same spelling is a host path");
+  assert.equal(inputIsDistro("src/a.ts", "win32"), false, "a relative stays with the cwd's coordinate");
+  assert.equal(inputIsDistro("C:\\proj", "win32"), false);
+  assert.equal(inputIsDistro("\\\\wsl.localhost\\ubuntu\\home\\x", "linux"), true, "a UNC names the distro on every host");
+});
+
 check("linuxJoin resolves UNC absolutes, POSIX absolutes, and relatives", () => {
   assert.equal(linuxJoin("/home/andy/proj", "src/a.ts"), "/home/andy/proj/src/a.ts");
   assert.equal(linuxJoin("/home/andy/proj", "\\\\wsl.localhost\\ubuntu\\etc\\hosts"), "/etc/hosts");

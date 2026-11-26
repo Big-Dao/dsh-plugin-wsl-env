@@ -90,10 +90,17 @@ export declare function targetIsDistro(targetKey: string): boolean;
  * Whether a raw path-or-cwd input names the distro (used by the operations
  * that take paths before a target exists: resolve, lstat).
  *
+ * A UNC names the distro on every host. On a Windows host a POSIX absolute
+ * path is the displayPath coordinate of a distro path — the host would
+ * resolve it against the process drive (`C:\home\...`), a different space —
+ * so it routes to the distro too. On a POSIX host the same spelling is an
+ * ordinary host path and stays with the host backend.
+ *
  * @param value - a path in any coordinate system, or undefined.
- * @returns true when the input names a distro UNC.
+ * @param platform - the host platform; defaults to this process's.
+ * @returns true when the input names a distro path.
  */
-export declare function inputIsDistro(value: string | undefined): boolean;
+export declare function inputIsDistro(value: string | undefined, platform?: NodeJS.Platform): boolean;
 /**
  * The root-plane filesystem with coordinate routing.
  *

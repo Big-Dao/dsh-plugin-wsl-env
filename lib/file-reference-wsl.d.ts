@@ -24,7 +24,7 @@
  * ## Semantics, held faithful where the seam allows
  *
  * - Entries keep upstream's Dirent shape: `{name, isDirectory(), isFile()}`.
- *   The distro listing uses `find -printf '%y\t%f'` rather than `ls -1ALp`
+ *   The distro listing uses `find -printf '%y\t%f\0'` rather than `ls -1ALp`
  *   precisely for this: `%y` reports `l` for symlinks, which the parse skips
  *   the way a readdir Dirent is neither file nor directory. `ls -1ALp` would
  *   resolve links through and change which candidates exist.
@@ -94,9 +94,11 @@ export declare function normalizeDisplaySegments(displayDirectory: string): stri
  */
 export declare function traversalArgv(linuxRoot: string, linuxDir: string, maxEntries: number): string[];
 /**
- * Parse one `%y\t%f` listing into upstream's Dirent-like entries.
+ * Parse one `%y\t%f\0` listing into upstream's Dirent-like entries.
  * `d` is a directory and `f` a file; every other type char — `l` for
  * symlinks, devices, sockets — is skipped, matching a readdir Dirent.
+ * Records are NUL-terminated, so a newline inside a filename stays part of
+ * the name instead of splitting the record.
  *
  * @param stdout - the raw listing.
  * @returns the parsed entries.

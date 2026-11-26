@@ -18,7 +18,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Skipped, skip } from "./skip.mjs";
-import { peerSatisfied, peerPackageDir, parseWslConfig, parseWslSize, parseIni, parseWslVerbose, effectiveMaskWindowsDrive, distroPath, hostDiskVerdict, localeNameFromReg, localeFromTag, overrideLocale, setDoctorLocale, doctorT, probeHandshake, STALE_SCOPE_REPORT, composeBatch, composeSystemdBatch, parseBatchFacts } from "../scripts/doctor.mjs";
+import { peerSatisfied, peerPackageDir, parseWslConfig, parseWslSize, parseIni, parseWslVerbose, effectiveMaskWindowsDrive, distroPath, hostDiskVerdict, localeNameFromReg, localeFromTag, overrideLocale, setDoctorLocale, doctorT, probeHandshake, STALE_SCOPE_REPORT, composeBatch, composeSystemdBatch, parseBatchFacts, run } from "../scripts/doctor.mjs";
 import { mergeLiveResidentStatus } from "../lib/doctor-live.js";
 import { doctorReport } from "../lib/index.js";
 import { joinPathEnv } from "../lib/doctor-report.js";
@@ -325,8 +325,13 @@ esac
 `;
 writeFileSync(join(bin, "fake-wsl.mjs"), FAKE_WSL);
 writeFileSync(join(bin, "fake-cmd.mjs"), FAKE_CMD);
-writeFileSync(join(bin, "git.exe"), FAKE_GIT_EXE);
-chmodSync(join(bin, "git.exe"), 0o755);
+// The git fake is a POSIX sh script; Windows cannot execute it, so staging it
+// there would only shadow the real git with an unspawnable file. Leave Windows
+// to the real git (the git-trust checks skip accordingly).
+if (process.platform !== "win32") {
+  writeFileSync(join(bin, "git.exe"), FAKE_GIT_EXE);
+  chmodSync(join(bin, "git.exe"), 0o755);
+}
 
 /**
  * Run the doctor with the fakes first on PATH.
@@ -1111,6 +1116,17 @@ try {
   await check("the PATH overlay joins with the platform delimiter", () => {
     assert.equal(joinPathEnv("C:\\bin", "C:\\Windows", ";"), "C:\\bin;C:\\Windows");
     assert.equal(joinPathEnv("/tmp/bin", "/usr/bin", ":"), "/tmp/bin:/usr/bin");
+  });
+
+  await check("run settles a synchronous spawn failure instead of throwing", async () => {
+    if (process.platform !== "win32") skip("the synchronous spawn-UNKNOWN throw is Windows-specific");
+    // A file that exists but is not a PE executable: Windows uv_spawn returns
+    // UV_UNKNOWN synchronously, which Node throws from spawn() rather than
+    // emitting as a deferred 'error'. run() must settle it as a failed capture.
+    const bad = join(bin, "unspawnable.exe");
+    writeFileSync(bad, "#!/bin/sh\necho nope\n");
+    const capture = await run([bad, "--version"]);
+    assert.equal(capture.ok, false, "a file Windows cannot execute settles as a failed capture, not a crash");
   });
 
   await check("doctorReport collects the real script and merges the injected live snapshot", async () => {

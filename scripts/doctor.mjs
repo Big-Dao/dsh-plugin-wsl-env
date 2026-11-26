@@ -508,7 +508,7 @@ const QUICK_SECTIONS = ["host", "session", "sandbox"];
  * @param {number} [timeoutMs] - the deadline; a package install passes its own.
  * @returns {Promise<{ ok: boolean, stdout: string, stderr: string, code?: string, timedOut?: boolean }>} the capture.
  */
-function run(argv, timeoutMs = TIMEOUT_MS) {
+export function run(argv, timeoutMs = TIMEOUT_MS) {
   return new Promise((settle) => {
     const [file, ...args] = argv;
     if (file === undefined) throw new Error("doctor: empty argv");
@@ -527,7 +527,16 @@ function run(argv, timeoutMs = TIMEOUT_MS) {
     // cross-platform fakes are Node scripts run under this runtime. No
     // production path names a `.mjs`; a nonsensical value fails closed.
     const scripted = file.endsWith(".mjs");
-    execFile(scripted ? process.execPath : file, scripted ? [file, ...args] : args, { encoding: "utf8", timeout: timeoutMs, windowsHide: true, env: { ...process.env, WSL_UTF8: "1" } }, done);
+    // Some spawn failures throw synchronously rather than reaching `done`:
+    // Windows returns UV_UNKNOWN for a file that is not a PE executable, and
+    // Node throws it from spawn() instead of emitting a deferred 'error'.
+    // Settle those as a failed capture so one bad PATH entry cannot crash the
+    // whole report (run() contracts to never throw).
+    try {
+      execFile(scripted ? process.execPath : file, scripted ? [file, ...args] : args, { encoding: "utf8", timeout: timeoutMs, windowsHide: true, env: { ...process.env, WSL_UTF8: "1" } }, done);
+    } catch (error) {
+      done(/** @type {Error} */ (error), "", "");
+    }
   });
 }
 
